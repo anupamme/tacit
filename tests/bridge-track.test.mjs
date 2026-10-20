@@ -4,9 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, ethSpan, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
+import { makeCrossoutMintReveal } from '../dapp/crossout-mint-reveal.js';
 
 const NOW = 1_760_000_000_000;
 const PUB = '02' + 'ab'.repeat(32);
@@ -159,7 +160,7 @@ test('the limits the page shows are the ones the bridge enforces', () => {
 test('the line under the steps says what one bridge takes', () => {
   assert.equal(limitLine('tac', 'in'), 'Up to 1,000 TAC a bridge while it is new');
   assert.equal(limitLine('tac', 'out'), '20 to 1,000 TAC a bridge while it is new');
-  assert.equal(limitLine('teth', 'out'), '0.01 to 0.5 tETH a bridge while it is new');
+  assert.equal(limitLine('teth', 'out'), '0.001 to 0.5 tETH a bridge while it is new');
   assert.equal(limitLine('teth', 'in'), 'Up to 0.5 tETH a bridge while it is new');
   assert.equal(limitLine('cbtc', 'in'), '');
 });
@@ -188,4 +189,46 @@ test('the bridge page reads the front page\'s plans for each key', () => {
   assert.equal(bare.due, 'Burn it');
   const [broken] = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([rec]), [PLAN_KEY]: '{not json' }), NOW);
   assert.equal(broken.due, 'Burn it', 'unreadable plans are no plans');
+});
+
+test('what a way costs is the app\'s own figure, at the live fee rate', () => {
+  // The way out: the page\'s sats are the Bitcoin step\'s own estimate.
+  const mr = makeCrossoutMintReveal({ secp: {} });
+  for (const rate of [1, 2, 3, 7.5, 40]) assert.equal(satsOut(rate), mr.estimateSats({ feeRate: rate, dust: 546 }), `at ${rate} sat/vB`);
+  // The way back is bridgeCost's 'reflected' path for a P2TR note; its constants are pinned to the source it is built from.
+  const src = readFileSync(new URL('../dapp/burndep-ux.js', import.meta.url), 'utf8');
+  assert.ok(/feeFor\(p2tr \? 218 : 228\)/.test(src) && /commitVb = \(n\) => 85 \+ 68 \* n/.test(src) && /Math\.max\(500, Math\.ceil\(vb \* at\)\)/.test(src), 'bridgeCost no longer reads as satsBack expects');
+  assert.equal(satsBack(1), 1000); assert.equal(satsBack(2), 1000);
+  assert.equal(satsBack(5), Math.ceil(218 * 5) + Math.ceil(153 * 5));
+});
+
+test('the tile\'s cost line says what a way costs now, and nothing when it cannot say', () => {
+  const c = { satvb: 2, relay: { teth: 52_241n, tac: 400_000_000n }, ethUsd: 2500, btcUsd: 80_000 };
+  assert.equal(costLine('teth', 'out', c), 'About $2.28 now: 0.0005 tETH to the relay and 1,214 sats on Bitcoin');
+  assert.equal(costLine('teth', 'in', c), 'About $0.80 now: 1,000 sats on Bitcoin; Tacit covers the Ethereum side');
+  assert.equal(costLine('teth', 'out', { ...c, ethUsd: null }), 'About 0.0005 tETH to the relay and 1,214 sats on Bitcoin', 'without a price it names the amounts only');
+  assert.equal(costLine('tac', 'out', c), 'About 4 TAC to the relay and 1,214 sats on Bitcoin');
+  assert.equal(costLine('tac', 'in', c), '', 'TAC\'s way in has two steps and is priced on its own sheet');
+  assert.equal(costLine('cbtc', 'in', c), '', 'a lock is priced on the Borrow sheet');
+  assert.equal(costLine('teth', 'out', { ...c, satvb: null }), '', 'no fee rate, no line');
+  assert.equal(costLine('teth', 'out', { ...c, relay: {} }), '', 'no relay floor, no line for the way out');
+});
+
+test('Bitcoin blocks read as a time', () => {
+  assert.equal(btcSpan(1), '10 min'); assert.equal(btcSpan(8), '80 min'); assert.equal(btcSpan(9), '2 hours'); assert.equal(btcSpan(24), '4 hours');
+  assert.match(liveLine(inRow(inRec(), NOW), { btcAttested: 972_090, ethCovered: 1, txs: new Map() }), /10 blocks behind it, about 2 hours$/);
+});
+
+test('a step the chains say is ready for its holder is named before the journal catches up', () => {
+  const covered = { ethCovered: 26_226_000, btcAttested: 972_090, txs: new Map() };
+  const waiting = outRow(outRec({ stage: 'settled' }));
+  assert.equal(readyNow(waiting, covered), 'Send to Bitcoin', 'the proof has reached the burn, and the Bitcoin step needs the key');
+  assert.equal(readyNow(waiting, { ...covered, ethCovered: 26_225_000 }), '', 'not yet');
+  assert.deepEqual(nextOf(waiting, covered), { due: 'Send to Bitcoin', self: false });
+  assert.deepEqual(nextOf(waiting, null), { due: '', self: true }, 'with no reading it is the journal\'s word');
+  assert.equal(readyNow(outRow(outRec({ stage: 'minted', mintedAt: NOW })), covered), '', 'an arrival is not due');
+  const burn = inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_080 }), NOW);
+  assert.equal(readyNow(burn, covered), 'Mint now', 'a burn the proof has reached waits for its mint');
+  assert.equal(readyNow(inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_100 }), NOW), covered), '', 'one it has not reached does not');
+  assert.equal(readyNow(inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_080, arm: { ok: true } }), NOW), covered), '', 'the relay mints an armed one');
 });

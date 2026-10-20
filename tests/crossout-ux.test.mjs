@@ -374,7 +374,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   ok(t.eligible && tac.eligible, 'a tETH note and a TAC note are both eligible when both are configured');
   ok(!other.eligible && other.reason === 'not an asset this bridge takes', 'an asset that is neither is refused, without naming one asset when two are configured');
   ok(!over.eligible && /over the 0\.5 tETH beta limit/.test(over.reason), 'a tETH note over its own cap is refused, the cap named in tETH');
-  ok(!under.eligible && /under the 0\.01 tETH minimum/.test(under.reason), 'a tETH note under its minimum is refused');
+  ok(!under.eligible && /under the 0\.001 tETH minimum/.test(under.reason), 'a tETH note under its minimum is refused');
   ok(atCap.eligible && atMin.eligible, 'both limits are inclusive');
   ok(ux.assets.length === 2 && ux.assetOf(TETH).ticker === 'tETH', 'the configured assets are readable');
   // TAC's cap does not bleed into tETH and the reverse: a TAC note far over tETH's cap is fine.

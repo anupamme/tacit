@@ -3283,8 +3283,8 @@ await step('xobridge', async () => {
   await r.page.fill('#xo-amt', '0.6');
   await until(r.page, () => /at most 0\.5 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
   ok(await r.page.isDisabled('#xo-go') && await r.page.isHidden('#xo-ackrow'), 'xobridge: more than the limit is refused with the limit named, and the box goes away');
-  await r.page.fill('#xo-amt', '0.005');
-  await until(r.page, () => /at least 0\.01 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
+  await r.page.fill('#xo-amt', '0.0005');
+  await until(r.page, () => /at least 0\.001 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
   ok(await r.page.isDisabled('#xo-go'), 'xobridge: under the minimum is refused with the minimum named');
 
   // Start one: the page checks again, takes the note of exactly that size, and the relay is sent a bridge-burn job; the harness's

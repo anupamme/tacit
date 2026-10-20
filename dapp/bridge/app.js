@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan } from '/bridge/track.js?cb=369aecbd';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=b9b378f9';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -25,6 +25,7 @@ const ago = (t) => {
 };
 
 // ── live: the two proofs, and the TAC that has crossed ──────────────────────────────────────────────────────────────────
+const COST = { satvb: null, relay: {}, ethUsd: null, btcUsd: null, at: 0 };
 const LIVE = { btcAttested: null, btcTip: null, btcTipApi: null, btcConfs: null, ethCovered: null, ethHead: null, burns: null, cadence: null, cadenceAt: 0, txs: new Map(), at: 0 };
 
 async function readProofs() {
@@ -102,6 +103,21 @@ async function rpc(method, params) {
   return (await r.json()).result;
 }
 
+// What a bridge costs now: Bitcoin's fee rate, the relay's floor for each asset, and the two prices (Chainlink, through the same node as the
+// supply). Read every five minutes; a figure that does not come leaves the line without it.
+const FEEDS = { ethUsd: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btcUsd: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
+async function readCosts() {
+  if (Date.now() - COST.at < 5 * 60e3) return;
+  COST.at = Date.now();
+  const feed = (k) => rpc('eth_call', [{ to: FEEDS[k], data: '0xfeaf968c' }, 'latest']).then((h) => { const v = Number(BigInt('0x' + h.slice(66, 130))) / 1e8; if (v > 0) COST[k] = v; }).catch(() => {});
+  const floor = (asset, k) => getJson(`${API}/confidential/quote?asset=${asset}`).then((q) => { const u = BigInt(q.gasAwareFloorUnits ?? q.staticFloorUnits ?? 0); if (u > 0n) COST.relay[k] = u; }).catch(() => {});
+  await Promise.all([
+    getJson(`${ESPLORA}/v1/fees/recommended`).then((f) => { if (Number(f.fastestFee) > 0) COST.satvb = Number(f.fastestFee); }).catch(() => {}),
+    floor('cETH', 'teth'), floor('cTAC', 'tac'), feed('ethUsd'), feed('btcUsd'),
+  ]);
+  paintTile();
+}
+
 async function readSupply() {
   try {
     const v = BigInt(await rpc('eth_call', [{ to: TAC_ERC20, data: '0x18160ddd' }, 'latest'])) / 10n ** 18n;
@@ -156,6 +172,9 @@ function paintTile() {
   const lim = limitLine(PICK.asset, PICK.dir);
   $('#bt-limit').textContent = lim;
   $('#bt-limit').hidden = !lim;
+  const cost = costLine(PICK.asset, PICK.dir, COST);
+  $('#bt-cost').textContent = cost;
+  $('#bt-cost').hidden = !cost;
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
 }
@@ -189,7 +208,7 @@ let ROWS = [];
 
 function rowHtml(r) {
   const a = ROUTES[r.asset] || ROUTES.tac;
-  const nx = nextOf(r), live = liveLine(r, LIVE);
+  const nx = nextOf(r, LIVE), live = liveLine(r, LIVE);
   const to = r.dir === 'in' ? 'to Ethereum' : 'to Bitcoin';
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
@@ -216,16 +235,74 @@ function rowHtml(r) {
 function paintMine() {
   const box = $('#mine');
   box.hidden = ROWS.length === 0;
+  const due = ROWS.filter((r) => nextOf(r, LIVE).due).length;
+  document.title = `${due ? `(${due}) ` : ''}${TITLE}`;               // a tab left open says when a bridge needs its holder
   if (!ROWS.length) return;
-  const due = ROWS.filter((r) => nextOf(r).due).length;
+  // what needs its holder first (the chains' word counts as well as the journal's), then what is on its way, newest first; arrivals last
+  const rank = (r) => (nextOf(r, LIVE).due ? 0 : r.done || r.back ? 2 : 1);
+  ROWS.sort((a, b) => rank(a) - rank(b) || (b.since || 0) - (a.since || 0));
   $('#mine-n').textContent = due ? `${due} need${due === 1 ? 's' : ''} you` : `${ROWS.filter((r) => !r.done && !r.back).length || 'none'} under way`;
   $('#mine-l').innerHTML = ROWS.map(rowHtml).join('');
+  notifyChanges();
+  paintBell();
+}
+
+// ── a tab left open: told when a bridge needs its holder, and when one arrives ───────────────────────────────────────────
+// Off until asked for (the browser's own permission prompt comes with the press). A change is announced once, never the state a page opens on.
+const TITLE = document.title;
+const BELL = 'tacit-bridge-notify-v1';
+const canBell = () => { try { return 'Notification' in window; } catch { return false; } };
+const bellOn = () => { try { return canBell() && localStorage.getItem(BELL) === '1' && Notification.permission === 'granted'; } catch { return false; } };
+let SEEN = null;
+function notifyChanges() {
+  const now = new Map(ROWS.map((r) => [`${r.dir}:${r.id}`, r.done ? 'done' : nextOf(r, LIVE).due ? 'due' : '']));
+  if (SEEN && bellOn()) {
+    for (const r of ROWS) {
+      const k = `${r.dir}:${r.id}`, was = SEEN.get(k), is = now.get(k);
+      if (is !== was && (is === 'due' || (is === 'done' && was !== undefined))) ping(r, is);
+    }
+  }
+  SEEN = now;
+}
+function ping(r, kind) {
+  const a = ROUTES[r.asset] || ROUTES.tac, amt = `${fmtAmount(r.amount, a.dp)} ${a.ticker}`, due = nextOf(r, LIVE).due;
+  try {
+    const n = new Notification(kind === 'due' ? `${amt} bridge needs you` : `${amt} has arrived`, {
+      body: kind === 'due' ? `${due}: open the app to finish it.` : r.dir === 'in' ? 'It is private on Ethereum now.' : 'It is on your Bitcoin address.', tag: `${r.dir}:${r.id}`,
+    });
+    n.onclick = () => { window.focus(); location.href = r.href; n.close(); };
+  } catch { /* a browser that refuses a notification keeps the tab title */ }
+}
+function paintBell() {
+  const b = $('#mine-bell');
+  if (!b) return;
+  b.hidden = !canBell() || Notification.permission === 'denied';
+  const on = bellOn();
+  b.setAttribute('aria-pressed', String(on));
+  b.textContent = on ? 'Notifying you' : 'Notify me';
+}
+function wireBell() {
+  const b = $('#mine-bell');
+  if (!b || !canBell()) return;
+  b.addEventListener('click', async () => {
+    try {
+      if (bellOn()) { localStorage.setItem(BELL, '0'); paintBell(); return; }
+      if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') { paintBell(); return; }
+      localStorage.setItem(BELL, '1');
+    } catch { /* storage or permission blocked: the title still shows it */ }
+    paintBell();
+  });
+}
+// How long ago the chains were last read, so a page left open can be trusted as live.
+function paintAge() {
+  const t = $('#mine-t');
+  if (t && LIVE.at) t.textContent = `checked ${ago(LIVE.at)}`;
 }
 
 function readMine() {
   let rows = [];
   try { rows = readBridges(localStorage); } catch { rows = []; }
-  const sig = JSON.stringify(rows.map((r) => [r.id, r.stage, r.due, r.at]));
+  const sig = JSON.stringify(rows.map((r) => [r.id, r.stage, r.due, r.at, nextOf(r, LIVE).due]));
   const changed = sig !== readMine.sig;
   readMine.sig = sig;
   ROWS = rows;
@@ -368,15 +445,18 @@ revealOnScroll();
 mountLive();
 
 async function tick() {
+  readCosts();
   await readProofs().catch(() => {});
   await readTxs(ROWS);
   paintMine();
   paintTile();
+  paintAge();
 }
+wireBell();
 tick();
 readSupply();
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);
 // The front page writes its journals as it moves a bridge on; another tab's write arrives here at once.
 addEventListener('storage', (e) => { if (!e.key || /^tacit-(burndep|crossout)-bridge-v1:/.test(e.key)) readMine(); });
-setInterval(() => { if (!document.hidden) readMine(); }, 5e3);
+setInterval(() => { if (!document.hidden) readMine(); paintAge(); }, 5e3);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - LIVE.at > 60e3) tick(); });

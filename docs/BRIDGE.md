@@ -120,15 +120,36 @@ browser has under way.
 | | To Bitcoin | Back from Bitcoin |
 | --- | --- | --- |
 | TAC | 20 to 1,000 TAC a bridge | up to 1,000 TAC, a note goes whole |
-| tETH | 0.01 to 0.5 tETH a bridge | up to 0.5 tETH, a note goes whole |
+| tETH | 0.001 to 0.5 tETH a bridge | up to 0.5 tETH, a note goes whole |
 
 A TAC note going back in two steps carries up to 255 transfers of history.
 
-Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to
-Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee for the mint, paid from the key's own
-Bitcoin address, so it needs a little BTC there. The limits are in [`crossout-ux.js`](../dapp/crossout-ux.js)
-and [`burndep-ux.js`](../dapp/burndep-ux.js); `tests/bridge-track.test.mjs` holds the page's copy of them to
-those files.
+| What a bridge costs | To Bitcoin | Back from Bitcoin |
+| --- | --- | --- |
+| Relay fee | Taken out of the note: the relay's floor for the asset at today's gas (about 0.0005 tETH, 4 TAC). The note must be worth more than it. | None: Tacit covers the Ethereum mint for now |
+| Bitcoin fee | About 900 to 1,200 sats at 1 to 2 sat/vB (a 180 vB reveal, a 154 vB commit, and the 546-sat output the note sits on), paid from the key's own Bitcoin address, which needs one free coin of about twice that until the bridge arrives | About 1,000 sats at 1 to 2 sat/vB (two transactions, each at least 500), paid from the same address |
+
+[tacit.finance/bridge](https://tacit.finance/bridge/) shows what each way costs at the live rates. The limits are in
+[`crossout-ux.js`](../dapp/crossout-ux.js) and [`burndep-ux.js`](../dapp/burndep-ux.js); `tests/bridge-track.test.mjs`
+holds the page's copy of them, and of the sizes behind the costs, to those files.
+
+### In the app
+
+The Private ETH sheet's Bitcoin tab (`#private/bitcoin`) has the two ways side by side: **To Bitcoin**
+(`#private/bitcoin/out`: the amount, the receipt, the bridges on their way) and **Back to Ethereum**
+(`#private/bitcoin/back`: the notes the key holds on Bitcoin, the returns on their way, and a button to bring a
+note back). It opens on the side the key has something to do on. The Private ETH balance carries a line for what the
+key holds on Bitcoin and what is on its way there, and the same figures show on the dashboard and on the tETH page.
+A note comes back whole, so bridge in the amounts you will want back.
+
+### Following a bridge
+
+Every bridge is journaled in the browser that started it, and the Bitcoin step needs the key, so a bridge can be left
+and come back to: the app moves it on whenever it is open with the key. [tacit.finance/bridge](https://tacit.finance/bridge/)
+lists each bridge with what it waits on, and names a step as ready as soon as the chains say so (the proof has
+reached its burn), whether or not the app has been open since. A tab left open there puts the count of bridges that
+need their holder in its title, and can send a browser notification when one does, or when one arrives (off until
+asked for).
 
 ## On mainnet
 

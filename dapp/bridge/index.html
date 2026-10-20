@@ -29,8 +29,8 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=fdd52135">
-<link rel="modulepreload" href="/bridge/track.js?cb=369aecbd">
+<link rel="modulepreload" href="/bridge/app.js?cb=0317533c">
+<link rel="modulepreload" href="/bridge/track.js?cb=b9b378f9">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
 <style>
@@ -146,6 +146,10 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 #mine { max-width: 720px; margin: 44px auto 0; }
 .mh { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 10px; padding: 0 0 8px; border-bottom: 1px solid var(--hair); font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
 .mh h2 { font: inherit; margin: 0; }
+.mh-r { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+#mine-t { color: var(--mute); text-transform: none; letter-spacing: 0; }
+#mine-bell { font: inherit; text-transform: none; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
+#mine-bell[aria-pressed="true"] { color: var(--mute); }
 #mine-l { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .mb { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; }
 .mb.due { border-color: var(--ink); }
@@ -542,6 +546,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <ol id="bt-steps" aria-label="Steps" data-key="tac/in"><li style="--i:0"><span class="dot" aria-hidden="true"></span>Burned on Bitcoin</li><li style="--i:1"><span class="dot" aria-hidden="true"></span>Confirmed</li><li style="--i:2"><span class="dot" aria-hidden="true"></span>Proven on Ethereum</li><li style="--i:3"><span class="dot" aria-hidden="true"></span>Minted privately</li></ol>
         <p class="bt-w" id="bt-wait">About 4 hours: 24 Bitcoin confirmations, then the next proof (about every 30 min)</p>
         <p class="bt-w bt-l" id="bt-limit">Up to 1,000 TAC a bridge while it is new</p>
+        <p class="bt-w bt-l" id="bt-cost" hidden></p>
         <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC to Ethereum</span><span aria-hidden="true">→</span></a>
       </div>
 
@@ -553,7 +558,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </section>
 
     <section id="mine" hidden aria-labelledby="mine-h">
-      <div class="mh"><h2 id="mine-h">Your bridges</h2><span id="mine-n"></span></div>
+      <div class="mh"><h2 id="mine-h">Your bridges</h2><span class="mh-r"><span id="mine-t"></span><button type="button" id="mine-bell" aria-pressed="false" hidden>Notify me</button><span id="mine-n"></span></span></div>
       <ol id="mine-l"></ol>
     </section>
 
@@ -914,7 +919,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h"><span class="kk">Good to know</span><h2 id="fq-h" style="font-size:clamp(28px,4vw,40px)">Before you <em>cross</em></h2></div>
       <div class="fq">
         <details><summary>Can anyone see how much I bridge?</summary><p>The burn and the mint are public. The amount is not published on either chain. Whoever makes the mint’s proof sees it, today Tacit’s prover. A cBTC lock’s size is visible.</p></details>
-        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back; tETH takes 0.01 to 0.5 to Bitcoin and up to 0.5 back. A note goes back whole, so split a larger one first. TAC that Bitcoin’s proof has not reached goes in two steps, a move and then a burn, each waiting for a proof, usually within a day. Up to 255 transfers of history are proven.</p></details>
+        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back; tETH takes 0.001 to 0.5 to Bitcoin and up to 0.5 back. A note goes back whole, so split a larger one first. TAC that Bitcoin’s proof has not reached goes in two steps, a move and then a burn, each waiting for a proof, usually within a day. Up to 255 transfers of history are proven.</p></details>
         <details><summary>What does it cost?</summary><p>Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee in sats, paid from your Bitcoin address. Each cost shows before you sign.</p></details>
         <details><summary>Can I close the page?</summary><p>Yes, nothing is lost. A step that needs your key waits until you open the page. A note moved but not burned can be moved back.</p></details>
       </div>
@@ -949,6 +954,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=fdd52135"></script>
+<script type="module" src="/bridge/app.js?cb=0317533c"></script>
 </body>
 </html>

@@ -830,7 +830,7 @@ function useLinks() {
     ['/#private/send', 'Send it privately', 'To a Tacit address or a name. The chain shows neither the amount nor the recipient.'],
     [`/#card=swap:eth:tac${amt}`, 'Swap it for TAC', tac?.per ? `Private, inside the pool. 1 tETH = ${sig(tac.per, 4)} TAC now.` : 'Private, inside the pool.'],
     ['#farm', 'Earn TAC', 'The farms pair it for you, so tETH alone is enough.', 'scroll'],
-    ['/#private/bitcoin/out', 'Bridge it to Bitcoin', 'Hold it at your own Bitcoin address, bring it back when you like. 0.01 to 0.5 tETH a bridge, usually a few hours.'],
+    ['/#private/bitcoin/out', 'Bridge it to Bitcoin', 'Hold it at your own Bitcoin address, bring it back when you like. 0.001 to 0.5 tETH a bridge, usually a few hours.'],
     [`/#card=shield:eth:wallet${amt}`, 'Back to ETH', `One for one, to your wallet or any address. Relay fee: ${fee}.`],
     ['/#private/bitcoin/back', 'Bring tETH back from Bitcoin', 'Return what you bridged to Ethereum as private tETH.'],
   ];
@@ -909,7 +909,7 @@ function renderAbout() {
   const fee = D.floor ? fmtUnits(D.floor, 18, 5) : null;
   const main = [
     ['On Ethereum', `The pool ${link(POOL)} holds the ETH behind every tETH. Its balance, deposits and withdrawals are public. Who owns what is not.`],
-    ['On Bitcoin', 'The bridge burns tETH on Ethereum. The same amount, less the relay fee, arrives at your Bitcoin address, usually within a few hours and sometimes up to a day. A burn cannot be undone. Coming back to Ethereum, it is private again once Bitcoin’s proof is recorded. 0.01 to 0.5 tETH a bridge. <a href="/#private/bitcoin/out">Bridge →</a>'],
+    ['On Bitcoin', 'The bridge burns tETH on Ethereum. The same amount, less the relay fee, arrives at your Bitcoin address, usually within a few hours and sometimes up to a day. A burn cannot be undone. Coming back to Ethereum, it is private again once Bitcoin’s proof is recorded. 0.001 to 0.5 tETH a bridge. <a href="/#private/bitcoin/out">Bridge →</a>'],
     ['What it costs', `Making ETH private costs the relay’s tip (shown before you confirm) and the network fee${fee ? '. Sending, swapping and taking out cost the relay’s fee, at least about ' + esc(fee) + ' ETH. Swaps add the pool’s fee' : ''}.`],
   ];
   const pools = D.rows.map((r) => `${esc(r.name)} (${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep)`).join(' · ');

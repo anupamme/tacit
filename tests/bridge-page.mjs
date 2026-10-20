@@ -64,6 +64,7 @@ async function mock(ctx) {
     const json = (b, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(b) });
     if (u.pathname === '/reflection/status') return json({ attestedHeight: 972_090, tipHeight: 972_093, confirmations: 24, bridgeBurns: 186, foldedCrossoutCount: 7 });
     if (u.pathname === '/reflection/eth-state/covers') return json({ bestBlock: ETH_COVERED, confirmedBlock: ETH_COVERED, covered: true });
+    if (u.pathname === '/confidential/quote') return json({ gasAwareFloorUnits: '52241', staticFloorUnits: '10000' });
     if (u.pathname === '/flow') {                     // the live picture's feed: a day with a few burns, mints and proofs in it
       const t = Math.floor(NOW / 1e3);
       const pt = (dt, k) => ({ t: t - dt, burns: 180 + k, minted: 165 + k, out: 9, att: 972_000 + 10 * k, relay: 972_020 + 10 * k, btc: 972_024 + 10 * k });
@@ -75,17 +76,22 @@ async function mock(ctx) {
   await ctx.route('https://mempool.space/**', (route) => {
     const u = route.request().url();
     if (NO_MEMPOOL && u.endsWith('/tip/height')) return route.fulfill({ status: 429, headers: { 'access-control-allow-origin': '*' }, body: 'rate limited' });
+    if (u.includes('/v1/fees/recommended')) return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ fastestFee: 2, halfHourFee: 2, hourFee: 1 }) });
     const body = u.includes(BURN_TX) ? { confirmed: true, block_height: 972_100 } : u.includes(MINT_TX) ? { confirmed: false } : u.endsWith('/tip/height') ? (LATE ? 972_150 : 972_093) : {};
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
   });
   await ctx.route('https://ethereum-rpc.publicnode.com/**', (route) => {
     const call = route.request().postDataJSON?.() || {};
-    const result = call.method === 'eth_blockNumber' ? '0x' + (ETH_COVERED + (LATE ? 3000 : 60)).toString(16) : '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0');
+    const feed = (usd) => '0x' + [1n, BigInt(usd) * 10n ** 8n, 1n, 1n, 1n].map((w) => w.toString(16).padStart(64, '0')).join('');      // latestRoundData: round, answer, started, updated, answeredIn
+    const to = String(call.params?.[0]?.to || '').toLowerCase();
+    const result = call.method === 'eth_blockNumber' ? '0x' + (ETH_COVERED + (LATE ? 3000 : 60)).toString(16)
+      : to === '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419' ? feed(2500) : to === '0xf4030086522a5beea4988f8ca5b36dbc97bee88c' ? feed(80_000)
+      : '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0');
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, result }) });
   });
 }
 
-async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false, reduced = false } = {}) {
+async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false, reduced = false, rows = null, notifications = false } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: reduced ? 'reduce' : 'no-preference' });
   await mock(ctx);
@@ -95,7 +101,12 @@ async function openPage(viewport, { scheme = 'light', seed = true, path = '/brid
     sessionStorage.setItem('seeded', '1');
     localStorage.setItem('tacit-burndep-bridge-v1:mainnet:' + pub, a);
     localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, b);
-  }, [PUB, JSON.stringify(IN), JSON.stringify(OUT)]);
+  }, [PUB, JSON.stringify(rows ? rows.in : IN), JSON.stringify(rows ? rows.out : OUT)]);
+  // A notification the page asks for is recorded here (permission is granted when it is requested), so what it would say can be read.
+  if (notifications) await ctx.addInitScript(() => {
+    window.__notes = [];
+    window.Notification = class { static permission = 'default'; static async requestPermission() { window.Notification.permission = 'granted'; return 'granted'; } constructor(t, o) { window.__notes.push([t, (o && o.body) || '']); } close() {} };
+  });
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -126,17 +137,20 @@ try {
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge/out' && await page.evaluate(() => location.hash) === '#tac/out', 'the flip: TAC to Bitcoin, and the link says so');
     ok((await page.textContent('#bt-from')) === 'Ethereum', 'from Ethereum');
     await page.click('[data-asset="teth"]');
-    ok((await page.textContent('#bt-limit')) === '0.01 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
+    ok((await page.textContent('#bt-limit')) === '0.001 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
     ok((await page.textContent('#bt-wait')).includes('a little BTC'), 'and that a little BTC from the address pays the mint');
+    await page.waitForFunction(() => /\$/.test(document.querySelector('#bt-cost')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+    ok((await page.textContent('#bt-cost')) === 'About $2.28 now: 0.0005 tETH to the relay and 1,214 sats on Bitcoin', `the way out says what it costs now, from the relay\'s floor, the fee rate and the prices (${await page.textContent('#bt-cost')})`);
     ok(/^A few hours: Ethereum finalizes \(about 13 min\), the next proof covers it, then you sign the Bitcoin step/.test(await page.textContent('#bt-wait')), 'the way out says it takes hours: finality, then the proof that covers the burn, then the Bitcoin step, not finality alone');
     ok(await page.getAttribute('.lost a', 'href') === '/#private/bitcoin/back', 'and a bridge that cannot be seen is looked for on the Private ETH sheet, where tETH’s are found');
     await page.click('#bt-flip');
     ok((await page.textContent('#bt-go')).includes('Bring tETH back to Ethereum') && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
+    ok((await page.textContent('#bt-cost')) === 'About $0.80 now: 1,000 sats on Bitcoin; Tacit covers the Ethereum side', 'and the way back says its own cost');
     await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
     ok(await page.getAttribute('.lost a', 'href') === '/#lock', 'a cBTC lock that cannot be seen is looked for on the Borrow sheet');
-    ok(await page.isHidden('#bt-limit'), 'cBTC has no per-bridge limit line');
+    ok(await page.isHidden('#bt-limit') && await page.isHidden('#bt-cost'), 'cBTC has no per-bridge limit line and no cost line');
     ok(await page.getAttribute('#bt-go', 'href') === '/#lock' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
     ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow sheet’s own: lock, bond, mint, borrow');
     await page.click('[data-asset="tac"]');
@@ -206,7 +220,7 @@ try {
     ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
     ok((await page.$$('.faq details')).length === 4, 'four questions');
     const faq = await page.textContent('.faq');
-    ok(/tETH takes 0\.01 to 0\.5 to Bitcoin and up to 0\.5 back/.test(faq) && /TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back/.test(faq) && /255 transfers/.test(faq), 'the limits answer gives each asset its own range, both ways, and the history it proves');
+    ok(/tETH takes 0\.001 to 0\.5 to Bitcoin and up to 0\.5 back/.test(faq) && /TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back/.test(faq) && /255 transfers/.test(faq), 'the limits answer gives each asset its own range, both ways, and the history it proves');
     ok(/Ethereum to Bitcoin takes a small relay fee out of the note/.test(faq) && /Tacit is covering the Ethereum mint/.test(faq), 'and the cost answer is right for both directions');
     ok(!/allowance|free/i.test(await page.textContent('.faq')), 'the answers keep to plain words about who pays');
     ok(await page.getAttribute('.runcta .go', 'href') === '/weld/keeper/' && (await page.$$('#run .cap3 li')).length === 3 && (await page.$$('#run .pill')).length === 3, 'anyone can run it: three steps, each open to anyone, and a door to community ops');
@@ -266,6 +280,40 @@ try {
     await page.waitForFunction(() => document.querySelector('#pf-lag').textContent !== '', null, { timeout: 20000 }).catch(() => {});
     LATE = false; NO_MEMPOOL = false;
     ok((await page.textContent('#pf-btc')).includes('60 behind Bitcoin’s tip') && await page.getAttribute('#pf-btc', 'data-state') === 'slow', 'with mempool.space refusing, the lag is still read, from the API’s own tip, and a late proof still reads as slow');
+    await browser.close();
+  }
+
+  // ── a tab left open: a step the chains call ready is named, the tab says so, and an opt-in notification fires once ──
+  {
+    const row = (id, stage, extra = {}) => ({ id: '0x' + id.repeat(32), network: 'mainnet', walletPub: PUB, stage, createdAt: NOW - 30 * 60e3,
+      source: { amount: '100000', value: '110000', assetId: '0x' + TETH_ID, ticker: 'tETH' }, settle: { txHash: 'ee'.repeat(32), ethBlock: 26_225_700, claimIdVerified: true }, ...extra });
+    const READY = row('ab', 'settled');                                    // the journal says it waits for the proof; the proof has reached its block
+    const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { rows: { in: [], out: [READY] }, notifications: true });
+    await page.waitForFunction(() => document.querySelector('#mine-l .mb-due'), null, { timeout: 20000 });
+    ok(await page.title() === '(1) tacit bridge', `the tab\'s title says one bridge needs its holder (${await page.title()})`);
+    ok(/Send to Bitcoin/.test(await page.textContent('#mine-l .mb-due')) && (await page.textContent('#mine-n')).includes('1 needs you'), 'the chains\' word names the step although the journal still says settled');
+    ok(await page.$eval('#mine-l .mb-due', (a) => a.getAttribute('href')) === '/#private/bitcoin/out', 'and its press opens the way out');
+    ok(/^checked /.test(await page.textContent('#mine-t')), 'the list says when the chains were last read');
+    ok(await page.isVisible('#mine-bell') && (await page.textContent('#mine-bell')) === 'Notify me', 'a browser that can notify offers it');
+    await page.click('#mine-bell');
+    await page.waitForFunction(() => document.querySelector('#mine-bell').getAttribute('aria-pressed') === 'true');
+    ok((await page.evaluate(() => window.__notes.length)) === 0, 'turning it on says nothing about what the page opened on');
+    // another tab moves a second bridge to the step that needs its holder, and a first one arrives
+    await page.evaluate(([pub, a, b]) => {
+      const list = JSON.parse(localStorage.getItem('tacit-crossout-bridge-v1:mainnet:' + pub));
+      list.push(JSON.parse(a)); list.find((r) => r.id === JSON.parse(b).id).stage = 'minted'; list.find((r) => r.id === JSON.parse(b).id).mintedAt = Date.now();
+      localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, JSON.stringify(list));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub }));
+    }, [PUB, JSON.stringify(row('cd', 'covered')), JSON.stringify(READY)]);
+    await page.waitForFunction(() => window.__notes.length >= 2, null, { timeout: 8000 }).catch(() => {});
+    const notes = await page.evaluate(() => window.__notes);
+    ok(notes.length === 2 && notes.some(([t, b]) => /0\.001 tETH bridge needs you/.test(t) && /Send to Bitcoin/.test(b)) && notes.some(([t]) => /0\.001 tETH has arrived/.test(t)), `one notification for the step that needs its holder and one for the arrival (${JSON.stringify(notes)})`);
+    await page.evaluate((pub) => window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub })), PUB);
+    await page.waitForTimeout(400);
+    ok((await page.evaluate(() => window.__notes.length)) === 2, 'and a state already told is not told again');
+    await page.click('#mine-bell');
+    ok(await page.getAttribute('#mine-bell', 'aria-pressed') === 'false' && (await page.textContent('#mine-bell')) === 'Notify me', 'it can be turned off');
+    ok(errors.length === 0, `no console errors with a tab left open${errors.length ? ': ' + errors.join(' | ').slice(0, 300) : ''}`);
     await browser.close();
   }
 

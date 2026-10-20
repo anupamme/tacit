@@ -3,7 +3,7 @@ import { makeBtcWallet } from './bitcoin-taproot-wallet.js';
 
 export const CROSSOUT_BETA_CAP_RAW = 100_000_000_000n;
 export const CROSSOUT_TETH_CAP_RAW = 50_000_000n;
-export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;
+export const CROSSOUT_TETH_MIN_RAW = 100_000n;           // 0.001 tETH while the bridge is new: small enough to try, and a bridge must still exceed its relay fee
 export const CROSSOUT_CBTC_CAP_RAW = 50_000_000n;
 export const CROSSOUT_CBTC_MIN_RAW = 1_000n;
 export const CROSSOUT_MINT_FEE_CEILING = 100;

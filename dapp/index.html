@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-xc3PwYdT0lxrv/QHVtGtPYT+p8AxFUXXePg3jMMeiQ0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Es9Iq6qAZDfUHWOl6yPO8NTmgh1I2ypbziLBEjHXPSk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -5000,6 +5000,13 @@ function xbHeld(pub, a) {
 // The side of the tab a key opens on: to Bitcoin while it holds tETH to send or has a bridge under way, else back when it holds notes on
 // Bitcoin or has a return under way.
 const xoSegAuto = (pub, a, held, recs) => (held > 0n || recs.length ? 'out' : (xbHeld(pub, a)?.n || xbRows(pub, a).length || xbJournaled(pub, a) ? 'back' : 'out'));
+// A figure in dollars beside sats or tETH, when the page has the prices: ' (≈ $0.80)', else nothing.
+const xoUsd = ({ sats = 0, teth = 0n } = {}) => {
+  const { btcUsd, ethUsd } = fpx();
+  if ((sats && !btcUsd) || (teth && !ethUsd)) return '';
+  const v = (sats ? (sats / 1e8) * btcUsd : 0) + (teth ? (Number(teth) / 1e8) * ethUsd : 0);
+  return v > 0 ? ` (≈ $${v < 10 ? v.toFixed(2) : Math.round(v)})` : '';
+};
 // The line under the Private ETH balance for what is not in the pool: on Bitcoin, and on its way there.
 function xoBtcLine(pub) {
   if (!pub || !xoShown(pub)) return '';
@@ -5262,7 +5269,7 @@ function wireHeld(el, status, a = XA.teth) {
       review = { note: n, pf, short: !!coins && !cost.ok };
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${fmt(n.amount, 8, a.dp)} private ${a.ticker} on Ethereum</b></div>
-        <div class="kv"><span>Bitcoin fee</span><b>about ${sats.toLocaleString('en-US')} sats</b></div>
+        <div class="kv"><span>Bitcoin fee</span><b>about ${sats.toLocaleString('en-US')} sats${xoUsd({ sats })}</b></div>
         <div class="kv"><span>Relay fee</span><b>None</b></div>
         <div class="kv"><span>Arrives</span><b>usually a few hours, sometimes up to a day</b></div>`);
       if (review.short) warn(rc, html`This key’s Bitcoin address has ${fmt(BigInt(cost.have || 0), 8, 8)} BTC free for fees, short of the ${cost.need.toLocaleString('en-US')} sats this needs.${BTC.pub === pub && BTC.pending > 0n ? html` ${fmt(BTC.pending, 8, 8)} BTC is still arriving; once it confirms, check again.` : ''} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
@@ -5369,9 +5376,9 @@ function xoOut(el, status, a) {
       if (my !== seq || !amt.isConnected) return;
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${units > fee ? fmt(units - fee, 8, 8) : '0'} ${a.ticker} on your Bitcoin address</b></div>
-        <div class="kv"><span>Relay fee</span><b>${fmt(fee, 8, 8)} ${a.ticker}</b></div>
+        <div class="kv"><span>Relay fee</span><b>${fmt(fee, 8, 8)} ${a.ticker}${a.key === 'teth' ? xoUsd({ teth: fee }) : ''}</b></div>
         ${size && units + size <= held ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan?.[a.k].notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${fmt(size, 8, 8)} ${a.ticker}</b></div>` : ''}
-        <div class="kv"><span>Bitcoin fee, when it is sent</span><b>≈ ${pf.estSats.toLocaleString('en-US')} sats from ${short(pf.address, 6)}</b></div>
+        <div class="kv"><span>Bitcoin fee, when it is sent</span><b>≈ ${pf.estSats.toLocaleString('en-US')} sats${xoUsd({ sats: pf.estSats })} from ${short(pf.address, 6)}</b></div>
         <div class="kv"><span>Arrives</span><b>usually a few hours, sometimes up to a day</b></div>
         ${a.floor && xoLadder(fee * 2n) * 2n < units ? html`<p class="note">If the relay’s floor has moved by the time it takes the burn, its fee is ${fmt(xoLadder(fee * 2n), 8, 8)} ${a.ticker} and ${fmt(xoLadder(fee * 2n) - fee, 8, 8)} ${a.ticker} less arrives.</p>` : ''}`);
       const problem = pf.problems[0];

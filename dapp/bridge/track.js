@@ -45,7 +45,7 @@ export const ROUTES = {
 const E8 = 100_000_000n;
 export const LIMITS = {
   tac: { in: { max: 1000n * E8 }, out: { min: 20n * E8, max: 1000n * E8 } },
-  teth: { in: { max: 50_000_000n }, out: { min: 1_000_000n, max: 50_000_000n } },
+  teth: { in: { max: 50_000_000n }, out: { min: 100_000n, max: 50_000_000n } },
 };
 // The line under the steps: '20 to 1,000 TAC a bridge', 'Up to 0.5 tETH a bridge', or '' for a way with no such limit.
 export function limitLine(asset, dir) {
@@ -164,6 +164,34 @@ export function readBridges(storage, now = Date.now()) {
   return rows.sort((a, b) => rank(a) - rank(b) || (b.since || 0) - (a.since || 0));
 }
 
+// ── what a bridge costs now: the live Bitcoin fee rate, the relay's floor, and the two prices ──────────────────────────────────
+// The sizes are the app's own (crossout-mint-reveal.js estimateSats for the way out, burndep-ux.js bridgeCost 'reflected' for a P2TR note
+// coming back); tests/bridge-track.test.mjs holds these to them.
+const DUST = 546, REVEAL_VB = 180, COMMIT_VB = 154;
+export const satsOut = (rate) => Math.ceil(REVEAL_VB * rate) + DUST + Math.ceil(COMMIT_VB * rate);
+export const satsBack = (rate) => Math.max(500, Math.ceil(218 * rate)) + Math.max(500, Math.ceil((85 + 68) * rate));
+
+// One line for the tile: what the way costs at today's rates, or '' while the rate is not known.
+// c = { satvb, relay: { teth, tac } (units, 8 decimals), ethUsd, btcUsd }
+export function costLine(asset, dir, c = {}) {
+  const r = ROUTES[asset];
+  if (!r || !r[dir] || !(c.satvb > 0) || asset === 'cbtc' || (asset === 'tac' && dir === 'in')) return '';   // a lock and TAC's two-step way in are priced on their own sheets
+  const sats = dir === 'out' ? satsOut(c.satvb) : satsBack(c.satvb);
+  const fee = dir === 'out' ? c.relay?.[asset] : null;
+  if (dir === 'out' && fee == null) return '';
+  const btc = `${sats.toLocaleString('en-US')} sats on Bitcoin`;
+  const relay = fee != null ? `${fmtAmount(fee, asset === 'teth' ? 4 : 2)} ${r.ticker} to the relay` : '';
+  const usd = asset === 'teth' && c.btcUsd > 0 && (fee == null || c.ethUsd > 0) ? (sats / 1e8) * c.btcUsd + (fee != null ? (Number(fee) / 1e8) * c.ethUsd : 0) : null;
+  const money = usd != null ? `About $${usd < 10 ? usd.toFixed(2) : Math.round(usd)} now: ` : 'About ';
+  return `${money}${[relay, btc].filter(Boolean).join(' and ')}${dir === 'in' ? '; Tacit covers the Ethereum side' : ''}`;
+}
+
+// A number of Bitcoin blocks (about ten minutes each) as a time: '40 min', or hours from an hour and a half.
+export function btcSpan(blocks) {
+  const m = Math.max(1, Math.round(Number(blocks) * 10));
+  return m < 90 ? `${m} min` : `${Math.round(m / 60)} hours`;
+}
+
 // ── where a bridge really is, from the chains, when the journal has not been moved on (no page open) ─────────────────────
 // `live` = { btcAttested, btcConfs, ethCovered, txs: Map(txid → { confirmed, height }) }. Returns a short line, or ''.
 export function liveLine(row, live) {
@@ -177,7 +205,7 @@ export function liveLine(row, live) {
     if (h != null && live.btcAttested != null) {
       if (live.btcAttested >= h) return row.at < 3 ? 'Bitcoin’s proof on Ethereum has reached this block' : '';
       const left = h - live.btcAttested;
-      return `Block ${h.toLocaleString('en-US')}: the proof is ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} behind it`;
+      return `Block ${h.toLocaleString('en-US')}: the proof is ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} behind it, about ${btcSpan(left)}`;
     }
     return '';
   }
@@ -196,10 +224,22 @@ export function ethSpan(blocks) {
   return m < 90 ? `${m} min` : `${Math.round(m / 60)} hours`;
 }
 
-// What a row says goes on next and whether it needs the holder: { due, self } (`self`: it goes on with no page open).
-export function nextOf(row) {
+// A row the journal still shows as waiting that the chains say is ready for its holder: the proof has reached its burn, and the next step
+// needs the key, so it waits for the holder however long no page has been open. Returns the press the front page offers, or ''.
+export function readyNow(row, live) {
+  if (!live || row.done || row.back || row.due) return '';
+  if (row.dir === 'out' && row.stage === 'settled' && row.ethBlock != null && live.ethCovered != null && live.ethCovered >= row.ethBlock) return 'Send to Bitcoin';
+  if (row.dir === 'in' && !row.armed && row.stage === 'rburn-mined' && row.btcHeight != null && live.btcAttested != null && live.btcAttested >= row.btcHeight) return 'Mint now';
+  return '';
+}
+
+// What a row says goes on next and whether it needs the holder: { due, self } (`self`: it goes on with no page open). With `live` (the
+// chains' figures, see liveLine) a step the journal has not caught up with is named too.
+export function nextOf(row, live = null) {
   if (row.done || row.back) return { due: '', self: false };
   if (row.due) return { due: row.due, self: false };
+  const ready = readyNow(row, live);
+  if (ready) return { due: ready, self: false };
   if (row.dir === 'in') {
     // the burn and its record happen on the chains; the mint needs the page unless the relay holds it (armed)
     if (row.at >= 3) return { due: '', self: row.armed };
