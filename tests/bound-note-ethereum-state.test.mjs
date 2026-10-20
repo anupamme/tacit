@@ -117,6 +117,15 @@ function etch(amount) {
   txs.set(txid, { txid, status: confirmed(90), vin: [{ txid: nextTxid(), vout: 0, witness: witnessFor(encodeEnvelopeScript(randomBytes(32), payload)) }], vout: [{ scriptpubkey: '0014' + '11'.repeat(20), value: 546 }] });
   return { txid, vout: 0, amount, blinding, assetId: assetIdFor(txid, 0) };
 }
+// An etch whose range proof is for another commitment than the one it states.
+function etchWithWrongProof(amount) {
+  const { proof } = bpRangeAggProve([amount], [randomScalar()]);
+  const { commitments } = bpRangeAggProve([amount + 1n], [randomScalar()]);
+  const payload = encodeCEtchPayload({ ticker: 'TST', decimals: 0, commitment: pointToBytes(commitments[0]), rangeproof: proof, encryptedAmount: new Uint8Array(8), mintAuthority: null });
+  const txid = nextTxid();
+  txs.set(txid, { txid, status: confirmed(90), vin: [{ txid: nextTxid(), vout: 0, witness: witnessFor(encodeEnvelopeScript(randomBytes(32), payload)) }], vout: [{ scriptpubkey: '0014' + '11'.repeat(20), value: 546 }] });
+  return txid;
+}
 // A two-output T_CXFER_BOUND (identity vouts) or T_CXFER spending one note, kernel signed by r_out − r_in.
 function transfer(input, { bound, binding = BINDING, h = 100 }) {
   const amounts = [input.amount / 2n, input.amount - input.amount / 2n];
@@ -228,6 +237,17 @@ console.log('\nPurchases:');
   try { await dapp.requireValidatedLot(plainLot.txid, 0); } catch (e) { err = e; }
   ok('a lot both sources agree on is accepted', err === null, String(err?.message || ''));
 
+  ok('what the check proved is kept for the session: the lot and its ancestry', dapp._lotProvedSession.has(`${plainLot.txid}:0`) && dapp._lotProvedSession.size >= 2, `${dapp._lotProvedSession.size} kept`);
+  let sizeBefore = dapp._lotProvedSession.size;
+  err = null;
+  try { await dapp.requireValidatedLot(plainLot.txid, 0); } catch (e) { err = e; }
+  ok('and the same lot checked again is accepted from it', err === null && dapp._lotProvedSession.size === sizeBefore, String(err?.message || ''));
+
+  const badTxid = etchWithWrongProof(1000n);
+  err = null;
+  try { await dapp.requireValidatedLot(badTxid, 0); } catch (e) { err = e; }
+  ok('a lot whose history holds a range proof that does not match its commitment is refused, and nothing of it is kept', /does not validate/.test(String(err?.message)) && !dapp._lotProvedSession.has(`${badTxid}:0`), String(err?.message || 'accepted'));
+
   const lot2 = transfer(etch(1000n), { bound: false, h: 100 });
   E.explorerOverride.set(lot2.txid, { ...structuredClone(txs.get(lot2.txid)), vout: [{ scriptpubkey: p2tr(), value: 546 }, txs.get(lot2.txid).vout[1]] });
   err = null;
@@ -239,6 +259,7 @@ console.log('\nPurchases:');
   err = null;
   try { await dapp.requireValidatedLot(t.txid, 0); } catch (e) { err = e; }
   ok('a bound lot unspent on Ethereum is accepted', err === null, String(err?.message || ''));
+  ok('but its outpoints are not kept for the session (they rest on Ethereum state)', !dapp._lotProvedSession.has(`${t.txid}:0`) && !dapp._lotProvedSession.has(`${t.txid}:1`));
   E.storage.set(slotOf(boundNu(t, 0), 70).toLowerCase(), hex32(1));
   err = null;
   try { await dapp.requireValidatedLot(t.txid, 0); } catch (e) { err = e; }

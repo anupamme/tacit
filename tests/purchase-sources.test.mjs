@@ -159,5 +159,19 @@ console.log('\nThe cross-check:');
   ok('with the explorers down the check gives nothing (it fails closed)', t === null);
 }
 
+console.log('\nProgress and shared reads:');
+{
+  const d = await fresh(), a = mk(30), b = mk(31);
+  let n = 0;
+  const f = d._crossCheckedFetcher(() => { n++; });
+  await f(a); await f(b); await f(a);
+  ok('a check reports each transaction it has settled once', n === 2, `${n} reports`);
+}
+{
+  const d = await fresh(), id = mk(32);
+  const [x, y] = await Promise.all([d._crossCheckedFetcher()(id), d._crossCheckedFetcher()(id)]);
+  ok('a transaction two checks ask for at the same time (a lot checked ahead and the purchase) is read once', x?.txid === id && y?.txid === id && reads(BS, id) === 1, `${reads(BS, id)} reads of the second source`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

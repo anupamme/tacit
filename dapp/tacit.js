@@ -14972,14 +14972,19 @@ function _xcheckRemember(id, t) {
     try { localStorage.setItem(_xcheckKey(), [..._xcheckMap()].map(([k, v]) => `${k}:${v}`).join(',')); } catch { }
   }, 400);
 }
-const _crossCheckedTxs = new Map();
-function _crossCheckedFetcher() {
-  const memo = new Map();
+const _crossCheckedTxs = new Map(), _xcheckPending = new Map();
+// `onRead` hears each transaction the check has settled, so a page can say how far it is. A transaction being read for one check (a lot checked
+// ahead of a purchase, or the purchase itself) is read once for the other as well.
+function _crossCheckedFetcher(onRead = null) {
+  const memo = new Map(), counted = new Set();
+  const say = (id, t) => { if (t && onRead && !counted.has(id)) { counted.add(id); try { onRead(); } catch { } } return t; };
   return (id) => {
-    if (_crossCheckedTxs.has(id)) return Promise.resolve(_crossCheckedTxs.get(id));
+    if (_crossCheckedTxs.has(id)) return Promise.resolve(say(id, _crossCheckedTxs.get(id)));
     if (!memo.has(id)) {
+      const shared = _xcheckPending.get(id);
+      if (shared) { memo.set(id, shared); return shared.then((t) => say(id, t)); }
       const known = _xcheckMap().has(id), pa = _sharedFetchTx(id), pb = known ? null : _explorerTx(id);
-      memo.set(id, (async () => {
+      const run = (async () => {
         let a = await pa.catch(() => null);
         for (let i = 1; !a && i < _EXPLORER_TX_BACKOFF_MS.length && !_txIsRecentlyNotFound(id); i++) {        // the shared reader answers null when its explorers limited or failed it: it reads again, as the second source does
           await new Promise((res) => setTimeout(res, _EXPLORER_TX_BACKOFF_MS[i]));
@@ -14993,26 +14998,58 @@ function _crossCheckedFetcher() {
         if (!b || _txFieldsOf(a) !== _txFieldsOf(b)) return null;
         if (a.status?.confirmed) { _crossCheckedTxs.set(id, a); _xcheckRemember(id, a); }
         return a;
-      })().catch(() => null));
+      })().catch(() => null);
+      memo.set(id, run); _xcheckPending.set(id, run);
+      run.finally(() => { if (_xcheckPending.get(id) === run) _xcheckPending.delete(id); });
     }
-    return memo.get(id);
+    return memo.get(id).then((t) => say(id, t));
   };
 }
 
-let _tradeCheckInFlight = 0;
+let _tradeCheckInFlight = 0, _lotCheckListener = null;
 async function requireValidatedLot(txidHex, vout, label = "the seller's lot") {
   _tradeCheckInFlight++;
-  try { return await _requireValidatedLot(txidHex, vout, label); } finally { _tradeCheckInFlight--; }
+  let n = 0;
+  const say = (phase) => { try { _lotCheckListener?.({ phase, n }); } catch { } };
+  say('start');
+  try { return await _requireValidatedLot(txidHex, vout, label, () => { n++; say('read'); }); } finally { _tradeCheckInFlight--; say('end'); }
 }
-async function _requireValidatedLot(txidHex, vout, label) {
+// What a purchase's check has proved, kept for the page session so the next lot (and the purchase after a lot checked ahead) does not read and prove
+// the same ancestors again: only outpoints that this check proved from two sources, and only when every transaction it read is confirmed and of a type
+// whose validity rests on Bitcoin alone (a note whose validity rests on Ethereum or the pool is checked afresh every time).
+const _lotProvedSession = new Map(), _LOT_PROVED_TTL_MS = 30 * 60_000, _LOT_PROVED_MAX = 6000;
+const _bitcoinOnlyLotOpcodes = () => new Set([T_CETCH, T_MINT, T_PMINT, T_CXFER, T_CXFER_BPP, T_AXFER, T_AXFER_BPP, T_AXFER_VAR, T_AXFER_VAR_BPP, T_PREAUTH_BID, T_PREAUTH_BID_VAR]);
+function _lotTxBitcoinOnly(tx, allowed) {
+  if (!tx?.status?.confirmed) return false;
+  try { const env = _txOutputEnvelope(tx); return !!env && allowed.has(env.opcode); } catch { return false; }
+}
+async function _requireValidatedLot(txidHex, vout, label, onRead = null) {
   const txid = String(txidHex).toLowerCase(), v = Number(vout), key = `${txid}:${v}`;
   const proved = _getPersistedValidatedTrue();
   const set = new Map([..._callerProved].map((k) => [k, true])), reasons = new Map();
+  const now = Date.now();
+  for (const [k, at] of _lotProvedSession) { if (now - at > _LOT_PROVED_TTL_MS) _lotProvedSession.delete(k); else set.set(k, true); }
+  const seeded = new Set(set.keys()), touched = new Map(), read = _crossCheckedFetcher(onRead), rpBatch = [];
   _clearEthereumStateCaches();
   let ok;
-  try { ok = await validateOutpoint(txid, v, set, _crossCheckedFetcher(), 0, null, null, null, reasons); }
+  // The range proofs of the lot's history are verified together once the walk is done, as a holdings scan does: one combined check costs a fraction
+  // of the same proofs one by one, and one that fails refuses the lot with nothing kept.
+  try { ok = await validateOutpoint(txid, v, set, async (id) => { const t = await read(id); if (t) touched.set(id, t); return t; }, 0, null, rpBatch, null, reasons); }
   catch (e) { throw new Error(`could not verify ${label} on Bitcoin, so nothing was sent (${e?.message || e})`); }
-  if (ok === true) { for (const [k, val] of set) if (val === true) proved.set(k, true); return; }
+  if (ok === true && rpBatch.length > 0) {
+    let proofsOk = false;
+    try { proofsOk = bpRangeAggBatchVerify(rpBatch); } catch { proofsOk = false; }
+    if (!proofsOk) ok = false;
+  }
+  if (ok === true) {
+    for (const [k, val] of set) if (val === true) proved.set(k, true);
+    const allowed = _bitcoinOnlyLotOpcodes();
+    if ([...touched.values()].every((t) => _lotTxBitcoinOnly(t, allowed))) {
+      for (const [k, val] of set) if (val === true && !seeded.has(k)) { _lotProvedSession.delete(k); _lotProvedSession.set(k, now); }
+      while (_lotProvedSession.size > _LOT_PROVED_MAX) _lotProvedSession.delete(_lotProvedSession.keys().next().value);
+    }
+    return;
+  }
   throw new Error(reasons.get(key) === _REASON_FETCH_FAILED
     ? `could not verify ${label} on Bitcoin just now, so nothing was sent. Try again in a minute.`
     : `${label} does not validate as this asset on Bitcoin, so it was not bought and nothing was sent`);
@@ -55394,6 +55431,20 @@ async function _btcMarketOfferStatus(aid, { intentId, raw }) {
   return 'posted';
 }
 
+// The lots of a purchase's plan are checked while its review is on screen, one after another, so the buy that follows finds the transactions read.
+// A lot is checked ahead once in five minutes; a failed check says nothing here, the purchase reports it.
+const _lotPrewarmed = new Map();
+function _btcMarketPrewarmLots(raws) {
+  const lots = [];
+  for (const r of raws || []) {
+    const o = r && r.kind === 'preauth' ? r.asset_outpoint : null;
+    if (o && /^[0-9a-f]{64}$/i.test(String(o.txid)) && Number.isInteger(Number(o.vout))) lots.push([String(o.txid).toLowerCase(), Number(o.vout)]);
+  }
+  const todo = lots.slice(0, 2).filter(([t, v]) => Date.now() - (_lotPrewarmed.get(`${t}:${v}`) || 0) > 5 * 60_000);
+  if (!todo.length) return;
+  for (const [t, v] of todo) _lotPrewarmed.set(`${t}:${v}`, Date.now());
+  (async () => { for (const [t, v] of todo) { try { await requireValidatedLot(t, v); } catch { } } })();
+}
 function _btcMarketCtx(aid) {
   const meta = _btcMarketAssetMeta(aid);
   const decimals = Number(meta?.a?.decimals) | 0;
@@ -55447,6 +55498,8 @@ function _btcMarketCtx(aid) {
     } : null,
     initialLane: isTac ? _marketTacLane : 'btc',
     onLane: (lane) => { if (!isTac) return; _marketTacLane = lane; _saveMarketTacLane(lane); _writeMarketHash(aid); },
+    onLotCheck: (fn) => { _lotCheckListener = fn; return () => { if (_lotCheckListener === fn) _lotCheckListener = null; }; },
+    prepare: (raws) => _btcMarketPrewarmLots(raws),
     exec: {
       takePreauthBatch: async (raws) => {
         const sales = await Promise.all(raws.map((s) => _btcMarketReviewedSale(aid, s)));
@@ -61218,7 +61271,7 @@ export {
   parseRecipientInput,
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
-  validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher,
+  validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,
