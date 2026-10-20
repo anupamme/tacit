@@ -7,6 +7,8 @@ export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;
 export const CROSSOUT_CBTC_CAP_RAW = 50_000_000n;
 export const CROSSOUT_CBTC_MIN_RAW = 1_000n;
 export const CROSSOUT_MINT_FEE_CEILING = 100;
+// How many times a burn's Bitcoin step is sent before the record stops offering it again: the first, and two more.
+export const CROSSOUT_MAX_MINT_ATTEMPTS = 3;
 const CANCEL_SPENT_AFTER_MS = 6 * 3600e3;
 const JOURNAL_PREFIX = 'tacit-crossout-bridge-v1';
 const LEASE_TTL_MS = 30_000;
@@ -410,6 +412,31 @@ export function makeCrossoutUx(deps) {
     return putRecord({ ...rest, stage: 'covered', lastError: null, errorCount: 0 });
   }
 
+  // A Bitcoin step that confirmed and was not credited does not use the burn up: the proof folds a mint only when its commitment and key
+  // are in the Ethereum cross-out set it carries, and a mint it skipped (scanned before the proof held this burn, or in a batch with no
+  // Ethereum state) consumed no claim, so a second step for the same burn is folded like the first would have been. It is sent again from
+  // the same record, over a coin that is free now, once the proof covers the burn (a second one sent earlier is skipped the same way),
+  // and at most CROSSOUT_MAX_MINT_ATTEMPTS times, since each costs Bitcoin fees and a step that is refused for another reason is refused again.
+  async function retryRejected(walletPub, id) {
+    const rec = getRecord(walletPub, id);
+    if (!rec) throw new Error(`crossout-ux: no bridge record for ${id}`);
+    if (rec.stage !== 'mint-rejected' || !rec.mint) throw new Error('crossout-ux: only a Bitcoin step that confirmed and was not credited can be sent again');
+    if (rec.settle && rec.settle.claimIdVerified === false) throw new Error('crossout-ux: this burn’s claim was not matched to its record on Ethereum, so its Bitcoin step is not sent again');
+    const sent = (rec.attempts || []).length + 1;
+    if (sent >= CROSSOUT_MAX_MINT_ATTEMPTS) throw new Error(`crossout-ux: this burn’s Bitcoin step has been sent ${sent} times without being credited, so it is not sent again here`);
+    // The verdict may have moved on since it was read: a step the worker now credits ends the retry.
+    const after = await checkCredited(rec);
+    if (after.stage !== 'mint-rejected') return after;
+    let covers;
+    try { covers = await callWorker('GET', `/reflection/eth-state/covers?block=${rec.settle.ethBlock}`); } catch { covers = null; }
+    if (!covers || covers.covered !== true) throw new Error('crossout-ux: Bitcoin’s proof does not cover this burn yet, and a Bitcoin step sent before it does is skipped the same way; try again once it does');
+    const { mint, lastError, errorCount, rejectedAt, rejectedStatus, ...rest } = rec;
+    return putRecord({
+      ...rest, stage: 'covered', lastError: null, errorCount: 0, coveredAt: now(), retriedAt: now(),
+      attempts: [...(rec.attempts || []), { commitTxid: mint.commitTxid, revealTxid: mint.revealTxid, rejectedAt: rejectedAt || null, status: rejectedStatus || null }],
+    });
+  }
+
   function list(walletPub) { return loadAll(walletPub); }
   function abandon(walletPub, id) { saveAll(walletPub, loadAll(walletPub).filter((r) => r.id !== id)); }
 
@@ -514,5 +541,5 @@ export function makeCrossoutUx(deps) {
     return out;
   }
 
-  return { CROSSOUT_BETA_CAP_RAW, network, assets: ASSETS, assetOf, eligibleNotes, isReserved, isFundingReserved, preflight, start, advance, resign, cancelIntent, recoverFromEthTx, recoverFromKey, resumeAll, list, abandon };
+  return { CROSSOUT_BETA_CAP_RAW, network, assets: ASSETS, assetOf, eligibleNotes, isReserved, isFundingReserved, preflight, start, advance, resign, retryRejected, cancelIntent, recoverFromEthTx, recoverFromKey, resumeAll, list, abandon };
 }

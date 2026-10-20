@@ -3233,6 +3233,7 @@ await step('xobridge', async () => {
   ok(/Cancel/.test(rows[0]) && /Look again/.test(rows[0]), `xobridge: a burn not yet seen to land, an hour or more on, offers to look again or cancel (${rows[0]})`);
   ok(/Send it anyway/.test(rows[2]), `xobridge: a Bitcoin step held back for high fees offers to be sent anyway (${rows[2]})`);
   ok(/Sign it again/.test(rows[3]) && /Try again/.test(rows[3]), `xobridge: a signed pair Bitcoin keeps rejecting offers to be signed again (${rows[3]})`);
+  ok(/was not credited/.test(rows[5]) && /Send it again/.test(rows[5]) && /another Bitcoin fee/.test(rows[5]), `xobridge: a Bitcoin step that confirmed and was not credited offers to be sent again, and says it costs a fee (${rows[5]})`);
   ok(!!(await r.page.$('#eth-v1 [data-v1="btc"] .dot.live')), 'xobridge: the To Bitcoin tab carries a dot while a bridge is under way');
   // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
   await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });

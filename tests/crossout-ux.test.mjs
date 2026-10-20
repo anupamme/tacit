@@ -550,6 +550,87 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   ok((await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'minted', 'and flips to minted if the worker later credits it');
 }
 
+// ---- a Bitcoin step that confirmed and was refused is sent again once the proof covers the burn ----
+{
+  // To a refusal: burned, covered, signed, sent, confirmed, and the worker decides it was not credited.
+  const toRejected = async (world, ux) => {
+    world.setEthCovered(true);
+    await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    const signed = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+    await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    world.mineRevealTxid(signed.mint.revealTxid);
+    await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    world.setCredit({ decided: true, minted: false, status: 'rejected' });
+    const rej = await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    ok(rej.stage === 'mint-rejected', 'the Bitcoin step is refused');
+    return signed;
+  };
+  const world = makeWorld(); const ux = makeUx(world, MULTI);
+  await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  const first = await toRejected(world, ux);
+
+  let m = null;
+  world.setEthCovered(false);
+  try { await ux.retryRejected(WALLET_PUB, TNOTE.nullifier); } catch (e) { m = e.message; }
+  ok(/does not cover this burn yet/.test(m || ''), 'it is not sent again while the proof does not cover the burn: a step sent before then is skipped the same way');
+  ok(ux.list(WALLET_PUB)[0].stage === 'mint-rejected', 'and the record is left as it was');
+  world.setEthCovered(true);
+  let early = null; try { await ux.retryRejected(WALLET_PUB, 'no-such-id'); } catch (e) { early = e.message; }
+  ok(/no bridge record/.test(early || ''), 'a record that is not there is refused');
+
+  // The first step's coin is spent by now: the second is built over a free one.
+  world.setUtxos([{ txid: 'e1'.repeat(32), vout: 1, value: 60_000 }]);
+  const again = await ux.retryRejected(WALLET_PUB, TNOTE.nullifier);
+  ok(again.stage === 'covered' && !again.mint && again.attempts.length === 1, 'it goes back to the step that signs the Bitcoin transactions, with no signed pair in hand');
+  ok(again.attempts[0].revealTxid === first.mint.revealTxid && again.attempts[0].status === 'rejected', 'and keeps what the first one was');
+  ok(again.source.assetId === first.source.assetId && again.settle.claimId === first.settle.claimId && again.destXonly === first.destXonly, 'the same burn, the same claim, the same destination key');
+  const second = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+  ok(second.stage === 'mint-signed' && second.mint.revealTxid !== first.mint.revealTxid && second.mint.fundingUtxo.txid === 'e1'.repeat(32), 'a new pair is signed over the free coin');
+  await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  world.mineRevealTxid(second.mint.revealTxid);
+  await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  world.setCredit({ decided: true, minted: true });
+  const done = await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  ok(done.stage === 'minted' && done.attempts.length === 1, 'and the second step is credited, with the first still on the record');
+
+  // A step the worker credits while the button is pressed ends the retry: nothing is sent.
+  const w2 = makeWorld(); const ux2 = makeUx(w2, MULTI);
+  await ux2.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  await toRejected(w2, ux2);
+  w2.setCredit({ decided: true, minted: true });
+  const credited = await ux2.retryRejected(WALLET_PUB, TNOTE.nullifier);
+  ok(credited.stage === 'minted' && !(credited.attempts || []).length, 'credited meanwhile: it is an arrival, not a second step');
+
+  // A record whose claim the Ethereum record does not vouch for is not sent again (it cannot get this far by itself, so it is made here).
+  const store = new Map();
+  const shared = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k), get length() { return store.size; }, key: (i) => Array.from(store.keys())[i] ?? null };
+  const w3 = makeWorld(); const ux3 = makeUx(w3, { ...MULTI, storage: shared });
+  await ux3.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  await toRejected(w3, ux3);
+  for (const [k, v] of [...store]) { const list = JSON.parse(v); for (const r of list) if (r.settle) r.settle.claimIdVerified = false; store.set(k, JSON.stringify(list)); }
+  let unsure = null; try { await ux3.retryRejected(WALLET_PUB, TNOTE.nullifier); } catch (e) { unsure = e.message; }
+  ok(/not matched to its record on Ethereum/.test(unsure || ''), 'a claim the Ethereum record does not vouch for is not sent again');
+  ok(ux3.list(WALLET_PUB)[0].stage === 'mint-rejected' && !(ux3.list(WALLET_PUB)[0].attempts || []).length, 'and the record is left as it was');
+
+  // At most three steps for one burn: after the third the record stops offering it.
+  const w4 = makeWorld(); const ux4 = makeUx(w4, MULTI);
+  await ux4.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  await toRejected(w4, ux4);
+  for (let i = 0; i < 2; i++) {
+    w4.setUtxos([{ txid: String(i + 2).repeat(64).slice(0, 64), vout: 0, value: 60_000 + i }]);
+    const r = await ux4.retryRejected(WALLET_PUB, TNOTE.nullifier);
+    ok(r.stage === 'covered' && r.attempts.length === i + 1, `step ${i + 2} is allowed`);
+    const sg = await ux4.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+    await ux4.advance(WALLET_PUB, TNOTE.nullifier);
+    w4.mineRevealTxid(sg.mint.revealTxid);
+    await ux4.advance(WALLET_PUB, TNOTE.nullifier);
+    await ux4.advance(WALLET_PUB, TNOTE.nullifier);
+  }
+  ok(ux4.list(WALLET_PUB)[0].stage === 'mint-rejected', 'refused three times');
+  let capped = null; try { await ux4.retryRejected(WALLET_PUB, TNOTE.nullifier); } catch (e) { capped = e.message; }
+  ok(/sent 3 times/.test(capped || ''), 'and it is not sent a fourth time here');
+}
+
 // ---- recovery of a tETH settle: asset and amount net of the relay fee ----
 {
   const world = makeWorld();

@@ -65,7 +65,8 @@ test('a bridge out: its step, its press, and its Ethereum block', () => {
   assert.equal(r.asset, 'teth'); assert.equal(r.amount, 490000000n); assert.equal(r.at, 1);
   assert.equal(r.ethTx, '0x' + 'ff'.repeat(32)); assert.equal(r.ethBlock, 26_225_900); assert.equal(r.href, '/#private/bitcoin');
   assert.equal(outDue(outRec({ stage: 'covered' })), 'Send to Bitcoin');
-  assert.equal(outDue(outRec({ stage: 'mint-rejected' })), 'Look at it');
+  assert.equal(outDue(outRec({ stage: 'mint-rejected' })), 'Send it again');
+  assert.equal(outDue(outRec({ stage: 'mint-rejected', attempts: [{}, {}] })), 'Look at it', 'after the third step the front page offers none');
   assert.equal(outDue(outRec({ settle: { claimIdVerified: false } })), 'Look at it');
   assert.equal(outDue(outRec({ stage: 'mint-submitted', lastError: { message: 'x' }, errorCount: 6, feeWait: true })), '', 'a fee wait is not the holder’s');
   assert.equal(outRow(outRec({ stage: 'mint-submitted', mint: { revealTxid: '12'.repeat(32) } })).btcTx, '12'.repeat(32));
