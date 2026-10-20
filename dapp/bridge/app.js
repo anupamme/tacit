@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine } from '/bridge/track.js?cb=089731ca';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan } from '/bridge/track.js?cb=807ffc73';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -25,7 +25,7 @@ const ago = (t) => {
 };
 
 // ── live: the two proofs, and the TAC that has crossed ──────────────────────────────────────────────────────────────────
-const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, cadence: null, cadenceAt: 0, txs: new Map(), at: 0 };
+const LIVE = { btcAttested: null, btcTip: null, btcTipApi: null, btcConfs: null, ethCovered: null, ethHead: null, burns: null, cadence: null, cadenceAt: 0, txs: new Map(), at: 0 };
 
 async function readProofs() {
   // each reading is drawn as it arrives, so a slow one holds up only its own figure
@@ -37,11 +37,14 @@ async function readProofs() {
       if (Number.isInteger(s.bridgeBurns)) LIVE.burns = s.bridgeBurns;
     }),
     read(`${API}/reflection/eth-state/covers?network=mainnet&block=1`, (c) => { if (Number.isInteger(c.bestBlock)) LIVE.ethCovered = c.bestBlock; }),
+    // Ethereum's own head, to say how far behind it that proof is
+    rpc('eth_blockNumber', []).then((h) => { LIVE.ethHead = Number(BigInt(h)); paintProofs(); }).catch(() => {}),
     // Bitcoin's own tip (the status's tipHeight is the reflection's view of it)
     read(`${ESPLORA}/blocks/tip/height`, (h) => { if (Number.isInteger(h)) LIVE.btcTip = h; }),
     // how often a proof of Bitcoin lands on Ethereum: the median gap between the day's attestations. It moves slowly and the
     // feed is 15 KB, so it is read every ten minutes, not with each minute's figures.
-    ...(Date.now() - LIVE.cadenceAt > 10 * 60e3 ? [read(`${API}/flow`, (f) => { LIVE.cadenceAt = Date.now(); const m = medianGapMin(f?.events?.attests); if (m) LIVE.cadence = m; })] : []),
+    // The feed also carries the API's own view of Bitcoin's tip, the stand-in for mempool.space's when that does not answer.
+    ...(Date.now() - LIVE.cadenceAt > 10 * 60e3 ? [read(`${API}/flow`, (f) => { LIVE.cadenceAt = Date.now(); const m = medianGapMin(f?.events?.attests); if (m) LIVE.cadence = m; if (Number.isInteger(f?.now?.btc)) LIVE.btcTipApi = f.now.btc; })] : []),
   ]);
   LIVE.at = Date.now();
 }
@@ -54,14 +57,26 @@ function medianGapMin(times) {
   return Math.max(1, Math.round(gaps[Math.floor(gaps.length / 2)]));
 }
 
-// What the chosen way waits on, and for about how long: 24 Bitcoin blocks, then the next proof; or Ethereum's finality.
+// How far behind its chain's head each proof is: Bitcoin's in blocks (it is kept `confirmations` deep by design), Ethereum's in time.
+// Bitcoin's tip is the higher of what the two sources last said, so one that stops answering cannot hold it back.
+const btcLag = () => { const tips = [LIVE.btcTip, LIVE.btcTipApi].filter((t) => t != null); return tips.length && LIVE.btcAttested != null ? Math.max(...tips) - LIVE.btcAttested : null; };
+const ethLag = () => (LIVE.ethHead != null && LIVE.ethCovered != null ? Math.max(0, LIVE.ethHead - LIVE.ethCovered) : null);
+// Only a lag well past the usual reads as slow: Bitcoin's by 12 blocks (two hours) over its depth, Ethereum's by 1,800 blocks (six hours),
+// the figure the front page warns at.
+const btcSlow = () => { const l = btcLag(); return l != null && l > (LIVE.btcConfs ?? 24) + 12; };
+const ethSlow = () => { const l = ethLag(); return l != null && l > 1800; };
+
+// What the chosen way waits on, and for about how long: 24 Bitcoin blocks, then the next proof; or Ethereum's finality, the proof that
+// covers the burn, and the Bitcoin step with its confirmations (the front page says 'a few hours' for the whole way). One proof carries
+// both chains, so when it is running late both ways say so.
 function paintWait() {
   const el = $('#bt-wait');
   if (!el) return;
   const confs = LIVE.btcConfs ?? 24, hours = Math.round(confs / 6);
+  const late = btcSlow() ? `. Right now the proof is about ${Math.round((btcLag() - confs) / 6)} hours behind, so it takes longer` : '';
   el.innerHTML = PICK.dir === 'in'
-    ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof (about every ${LIVE.cadence || 30} min)`
-    : 'About 13 minutes for Ethereum to finalize, then you sign the Bitcoin mint, paid with a little BTC from your address';
+    ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof (about every ${LIVE.cadence || 30} min)${late}`
+    : `A few hours: Ethereum finalizes (about 13 min), the next proof covers it, then you sign the Bitcoin step, paid with a little BTC from your address${late}`;
 }
 
 function paintProofs() {
@@ -70,23 +85,26 @@ function paintProofs() {
   if (LIVE.ethCovered != null) set('[data-live="eth"]', int(LIVE.ethCovered));
   if (LIVE.btcConfs != null) set('[data-live="confs"]', int(LIVE.btcConfs));
   if (LIVE.burns != null) set('[data-live="burns"]', int(LIVE.burns));
-  const lag = LIVE.btcTip != null && LIVE.btcAttested != null ? LIVE.btcTip - LIVE.btcAttested : null;
+  const lag = btcLag(), behind = ethLag();
   const b = $('#pf-btc');
-  // the proof sits `confirmations` deep by design, so only a lag well past that depth reads as slow
-  if (b) b.dataset.state = LIVE.btcAttested == null ? 'off' : lag != null && lag > (LIVE.btcConfs ?? 24) + 12 ? 'slow' : 'on';
+  if (b) b.dataset.state = LIVE.btcAttested == null ? 'off' : btcSlow() ? 'slow' : 'on';
   const e = $('#pf-eth');
-  if (e) e.dataset.state = LIVE.ethCovered == null ? 'off' : 'on';
+  if (e) e.dataset.state = LIVE.ethCovered == null ? 'off' : ethSlow() ? 'slow' : 'on';
   const lagEl = $('#pf-lag');
-  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? 'at the tip' : `${int(lag)} behind Bitcoin’s tip`;
+  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? ' · at the tip' : ` · ${int(lag)} behind Bitcoin’s tip`;
+  const eLag = $('#pf-elag');
+  if (eLag && behind != null) eLag.textContent = behind < 10 ? ' · at the head' : ` · ${ethSpan(behind)} behind the head`;
   paintWait();
+}
+
+async function rpc(method, params) {
+  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': bodyType(RPC) }, signal: within(15e3), body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  return (await r.json()).result;
 }
 
 async function readSupply() {
   try {
-    const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': bodyType(RPC) }, signal: within(15e3),
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: TAC_ERC20, data: '0x18160ddd' }, 'latest'] }) });
-    const j = await r.json();
-    const v = BigInt(j.result) / 10n ** 18n;
+    const v = BigInt(await rpc('eth_call', [{ to: TAC_ERC20, data: '0x18160ddd' }, 'latest'])) / 10n ** 18n;
     if (v > 0n) $$('[data-live="supply"]').forEach((e) => { e.textContent = int(v); e.classList.remove('sk'); });
   } catch { /* the line keeps its placeholder */ }
 }
@@ -107,7 +125,7 @@ async function readTxs(rows) {
 const PICK = { asset: 'tac', dir: 'in' };
 
 function readHash() {
-  const [a, d] = location.hash.replace(/^#/, '').split('/');
+  const [a, d] = location.hash.replace(/^#/, '').toLowerCase().split('/');
   if (ROUTES[a]) PICK.asset = a;
   PICK.dir = d === 'out' && ROUTES[PICK.asset].out ? 'out' : 'in';
 }
@@ -133,6 +151,7 @@ function paintTile() {
   const go = $('#bt-go');
   go.href = route.href;
   go.querySelector('span').textContent = route.go;
+  $('.lost a').href = a.in.href;                  // a bridge that cannot be seen is looked for where this asset's sheet is
   paintWait();
   const lim = limitLine(PICK.asset, PICK.dir);
   $('#bt-limit').textContent = lim;

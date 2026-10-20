@@ -53,28 +53,36 @@ const OUT = [
     settle: { txHash: 'ef'.repeat(32), ethBlock: 26_225_750, claimIdVerified: true } },
 ];
 
+// LATE: both proofs far behind their chains (Bitcoin's tip 60 blocks past it, Ethereum's head 3,000 blocks past it)
+let LATE = false, NO_MEMPOOL = false;
+const ETH_COVERED = 26_225_800;
+
 async function mock(ctx) {
   if (LIVE) return;
   await ctx.route('https://api.tacit.finance/**', (route) => {
     const u = new URL(route.request().url());
     const json = (b, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(b) });
     if (u.pathname === '/reflection/status') return json({ attestedHeight: 972_090, tipHeight: 972_093, confirmations: 24, bridgeBurns: 186, foldedCrossoutCount: 7 });
-    if (u.pathname === '/reflection/eth-state/covers') return json({ bestBlock: 26_225_800, confirmedBlock: 26_225_800, covered: true });
+    if (u.pathname === '/reflection/eth-state/covers') return json({ bestBlock: ETH_COVERED, confirmedBlock: ETH_COVERED, covered: true });
     if (u.pathname === '/flow') {                     // the live picture's feed: a day with a few burns, mints and proofs in it
       const t = Math.floor(NOW / 1e3);
       const pt = (dt, k) => ({ t: t - dt, burns: 180 + k, minted: 165 + k, out: 9, att: 972_000 + 10 * k, relay: 972_020 + 10 * k, btc: 972_024 + 10 * k });
-      return json({ asOf: t, windowSec: 86400, now: { btc: 972_093, relay: 972_090, attested: 972_090, burns: 186, minted: 169, crossOuts: 9 },
+      return json({ asOf: t, windowSec: 86400, now: { btc: LATE ? 972_150 : 972_093, relay: 972_090, attested: 972_090, burns: 186, minted: 169, crossOuts: 9 },
         series: [pt(80000, 0), pt(60000, 2), pt(30000, 4), pt(5000, 6)], events: { attests: [0, 1, 2, 3, 4, 5].map((k) => t - 9000 - k * 1800) } });
     }
     return json({ error: 'not found' }, 404);
   });
   await ctx.route('https://mempool.space/**', (route) => {
     const u = route.request().url();
-    const body = u.includes(BURN_TX) ? { confirmed: true, block_height: 972_100 } : u.includes(MINT_TX) ? { confirmed: false } : u.endsWith('/tip/height') ? 972_093 : {};
+    if (NO_MEMPOOL && u.endsWith('/tip/height')) return route.fulfill({ status: 429, headers: { 'access-control-allow-origin': '*' }, body: 'rate limited' });
+    const body = u.includes(BURN_TX) ? { confirmed: true, block_height: 972_100 } : u.includes(MINT_TX) ? { confirmed: false } : u.endsWith('/tip/height') ? (LATE ? 972_150 : 972_093) : {};
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
   });
-  await ctx.route('https://ethereum-rpc.publicnode.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0') }) }));
+  await ctx.route('https://ethereum-rpc.publicnode.com/**', (route) => {
+    const call = route.request().postDataJSON?.() || {};
+    const result = call.method === 'eth_blockNumber' ? '0x' + (ETH_COVERED + (LATE ? 3000 : 60)).toString(16) : '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0');
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, result }) });
+  });
 }
 
 async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false, reduced = false } = {}) {
@@ -110,6 +118,8 @@ try {
     ok((await page.textContent('#pf-btc')).includes('972,090'), 'Bitcoin’s proof on Ethereum, live');
     ok((await page.textContent('#pf-btc')).includes('3 behind Bitcoin’s tip'), 'and how far it is from the tip');
     ok((await page.textContent('#pf-eth')).includes('26,225,800'), 'Ethereum’s proof for Bitcoin, live');
+    ok((await page.textContent('#pf-eth')).includes('12 min behind the head') && await page.getAttribute('#pf-eth', 'data-state') === 'on', 'and how far it is from the head, in minutes');
+    ok(await page.getAttribute('#pf-btc', 'data-state') === 'on' && !(await page.textContent('#bt-wait')).includes('behind'), 'a proof close to its chain is not called slow, and the tile’s wait line adds nothing');
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge', 'TAC from Bitcoin opens the Bridge tab');
     ok((await page.$$('#bt-steps li')).length === 4, 'four steps');
     await page.click('#bt-flip');
@@ -118,11 +128,14 @@ try {
     await page.click('[data-asset="teth"]');
     ok((await page.textContent('#bt-limit')) === '0.01 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
     ok((await page.textContent('#bt-wait')).includes('a little BTC'), 'and that a little BTC from the address pays the mint');
+    ok(/^A few hours: Ethereum finalizes \(about 13 min\), the next proof covers it, then you sign the Bitcoin step/.test(await page.textContent('#bt-wait')), 'the way out says it takes hours: finality, then the proof that covers the burn, then the Bitcoin step, not finality alone');
+    ok(await page.getAttribute('.lost a', 'href') === '/#private/bitcoin', 'and a bridge that cannot be seen is looked for on the Private ETH sheet, where tETH’s are found');
     await page.click('#bt-flip');
     ok((await page.textContent('#bt-go')).includes('Bring tETH back to Ethereum') && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
     await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
+    ok(await page.getAttribute('.lost a', 'href') === '/#lock', 'a cBTC lock that cannot be seen is looked for on the Borrow sheet');
     ok(await page.isHidden('#bt-limit'), 'cBTC has no per-bridge limit line');
     ok(await page.getAttribute('#bt-go', 'href') === '/#lock' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
     ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow sheet’s own: lock, bond, mint, borrow');
@@ -181,7 +194,7 @@ try {
     ok(!!(await page.$('#live-v canvas')), 'the live picture of both chains is drawn');
     ok((await page.textContent('#bt-wait')).includes('About 4 hours') && (await page.textContent('#bt-wait')).includes('about every 30 min'), 'the tile says how long it takes, with the live proof cadence');
     await page.click('#bt-flip');
-    ok((await page.textContent('#bt-wait')).includes('About 13 minutes'), 'and the other way waits for Ethereum to finalize');
+    ok((await page.textContent('#bt-wait')).includes('A few hours: Ethereum finalizes'), 'and the other way waits for Ethereum to finalize, the proof, and the Bitcoin step');
     await page.click('#bt-flip');
     ok(await page.getAttribute('.lost a', 'href') === '/#bridge', 'a bridge that cannot be seen has a way back to the front page’s Find it');
     await page.click('#hood-dir button[data-dir="out"]');
@@ -227,6 +240,32 @@ try {
     }
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the wide drawings scroll inside their frames, not the page');
     ok(errors.length === 0, `no console errors on a phone${errors.length ? ': ' + errors.join(' | ').slice(0, 400) : ''}`);
+    await browser.close();
+  }
+
+  // ── both proofs far behind their chains ──
+  {
+    LATE = true;
+    const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/bridge/#TETH' });
+    await page.waitForFunction(() => document.querySelector('#pf-elag').textContent !== '' && document.querySelector('#pf-lag').textContent !== '', null, { timeout: 20000 });
+    LATE = false;
+    ok(await page.$eval('#bt', (b) => b.dataset.asset) === 'teth', 'a hash in capitals still picks the asset');
+    ok(await page.getAttribute('#pf-btc', 'data-state') === 'slow' && await page.getAttribute('#pf-eth', 'data-state') === 'slow', 'a proof far behind its chain reads as slow, on both lines');
+    ok((await page.textContent('#pf-eth')).includes('10 hours behind the head'), 'Ethereum’s lag is in hours once it is past an hour and a half');
+    ok(/Right now the proof is about 6 hours behind, so it takes longer/.test(await page.textContent('#bt-wait')), 'and the way in says how late the proof is, so the four hours are not promised');
+    await page.click('#bt-flip');
+    ok(/^A few hours: Ethereum finalizes.*Right now the proof is about 6 hours behind, so it takes longer$/.test(await page.textContent('#bt-wait')), 'the way out says so too: one proof carries both chains');
+    ok(errors.length === 0, `no console errors with the proofs behind${errors.length ? ': ' + errors.join(' | ').slice(0, 400) : ''}`);
+    await browser.close();
+  }
+
+  // ── mempool.space does not answer: the API's own view of Bitcoin's tip stands in ──
+  {
+    LATE = true; NO_MEMPOOL = true;
+    const { browser, page, errors } = await openPage({ width: 1280, height: 900 });
+    await page.waitForFunction(() => document.querySelector('#pf-lag').textContent !== '', null, { timeout: 20000 }).catch(() => {});
+    LATE = false; NO_MEMPOOL = false;
+    ok((await page.textContent('#pf-btc')).includes('60 behind Bitcoin’s tip') && await page.getAttribute('#pf-btc', 'data-state') === 'slow', 'with mempool.space refusing, the lag is still read, from the API’s own tip, and a late proof still reads as slow');
     await browser.close();
   }
 

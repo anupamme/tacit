@@ -183,12 +183,17 @@ export function liveLine(row, live) {
   }
   if (row.ethBlock != null && live.ethCovered != null && row.at < 2) {
     if (live.ethCovered >= row.ethBlock) return 'Ethereum’s proof has reached this block';
-    const left = row.ethBlock - live.ethCovered;
-    return `Ethereum block ${row.ethBlock.toLocaleString('en-US')}: the proof is ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} short of it`;
+    return `Ethereum block ${row.ethBlock.toLocaleString('en-US')}: the proof is about ${ethSpan(row.ethBlock - live.ethCovered)} short of it`;
   }
   const tx = row.btcTx && live.txs?.get(row.btcTx);
   if (tx && row.at >= 3) return tx.confirmed ? `In Bitcoin block ${Number(tx.height).toLocaleString('en-US')}` : 'In the mempool, waiting for a block';
   return '';
+}
+
+// A number of Ethereum blocks (12 seconds each) as a time: '20 min', or hours from an hour and a half.
+export function ethSpan(blocks) {
+  const m = Math.max(1, Math.round(Number(blocks) * 12 / 60));
+  return m < 90 ? `${m} min` : `${Math.round(m / 60)} hours`;
 }
 
 // What a row says goes on next and whether it needs the holder: { due, self } (`self`: it goes on with no page open).

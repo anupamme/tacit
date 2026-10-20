@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, ethSpan, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 
@@ -81,6 +81,14 @@ test('every journal in the browser, ordered: what needs its holder, then what is
   assert.deepEqual(rows.map((r) => r.id), ['d', 'a', 'b']);
 });
 
+test('Ethereum blocks read as a time: minutes, then hours from an hour and a half', () => {
+  assert.equal(ethSpan(1), '1 min');
+  assert.equal(ethSpan(100), '20 min');
+  assert.equal(ethSpan(444), '89 min');
+  assert.equal(ethSpan(450), '2 hours');
+  assert.equal(ethSpan(3000), '10 hours');
+});
+
 test('storage that refuses to be read is no bridges', () => {
   assert.deepEqual(readBridges({ get length() { throw new Error('denied'); } }, NOW), []);
   assert.deepEqual(readBridges(null, NOW), []);
@@ -93,7 +101,8 @@ test('where a bridge really is, from the chains', () => {
   assert.equal(liveLine(inRow(inRec({ stage: 'rfolded' }), NOW), { ...live, btcAttested: 972_200 }), '');
   const pending = inRow(inRec({ stage: 'rburn-sent', burnHeight: undefined }), NOW);
   assert.match(liveLine(pending, { ...live, txs: new Map([['bb'.repeat(32), { confirmed: false }]]) }), /mempool/);
-  assert.match(liveLine(outRow(outRec()), live), /the proof is 100 blocks short of it/);
+  assert.match(liveLine(outRow(outRec()), live), /the proof is about 20 min short of it/);
+  assert.match(liveLine(outRow(outRec()), { ...live, ethCovered: live.ethCovered - 900 }), /the proof is about 3 hours short of it/);
   assert.match(liveLine(outRow(outRec()), { ...live, ethCovered: 26_225_900 }), /proof has reached this block/);
   assert.equal(liveLine(inRow(inRec({ stage: 'minted', mintedAt: NOW }), NOW), live), '');
 });

@@ -102,9 +102,10 @@ pinned verifying keys anyone can rebuild from source. No signer set is in the pa
 
 Bitcoin → Ethereum waits for 24 Bitcoin confirmations (about four hours) and then the next proof, which
 lands on Ethereum about every half hour. Ethereum → Bitcoin waits for Ethereum to finalize (about 13
-minutes) and then the Bitcoin mint confirms. A two-step TAC bridge waits for the proof after the move and
-after the burn, usually within a day. [tacit.finance/bridge](https://tacit.finance/bridge/) shows
-the live cadence and follows every bridge a browser has under way.
+minutes), then for the next proof to cover the burn, then for the Bitcoin step to confirm: a few hours in
+all. A two-step TAC bridge waits for the proof after the move and after the burn, usually within a day.
+[tacit.finance/bridge](https://tacit.finance/bridge/) shows the live cadence and follows every bridge a
+browser has under way.
 
 ## The assets
 

@@ -101,7 +101,7 @@
 //   bridge   the TAC sheet's Bridge: stubbed TAC notes on Bitcoin listed (one over the limit refused), a tracked note checks out
 //            as one Bitcoin transaction but waits for sats for its fee, bridges under way show their steps and actions, and
 //            Recover files its claim
-//   xobridge the tETH sheet's To Bitcoin tab: hidden until enabled by a local setting (a deep link to it then falls back) unless a bridge is under way;
+//   xobridge the tETH sheet's To Bitcoin tab: there unless a local setting switches it off (a deep link to it then falls back) or a bridge is under way;
 //            a tETH balance (stubbed notes) is quoted the relay fee, the Bitcoin fee and the time, refused over the limit and under the
 //            minimum, and held back until the key's Bitcoin address has sats for the Bitcoin step and the box is ticked; bridges under
 //            way (seeded in tacit.js's journal) show their steps and actions, a burn not yet seen to land is cancelled only after
