@@ -58,7 +58,7 @@ const COPY = {
     { h: 'Who can send it', p: 'Anyone. The address is fixed by the contract’s exact code, so the sender cannot change what lands there.' },
   ],
   links: [],
-  verified: false,
+  verified: true,
   created: [],
   payloadUrl: `/tasks/${JOB}-payload.json`,
 };
