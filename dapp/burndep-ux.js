@@ -1,6 +1,6 @@
 import { makeBurnDepositReveal } from './burn-deposit-reveal.js';
 import { makeBurnDepositBroadcaster } from './burndep-broadcast.js';
-import { makeBurnDepositKit, classifyConfidentialTx } from './burn-deposit-bitcoin.js';
+import { makeBurnDepositKit, classifyConfidentialTx, extractTaprootEnvelope, parseCxferEnvelopeFull } from './burn-deposit-bitcoin.js';
 import { makeBtcWallet } from './bitcoin-taproot-wallet.js';
 import { makeBridgeMintRecovery } from './bridge-mint-recovery.js';
 import { buildRecoverClaim } from './bridge-recover.js';
@@ -14,6 +14,7 @@ const MAX_HOPS_BURN_HOME = 256;
 const MAX_HOPS_SOURCE = MAX_HOPS_BURN_HOME - 1;
 const TRACE_WAIT_MAX_S = 60;
 const TRACE_TOTAL_MS = 10 * 60 * 1000;
+const CHECK_HOLD_MS = 20 * 60 * 1000;
 const JOURNAL_PREFIX = 'tacit-burndep-bridge-v1';
 const LEASE_TTL_MS = 30_000;
 const DEST_INDEXES = 8;
@@ -205,13 +206,20 @@ export function makeBurnDepositUx(deps) {
   }
 
   const SPENDS_NOTHING = new Set(['minted', 'reclaimed', 'reclaim-sent', 'recovered', 'recovering', 'not-recorded', 'stopped']);
+  // The move's change (its reveal's vout 1) is what the move set aside to pay the burn's fee (bridgeCost's `later`), so until the
+  // burn is signed it is held for that bridge: another move or send spending it would leave the burn with nothing to pay with.
+  const BEFORE_BURN = new Set(['migrate-signed', 'migrate-sent', 'migrate-confirmed', 'traced']);
+  const moveChangeOf = (rec) => (rec.migrate && rec.migrate.revealTxid && BEFORE_BURN.has(rec.stage) ? recordId(rec.migrate.revealTxid, 1) : null);
   function isReserved(txid, vout) {
     const op = recordId(txid, vout);
     for (const rec of allRecordsAnyWallet()) {
       if (rec.stage === 'reclaim-sent') { const u = rec.reclaim && rec.reclaim.fundingUtxo; if (u && recordId(u.txid, u.vout) === op) return true; continue; }
       if (SPENDS_NOTHING.has(rec.stage)) continue;
       if (rec.id === op) return true;
-      if (rec.migrate && recordId(rec.migrate.fundingUtxo.txid, rec.migrate.fundingUtxo.vout) === op) return true;
+      if (rec.migrate && rec.migrate.fundingUtxo && recordId(rec.migrate.fundingUtxo.txid, rec.migrate.fundingUtxo.vout) === op) return true;
+      if (moveChangeOf(rec) === op) return true;
+      const held = rec.checkWait && rec.checkWait.burn && rec.checkWait.burn.fundingUtxo;
+      if (held && recordId(held.txid, held.vout) === op) return true;
       if (rec.burn && rec.burn.fundingUtxo && recordId(rec.burn.fundingUtxo.txid, rec.burn.fundingUtxo.vout) === op) return true;
       if (rec.burn && Array.isArray(rec.burn.fundingUtxos) && rec.burn.fundingUtxos.some((u) => recordId(u.txid, u.vout) === op)) return true;
     }
@@ -429,12 +437,23 @@ export function makeBurnDepositUx(deps) {
     const cover = list.filter((u) => Number(u.value) >= need).sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(a.value) - Number(b.value));
     return cover[0] || list.slice().sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(b.value) - Number(a.value))[0] || null;
   }
-  async function pickFundingUtxo(address, need = 0) {
+  // `rec`'s own set-aside coin (moveChangeOf) is spent first: the wallet's coin list leaves it out, being held for that bridge.
+  async function pickFundingUtxo(address, need = 0, rec = null) {
+    const own = rec ? await moveChange(rec, address) : null;
+    if (own && own.value >= need) return own;
     const utxos = await chain.getUtxos(address);
     const sorted = await chain.pickSafeCommitSats(utxos);
-    const pick = pickFunding(sorted, need);
+    const pick = pickFunding([own, ...(Array.isArray(sorted) ? sorted : [sorted])], need);
     if (!pick) throw new Error('burndep-ux: no safe funding UTXO available at this address');
     return { txid: pick.txid, vout: pick.vout, value: pick.value };
+  }
+  async function moveChange(rec, address) {
+    if (!moveChangeOf(rec)) return null;
+    const txid = stripHex(rec.migrate.revealTxid).toLowerCase();
+    const [t, out] = await Promise.all([fetchChainJson(`/tx/${txid}`), fetchChainJson(`/tx/${txid}/outspend/1`)]).catch(() => [null, null]);
+    const o = t && Array.isArray(t.vout) ? t.vout[1] : null;
+    if (!o || o.scriptpubkey_address !== address || !out || out.spent !== false) return null;
+    return { txid, vout: 1, value: Number(o.value) };
   }
 
   async function start({ note, walletPriv, fundingUtxo, feeRate = null }) {
@@ -600,32 +619,36 @@ export function makeBurnDepositUx(deps) {
         amount: rec.source.amount, burnHomeTxid: rec.burnHome.txid, chainSpk,
       });
 
-      const rates = await broadcaster.slipstreamRates();
-      const feeRate = burnRateOf(rates);
-      if (maxFeeRate != null && feeRate > Number(maxFeeRate)) {
-        return putRecord({ ...rec, feeWait: { rate: feeRate, max: Number(maxFeeRate), at: now() } });
-      }
       const dest = deriveDest(walletPriv, burnHome, rec.burnHome.txid, rec.source.amount);
       const target = withHex(chainBindingHex());
       const { cx: destCx, cy: destCy } = pool.commitXY(dest.value, dest.blinding);
       const destLeaf = pool.leaf(withHex(tacAssetId), destCx, destCy, dest.owner);
       const envelope = { assetId: withHex(tacAssetId), nullifier: dest.nullifier, destLeaf, target };
 
-      const fundingUtxo = rec.burn && rec.burn.fundingUtxo ? rec.burn.fundingUtxo : await pickFundingUtxo(P.wallet.address(), Math.ceil(300 * feeRate) + 846);
-      const built = await reveal.buildBurnDepositRevealTxs({ prims: P, burnHome, envelope, fundingUtxo, feeRate });
-      const check = await callWorker('POST', '/reflection/burndep/check', {
-        bundle: rec.bundle, assetId: withHex(tacAssetId), burnTxHex: built.revealHex,
-      });
-      // A long history's first check is still reading its blocks: nothing is signed or sent yet, and the next advance asks again
-      // (a holder who pressed Burn it is carried on by the page without a second press, `go`).
-      if (check && check.pending) return putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go) } });
+      // While its check waits, the burn it was asked about is kept and asked about again unchanged, so the API joins the check it
+      // already has running (or reads its answer) rather than starting another; past CHECK_HOLD_MS it is built again at the day's rate.
+      let burn = rec.checkWait && rec.checkWait.burn && now() - Number(rec.checkWait.burn.at || 0) < CHECK_HOLD_MS ? rec.checkWait.burn : null;
+      if (!burn) {
+        const rates = await broadcaster.slipstreamRates();
+        const feeRate = burnRateOf(rates);
+        if (maxFeeRate != null && feeRate > Number(maxFeeRate)) {
+          return putRecord({ ...rec, feeWait: { rate: feeRate, max: Number(maxFeeRate), at: now() } });
+        }
+        const fundingUtxo = rec.burn && rec.burn.fundingUtxo ? rec.burn.fundingUtxo : await pickFundingUtxo(P.wallet.address(), Math.ceil(300 * feeRate) + 846, rec);
+        const built = await reveal.buildBurnDepositRevealTxs({ prims: P, burnHome, envelope, fundingUtxo, feeRate });
+        burn = { hex: built.revealHex, txid: built.revealTxid, feeRate: built.feeRate, fee: built.fee, fundingUtxo, at: now() };
+      }
+      // A long history's first check is still reading its blocks, or the API is busy checking others: nothing is sent yet, and the
+      // next advance asks again (a holder who pressed Burn it is carried on by the page without a second press, `go`).
+      const wait = () => putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go), burn } });
+      let check;
+      try { check = await callWorker('POST', '/reflection/burndep/check', { bundle: rec.bundle, assetId: withHex(tacAssetId), burnTxHex: burn.hex }); }
+      catch (e) { if (Number(e && e.status) === 429) return wait(); throw e; }
+      if (check && check.pending) return wait();
       if (!check.ok || !check.admitted) throw new Error(`burndep-ux: the burn would not be admitted yet: ${(check && check.reason) || (check && check.error) || 'unknown'}`);
 
-      return putRecord({
-        ...rec, stage: 'burn-signed', feeWait: null, checkWait: null,
-        burn: { hex: built.revealHex, txid: built.revealTxid, feeRate: built.feeRate, fee: built.fee, fundingUtxo },
-        envelope, dest,
-      });
+      const { at: _builtAt, ...signed } = burn;
+      return putRecord({ ...rec, stage: 'burn-signed', feeWait: null, checkWait: null, burn: signed, envelope, dest });
     },
     'burn-signed': async (rec) => {
       const tracked = await isLive(rec.burnHome.txid, 0, { fresh: true });
@@ -965,10 +988,57 @@ export function makeBurnDepositUx(deps) {
   // thousand. A transaction whose script is plainly a transfer's is not read: the explorer's answer for the address already says so.
   const TRANSFER_SCRIPT_HEX = 1200;
   const looksLikeTransfer = (tx) => { const w = tx.vin[0] && tx.vin[0].witness; return Array.isArray(w) && w.length >= 3 && String(w[1]).length > TRANSFER_SCRIPT_HEX; };
+  // A move to a burn address (the first step of a bridge the reflection does not track) is a transfer whose vout 0 is the burn
+  // address this key derives for the note its vin 1 spends: told apart from the explorer's answer alone, with no read.
+  function moveSourceOf(tx, P, walletPriv) {
+    const home = tx.vout && tx.vout[0], src = tx.vin[1];
+    if (tx.vin.length !== 2 || !home || home.scriptpubkey_type !== 'v1_p2tr' || Number(home.value) !== 546 || !src || !/^[0-9a-f]{64}$/i.test(String(src.txid || ''))) return null;
+    const source = { txid: lc(src.txid), vout: Number(src.vout) };
+    return reveal.isBurnHomeOf({ prims: P, walletPriv, source, spk: home.scriptpubkey }) ? source : null;
+  }
+  // Rebuilds a bridge from its move alone: the amount opens with the key (the move encrypts it to itself), and must open the burn
+  // address's commitment. A burn address still unspent goes on to its burn; one already burned goes on from that burn; one moved
+  // back has nothing left to bridge.
+  async function recoverMove(tx, source, P, walletPriv) {
+    const id = lc(stripHex(tx.txid));
+    const envHex = extractTaprootEnvelope('0x' + await fetchChainText(`/tx/${id}/hex`));
+    const env = envHex ? parseCxferEnvelopeFull(envHex) : null;
+    if (!env || lc(stripHex(env.asset)) !== lc(stripHex(tacAssetId)) || env.commitments.length !== 1) return null;
+    const anchor = hexToBytesLocal(revHex(source.txid) + bytesToHexLocal(Uint8Array.of(source.vout & 0xff, (source.vout >>> 8) & 0xff, (source.vout >>> 16) & 0xff, source.vout >>> 24)));
+    const ks = deriveAmountKeystreamSelf(walletPriv, anchor, 0), ct = hexToBytesLocal(env.encryptedAmounts[0]);
+    let amount = 0n;
+    for (let i = 7; i >= 0; i--) amount = (amount << 8n) | BigInt(ct[i] ^ ks[i]);
+    if (amount <= 0n) return null;
+    const burnHome = reveal.reconstructBurnHome({ prims: P, walletPriv, source, amount, burnHomeTxid: id, chainSpk: tx.vout[0].scriptpubkey });
+    const pt = secp.ProjectivePoint.fromHex(stripHex(env.commitments[0])).toAffine();
+    if (BigInt(burnHome.cx) !== pt.x || BigInt(burnHome.cy) !== pt.y) return null;
+
+    const next = await fetchChainJson(`/tx/${id}/outspend/0`);
+    if (next && next.spent) {
+      if (!next.status || !next.status.confirmed) throw Object.assign(new Error('burndep-ux: what spent this move is not confirmed yet'), { status: 503 });
+      return recoverFromTxid(next.txid, walletPriv, { amount }).catch((e) => {
+        if (/does not classify as a burn-deposit/.test(String((e && e.message) || e))) return null;
+        throw e;
+      });
+    }
+    const walletPub = secp.getPublicKey(walletPriv, true);
+    const rec = {
+      id: recordId(source.txid, source.vout), network, walletPub: bytesToHexLocal(walletPub), stage: 'migrate-confirmed', createdAt: now(), recoveredAt: now(),
+      migrateConfirmedAt: now(), migrateHeight: Number(tx.status.block_height),
+      source: { txid: source.txid, vout: source.vout, sats: Number(tx.vin[1].prevout && tx.vin[1].prevout.value) || null, assetId: tacAssetId, amount, blinding: 0n },
+      migrate: { commitTxid: lc(tx.vin[0].txid), revealTxid: id },
+      burnHome: {
+        txid: id, vout: 0, value: burnHome.value, cx: burnHome.cx, cy: burnHome.cy, blinding: burnHome.blinding,
+        xonly: bytesToHexLocal(burnHome.xonly), spk: bytesToHexLocal(burnHome.spk), controlBlock: bytesToHexLocal(burnHome.controlBlock), scriptS: bytesToHexLocal(burnHome.scriptS),
+      },
+    };
+    return getRecord(walletPub, rec.id) ? null : putRecord(rec);
+  }
+
   // `left` is how many candidates this call did not get to (past `limit`, or a read that could not be answered just now).
   async function discover({ walletPriv, txs = [], skip = [], limit = 20 } = {}) {
     if (!walletPriv) throw new Error('burndep-ux: discover needs the wallet key');
-    const walletPub = secp.getPublicKey(walletPriv, true);
+    const walletPub = secp.getPublicKey(walletPriv, true), P = freshPrims(walletPriv);
     const have = new Set(loadAll(walletPub).map((r) => r && r.burn && r.burn.txid).filter(Boolean).map(lc));
     const skipped = new Set(skip.map(lc)), found = [], tried = [];
     let left = 0;
@@ -978,10 +1048,11 @@ export function makeBurnDepositUx(deps) {
       if (!tx.status || !tx.status.confirmed || !Array.isArray(tx.vin) || tx.vin.length < 2) continue;
       const first = tx.vin[0] && tx.vin[0].prevout;
       if (first && first.scriptpubkey_type && first.scriptpubkey_type !== 'v1_p2tr') continue;
-      if (looksLikeTransfer(tx)) continue;
+      const moved = looksLikeTransfer(tx) ? moveSourceOf(tx, P, walletPriv) : null;
+      if (looksLikeTransfer(tx) && (!moved || getRecord(walletPub, recordId(moved.txid, moved.vout)))) continue;
       if (tried.length >= limit) { left++; continue; }
       try {
-        const rec = await recoverReflectedBurn(id, walletPriv);
+        const rec = moved ? await recoverMove(tx, moved, P, walletPriv) : await recoverReflectedBurn(id, walletPriv);
         if (rec) found.push(rec);
         tried.push(id);
       } catch (e) { if (!passing(e)) tried.push(id); else left++; }
@@ -1057,7 +1128,7 @@ export function makeBurnDepositUx(deps) {
       amount: rec.source.amount, burnHomeTxid: rec.burnHome.txid, chainSpk,
     });
     const rate = Number(feeRate != null ? feeRate : await chain.getFeeRate('priority'));
-    const fundingUtxo = await pickFundingUtxo(P.wallet.address(), Math.ceil(600 * rate * 1.3) + 846);
+    const fundingUtxo = await pickFundingUtxo(P.wallet.address(), Math.ceil(600 * rate * 1.3) + 846, rec);
     const built = await reveal.buildCancelTx({ prims: P, burnHome, assetId: tacAssetId, walletPriv, walletPub, fundingUtxo, feeRate: rate });
     return { ...built, fundingUtxo: { txid: fundingUtxo.txid, vout: fundingUtxo.vout, value: fundingUtxo.value } };
   }

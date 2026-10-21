@@ -33,6 +33,39 @@ test('without a runner the check runs inline: a bad bundle is refused the same w
   assert.equal('headers' in out, false);
 });
 
+test('the same check asked again joins the one running, then reads its answer, and neither spends a rate-limit token', async () => {
+  let runs = 0, finish;
+  const env = {
+    REGISTRY_KV: kv(), BURNDEP_CHECK_RL_BURST: '1',
+    burnDepositCheckOffThread: () => { runs++; return new Promise((resolve) => { finish = () => resolve({ status: 200, body: { ok: true, admitted: true } }); }); },
+  };
+  const ask = (body) => worker.fetch(new Request('https://api.tacit.finance/reflection/burndep/check?network=mainnet', { method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.7' }, body: JSON.stringify(body) }), env, { waitUntil() {} });
+  const body = { bundle: { burned: { cx: '0x' + '44'.repeat(32), cy: '0x' + '55'.repeat(32) } }, burnTxHex: '0x' + '66'.repeat(40) };
+  const first = ask(body), second = ask(body);
+  await new Promise((r) => setTimeout(r, 50));
+  finish();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.status, 200); assert.equal(b.status, 200);
+  assert.equal(runs, 1, 'one check ran for both asks');
+  const third = await ask(body);
+  assert.equal(third.status, 200); assert.equal((await third.json()).admitted, true);
+  assert.equal(runs, 1, 'a later ask reads the kept answer');
+  const other = await ask({ ...body, burnTxHex: '0x' + '77'.repeat(40) });
+  assert.equal(other.status, 429, 'a new check is still rate limited');
+  assert.match((await other.json()).error, /too many check requests/);
+});
+
+test('a busy or failed check is not kept: the next ask starts it again', async () => {
+  const outs = [{ status: 429, body: { ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }, retryAfter: 15 }, { status: 200, body: { ok: true, admitted: true } }];
+  let runs = 0;
+  const env = { REGISTRY_KV: kv(), burnDepositCheckOffThread: async () => outs[runs++] };
+  const body = { bundle: { burned: { cx: '0x' + '88'.repeat(32), cy: '0x' + '99'.repeat(32) } }, burnTxHex: '0x' + 'aa'.repeat(40) };
+  assert.equal((await post(env, body)).status, 429);
+  await new Promise((r) => setTimeout(r, 0));
+  const r = await post(env, body);
+  assert.equal(r.status, 200); assert.equal(runs, 2);
+});
+
 test('the gate runs one check at a time, queues a few, and turns the rest away', async () => {
   const g = makeGate({ max: 2 });
   const a = await g.enter(); assert.equal(typeof a, 'function'); assert.equal(g.busy, true);

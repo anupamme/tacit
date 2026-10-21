@@ -270,11 +270,11 @@ function parseCxferEnvelopeFull(envHex) {
   let p = head + 64;
   const n = env[p]; p += 1;
   if (![1, 2, 4, 8].includes(n) || p + n * (33 + 8) + 2 > env.length) return null;
-  const commitments = [];
-  for (let i = 0; i < n; i++) { commitments.push(bytesToHex(env.subarray(p, p + 33))); p += 33 + 8; }
+  const commitments = [], encryptedAmounts = [];
+  for (let i = 0; i < n; i++) { commitments.push(bytesToHex(env.subarray(p, p + 33))); encryptedAmounts.push(bytesToHex(env.subarray(p + 33, p + 41))); p += 33 + 8; }
   const rpLen = env[p] | (env[p + 1] << 8); p += 2;
   if (p + rpLen !== env.length) return null;
-  return { asset: bytesToHex(asset), kernelSig: bytesToHex(kernelSig), commitments, rangeProof: bytesToHex(env.subarray(p, p + rpLen)), assetInputCount: atomic ? env[33] : null };
+  return { asset: bytesToHex(asset), kernelSig: bytesToHex(kernelSig), commitments, encryptedAmounts, rangeProof: bytesToHex(env.subarray(p, p + rpLen)), assetInputCount: atomic ? env[33] : null };
 }
 function axferAssetInputCount(envHex) {
   const cx = parseCxferEnvelopeFull(envHex);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-U2ZqX6/ujrth0pCOQFlpD9pQ6Ge9VMWY7voLCUFQ5uA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-xxOt1HkEJ8a4gTNVNcz1arNv+WxFnA0InyavmnhxN6Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -6957,11 +6957,13 @@ const brRefused = (err) => {
 function brErr(e) {
   const m = String(e?.message || e || '');
   if (/another tab/i.test(m)) return 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.';
+  if (/funding utxo too small|no safe funding utxo|insufficient funds for/i.test(m)) return 'This key’s Bitcoin address has no free bitcoin to pay this step’s fee. Add a little bitcoin to it, then try again: your TAC waits where it is.';
   const s = m.replace(/^burndep-ux:\s*/, '');
   return errText(s === m ? e : new Error(s.charAt(0).toUpperCase() + s.slice(1)));
 }
 const brFail = (e) => Object.assign(new Error(brErr(e)), { said: true });
-const BR_THROUGH = { pool: 'a pool or farm trade on Bitcoin', shielded: 'a move through Bitcoin’s shielded pool', arrived: 'TAC that came over from Ethereum', other: 'a kind of transaction the bridge does not follow' };
+const BR_THROUGH = { pool: 'a pool or farm trade on Bitcoin', shielded: 'a move through Bitcoin’s shielded pool', arrived: 'TAC that came over from Ethereum' };
+const brThrough = (s) => (BR_THROUGH[s.through] ? `${BR_THROUGH[s.through]}, which` : 'a transaction');
 const brTransfers = (n) => `${n.toLocaleString('en-US')} transfer${n === 1 ? '' : 's'}`;
 const brLongCount = (s) => (s.hops ? `${s.atLeast ? 'more than ' : ''}${brTransfers(s.hops)}` : `far more than ${brTransfers(s.max)}`);
 function brCheckText(s) {
@@ -6972,7 +6974,7 @@ function brCheckText(s) {
   if (s.name === 'source-ownership') return 'This TAC is not at this key’s own Bitcoin address.';
   if (s.name === 'source-confirmed') return 'This TAC is waiting for its Bitcoin confirmation.';
   if (s.name === 'trace' && s.tooLong) return `This TAC has ${brLongCount(s)} in its history, and the bridge proves up to ${s.max}, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
-  if (s.name === 'trace' && s.unprovable) return `This TAC’s history includes ${BR_THROUGH[s.through] || BR_THROUGH.other}, which the bridge’s proof does not follow, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
+  if (s.name === 'trace' && s.unprovable) return `This TAC’s history includes ${brThrough(s)} the bridge’s proof does not follow, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
   if (s.name === 'trace' && s.reading) return `Reading this TAC’s history from Bitcoin: ${brTransfers(Number(s.read) || 0)} so far. Pick it again in a few minutes and the reading goes on from there.`;
   if (s.name === 'trace') {
     const wait = /retry in ~(\d+)s/.exec(s.detail || '');
@@ -7109,7 +7111,7 @@ function brRow(rec) {
 }
 const brArmed = (id) => BR.drop?.id === id && Date.now() - BR.drop.at < 120e3;
 const brOver = (n) => !n.eligible && /beta limit/.test(n.reason || '');
-const brLongReason = (s) => (s.unprovable ? `Its history includes ${BR_THROUGH[s.through] || BR_THROUGH.other}, which the bridge does not follow.`
+const brLongReason = (s) => (s.unprovable ? `Its history includes ${brThrough(s)} the bridge does not follow.`
   : `${brLongCount(s).replace(/^./, (c) => c.toUpperCase())} in its history; the bridge proves up to ${s.max}.`);
 const brMarkDeep = (n) => (n.eligible && BR.deep.has(brId(n)) ? { ...n, eligible: false, reason: brLongReason(BR.deep.get(brId(n))) } : n);
 const brMarkEmpty = (n) => (n.eligible && BigInt(n.amount) === 0n ? { ...n, eligible: false, reason: 'Holds no TAC' } : n);

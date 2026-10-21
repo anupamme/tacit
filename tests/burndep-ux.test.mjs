@@ -20,6 +20,7 @@ import { recoverClaimDigest } from '../dapp/bridge-recover.js';
 import { makeConfidentialBridgeMint } from '../dapp/confidential-bridge-mint.js';
 import { makeConfidentialTransfer } from '../dapp/confidential-transfer.js';
 import { makeBridgeMintRecovery } from '../dapp/bridge-mint-recovery.js';
+import { makeBtcWallet } from '../dapp/bitcoin-taproot-wallet.js';
 
 let n = 0, failures = 0;
 const ok = (c, m) => { if (c) { console.log('  ok -', m); n++; } else { console.error('  FAIL -', m); failures++; } };
@@ -495,6 +496,88 @@ let rec;
     'a check that is still reading leaves the bridge where it was, with nothing signed or sent and no error, and remembers the press');
   r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
   ok(r.stage === 'burn-signed' && r.checkWait === null && checks === 2, 'asked again, the check answers and the burn is signed');
+}
+
+// ==== the move's change pays its own burn, and is held for it: a busy check is waited out, and the burn asked about again is the
+// same one, so the API joins the check it has rather than starting another ====
+{
+  const world = makeWorld();
+  const ADDR = makeBtcWallet({ priv: WALLET_PRIV, hrp: 'tb', fetchUtxos: async () => [], broadcastTx: async () => '', fetchFeeRate: async () => 1 }).wallet.address();
+  const asked = [];
+  let revealTxid = null, homeSpk = null;
+  const fetchImpl = async (url, opts) => {
+    const u = new URL(url);
+    if (u.pathname === '/reflection/burndep/check') {
+      asked.push(JSON.parse(opts.body).burnTxHex);
+      if (asked.length === 1) return { ok: false, status: 429, headers: { get: () => '15' }, json: async () => ({ ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }) };
+      if (asked.length === 2) return { ok: true, status: 202, json: async () => ({ ok: false, pending: true, retryAfter: 20 }) };
+    }
+    if (revealTxid && u.pathname === `/chain/tx/${revealTxid}/outspend/1`) return { ok: true, status: 200, json: async () => ({ spent: false }) };
+    if (revealTxid && u.pathname === `/chain/tx/${revealTxid}`) return { ok: true, status: 200, json: async () => ({ status: { confirmed: true, block_height: 800 }, vout: [{ value: 546, scriptpubkey: homeSpk }, { value: 4_000, scriptpubkey_address: ADDR }] }) };
+    return world.fetchImpl(url, opts);
+  };
+  const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+  let r = await ux.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  revealTxid = r.migrate.revealTxid; homeSpk = stripHex(r.burnHome.spk);
+  ok(ux.isReserved(revealTxid, 1) === true, 'the move’s change is held for its burn from the start, so no other move or send spends it');
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  const sent = world.broadcasts.length;
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+  ok(r.stage === 'traced' && r.checkWait && r.checkWait.go === true && !r.lastError && world.broadcasts.length === sent,
+    'a busy check is a wait, not an error: nothing is sent, and the press is remembered for the page to carry on');
+  ok(r.checkWait.burn && r.checkWait.burn.fundingUtxo.txid === revealTxid && r.checkWait.burn.fundingUtxo.vout === 1, 'the burn is paid from the move’s own change, which the wallet’s coin list leaves out');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.stage === 'traced' && asked.length === 2 && asked[1] === asked[0], 'asked again while it waits, the burn is the same transaction, so the API can join its check');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.stage === 'burn-signed' && r.checkWait === null && r.burn.hex === asked[0] && r.burn.at === undefined && r.burn.fundingUtxo.txid === revealTxid,
+    'once admitted, the burn it checked is the one signed');
+  ok(ux.isReserved(revealTxid, 1) === true, 'and its coin stays held, now as the burn’s');
+}
+
+// ==== a fresh browser finds a bridge that was moved but not burned, from the key and the chain alone ====
+{
+  const world = makeWorld();
+  const ux1 = makeUx(world, makeMemStorage());
+  const made = await ux1.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  const id = made.migrate.revealTxid;
+  world.setChainHex(id, made.migrate.revealHex);
+  const moveTx = {
+    txid: id, status: { confirmed: true, block_height: 800 },
+    vin: [{ txid: made.migrate.commitTxid, vout: 0, prevout: { scriptpubkey_type: 'v1_p2tr', value: 2_000 }, witness: ['00'.repeat(64), 'aa'.repeat(700), 'c0'.repeat(33)] },
+      { txid: NOTE_TXID, vout: NOTE_VOUT, prevout: { scriptpubkey_type: 'v0_p2wpkh', value: NOTE_SATS } }],
+    vout: [{ scriptpubkey_type: 'v1_p2tr', value: 546, scriptpubkey: made.burnHome.spk }, { scriptpubkey_type: 'v0_p2wpkh', value: 4_000 }],
+  };
+  let next = { spent: false };
+  const fetchImpl = async (url, opts) => (new URL(url).pathname === `/chain/tx/${id}/outspend/0` ? { ok: true, status: 200, json: async () => next } : world.fetchImpl(url, opts));
+  const fresh = makeUx({ ...world, fetchImpl }, makeMemStorage());
+  const d = await fresh.discover({ walletPriv: WALLET_PRIV, txs: [moveTx] });
+  const got = d.found[0];
+  ok(d.found.length === 1 && got.id === made.id && got.stage === 'migrate-confirmed' && got.source.amount === NOTE_AMOUNT
+    && got.burnHome.cx === made.burnHome.cx && got.burnHome.cy === made.burnHome.cy && got.burnHome.spk === made.burnHome.spk,
+    'a move this browser has no record of is rebuilt: its amount opens with the key and opens the burn address’s commitment');
+  ok(fresh.isReserved(id, 1) === true, 'the rebuilt bridge holds its move’s change for its burn');
+  const again = await fresh.discover({ walletPriv: WALLET_PRIV, txs: [moveTx] });
+  ok(again.found.length === 0 && again.tried.length === 0, 'a move already recorded is not read again');
+  world.setMigrateConfirmed(true);
+  world.setBurnHomeOnChain(id, made.burnHome.spk);
+  let r = await fresh.advance(got.walletPub, got.id);
+  r = await fresh.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+  ok(r.stage === 'burn-signed', 'and it goes on to its burn as if this browser had made it');
+  const stranger = await makeUx({ ...world, fetchImpl }, makeMemStorage()).discover({ walletPriv: new Uint8Array(32).fill(0x55), txs: [moveTx] });
+  ok(stranger.found.length === 0 && stranger.tried.length === 0, 'another key does not take the move for its own, and reads nothing for it');
+  next = { spent: true, txid: 'ab'.repeat(32), status: { confirmed: true } };
+  const back = await makeUx({ ...world, fetchImpl }, makeMemStorage()).discover({ walletPriv: WALLET_PRIV, txs: [moveTx] });
+  ok(back.found.length === 0 && back.tried.includes(id), 'a move whose burn address was spent by something other than a burn (moved back) has nothing to rebuild');
 }
 // ==== hop-limit refusal (post-migrate: the burn-home is always one hop deeper than its source) ====
 {

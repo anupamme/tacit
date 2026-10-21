@@ -180,6 +180,15 @@ export function makeBurnDepositReveal({ pool, secp, prims: defaultPrims = null }
     }
   }
 
+  // Whether `spk` (hex) is the burn-home this key moves the note at `source` to: how a move found on chain is matched before its
+  // amount is known.
+  function isBurnHomeOf({ prims, walletPriv, source, spk } = {}) {
+    const P = primsOf(prims);
+    const K1 = deriveBurnHomeKey({ walletPriv, noteTxid: source.txid, noteVout: Number(source.vout) }, { sha256: P.sha256 });
+    const home = P.p2trScript(P.tweakedOutputKey(P.TAP_NUMS, P.tapLeafHash(homeScriptS(K1.xonly))).Q_xonly);
+    return lc(P.bytesToHex(home).replace(/^0x/, '')) === lc(stripHex(spk));
+  }
+
   function reconstructBurnHome({ prims, walletPriv, source, amount, burnHomeTxid, chainSpk } = {}) {
     const P = primsOf(prims, MIGRATE_NEED);
     if (!source || !/^[0-9a-fA-F]{64}$/.test(stripHex(source.txid || ''))) throw new Error('burn-deposit-reveal: source.txid (display hex) required');
@@ -402,7 +411,7 @@ export function makeBurnDepositReveal({ pool, secp, prims: defaultPrims = null }
     }
   }
 
-  return { deriveBurnHomeKey, planMigrationToBurnHome, buildMigrationTxs, reconstructBurnHome, planBurnDepositReveal, buildBurnDepositRevealTxs, buildCancelTx };
+  return { deriveBurnHomeKey, planMigrationToBurnHome, buildMigrationTxs, isBurnHomeOf, reconstructBurnHome, planBurnDepositReveal, buildBurnDepositRevealTxs, buildCancelTx };
 }
 
 function hexToBytesLocal(h) { const s = String(h).replace(/^0x/, ''); const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16); return a; }

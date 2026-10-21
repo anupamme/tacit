@@ -2436,27 +2436,52 @@ async function handleBridgeRecoverMark(req, env, url, cors) {
 // slightly higher, which the same forward-extension logic closes at fold time, so this is a strong predictor,
 // not an eternal guarantee. Permissionless and side-effect-free: nothing is written, and the guest re-verifies
 // everything in-zkVM regardless of what this answers.
+// One check per distinct request at a time. A page answered 202 asks again with the same body: that ask joins the check still
+// running, or reads its answer for BURNDEP_CHECK_KEEP_MS after, rather than starting another (each takes a place in the thread's
+// one-at-a-time queue and tens of seconds of CPU). Only new work spends a rate-limit token.
+const _burndepChecks = new Map(); // `${network}:${sha256(body)}` -> { work, out, at }
+const BURNDEP_CHECK_KEEP_MS = 10 * 60_000;
+function _burndepCheckFor(key) {
+  const t = Date.now();
+  for (const [k, e] of _burndepChecks) if (e.out && t - e.at > BURNDEP_CHECK_KEEP_MS) _burndepChecks.delete(k);
+  return _burndepChecks.get(key) || null;
+}
 async function handleBurnDepositCheck(req, env, url, cors) {
   if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 500, cors);
-  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
-  const rl = await proveRateLimit(env, ip, 'burndep-check', Number(env.BURNDEP_CHECK_RL_BURST || 10), Number(env.BURNDEP_CHECK_RL_REFILL_MS || 60000));
-  if (!rl.ok) return jsonResponse({ ok: false, error: `too many check requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
-  let body;
-  try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
-  // The check verifies every hop of the note's lineage (range proofs, kernels, the header chain) in plain JavaScript: tens
-  // of seconds of CPU for a deep lineage, which on this thread holds every other request and the health check with it.
-  // The server runs it on a worker thread (env.burnDepositCheckOffThread, server/burndep-check-thread.mjs); without one
-  // (tests, the in-memory driver) it runs here.
-  const work = env.burnDepositCheckOffThread ? env.burnDepositCheckOffThread(network, body) : burnDepositCheckOutcome(env, network, body);
+  let text, body;
+  try { text = await req.text(); body = JSON.parse(text); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  const key = `${network}:${bytesToHex(sha256(new TextEncoder().encode(text)))}`;
+  let entry = _burndepCheckFor(key);
+  if (!entry) {
+    // Kept before the rate limit is read, so an identical ask arriving meanwhile joins this one rather than racing it.
+    let start;
+    const e = entry = { work: new Promise((resolve) => { start = resolve; }), out: null, at: Date.now() };
+    _burndepChecks.set(key, e);
+    // A full queue, a refusal, or a thread that failed or was stopped, is no answer to keep: the next ask starts the check again.
+    const drop = () => { if (_burndepChecks.get(key) === e) _burndepChecks.delete(key); };
+    e.work.then((out) => { if (out && out.status < 500 && out.status !== 429) { e.out = out; e.at = Date.now(); } else drop(); }, drop);
+    const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+    const rl = await proveRateLimit(env, ip, 'burndep-check', Number(env.BURNDEP_CHECK_RL_BURST || 10), Number(env.BURNDEP_CHECK_RL_REFILL_MS || 60000));
+    if (!rl.ok) {
+      const body429 = { ok: false, error: `too many check requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter };
+      start({ status: 429, body: body429, retryAfter: rl.retryAfter });
+      return jsonResponse(body429, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+    }
+    // The check verifies every hop of the note's lineage (range proofs, kernels, the header chain) in plain JavaScript: tens
+    // of seconds of CPU for a deep lineage, which on this thread holds every other request and the health check with it.
+    // The server runs it on a worker thread (env.burnDepositCheckOffThread, server/burndep-check-thread.mjs); without one
+    // (tests, the in-memory driver) it runs here.
+    start(env.burnDepositCheckOffThread ? env.burnDepositCheckOffThread(network, body) : burnDepositCheckOutcome(env, network, body));
+  }
   // A deep lineage's first check reads one Bitcoin block per transfer (each kept for good after, burndep-admission.js), which can
   // take longer than a request may stay open behind the gateway. Past BURNDEP_CHECK_ANSWER_MS this answers 202 and the check goes
-  // on, so asking again a little later finds its blocks read and answers at once.
+  // on, so asking again a little later joins it, or finds its answer.
   let timer;
   const budget = Math.max(5_000, Number(env.BURNDEP_CHECK_ANSWER_MS) || 45_000);
-  const out = await Promise.race([work, new Promise((resolve) => { timer = setTimeout(() => resolve(null), budget); })]).finally(() => clearTimeout(timer));
+  const out = entry.out || await Promise.race([entry.work, new Promise((resolve) => { timer = setTimeout(() => resolve(null), budget); })]).finally(() => clearTimeout(timer));
   if (!out) {
-    work.catch(() => {});
+    entry.work.catch(() => {});
     return jsonResponse({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment' }, 202, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '20' });
   }
   const headers = { ...cors, 'Cache-Control': 'no-store', ...(out.retryAfter ? { 'Retry-After': String(out.retryAfter) } : {}) };
