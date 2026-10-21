@@ -541,6 +541,89 @@ let rec;
   ok(ux.isReserved(revealTxid, 1) === true, 'and its coin stays held, now as the burn’s');
 }
 
+// ==== three moved bridges, two free coins, their moves' change spent elsewhere (user report 2026-10-21): each burn holds a coin while
+// its check waits; once a hold runs out its own bridge picks the coin again and nobody else is kept from it, and a bridge with no free
+// coin left waits for the others' change rather than failing ====
+{
+  const world = makeWorld();
+  const X = { txid: '71'.repeat(32), vout: 1, value: 102_887 }, Y = { txid: '72'.repeat(32), vout: 12, value: 38_000 };
+  let ux = null, admit = false;
+  const chain = { ...world.chain, getUtxos: async () => [X, Y].filter((c) => !ux.isReserved(c.txid, c.vout)) };
+  const fetchImpl = async (url, opts) => {
+    const u = new URL(url);
+    if (u.pathname === '/reflection/burndep/check' && !admit) return { ok: true, status: 202, json: async () => ({ ok: false, pending: true, retryAfter: 20 }) };
+    if ([X, Y].some((c) => u.pathname === `/chain/tx/${c.txid}/outspend/${c.vout}`)) return { ok: true, status: 200, json: async () => ({ spent: false }) };
+    return world.fetchImpl(url, opts);
+  };
+  const storage = makeMemStorage();
+  ux = makeUx({ ...world, chain, fetchImpl }, storage);
+  let r = await ux.start({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  // Three traced bridges of one key (copies of this one under their own ids: only funding is at stake here).
+  const key = [...storage._raw.keys()].find((k) => k.startsWith('tacit-burndep-bridge-v1:'));
+  const base = JSON.parse(storage.getItem(key))[0];
+  const ids = ['a1', 'a2', 'a3'].map((p) => `${p.repeat(32)}:0`);
+  storage.setItem(key, JSON.stringify(ids.map((id) => ({ ...base, id }))));
+  const go = async (id) => ux.advance(r.walletPub, id, { walletPriv: WALLET_PRIV, go: true });
+  const [a, b, c] = [await go(ids[0]), await go(ids[1]), await go(ids[2])];
+  const coin = (x) => x.checkWait && x.checkWait.burn && x.checkWait.burn.fundingUtxo && x.checkWait.burn.fundingUtxo.txid;
+  ok(coin(a) === Y.txid && coin(b) === X.txid && c.stage === 'traced' && c.checkWait && c.checkWait.fund === 'others' && !c.lastError,
+    'two burns hold the two coins while their checks wait, and the third waits for their change instead of failing');
+  // Twenty-one minutes on: both holds have run out.
+  const aged = JSON.parse(storage.getItem(key)).map((x) => (x.checkWait && x.checkWait.burn ? { ...x, checkWait: { ...x.checkWait, burn: { ...x.checkWait.burn, at: Date.now() - 21 * 60e3 } } } : x));
+  storage.setItem(key, JSON.stringify(aged));
+  ok(!ux.isReserved(X.txid, X.vout) && !ux.isReserved(Y.txid, Y.vout), 'a hold that has run out keeps no coin from anyone');
+  admit = true;
+  const a2 = await go(ids[0]);
+  ok(a2.stage === 'burn-signed' && a2.burn.fundingUtxo.txid === Y.txid && !a2.lastError, 'its own bridge picks its coin again and signs the burn once the check admits it');
+  const c2 = await go(ids[2]);
+  ok(c2.stage === 'burn-signed' && c2.burn.fundingUtxo.txid === X.txid, 'the waiting bridge takes the coin a run-out hold left free');
+  const b2 = await go(ids[1]);
+  ok(b2.stage === 'traced' && b2.checkWait && b2.checkWait.fund === 'others' && !b2.lastError, 'and the one left waits for a burn\'s change, without an error');
+}
+
+// ==== a signed burn whose coin was spent elsewhere goes back to its move and is built again on another coin; a burn Bitcoin has, or a
+// coin it cannot read, is left as it is ====
+{
+  const scenario = async ({ spender, burnKnown }) => {
+    const world = makeWorld();
+    let burnTxid = null, refuse = false;
+    const fetchImpl = async (url, opts) => {
+      const u = new URL(url);
+      if (refuse && u.hostname === 'slipstream.mara.com' && u.pathname === '/api/transactions') return { ok: true, status: 200, json: async () => ({ status: 'failed', message: 'bad-txns-inputs-missingorspent' }), text: async () => '' };
+      if (burnTxid && u.pathname === `/chain/tx/${FUND_TXID_2}/outspend/0`) return spender === 'unreadable' ? { ok: false, status: 503, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ spent: true, txid: spender === 'burn' ? burnTxid : 'ee'.repeat(32), status: { confirmed: true } }) };
+      if (burnTxid && u.pathname === `/chain/tx/${burnTxid}`) return burnKnown ? { ok: true, status: 200, json: async () => ({ status: { confirmed: false } }) } : { ok: false, status: 404, json: async () => ({ error: 'not-found' }) };
+      return world.fetchImpl(url, opts);
+    };
+    const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+    let r = await ux.start({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+    r = await ux.advance(r.walletPub, r.id);
+    world.setMigrateConfirmed(true);
+    r = await ux.advance(r.walletPub, r.id);
+    r = await ux.advance(r.walletPub, r.id);
+    world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+    r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+    burnTxid = r.burn.txid; refuse = true;
+    let after = null, threw = false;
+    try { after = await ux.advance(r.walletPub, r.id); } catch { threw = true; }
+    return { signed: r, after: after || ux.list(r.walletPub).find((x) => x.id === r.id), threw };
+  };
+  const spent = await scenario({ spender: 'other', burnKnown: false });
+  ok(spent.signed.stage === 'burn-signed' && spent.signed.burn.fundingUtxo.txid === FUND_TXID_2, 'sanity: the burn was signed on the wallet coin');
+  ok(!spent.threw && spent.after.stage === 'traced' && !spent.after.burn && spent.after.rebuiltFrom && spent.after.rebuiltFrom.burnTxid === spent.signed.burn.txid && !spent.after.lastError && spent.after.checkWait && spent.after.checkWait.go === true,
+    'a signed burn whose coin another transaction spent goes back to its move, keeping the record and saying why, and the page builds its burn on another coin without a second press');
+  const own = await scenario({ spender: 'burn', burnKnown: false });
+  ok(own.threw && own.after.stage === 'burn-signed' && own.after.burn, 'a coin spent by the burn itself is not taken for another spend: the burn stays signed');
+  const known = await scenario({ spender: 'other', burnKnown: true });
+  ok(known.threw && known.after.stage === 'burn-signed', 'nor is one whose burn Bitcoin already has');
+  const unread = await scenario({ spender: 'unreadable', burnKnown: false });
+  ok(unread.threw && unread.after.stage === 'burn-signed', 'and a coin that cannot be read just now changes nothing');
+}
+
 // ==== a fresh browser finds a bridge that was moved but not burned, from the key and the chain alone ====
 {
   const world = makeWorld();

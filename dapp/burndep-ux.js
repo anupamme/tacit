@@ -210,15 +210,20 @@ export function makeBurnDepositUx(deps) {
   // burn is signed it is held for that bridge: another move or send spending it would leave the burn with nothing to pay with.
   const BEFORE_BURN = new Set(['migrate-signed', 'migrate-sent', 'migrate-confirmed', 'traced']);
   const moveChangeOf = (rec) => (rec.migrate && rec.migrate.revealTxid && BEFORE_BURN.has(rec.stage) ? recordId(rec.migrate.revealTxid, 1) : null);
-  function isReserved(txid, vout) {
+  // A burn built while its check waits holds its coin for CHECK_HOLD_MS. It is sent only once signed (rec.burn), so a hold past that
+  // is spent by nothing: it holds nothing for anyone else, and its own bridge may pick the coin again.
+  const heldBurn = (rec) => (rec && rec.checkWait && rec.checkWait.burn && now() - Number(rec.checkWait.burn.at || 0) < CHECK_HOLD_MS ? rec.checkWait.burn : null);
+  // `except`: a bridge id whose own holds are not counted (that bridge asking whether it may spend a coin itself).
+  function isReserved(txid, vout, except = null) {
     const op = recordId(txid, vout);
     for (const rec of allRecordsAnyWallet()) {
+      if (except && rec.id === except) continue;
       if (rec.stage === 'reclaim-sent') { const u = rec.reclaim && rec.reclaim.fundingUtxo; if (u && recordId(u.txid, u.vout) === op) return true; continue; }
       if (SPENDS_NOTHING.has(rec.stage)) continue;
       if (rec.id === op) return true;
       if (rec.migrate && rec.migrate.fundingUtxo && recordId(rec.migrate.fundingUtxo.txid, rec.migrate.fundingUtxo.vout) === op) return true;
       if (moveChangeOf(rec) === op) return true;
-      const held = rec.checkWait && rec.checkWait.burn && rec.checkWait.burn.fundingUtxo;
+      const held = heldBurn(rec) && heldBurn(rec).fundingUtxo;
       if (held && recordId(held.txid, held.vout) === op) return true;
       if (rec.burn && rec.burn.fundingUtxo && recordId(rec.burn.fundingUtxo.txid, rec.burn.fundingUtxo.vout) === op) return true;
       if (rec.burn && Array.isArray(rec.burn.fundingUtxos) && rec.burn.fundingUtxos.some((u) => recordId(u.txid, u.vout) === op)) return true;
@@ -441,15 +446,33 @@ export function makeBurnDepositUx(deps) {
     const cover = list.filter((u) => Number(u.value) >= need).sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(a.value) - Number(b.value));
     return cover[0] || list.slice().sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(b.value) - Number(a.value))[0] || null;
   }
-  // `rec`'s own set-aside coin (moveChangeOf) is spent first: the wallet's coin list leaves it out, being held for that bridge.
+  // `rec`'s own coins are spent first, its move's change (moveChangeOf) and the coin its last burn held: the wallet's coin list leaves
+  // them out, being held for that bridge. When every free coin is held for this key's other bridges, that is said (code 'held'),
+  // since each of their burns returns change this one can pay with.
   async function pickFundingUtxo(address, need = 0, rec = null) {
-    const own = rec ? await moveChange(rec, address) : null;
-    if (own && own.value >= need) return own;
+    const own = rec ? await ownCoins(rec, address) : [];
+    const ownPick = pickFunding(own, need);
+    if (ownPick && ownPick.value >= need) return ownPick;
     const utxos = await chain.getUtxos(address);
     const sorted = await chain.pickSafeCommitSats(utxos);
-    const pick = pickFunding([own, ...(Array.isArray(sorted) ? sorted : [sorted])], need);
-    if (!pick) throw new Error('burndep-ux: no safe funding UTXO available at this address');
+    const pick = pickFunding([...own, ...(Array.isArray(sorted) ? sorted : [sorted])], need);
+    if (!pick) {
+      const others = rec && loadAll(rec.walletPub).some((r) => r.id !== rec.id && ((heldBurn(r) && heldBurn(r).fundingUtxo) || (r.stage === 'burn-signed' && r.burn && r.burn.fundingUtxo)));
+      if (others) throw Object.assign(new Error('burndep-ux: the free bitcoin at this address is held for your other bridges’ burns'), { code: 'held' });
+      throw new Error('burndep-ux: no safe funding UTXO available at this address');
+    }
     return { txid: pick.txid, vout: pick.vout, value: pick.value };
+  }
+  async function ownCoins(rec, address) {
+    const kept = rec.checkWait && rec.checkWait.burn && rec.checkWait.burn.fundingUtxo;
+    const [change, held] = await Promise.all([
+      moveChange(rec, address),
+      // the coin its last burn held, unless another bridge has taken it since (two burns on one coin would leave one stuck)
+      kept && !isReserved(kept.txid, kept.vout, rec.id)
+        ? fetchChainJson(`/tx/${stripHex(kept.txid)}/outspend/${Number(kept.vout)}`).then((o) => (o && o.spent === false ? { txid: stripHex(kept.txid).toLowerCase(), vout: Number(kept.vout), value: Number(kept.value) } : null), () => null)
+        : null,
+    ]);
+    return [change, held].filter(Boolean);
   }
   async function moveChange(rec, address) {
     if (!moveChangeOf(rec)) return null;
@@ -631,14 +654,19 @@ export function makeBurnDepositUx(deps) {
 
       // While its check waits, the burn it was asked about is kept and asked about again unchanged, so the API joins the check it
       // already has running (or reads its answer) rather than starting another; past CHECK_HOLD_MS it is built again at the day's rate.
-      let burn = rec.checkWait && rec.checkWait.burn && now() - Number(rec.checkWait.burn.at || 0) < CHECK_HOLD_MS ? rec.checkWait.burn : null;
+      let burn = heldBurn(rec);
       if (!burn) {
         const rates = await broadcaster.slipstreamRates();
         const feeRate = burnRateOf(rates);
         if (maxFeeRate != null && feeRate > Number(maxFeeRate)) {
           return putRecord({ ...rec, feeWait: { rate: feeRate, max: Number(maxFeeRate), at: now() } });
         }
-        const fundingUtxo = rec.burn && rec.burn.fundingUtxo ? rec.burn.fundingUtxo : await pickFundingUtxo(P.wallet.address(), Math.ceil(300 * feeRate) + 846, rec);
+        let fundingUtxo = rec.burn && rec.burn.fundingUtxo ? rec.burn.fundingUtxo : null;
+        // Every free coin held for this key's other burns is a wait, not a failure: their change comes back, and the page asks again.
+        if (!fundingUtxo) {
+          try { fundingUtxo = await pickFundingUtxo(P.wallet.address(), Math.ceil(300 * feeRate) + 846, rec); }
+          catch (e) { if (e && e.code === 'held') return putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go), fund: 'others' } }); throw e; }
+        }
         const built = await reveal.buildBurnDepositRevealTxs({ prims: P, burnHome, envelope, fundingUtxo, feeRate });
         burn = { hex: built.revealHex, txid: built.revealTxid, feeRate: built.feeRate, fee: built.fee, fundingUtxo, at: now() };
       }
@@ -658,7 +686,18 @@ export function makeBurnDepositUx(deps) {
       const tracked = await isLive(rec.burnHome.txid, 0, { fresh: true });
       if (tracked === true) return putRecord({ ...rec, stage: 'stopped', stoppedAt: now(), stoppedWhy: 'tracked' });
       if (tracked === null) return rec;
-      await broadcaster.submitToSlipstream(rec.burn.hex);
+      try { await broadcaster.submitToSlipstream(rec.burn.hex); }
+      catch (e) {
+        // A signed burn whose coin another transaction has spent can never be mined: when Bitcoin plainly has neither the burn nor its
+        // coin unspent, the bridge goes back to its move (the burn address untouched) and builds its burn on another coin.
+        const u = rec.burn.fundingUtxo;
+        const out = u ? await fetchChainJson(`/tx/${stripHex(u.txid)}/outspend/${Number(u.vout)}`).catch(() => null) : null;
+        if (out && out.spent === true && out.txid && lc(stripHex(out.txid)) !== lc(stripHex(rec.burn.txid)) && (await chainTxState(rec.burn.txid)) === 'absent') {
+          const { burn, envelope, ...rest } = rec;
+          return putRecord({ ...rest, stage: 'traced', checkWait: { at: now(), go: true }, lastError: null, errorCount: 0, rebuiltFrom: { burnTxid: burn.txid, coinSpentBy: lc(stripHex(out.txid)), at: now() } });
+        }
+        throw e;
+      }
       return putRecord({ ...rec, stage: 'burn-submitted', submittedAt: now() });
     },
     'burn-submitted': async (rec) => {
