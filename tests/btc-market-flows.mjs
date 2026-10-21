@@ -73,7 +73,7 @@ const SETUP = () => {
   };
   W.ctx = (aid = AID) => ({
     aid,
-    asset: () => ({ ticker: 'TAC', decimals: 8, identityHtml: '<b>TAC</b>', markUnit: 200, change24h: -1.5, lastTradeTs: now - 600, vol24Sats: 100000, mcapSats: 1e9, holders: 12 }),
+    asset: () => ({ ticker: W.ticker || 'TAC', decimals: 8, identityHtml: '<b>TAC</b>', markUnit: 200, change24h: -1.5, lastTradeTs: now - 600, vol24Sats: 100000, mcapSats: 1e9, holders: 12 }),
     listings: () => W.listings,
     loadListings: async () => { rec('loadListings', {}); },
     loadBids: async () => W.bids,
@@ -344,6 +344,17 @@ await test('a bridged note that is not ready is listed with why, and nothing can
 await test('with nothing bridged at the address the dialog says so', async (page) => {
   await openMove(page, `const W = window.__w; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [];`);
   assert.match((await page.textContent('.bm-modal')).replace(/\s+/g, ' '), /No bridged TAC found/);
+});
+
+await test('a bridged tETH note is moved the same way, and everything the dialog says names tETH', async (page) => {
+  await openMove(page, `const W = window.__w; W.ticker = 'tETH'; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [{ txid: 'bb'.repeat(32), vout: 0, sats: 546, amount: 5000000n, confirmed: true, openErr: null }];`);
+  assert.match((await page.textContent('[data-k=bridged]')).replace(/\s+/g, ' '), /^\s*tETH you bridged to Bitcoin sits at your Taproot address/);
+  const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Move 0\.05 tETH here/); assert.match(t, /sends your bridged tETH to your own trading address/); assert.doesNotMatch(t, /TAC/);
+  await modalPrimary(page);
+  const done = await waitModal(page, /Moved|Not moved/);
+  assert.match(done, /Moved/); assert.match(done, /then the tETH shows here/);
+  assert.deepEqual((await calls(page, 'move')).map((c) => c.args), ['bb'.repeat(32)]);
 });
 
 await test('with too few sats the dialog offers to add them before anything is moved', async (page) => {

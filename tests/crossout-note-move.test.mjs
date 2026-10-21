@@ -148,6 +148,34 @@ console.log('\nThe move itself:');
   ok('it is for mainnet only, and says so before reading anything', /for mainnet/.test(String(err?.message)), String(err?.message));
 }
 
+console.log('\nWhich assets move:');
+{
+  const TAC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', TETH_ID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+  const msg = async (fn) => { try { await fn(); return ''; } catch (e) { return String(e?.message); } };
+  const move = (assetIdHex) => msg(() => dapp.moveBridgedNote({ txid: 'cc'.repeat(32), assetIdHex }));
+  ok('an asset the bridge does not carry is refused before anything is read', /only TAC and tETH/.test(await move(ASSET)));
+  ok('and its notes are not listed', /only TAC and tETH/.test(await msg(() => dapp.bridgedNotes(ASSET))));
+  ok('tETH passes the asset check, and then meets the mainnet check', /for mainnet/.test(await move(TETH_ID)));
+  ok('so does tETH written with its 0x prefix and in capitals', /for mainnet/.test(await move('0x' + TETH_ID.toUpperCase())));
+  ok('a move that names no asset is TAC, as before', /for mainnet/.test(await move(undefined)) && /for mainnet/.test(await move(TAC_ID)));
+
+  // The swap panel says where a bridged token is when it finds nothing to spend.
+  ok('the hint is empty for an asset the bridge does not carry', (await dapp._bridgedSwapHint(ASSET, 'XYZ')) === '');
+  // Each key reads its own Taproot address (the API read is kept for a while per address), so the two cases use two keys.
+  const prior = globalThis.fetch, myPub = dapp.wallet.pub;
+  for (const [label, pub, utxos, named] of [
+    ['dust at the Taproot address', myPub, [{ txid: 'dd'.repeat(32), vout: 0, value: 546, status: { confirmed: true } }], true],
+    ['nothing at it', secp.getPublicKey(hexToBytes('0f'.repeat(32)), true), [], false],
+  ]) {
+    dapp.wallet.pub = pub;
+    globalThis.fetch = async (url, opts) => (/\/address\/(bc1p|tb1p)[0-9a-z]+\/utxo/.test(String(url)) ? new Response(JSON.stringify(utxos), { status: 200, headers: { 'content-type': 'application/json' } }) : prior(url, opts));
+    await dapp.bridgedAtTaproot({ force: true });
+    const hint = await dapp._bridgedSwapHint(TETH_ID, 'tETH');
+    ok(`the hint for tETH with ${label} ${named ? 'names the Taproot address and the move on the Sell side' : 'is empty'}`, named ? /tETH you bridged to Bitcoin sits at your Taproot address.*"Move it here to sell"/.test(hint) : hint === '', hint);
+  }
+  globalThis.fetch = prior; dapp.wallet.pub = myPub;
+}
+
 console.log('\nAn ordinary P2WPKH note:');
 {
   broadcasts = [];
