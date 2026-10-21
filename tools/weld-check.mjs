@@ -103,7 +103,7 @@
 //            Recover files its claim
 //   xobridge the tETH sheet's To Bitcoin tab: there unless a local setting switches it off (a deep link to it then falls back) or a bridge is under way;
 //            a tETH balance (stubbed notes) is quoted the relay fee, the Bitcoin fee and the time, refused over the limit and under the
-//            minimum, and held back until the key's Bitcoin address has sats for the Bitcoin step and the box is ticked; bridges under
+//            minimum, and started once the box is ticked, with a request for the Bitcoin step's sats when the key's Bitcoin address has none; bridges under
 //            way (seeded in tacit.js's journal) show their steps and actions, a burn not yet seen to land is cancelled only after
 //            Ethereum is looked at, starting one sends a bridge-burn job and leaves a record behind when the settle is not seen, and a
 //            send the relay refuses at submit offers the paying account and leaves no record
@@ -3347,6 +3347,16 @@ await step('xobridge', async () => {
   ok(/Sign it again/.test(rows[3]) && /Try again/.test(rows[3]), `xobridge: a signed pair Bitcoin keeps rejecting offers to be signed again (${rows[3]})`);
   ok(/was not credited/.test(rows[5]) && /Send it again/.test(rows[5]) && /another Bitcoin fee/.test(rows[5]), `xobridge: a Bitcoin step that confirmed and was not credited offers to be sent again, and says it costs a fee (${rows[5]})`);
   ok(!!(await r.page.$('#eth-v1 [data-v1="btc"] .dot.live')), 'xobridge: the To Bitcoin tab carries a dot while a bridge is under way');
+  // A Bitcoin step that is ready while the address holds no coin to pay it waits for sats: its row asks for them and names the sum, offers to check again, and is no failure.
+  await r.page.evaluate(([k, id]) => {
+    const l = JSON.parse(localStorage.getItem(k)), x = l.find((y) => y.id === id);
+    x.lastError = { message: 'crossout-ux: the Bitcoin step needs a free coin of 1214 sats', at: Date.now(), fundWait: true, needSats: 1214, haveSats: 0 }; x.errorCount = 0;
+    localStorage.setItem(k, JSON.stringify(l));
+  }, [`tacit-crossout-bridge-v1:mainnet:${pub}`, '0x' + 'a3'.repeat(32)]);
+  await go(r.page, '#private'); await go(r.page, '#private/bitcoin');
+  await until(r.page, () => /needs one free coin of 1,214 sats/.test(document.querySelectorAll('#eth-v1 .brr')[2]?.textContent || ''), null, 120000);
+  const fundRow = (await r.page.$$eval('#eth-v1 .brr', (xs) => xs[2].textContent.replace(/\s+/g, ' ').trim()));
+  ok(/Add bitcoin/.test(fundRow) && /Check again/.test(fundRow) && !/Try again|Send it anyway/.test(fundRow) && !(await r.page.$('#eth-v1 .brr:nth-child(3) .stp li.bad')), `xobridge: a Bitcoin step waiting for sats asks for them, offers to check again, and is not shown as failed (${fundRow.slice(0, 200)})`);
   // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
   await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   await until(r.page, () => /3 bridges of tETH to Bitcoin are waiting for you\./.test(document.querySelector('#dash')?.textContent || ''), null, 120000)
@@ -3374,13 +3384,16 @@ await step('xobridge', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')} | status: ${await text(r.page, '#v1-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
   const rc0 = (await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ');
   ok(/You get0\.0\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
-  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && await r.page.isDisabled('#xo-go') && await r.page.isHidden('#xo-ackrow'), 'xobridge: with no sats on the key’s Bitcoin address it cannot start, and says how many it needs');
+  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /Add bitcoin to it/.test(rc0) && await r.page.isDisabled('#xo-go') && await r.page.isVisible('#xo-ackrow'), 'xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and where to add them');
+  await r.page.check('#xo-ack');
+  ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: and ticked, it starts with no sats on the address: the Bitcoin step is paid hours later');
+  await r.page.uncheck('#xo-ack');
   // Funded: the box appears, and ticking it enables the button. Each bridge still to sign its mint takes a coin of its own,
   // so there is one coin for each of those and one for this.
   utxos = Array.from({ length: 8 }, (_, i) => ({ txid: (i + 10).toString(16).padStart(2, '0').repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 970000 } }));
   await r.page.click('#xo-recheck');
   await until(r.page, () => !document.querySelector('#xo-ackrow')?.hidden, null, 240000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')}`); });
-  ok(await r.page.isDisabled('#xo-go'), 'xobridge: with sats free, the button still waits for the box to be ticked');
+  ok(await r.page.isDisabled('#xo-go') && !/Add bitcoin to it/.test(await text(r.page, '#xo-rcpt')) && /Keep about \d[\d,]* sats/.test(await text(r.page, '#xo-rcpt')), 'xobridge: with sats free, the button still waits for the box to be ticked, and the request for sats gives way to keeping them');
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: ticked, it can start');
   // The limits.

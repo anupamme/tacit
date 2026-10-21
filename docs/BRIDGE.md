@@ -127,7 +127,7 @@ A TAC note going back in two steps carries up to 255 transfers of history.
 | What a bridge costs | To Bitcoin | Back from Bitcoin |
 | --- | --- | --- |
 | Relay fee | Taken out of the note: the relay's floor for the asset at today's gas (about 0.0005 tETH, 4 TAC). The note must be worth more than it. | None: Tacit covers the Ethereum mint for now |
-| Bitcoin fee | About 900 to 1,200 sats at 1 to 2 sat/vB (a 180 vB reveal, a 154 vB commit, and the 546-sat output the note sits on), paid from the key's own Bitcoin address, which needs one free coin of about twice that until the bridge arrives | About 1,000 sats at 1 to 2 sat/vB (two transactions, each at least 500), paid from the same address |
+| Bitcoin fee | About 900 to 1,200 sats at 1 to 2 sat/vB (a 180 vB reveal, a 154 vB commit, and the 546-sat output the note sits on), paid from the key's own Bitcoin address, which needs one free coin of about twice that when the Bitcoin step is sent, a few hours after the burn. A bridge can start without it: the app asks for the sats when the step is due, and the burn waits until they are there | About 1,000 sats at 1 to 2 sat/vB (two transactions, each at least 500), paid from the same address |
 
 [tacit.finance/bridge](https://tacit.finance/bridge/) shows what each way costs at the live rates. The limits are in
 [`crossout-ux.js`](../dapp/crossout-ux.js) and [`burndep-ux.js`](../dapp/burndep-ux.js); `tests/bridge-track.test.mjs`

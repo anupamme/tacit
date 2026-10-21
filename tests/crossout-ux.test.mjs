@@ -437,14 +437,18 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
 
   world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 400 }]);
   const poor = await ux.preflight({ walletPriv: WALLET_PRIV });
-  ok(!poor.ok && poor.problems.some((p) => p.name === 'funding') && /400 sats/.test(poor.problems[0].detail), 'too few sats is a problem, naming what is there');
+  ok(poor.ok && poor.problems.length === 0 && poor.warnings.some((w) => w.name === 'funding' && /400 sats/.test(w.detail)), 'too few sats is a warning, naming what is there: the sats are only needed hours later, so a bridge may start');
   world.setUtxos([]);
   const none = await ux.preflight({ walletPriv: WALLET_PRIV });
-  ok(!none.ok && none.problems[0].name === 'funding' && /no free coin/.test(none.problems[0].detail), 'no coin at all is a problem');
+  ok(none.ok && none.warnings[0].name === 'funding' && /no free coin/.test(none.warnings[0].detail) && none.needSats > 0, 'no coin at all is a warning too, with what the Bitcoin step will need');
   world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 50_000 }]); world.setUnconfirmed(true);
   const unc = await ux.preflight({ walletPriv: WALLET_PRIV });
-  ok(!unc.ok && unc.problems[0].name === 'funding-unconfirmed', 'a coin that is not confirmed yet is a problem');
+  ok(unc.ok && unc.warnings[0].name === 'funding-unconfirmed', 'a coin that is not confirmed yet is a warning');
   world.setUnconfirmed(false);
+  world.chain.getUtxos = async () => { throw new Error('explorer down'); };
+  const unread = await ux.preflight({ walletPriv: WALLET_PRIV });
+  ok(unread.ok && unread.warnings.map((w) => w.name).join() === 'funding-unreadable', 'an address that cannot be read is a warning, not a stop, and not called empty');
+  world.chain.getUtxos = async () => [{ txid: FUND_TXID, vout: 0, value: 50_000, status: { confirmed: true } }];
 
   world.setStatusDown(true);
   const down = await ux.preflight({ walletPriv: WALLET_PRIV });
@@ -467,7 +471,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   const ux = makeUx(world, MULTI);
   await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
   const one = await ux.preflight({ walletPriv: WALLET_PRIV });
-  ok(!one.ok && one.pending === 1 && one.problems[0].name === 'funding' && /no free coin/.test(one.problems[0].detail), 'a second bridge is not passed on the coin the first one signs its mint from');
+  ok(one.ok && one.pending === 1 && one.warnings[0].name === 'funding' && /no free coin/.test(one.warnings[0].detail), 'a second bridge is told the coin is the first one\'s to sign its mint from, and may still start');
   world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 50_000 }, { txid: FUND_TXID, vout: 1, value: 40_000 }]);
   const two = await ux.preflight({ walletPriv: WALLET_PRIV });
   ok(two.ok && two.pending === 1 && two.haveSats === 40_000, 'with a second coin it passes, checked against that coin');
@@ -1033,6 +1037,28 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   world.chain.getFeeRate = async () => 20;
   const sent = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
   ok(sent.stage === 'mint-signed' && !sent.lastError, 'and once the fee falls the Bitcoin step is signed without any press');
+}
+// A bridge that started with no sats on the address waits for them at the Bitcoin step: a wait on the record, no failed tries, a request that
+// names what is needed, and the step is signed with no press once a coin big enough is there.
+{
+  const world = makeWorld();
+  world.setUtxos([]);
+  const ux = makeUx(world, MULTI);
+  await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  world.setEthCovered(true);
+  await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  let e0 = null;
+  for (let i = 0; i < 8; i++) { try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch (e) { e0 = e; } }
+  const waiting = ux.list(WALLET_PUB)[0];
+  ok(waiting.stage === 'covered' && waiting.lastError?.fundWait === true && !waiting.errorCount && world.broadcasts.length === 0, 'with no coin the Bitcoin step waits: eight checks leave a wait on the record and no failed tries, and nothing is sent');
+  ok(e0?.fundWait === true && waiting.lastError.needSats > 0 && waiting.lastError.haveSats === 0 && /needs a free coin of \d+ sats/.test(waiting.lastError.message), 'the wait names the sats the step needs and what the address holds');
+  world.setUtxos([{ txid: FUND_TXID, vout: 0, value: waiting.lastError.needSats - 1 }]);
+  try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch {}
+  const small = ux.list(WALLET_PUB)[0];
+  ok(small.lastError?.fundWait === true && small.lastError.haveSats === waiting.lastError.needSats - 1 && !small.errorCount, 'a coin one sat short is the same wait, naming what it holds');
+  world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 50_000 }]);
+  const sent = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+  ok(sent.stage === 'mint-signed' && !sent.lastError && !sent.errorCount, 'and once a coin is there the Bitcoin step is signed without any press, the wait cleared');
 }
 // A burn that never landed, whose note went elsewhere, is let go after the relay's own deadlines; a burn that did land is found again from the key.
 {

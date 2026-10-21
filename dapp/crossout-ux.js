@@ -251,17 +251,25 @@ export function makeCrossoutUx(deps) {
       return rec.lastError ? putRecord({ ...result, lastError: null, errorCount: 0 }) : result;
     } catch (e) {
       const cur = getRecord(walletPub, id) || rec;
-      const waiting = !!(e && e.feeWait);
-      putRecord({ ...cur, lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}) }, errorCount: (cur.errorCount || 0) + (waiting ? 0 : 1) });
+      const waiting = !!(e && e.feeWait), funding = !!(e && e.fundWait);
+      putRecord({ ...cur,
+        lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}), ...(funding ? { fundWait: true, needSats: e.needSats, haveSats: e.haveSats } : {}) },
+        errorCount: (cur.errorCount || 0) + (waiting || funding ? 0 : 1) });
       throw e;
     } finally { inFlight.delete(id); releaseLease(id); }
   }
 
-  async function pickFundingUtxo(address) {
+  // The Bitcoin step is paid from one plain coin of the key's own address. A bridge starts without one: the sats are only needed here,
+  // hours after the burn, so a coin that is missing or too small is a wait (`fundWait`, not counted as a failure) that the page
+  // retries and the row turns into a request, never an error that ends the tries.
+  async function pickFundingUtxo(address, needSats) {
     const utxos = await chain.getUtxos(address);
     const sorted = await chain.pickSafeCommitSats(utxos);
     const pick = Array.isArray(sorted) ? sorted[0] : sorted;
-    if (!pick) throw new Error('crossout-ux: no safe funding UTXO available at this address');
+    const haveSats = pick ? Number(pick.value) || 0 : 0;
+    if (!pick || haveSats < needSats) {
+      throw Object.assign(new Error(`crossout-ux: the Bitcoin step needs a free coin of ${needSats} sats at ${address}${pick ? `, the largest holds ${haveSats}` : ''}`), { fundWait: true, needSats, haveSats });
+    }
     return { txid: pick.txid, vout: pick.vout, value: pick.value };
   }
 
@@ -272,15 +280,17 @@ export function makeCrossoutUx(deps) {
     const address = P.wallet.address();
     const skip = new Set(exclude.map((x) => lc(x)));
     const pending = loadAll(secp.getPublicKey(walletPriv, true)).filter((r) => ['settling', 'settled', 'covered'].includes(r.stage) && !skip.has(lc(r.id))).length;
-    let haveSats = 0, confirmed = false;
+    let haveSats = 0, confirmed = false, read = true;
     try {
       const safe = await chain.pickSafeCommitSats(await chain.getUtxos(address));
       const coin = (Array.isArray(safe) ? safe : safe ? [safe] : [])[pending];
       if (coin) { haveSats = Number(coin.value) || 0; confirmed = !coin.status || coin.status.confirmed !== false; }
-    } catch (e) { problems.push({ name: 'funding-unreadable', detail: String((e && e.message) || e) }); }
-    if (!problems.length) {
-      if (haveSats < needSats) problems.push({ name: 'funding', detail: haveSats ? `${haveSats} sats in the ${pending ? 'next' : 'largest'} free coin` : 'no free coin' });
-      else if (!confirmed) problems.push({ name: 'funding-unconfirmed', detail: `${haveSats} sats, not yet confirmed` });
+    } catch (e) { warnings.push({ name: 'funding-unreadable', detail: String((e && e.message) || e) }); read = false; }
+    // The coin pays the Bitcoin step, hours after the burn, so a bridge may start without it: these are warnings, not problems, and
+    // the burn's row asks for the sats again when the step is due.
+    if (read) {
+      if (haveSats < needSats) warnings.push({ name: 'funding', detail: haveSats ? `${haveSats} sats in the ${pending ? 'next' : 'largest'} free coin` : 'no free coin' });
+      else if (!confirmed) warnings.push({ name: 'funding-unconfirmed', detail: `${haveSats} sats, not yet confirmed` });
     }
     let reflection = null, coverage = null;
     try {
@@ -316,7 +326,8 @@ export function makeCrossoutUx(deps) {
         const cost = mintReveal.estimateSats({ feeRate: Math.ceil(Number(feeRate)), dust: P.DUST }).toLocaleString('en-US');
         throw Object.assign(new Error(`crossout-ux: Bitcoin fees are high right now (${Math.round(feeRate)} sat/vB, about ${cost} sats for this step), so it is waiting for them to fall under ${feeCeiling}`), { feeWait: true });
       }
-      const fundingUtxo = rec.mint && rec.mint.fundingUtxo ? rec.mint.fundingUtxo : await pickFundingUtxo(P.wallet.address());
+      const needSats = mintReveal.estimateSats({ feeRate: Math.max(1, Number(feeRate) || 3), dust: P.DUST });
+      const fundingUtxo = rec.mint && rec.mint.fundingUtxo ? rec.mint.fundingUtxo : await pickFundingUtxo(P.wallet.address(), needSats);
       const built = mintReveal.buildCrossoutMintTxs({
         prims: P, assetId: withHex(rec.source.assetId), claimId: rec.settle.claimId, cx: rec.settle.cx, cy: rec.settle.cy,
         destXonly: rec.destXonly, fundingUtxo, feeRate,

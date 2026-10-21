@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-x3uFuoE0Sk8uyxXvlI8WNWGI3V3X4TlqjM+ACVU6/tY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Rw2ynPcuo5iCMZjQjF28HtkD5SiKb1niKhek+6PMYhM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -4951,19 +4951,18 @@ const xoJournal = (pub, a) => {
 const xoWhere = (r) => ({ settling: 'being burned on Ethereum', settled: 'waiting for Bitcoin’s proof on Ethereum to see the burn', covered: 'being sent to Bitcoin', 'mint-signed': 'being sent to Bitcoin',
   'mint-submitted': 'waiting for its Bitcoin confirmation', 'mint-confirmed': 'waiting to be credited to your Bitcoin address' })[r.stage] || 'on its way';
 const xoDue = (r) => (r.stage === 'mint-rejected' ? (xoCanRetry(r) ? 'Send it again' : 'See it') : r.settle?.claimIdVerified === false ? 'Check it again'
+  : r.lastError?.fundWait ? 'Add bitcoin'
   : r.lastError ? (r.stage === 'covered' && /fees are high/i.test(r.lastError.message || '') ? 'Send it anyway' : 'Try again') : '');
 const xoAmtRaw = (r) => { const a = xaOf(r); return `${fmt(brRaw(r.source.amount ?? r.source.value), 8, a?.dp ?? 6)} ${a?.ticker ?? 'tETH'}`; };
 const xoFundingText = (pf) => {
   const k = pf.pending || 0, coin = pf.haveSats ? `${fmt(BigInt(pf.haveSats), 8, 8)} BTC` : null, need = `${pf.needSats.toLocaleString('en-US')} sats`;
-  if (!k) return coin ? `The largest free coin on this key’s Bitcoin address holds ${coin}; the Bitcoin step needs one coin of ${need}, kept there until the bridge arrives.`
-    : `This key’s Bitcoin address has no free coin; the Bitcoin step needs one coin of ${need}, kept there until the bridge arrives.`;
+  if (!k) return coin ? `The largest free coin on this key’s Bitcoin address holds ${coin}; the Bitcoin step, a few hours from now, needs one coin of ${need}, kept there until the bridge arrives.`
+    : `This key’s Bitcoin address has no free coin yet; the Bitcoin step, a few hours from now, needs one coin of ${need}, kept there until the bridge arrives.`;
   return `${k === 1 ? 'A bridge under way takes a coin' : `${k} bridges under way take a coin each`} from this key’s Bitcoin address for ${k === 1 ? 'its' : 'their'} Bitcoin step. `
     + (coin ? `The next free coin holds ${coin}; this one needs a coin of ${need}, kept there until it arrives.` : `No other coin is free; this one needs a coin of ${need}, kept there until it arrives.`);
 };
-const xoProblemText = (p, pf, a = XA.teth) => p.name === 'funding' ? html`${xoFundingText(pf)} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a> <button class="link" type="button" id="${a.pre}-recheck">Check again</button>`
-  : p.name === 'funding-unconfirmed' ? 'The sats on this key’s Bitcoin address are waiting for a confirmation. Once they confirm, this can start.'
-  : p.name === 'funding-unreadable' ? 'This key’s Bitcoin address could not be read, so nothing was started. Try again in a minute.'
-  : 'Bitcoin’s proof on Ethereum could not be read, so nothing was started. Try again in a minute.';
+const xoFundNote = (pf, a = XA.teth) => html`${xoFundingText(pf)} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a> <button class="link" type="button" id="${a.pre}-recheck">Check again</button>`;
+const xoProblemText = () => 'Bitcoin’s proof on Ethereum could not be read, so nothing was started. Try again in a minute.';
 const xoPreflight = (ux, pub, exclude = []) => withKey(() => ux.preflight({ walletPriv: walletPriv(), exclude }), pub);
 const xbIs = (r, a) => xoIs(r, a) && (!a.mixed || r?.source?.p2tr === true);
 const xoArrivedLately = (pub, a) => {
@@ -5033,6 +5032,7 @@ const xoFeeShort = (e) => /fee below the current floor|feeGate|below the margina
 function xoErr(e) {
   const m = String(e?.message || e || '').replace(/^crossout-ux:\s*/, '');
   if (/another tab/i.test(m)) return 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.';
+  if (e?.fundWait) return `Still no free coin of ${Number(e.needSats).toLocaleString('en-US')} sats on this key’s Bitcoin address. This goes on by itself once it is there.`;
   if (/funding utxo too small|no safe funding utxo/i.test(m)) return 'This key’s Bitcoin address has no free coin large enough for the Bitcoin step. Add bitcoin to it, then press Try again: the burn is recorded and waits.';
   return errText(m === String(e?.message || e || '') ? e : new Error(m));
 }
@@ -5047,8 +5047,13 @@ const xoNoteText = (r) => ({
   'mint-rejected': xoCanRetry(r) ? html`Confirmed on Bitcoin, but the ${xoTk(r)} was not credited. It can be sent again; that costs another Bitcoin fee.`
     : html`Sent ${(r.attempts || []).length + 1} time${(r.attempts || []).length ? 's' : ''} and not credited. Nothing else is spent. Keep this row and its transaction ids, and <a href="https://github.com/src-company/tacit/issues" target="_blank" rel="noopener">ask for help with them on GitHub ↗</a>.`,
 })[r.stage] || '';
+// The Bitcoin step is ready and the key's address holds no coin big enough to pay it: the burn waits, and this asks for the sats.
+const xoFundRow = (r) => {
+  const need = Number(r.lastError.needSats) || 0, have = Number(r.lastError.haveSats) || 0;
+  return html`The proof has seen the burn. The Bitcoin step needs one free coin of ${need.toLocaleString('en-US')} sats on your Bitcoin address${have ? `, and the largest holds ${have.toLocaleString('en-US')}` : ''}. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin</a>: it is sent by itself once they arrive, while this page is open with your key.`;
+};
 function xoRow(r) {
-  const at = XO_AT[r.stage] ?? 1, failing = !!r.lastError, rejected = r.stage === 'mint-rejected';
+  const fund = r.stage === 'covered' && !!r.lastError?.fundWait, at = XO_AT[r.stage] ?? 1, failing = !!r.lastError && !fund, rejected = r.stage === 'mint-rejected';
   const eth = r.settle?.txHash ? `${SCAN}/tx/${xoHash(r.settle.txHash)}` : null, btc = r.mint?.revealTxid;
   const btn = (kind, label, ghost = true) => html`<button class="btn${ghost ? ' ghost' : ''}" type="button" data-xoact="${kind}" data-xoid="${r.id}">${label}</button>`;
   const high = failing && /fees are high/i.test(r.lastError.message), unsure = !!r.settle && r.settle.claimIdVerified === false;
@@ -5056,13 +5061,14 @@ function xoRow(r) {
     : r.stage === 'settling' ? btn('poll', 'Look again')
     : r.stage === 'covered' && high ? btn('force', 'Send it anyway', false)
     : xoCanRetry(r) ? btn('retry', 'Send it again', false)
+    : fund ? btn('poll', 'Check again')
     : failing && !rejected ? btn('poll', 'Try again') : '';
   const resign = (r.stage === 'mint-signed' || r.stage === 'mint-submitted') && failing && (r.errorCount || 0) >= 3;
   const cancel = r.stage === 'settling' && Date.now() - (r.createdAt || 0) > 2 * 3600e3;
   return html`<li class="actr brr">
     <div class="actr-h"><b class="num">${xoAmt(r)}</b>${btc ? html`<a href="${MEMPOOL}/tx/${btc}" target="_blank" rel="noopener">${short(btc, 6)} ↗</a>` : eth ? html`<a href="${eth}" target="_blank" rel="noopener">${short(xoHash(r.settle.txHash), 6)} ↗</a>` : ''}</div>
     <ol class="stp">${XO_STEPS.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing || rejected ? 'bad' : 'now') : ''))}</ol>
-    <div class="actr-f">${xoNoteText(r)}</div>
+    <div class="actr-f">${fund ? xoFundRow(r) : xoNoteText(r)}</div>
     ${unsure ? html`<div class="actr-f err">The burn’s claim was not matched to its record on Ethereum, so the Bitcoin step is held back. Checking it again rebuilds it from the burn itself.</div>` : ''}
     ${failing ? html`<div class="actr-f err">${xoErr(r.lastError.message)}${r.errorCount > 1 ? ` (${r.errorCount} tries)` : ''}</div>` : ''}
     ${act || resign || cancel ? html`<div class="brr-a">${act}${resign ? btn('resign', 'Sign it again') : ''}${cancel ? btn('cancel', 'Cancel') : ''}</div>` : ''}
@@ -5123,12 +5129,18 @@ async function xoTick(first = false) {
         if (rec.settle?.claimIdVerified !== false) moved.add(xaOf(rec).sheet);
       }
       const sends = rec.stage === 'covered' || rec.stage === 'mint-signed';
-      if (rec.lastError && sends && ((!rec.lastError.feeWait && (Number(rec.errorCount) || 0) >= 6) || Date.now() - Number(rec.lastError.at || 0) < 10 * 60e3)) continue;
+      if (rec.lastError && sends && ((!rec.lastError.feeWait && !rec.lastError.fundWait && (Number(rec.errorCount) || 0) >= 6) || Date.now() - Number(rec.lastError.at || 0) < (rec.lastError.fundWait ? 2 : 10) * 60e3)) continue;
       try {
         const after = await xoAdvance(ux, pub, rec);
         if (after?.stage !== rec.stage) moved.add(xaOf(rec).sheet);
         if (after?.stage === 'minted') xoArrived(after);
-      } catch { moved.add(xaOf(rec).sheet); }
+      } catch (e) {
+        moved.add(xaOf(rec).sheet);
+        if (e?.fundWait && !rec.lastError?.fundWait) {
+          const msg = `Add about ${Number(e.needSats).toLocaleString('en-US')} sats to your Bitcoin address to finish bridging ${xoAmt(rec)}`;
+          toast(msg); osNote('Bridge to Bitcoin', msg, `${rec.id}:xfund`, () => openLink('bitcoin/receive'));
+        }
+      }
     }
   } catch {} finally { XO.auto = false; }
   for (const sheet of moved) rerender(sheet);
@@ -5469,7 +5481,7 @@ function xoOut(el, status, a) {
         <div class="kv"><span>Bitcoin fee, when it is sent</span><b>≈ ${pf.estSats.toLocaleString('en-US')} sats${xoUsd({ sats: pf.estSats })} from ${short(pf.address, 6)}</b></div>
         <div class="kv"><span>Arrives</span><b>usually a few hours, sometimes up to a day</b></div>
         ${a.floor && xoLadder(fee * 2n) * 2n < units ? html`<p class="note">If the relay’s floor has moved by the time it takes the burn, its fee is ${fmt(xoLadder(fee * 2n), 8, 8)} ${a.ticker} and ${fmt(xoLadder(fee * 2n) - fee, 8, 8)} ${a.ticker} less arrives.</p>` : ''}`);
-      const problem = pf.problems[0];
+      const problem = pf.problems[0], noCoin = pf.warnings.some((w) => w.name === 'funding');
       let ok = true;
       if (units < min) { warn(rc, `Bridge at least ${fmt(min, 8, 8)} ${a.ticker}: below that the fees take too much of it.`); ok = false; }
       else if (units > lim.capRaw) { warn(rc, `One bridge takes at most ${fmt(lim.capRaw, 8, 8)} ${a.ticker} while this is new. Bridge less, then again.`); ok = false; }
@@ -5478,12 +5490,13 @@ function xoOut(el, status, a) {
       else if (units + size > held) { warn(rc, feeRoom(units, size, held, P.scan?.[a.k].notes, (v) => `${fmt(v, 8, 6)} ${a.ticker}`) || overBalance()); ok = false; }
       if (problem) {
         ok = false;
-        warn(rc, xoProblemText(problem, pf, a));
+        warn(rc, xoProblemText());
       }
+      for (const w of pf.warnings) { const text = xoWarn(w, pf.reflection?.lagBlocks || 0); if (text) rc.insertAdjacentHTML('beforeend', html`<p class="note">${text}</p>`.s); }
+      if (ok) rc.insertAdjacentHTML('beforeend', noCoin ? html`<p class="note">${xoFundNote(pf, a)}</p>`.s
+        : html`<p class="note">The Bitcoin step is paid from that address when it is sent, hours from now. Keep about ${pf.needSats.toLocaleString('en-US')} sats on it until then.</p>`.s);
       const rk = $(`#${p('recheck')}`, rc);
       if (rk) rk.onclick = () => { XO.pf = null; check(); };
-      for (const w of pf.warnings) { const text = xoWarn(w, pf.reflection?.lagBlocks || 0); if (text) rc.insertAdjacentHTML('beforeend', html`<p class="note">${text}</p>`.s); }
-      if (ok) rc.insertAdjacentHTML('beforeend', html`<p class="note">The Bitcoin step is paid from that address when it is sent, hours from now. Keep about ${pf.needSats.toLocaleString('en-US')} sats on it until then.</p>`.s);
       q = { ok, units, fee, size, pf, key: `${a.key}|${pub}|${units}|${fee}` };
       if (XO.acked !== q.key) ack.checked = false;
       ackRow.hidden = !ok; gateOk();
@@ -5500,9 +5513,7 @@ function xoOut(el, status, a) {
       const [t, ux] = await Promise.all([getUx(), xoUx()]), priv = walletPriv();
       run.say(status, 'Checking Bitcoin and the proof once more…');
       const pf = await xoPreflight(ux, pub);
-      if (!pf.ok) throw Object.assign(new Error(pf.problems[0].name === 'funding' ? 'This key’s Bitcoin address no longer has enough free sats for the Bitcoin step. Nothing was burned.'
-        : pf.problems[0].name === 'funding-unconfirmed' ? 'The sats on this key’s Bitcoin address are waiting for a confirmation, so nothing was burned. Try again once they confirm.'
-        : 'Bitcoin or its proof could not be read, so nothing was burned. Try again in a minute.'), { said: true });
+      if (!pf.ok) throw Object.assign(new Error('Bitcoin or its proof could not be read, so nothing was burned. Try again in a minute.'), { said: true });
       const note = await noteFor(run, t, priv, x.units, (n) => BigInt(n.value) === x.units, status, a.k);
       if (String(note.asset).toLowerCase() !== a.id) throw Object.assign(new Error(`The note picked for this is not ${a.ticker}, so nothing was burned.`), { said: true });
       run.say(status, 'The relay is proving the burn…');
@@ -5522,7 +5533,7 @@ function xoOut(el, status, a) {
         offerSelf({ run, label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), then: 'Burned. The Bitcoin step goes on by itself from here.', after: () => xoTick(true),
           go: async (y) => {
             const again = await xoPreflight(ux, pub, [note.nullifier]);
-            if (!again.ok) throw Object.assign(new Error('Bitcoin no longer has what the Bitcoin step needs (free sats, or the proof’s state), so nothing was burned. Check the bridge again.'), { said: true });
+            if (!again.ok) throw Object.assign(new Error('The proof’s state could not be read, so nothing was burned. Check the bridge again.'), { said: true });
             try { return await startWith({ fee: 0n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }); }
             catch (e2) { throw waitRanOut(e2) || jobSaid(e2) ? e2 : xoFail(e2); }
           } }, e);
@@ -5531,7 +5542,7 @@ function xoOut(el, status, a) {
       try { rec = await xoAdvance(ux, pub, rec); } catch {}
       toast(`Bridging ${amtText} to Bitcoin`);
       if (rec.settle?.claimIdVerified === false) say(status, html`<span class="err">Burned on Ethereum, but its claim was not matched to the record there, so the Bitcoin step is held back.</span> It shows under On the way: press Check it again.`);
-      else say(status, html`<span class="ok">✓ Burned on Ethereum</span> ${rec.settle?.txHash ? txLink(xoHash(rec.settle.txHash)) : ''}. It shows under On the way. The Bitcoin step goes on by itself while this page is open with your key.`);
+      else say(status, html`<span class="ok">✓ Burned on Ethereum</span> ${rec.settle?.txHash ? txLink(xoHash(rec.settle.txHash)) : ''}. It shows under On the way. The Bitcoin step goes on by itself while this page is open with your key.${pf.warnings.some((w) => w.name === 'funding') ? html` It needs about ${pf.needSats.toLocaleString('en-US')} sats on your Bitcoin address: <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin</a>.` : ''}`);
       await scanPrivate(true).catch(() => {});
       rerender(a.sheet);
     } catch (e) { run.fail(status, waitRanOut(e) || jobSaid(e) ? e : xoFail(e)); }
