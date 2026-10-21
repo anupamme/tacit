@@ -11,7 +11,7 @@ import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import { ammRouteDeployTx, ammRouteAddressMatches } from './amm-route-deploy.mjs';
+import { ammRouteDeployTx, ammRouteAddress, ammRouteAddressMatches } from './amm-route-deploy.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
@@ -60,6 +60,8 @@ const until = (page, fn, arg, timeout = 120000) => page.waitForFunction(fn, arg,
 const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8' }).trim();
 const rpcA = async (method, params = []) => { const j = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (j.error) throw new Error(j.error.message); return j.result; };
 const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+// Whether TacitAmmRoute is already on the chain the fork was made from (it is on mainnet now): the pairs that need it are then offered from the start.
+const DEPLOYED = (await rpcA('eth_getCode', [ammRouteAddress(), 'latest'])) !== '0x';
 const bal = async (t, a) => BigInt(await rpcA('eth_call', [{ to: t, data: '0x70a08231' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
 
 async function stubWallet(ctx, { account, key }) {
@@ -166,6 +168,10 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
 
   // Choosing tacUSD while paying USDC puts ETH on the pay side: the 500 typed in USDC is not kept as 500 ETH.
   await pick(page, 'get', 'tacUSD');
+  if (DEPLOYED) {
+    ok((await page.textContent('#pay-coin')).includes('USDC') && (await page.inputValue('#amt')) === '500', 'with TacitAmmRoute on chain, choosing tacUSD while paying USDC keeps the pair and the amount');
+    await pick(page, 'pay', 'ETH');
+  }
   ok((await page.textContent('#pay-coin')).includes('ETH') && (await page.inputValue('#amt')) === '', 'a pay side that follows a choice clears the amount typed in the old asset');
 
   // tacUSD from the Tacit pool, priced far from a dollar: accepted first.
@@ -344,7 +350,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     await typeAmt(page, '100'); await quoted(page);
     ok(/^Buy TAC$/.test((await page.textContent('#go')).trim()), 'and the button buys TAC with the USDC');
     await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'tacUSD');
-    ok((await page.textContent('#get-coin')).includes('tacUSD') && (await page.textContent('#pay-coin')).includes('ETH') && !(await page.textContent('#pay-coin')).includes('USDC'), 'while TacitAmmRoute is not deployed, a token cannot be paid into tacUSD: choosing tacUSD moves the pay side to ETH');
+    if (DEPLOYED) ok((await page.textContent('#get-coin')).includes('tacUSD') && (await page.textContent('#pay-coin')).includes('USDC'), 'with TacitAmmRoute on chain, a token can be paid into tacUSD');
+    else ok((await page.textContent('#get-coin')).includes('tacUSD') && (await page.textContent('#pay-coin')).includes('ETH') && !(await page.textContent('#pay-coin')).includes('USDC'), 'while TacitAmmRoute is not deployed, a token cannot be paid into tacUSD: choosing tacUSD moves the pay side to ETH');
   }
   ok(walletLog.sends.every((s) => !/^0x095ea7b3/.test(s.data)) || walletLog.typed.length >= 2, `sales sign rather than approve where they can (${walletLog.sends.length} sends, ${walletLog.signs} signatures)`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
@@ -377,6 +384,14 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(c1 > c0 && u0 - u1 > 0n && u0 - u1 <= 150n * 10n ** 6n, `USDC → tacUSD landed in one transaction: ${Number(u0 - u1) / 1e6} USDC → ${Number(c1 - c0) / 1e18} tacUSD`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+// a shared link to a pair that needs TacitAmmRoute opens on it once the page has found the contract, and leaves a pair the visitor chose meanwhile alone
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?from=USDC&to=cusd&amt=150' });
+  await until(page, () => /USDC/.test(document.querySelector('#pay-coin')?.textContent || '') && /tacUSD/.test(document.querySelector('#get-coin')?.textContent || ''), null, 60000);
+  ok((await page.inputValue('#amt')) === '150', 'a link to pay 150 USDC for tacUSD opens on USDC → tacUSD with its amount, though the contract is only found after the page has read the link');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 2).join(' | ') : ''}`);
   await browser.close();
 }
 

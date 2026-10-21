@@ -742,6 +742,7 @@ function arrows(box, attr) {
 arrows(document.querySelector('.mode'), 'data-mode'); arrows($('#rows'), 'data-route'); arrows($('#farms'), 'data-farm');
 
 readUrl();
+const FIRST_PAIR = `${S.pay}>${S.get}`;
 {
   const q = new URLSearchParams(location.search), named = [q.get('from'), q.get('to')].filter((v) => v && !/^0x/i.test(v));
   if (named.some((v) => !listed().some((t) => nameIs(t, lc(v))) && lc(v) !== 'teth')) loadList().then(() => { const was = S.pay; readUrl(); if (S.pay !== was) { S.q = null; paint(); if (S.amt) requote(true); } });
@@ -764,7 +765,11 @@ if (S.tab === 'earn') { paintEarn(); }
 if (S.mode === 'private') { warmPrivate(); if (S.amt) requote(true); }
 readPrices().then(() => { paint(); if (S.amt && S.mode !== 'private') requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt && S.mode !== 'private') requote(true); });
 gasPrice();
-checkAmmRoute();
+checkAmmRoute().then(() => {
+  if (S.ammRoute !== true || S.busy || `${S.pay}>${S.get}` !== FIRST_PAIR) return;
+  readUrl();
+  if (`${S.pay}>${S.get}` !== FIRST_PAIR) { S.q = null; paint(); readBalances().then(paintSides); if (S.amt) requote(true); }
+});
 PN.load().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
 let ticked = 0, routeAt = now();
 const tick = () => {
