@@ -2647,6 +2647,32 @@ await step('btc', async () => {
   indexTxids = ['aa', 'bb', 'cc'].map((x) => x.repeat(32));                                   // transactions Bitcoin does not have
   const unread = await refresh('could not be read');
   ok(unread.reads >= 1 && /3 could not be read; refresh to try them again/.test(unread.line), `btc: transfers that could not be read are counted and offered again (${unread.line.slice(0, 120)})`);
+  // tETH on Bitcoin is an asset of the sheet like TAC: sent from Send, and its notes split and combined from Notes.
+  const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+  await r.page.evaluate(async ([tac, teth]) => {
+    const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
+    const note = (txid, amount) => ({ utxo: { txid, vout: 0, value: 546, status: { confirmed: true } }, amount, blinding: 7n + amount });
+    const tn = [note('e1'.repeat(32), 50000n), note('e2'.repeat(32), 25000n)], cn = [note('f1'.repeat(32), 2000000000n)];
+    T._testSetScanHoldingsOverride(() => new Map([[teth, { assetIdHex: teth, ticker: '???', balance: 75000n, utxos: tn, ghosts: [], inflated: [], pending: [] }], [tac, { assetIdHex: tac, ticker: 'TAC', decimals: 8, balance: 2000000000n, utxos: cn, ghosts: [], inflated: [], pending: [] }]]));
+    T.invalidateHoldingsCache?.();
+  }, [TAC, TETH]);
+  await r.page.click('[data-btcm="send"]');
+  await r.page.click('#btc-re');
+  await until(r.page, () => [...document.querySelectorAll('#btc-form [data-btca]')].some((x) => /tETH/.test(x.textContent)), null, 180000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | sheet: ${(await text(r.page, '#btc-body')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+  ok(/tETH on Bitcoin\s*0\.00075(?!\d)/.test(await text(r.page, '#btc-body')), `btc: tETH held on Bitcoin is named and counted on the sheet, and Send offers it (${(await text(r.page, '#btc-body')).replace(/\s+/g, ' ').slice(0, 160)})`);
+  await r.page.click('[data-btcm="notes"]');
+  await until(r.page, () => !!document.querySelector('#btc-form [data-bnasset]'), null, 60000);
+  const blocks = await r.page.$$eval('#btc-form [data-bnasset]', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  const tb = blocks.find((x) => /^tETH/.test(x)) || '';
+  ok(/0\.00075 in 2 notes/.test(tb) && /0\.0005 tETH/.test(tb) && /0\.00025 tETH/.test(tb) && /Combine 2 notes/.test(tb) && blocks.some((x) => /^TAC/.test(x) && !/Combine/.test(x)), `btc: Notes lists the tETH notes with a combine, and TAC's single note with none (${blocks.map((x) => x.slice(0, 80)).join(' || ')})`);
+  ok(await r.page.isDisabled(`[data-bnsplit="${TETH}"]`), 'btc: Split waits for a note to be picked');
+  await r.page.check(`#btc-form input[data-bnpick="${TETH}"]`);
+  await until(r.page, (id) => !document.querySelector(`[data-bnsplit="${id}"]`)?.disabled, TETH, 30000);
+  await r.page.fill(`[data-bnamt="${TETH}"]`, '0.0006');
+  await r.page.click(`[data-bnsplit="${TETH}"]`);
+  await until(r.page, () => /Split off less than the note holds/.test(document.querySelector('#btc-status')?.textContent || ''), null, 30000);
+  ok(true, 'btc: a split of more than the picked note holds is refused before anything is built');
   if (r.errors.length) { fails++; console.log('FAIL btc page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
