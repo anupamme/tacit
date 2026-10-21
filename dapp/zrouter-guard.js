@@ -79,6 +79,7 @@ export function decodeZRouterCall(callData) {
 
 // `want`: { to, tokenIn, tokenOut } always, plus any of { exactOut, amount, maxIn, minOut, deadline, router, curvePools }.
 //   amount  the swapAmount of the (first) swap: what is spent when exact-in, what is bought when exact-out; for a chain, that of its first swap when it is exact-in.
+//   A chain is exact-in swaps, each after the first with an amount of 0 (it spends what the one before paid): an amount of its own would make the router pull the difference from the sender.
 //   maxIn   the most the sender may be made to spend on the first swap (its amount when exact-in, its limit when exact-out).
 //   minOut  the least the last swap may pay (its limit when exact-in, its amount when exact-out).
 // → null when the call is acceptable, else the reason it is refused.
@@ -98,6 +99,10 @@ export function checkZRouterCall(callData, want) {
     }
     if (l.pools) for (const p of l.pools) if (!pools.has(p)) return 'the curve route uses a pool that is not allowed';
     if (want.deadline != null && l.deadline !== BigInt(want.deadline)) return 'the swap has another deadline';
+  }
+  if (legs.length > 1) {
+    if (first.exactOut) return 'a chain starts with an exact-out swap';
+    for (let i = 1; i < legs.length; i++) if (legs[i].exactOut || legs[i].amount !== 0n) return 'a later swap names an amount of its own';
   }
   if (want.exactOut != null && legs.length === 1 && first.exactOut !== !!want.exactOut) return 'the swap is not the asked kind';
   if (want.amount != null && (legs.length === 1 || !first.exactOut) && first.amount !== BigInt(want.amount)) return 'the swap has another amount';

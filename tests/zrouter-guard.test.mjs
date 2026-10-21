@@ -105,6 +105,26 @@ assert.throws(() => decodeZRouterCall('0x12345678'), /not a swap/);
   ok(checkZRouterCall(vz(3000, 1), want) !== null && checkZRouterCall(vz(3000, 0, 7), want) !== null, 'swapVZ with a multi-token id is refused');
 }
 
+// A chain spends what the swap before it paid: a later swap with an amount of its own would make the router pull the difference from the sender,
+// and an exact-out swap at the start has no such amount to rely on.
+{
+  const SEL3 = 'afeae12b';
+  const at = chain.callData.lastIndexOf(SEL3);
+  ok(at > 0 && checkZRouterCall(chain.callData, chain.want) === null, 'a real chain (its later swap with an amount of 0) is accepted');
+  const second = at + SEL3.length + 5 * 64;
+  const greedy = chain.callData.slice(0, second) + wordN(3_900_000_000n) + chain.callData.slice(second + 64);
+  const g = decodeZRouterCall(greedy);
+  ok(g[1].amount === 3_900_000_000n && checkZRouterCall(greedy, chain.want) !== null, 'refuses a later swap that names an amount of its own');
+  const first = chain.callData.indexOf(SEL3) + SEL3.length + 1 * 64;
+  const flipped = chain.callData.slice(0, first) + wordN(1) + chain.callData.slice(first + 64);
+  ok(decodeZRouterCall(flipped)[0].exactOut === true && checkZRouterCall(flipped, { ...chain.want, exactOut: undefined }) !== null, 'refuses a chain that starts with an exact-out swap');
+  const second2 = at + SEL3.length + 1 * 64;
+  const outLater = chain.callData.slice(0, second2) + wordN(1) + chain.callData.slice(second2 + 64);
+  ok(decodeZRouterCall(outLater)[1].exactOut === true && checkZRouterCall(outLater, chain.want) !== null, 'refuses a later swap that is exact-out');
+  ok(checkZRouterCall(usdtChain.callData, usdtChain.want) === null, 'the other real chain (a curve swap, then a pool swap) is accepted');
+  ok(checkZRouterCall(chain.callData, { ...chain.want, minOut: decodeZRouterCall(chain.callData)[1].limit + 1n }) !== null, 'refuses a chain that can pay less than the least asked');
+}
+
 // The relay's copy is the same file.
 {
   const a = readFileSync(new URL('../dapp/zrouter-guard.js', import.meta.url), 'utf8');
