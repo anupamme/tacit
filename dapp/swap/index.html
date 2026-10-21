@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit swap</title>
 <meta name="description" content="Get TAC, tacUSD and tacBTC from your wallet with ETH or any token, or cUSD and cBTC privately in the Tacit pool.">
@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=83cbbfd1">
+<link rel="modulepreload" href="/swap/app.js?cb=b579a4ef">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -135,6 +135,12 @@ img.tk { object-fit: contain; }
 .mode button { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 14px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
 .mode button[aria-checked="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
 .mode .lock { width: 9px; height: 10px; border: 1.5px dashed currentColor; border-radius: 2px; }
+.mode button[data-mode="bitcoin"] { padding: 2px 10px; } .mode button[data-mode="bitcoin"] .tk { width: 16px; height: 16px; opacity: .55; transition: opacity .15s; }
+.mode button[data-mode="bitcoin"][aria-checked="true"] .tk, .mode button[data-mode="bitcoin"]:hover .tk { opacity: 1; }
+#p-swap.btc > :not(.mode):not(#btc) { display: none; }
+#btc .coin { cursor: default; } #btc .ack label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--mute); }
+.brd { display: grid; gap: 6px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); } .brd em { font-style: normal; color: var(--warn); }
+.brd button.link { padding: 0; font: 12px var(--mono); color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 @media (pointer: coarse) { .mode button { min-height: 38px; } }
 .f { padding: 12px 14px 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
 .f:focus-within { border-color: var(--ink); }
@@ -536,7 +542,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <div class="mode" role="radiogroup" aria-label="Where it arrives">
           <button type="button" role="radio" data-mode="wallet" aria-checked="true">To your wallet</button>
           <button type="button" role="radio" data-mode="private" aria-checked="false"><i class="lock" aria-hidden="true"></i>Private</button>
+          <button type="button" role="radio" data-mode="bitcoin" aria-checked="false" aria-label="On Bitcoin" title="On Bitcoin"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg></button>
         </div>
+        <div id="btc" hidden></div>
         <div class="f" id="f-pay">
           <div class="fh"><span>You pay</span><span class="where" id="pay-where">from your wallet</span></div>
           <div class="fm"><input class="amt" id="amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><button class="coin" id="pay-coin" type="button" aria-haspopup="dialog" aria-label="Pay with ETH"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>ETH<span class="car" aria-hidden="true">▾</span></button></div>
@@ -656,6 +664,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=83cbbfd1"></script>
+<script type="module" src="/swap/app.js?cb=b579a4ef"></script>
 </body>
 </html>

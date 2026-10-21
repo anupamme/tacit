@@ -37911,6 +37911,88 @@ export function previewSwapRoute({ fromAid, toAid, amountIn, pools }) {
   return (multihop.route.deltaOutLast > direct.deltaOut) ? multihop : direct;
 }
 
+// Swaps in a Bitcoin pool for a page that draws its own form (the swap page's Bitcoin lane). The classic app's form takes the same steps inside its
+// click handler; these take and give plain values, and put up no dialog of their own.
+const _bitcoinPoolHeads = new Map();
+async function _bitcoinPoolHead(poolIdHex, fresh = false) {
+  const m = _bitcoinPoolHeads.get(poolIdHex);
+  if (!fresh && m && Date.now() - m.at < 5000) return m.head;
+  let head = null;
+  try { const r = await fetch(`${WORKER_BASE}/amm/pool/${poolIdHex}/head?network=${NET.name}`); head = r.ok ? await r.json() : null; } catch { }
+  _bitcoinPoolHeads.set(poolIdHex, { at: Date.now(), head });
+  return head;
+}
+// The pools that can be swapped in, read from the worker (kept for 25 s).
+export async function bitcoinSwapPools() {
+  return (await fetchAmmPools()).filter((p) => p.asset_a && p.asset_b && (p.validation === 'verified' || p.validation === 'xcurve-verified'));
+}
+// What `amountIn` of `fromAid` gets in `toAid` through one pool, against the pool's reserves with the swaps still in flight counted, and the least the
+// swap will take (`slipBps` under that). null: no pool for the pair. { kind: 'multihop' }: only a route through several pools exists.
+export async function bitcoinSwapQuote({ fromAid, toAid, amountIn, slipBps = 100, fresh = false }) {
+  const din = BigInt(amountIn);
+  const pools = await bitcoinSwapPools();
+  const best = previewSwapRoute({ fromAid, toAid, amountIn: din, pools });
+  if (!best) return null;
+  if (best.kind !== 'direct') return { kind: 'multihop' };
+  const p = best.pool, head = await _bitcoinPoolHead(String(p.pool_id).toLowerCase(), fresh);
+  const reserveA = head?.projected?.reserve_a ?? p.reserve_a, reserveB = head?.projected?.reserve_b ?? p.reserve_b;
+  let c;
+  try { c = swapVarCurveDeltaOut(best.direction, reserveA, reserveB, din, p.fee_bps); } catch (e) { return { kind: 'none', error: e?.message || String(e) }; }
+  const slip = BigInt(Math.max(0, Math.min(10000, Number(slipBps) | 0)));
+  return {
+    kind: 'direct', poolId: String(p.pool_id).toLowerCase(), direction: best.direction, feeBps: p.fee_bps, reserveA: BigInt(reserveA), reserveB: BigInt(reserveB),
+    deltaOut: c.deltaOut, minOut: (c.deltaOut * (10000n - slip)) / 10000n, pending: Number(head?.pending_count) || 0,
+  };
+}
+// The sats a swap needs at the trading address for its Bitcoin fees (one transaction pair to cut the exact amount, one to swap), with room.
+export async function bitcoinSwapFundsNeeded() {
+  const rate = await getFeeRate();
+  return Math.ceil((Math.ceil(rate * 1400) + 2500) / 500) * 500;
+}
+// The swap: cuts the exact amount out of the key's notes (one transaction pair, none when a note is that amount), checks the pool against a replay of
+// its Bitcoin transactions, and sends the swap with `minOut` as its floor. A swap that the pool has moved past by the time it confirms refunds itself.
+export async function bitcoinSwap({ fromAid, toAid, amountIn, minOut, onProgress = null }) {
+  await ensurePrivkey();
+  const say = (stage) => { try { onProgress && onProgress(stage); } catch { } };
+  const din = BigInt(amountIn), floor = BigInt(minOut);
+  if (floor < 1n) throw new Error('the fill rounds to zero at this size');
+  say('check');
+  const q = await bitcoinSwapQuote({ fromAid, toAid, amountIn: din, fresh: true });
+  if (!q) throw new Error('there is no pool for this pair');
+  if (q.kind !== 'direct') throw new Error(q.kind === 'multihop' ? 'only a swap through one pool is offered here' : `the pool cannot take this: ${q.error}`);
+  if (q.deltaOut < floor) throw new Error('the pool moved past your floor: quote it again');
+  const v = await _ammVerifyPoolBeforeAction(q.poolId);
+  if (!v.ok) throw new Error(`the pool's reserves differ from a replay of its Bitcoin transactions (${(v.diffs || []).join('; ')}), so nothing was sent`);
+  say('prepare');
+  const carved = await carveExactAmount({ assetIdHex: fromAid, amount: din, walletKeyOnly: true });
+  if (!carved?.utxo) throw new Error('there is not enough of this token to swap');
+  const live = await bitcoinSwapQuote({ fromAid, toAid, amountIn: din, fresh: true });
+  if (!live || live.kind !== 'direct' || live.deltaOut < floor) throw new Error('the pool moved past your floor: quote it again (the amount you cut stays in your wallet)');
+  const tip = await getTip();
+  say('send');
+  const r = await buildAndBroadcastSwapVarSelfFulfill({
+    poolReserves: { pool_id_hex: live.poolId, reserve_a: live.reserveA, reserve_b: live.reserveB, fee_bps: live.feeBps },
+    assetInputUtxo: { txid: carved.utxo.txid, vout: carved.utxo.vout, asset_id_hex: fromAid, amount: carved.amount, blinding: carved.blinding },
+    direction: live.direction, deltaIn: din, minOut: floor,
+    expiryHeight: tip > 0 ? tip + 36 : 0xffffffff,
+    receiveAssetIdHex: toAid,
+    onProgress: (stage) => say(stage),
+  });
+  _bitcoinPoolHeads.delete(live.poolId);
+  return { revealTxid: r.revealTxid, quoted: r.deltaOut, floor, prepTxid: carved.splitTxid || null };
+}
+// Where a sent swap stands: waiting, filled (with what it got) or refunded back (with why).
+export async function bitcoinSwapOutcome(revealTxid) {
+  try {
+    const r = await fetch(`${WORKER_BASE}/amm/swap-accepted?network=${NET.name}&txid=${revealTxid}`);
+    const j = r.ok ? await r.json() : null;
+    if (!j || !j.accepted) return { state: 'waiting' };
+    try { invalidateHoldingsCache(); } catch { }
+    if ((j.outcome || 'execute') === 'execute') return { state: 'filled', got: j.delta_out_actual != null ? BigInt(j.delta_out_actual) : null };
+    return { state: 'refunded', reason: j.pass_reason || 'floor miss', refund: j.refund_amount != null ? BigInt(j.refund_amount) : null };
+  } catch { return { state: 'waiting' }; }
+}
+
 function _wirePoolSwapForm() {
   const fromSel  = document.getElementById('pool-swap-from');
   const toSel    = document.getElementById('pool-swap-to');

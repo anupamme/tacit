@@ -28,7 +28,7 @@ const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blan
 const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon: 'teth', priv: true };
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
-  tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
+  tab: 'swap', mode: 'wallet', btc: false, pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '', ammRoute: null,
 };
 // The last swaps made from this browser, so a swap does not vanish with the line that said "Done": a short sentence and its transaction.
@@ -212,6 +212,7 @@ const picked = (q = S.q) => (q?.rows || []).find((r) => r.k === S.pick) || q?.ro
 let qTimer = 0;
 function requote(now_ = false) {
   clearTimeout(qTimer);
+  if (S.btc) return;
   const my = ++S.seq;
   const t = tokenOf(S.pay), wei = parseUnits(S.amt, t?.dec ?? 18);
   if (!wei) { S.q = null; paint(); return; }
@@ -311,7 +312,8 @@ function paintTabs() {
   for (const [t, el] of [['swap', $('#tab-swap')], ['earn', $('#tab-earn')]]) el.setAttribute('aria-selected', String(S.tab === t));
   $('.sw-h').style.setProperty('--i', S.tab === 'swap' ? 0 : 1);
   $('#p-swap').hidden = S.tab !== 'swap'; $('#p-earn').hidden = S.tab !== 'earn';
-  document.querySelectorAll('.mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === S.mode)));
+  $('#p-swap').classList.toggle('btc', S.btc); $('#btc').hidden = !S.btc;
+  document.querySelectorAll('.mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === 'bitcoin' ? S.btc : !S.btc && b.dataset.mode === S.mode)));
 }
 function paintSides() {
   const pay = tokenOf(S.pay), get = tokenOf(S.get), priv = S.mode === 'private';
@@ -669,14 +671,14 @@ function farmIt() {
 
 function keepUrl() {
   const p = new URLSearchParams(), sym = (k) => { const t = tokenOf(k); return t?.custom ? t.addr : t?.sym; };
-  if (S.tab === 'swap') {
+  if (S.tab === 'swap' && !S.btc) {
     if (S.pay !== lc(R.ZERO) || S.mode === 'private') p.set('from', sym(S.pay));
     if (S.get !== lc(R.TAC)) p.set('to', sym(S.get));
     if (S.amt) p.set('amt', S.amt);
     if (S.mode === 'private') p.set('private', '');
   }
   const qs = p.toString().replace(/private=(&|$)/, 'private$1');
-  history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${S.tab === 'earn' ? '#earn' : ''}`);
+  history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${S.tab === 'earn' ? '#earn' : S.btc ? '#bitcoin' : ''}`);
 }
 function readUrl() {
   const p = new URLSearchParams(location.search), find = (v) => { if (!v) return null; const x = lc(v); return x === 'teth' ? 'teth' : (listed().find((t) => nameIs(t, x) || t.addr === x)?.addr) || null; };
@@ -687,6 +689,7 @@ function readUrl() {
   const a = p.get('amt');
   if (a && (f || !p.get('from')) && parseUnits(a, tokenOf(S.pay).dec)) S.amt = a;
   if (location.hash === '#earn') S.tab = 'earn';
+  else if (location.hash === '#bitcoin') S.btc = true;
 }
 
 function slipPaint() { $('#slip').innerHTML = [10, 50, 100, 300].map((b) => `<button type="button" data-slip="${b}" aria-pressed="${S.slip === b}">${b / 100}%</button>`).join(''); }
@@ -724,13 +727,33 @@ $('#p-swap').addEventListener('click', (e) => {
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
 function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
 for (const ev of ['pointerenter', 'focus', 'touchstart']) document.querySelector('.mode [data-mode="private"]').addEventListener(ev, warmPrivate, { once: true, passive: true });
-document.querySelector('.mode').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
+document.querySelector('.mode').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mode]'); if (!b) return;
+  if (b.dataset.mode === 'bitcoin') { setBtc(!S.btc); return; }
+  if (S.btc) setBtc(false);
+  setMode(b.dataset.mode);
+});
+// The Bitcoin lane is another module, loaded the first time it opens: it swaps in the Bitcoin pool with a Tacit key, apart from this page's wallet
+// and routes. The wallet connected here only helps open that key.
+let lane = null;
+const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
+async function openLane() {
+  try {
+    lane ||= (await import('/swap/bitcoin.js?cb=6c027310')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet });
+    if (S.btc) await lane.show();
+  } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
+}
+function setBtc(on) {
+  if (S.btc === on) return;
+  S.btc = on; keepUrl(); paint();
+  if (on) openLane(); else lane?.hide();
+}
 function setTab(t) { if (S.tab === t) return; S.tab = t; keepUrl(); paint(); if (t === 'earn') { paintEarn(); if (!S.farms) readFarms().then(paintEarn, paintEarn); } }
 $('#tab-swap').addEventListener('click', () => setTab('swap'));
 $('#tab-earn').addEventListener('click', () => setTab('earn'));
 $('.sw-h').addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { setTab(S.tab === 'swap' ? 'earn' : 'swap'); $(`#tab-${S.tab}`).focus(); } });
 $('#farms').addEventListener('click', (e) => { const b = e.target.closest('[data-farm]'); if (!b) return; S.farm = b.dataset.farm; paintEarn(); });
-addEventListener('hashchange', () => setTab(location.hash === '#earn' ? 'earn' : 'swap'));
+addEventListener('hashchange', () => { setTab(location.hash === '#earn' ? 'earn' : 'swap'); if (location.hash !== '#earn') setBtc(location.hash === '#bitcoin'); });
 function arrows(box, attr) {
   box.addEventListener('keydown', (e) => {
     const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
@@ -763,6 +786,7 @@ const FIRST_PAIR = `${S.pay}>${S.get}`;
 }
 slipPaint();
 paint();
+if (S.btc) openLane();
 if ([S.pay, S.get].some((k) => { const t = tokenOf(k); return t && !SPRITE.has(t.icon) && !LOGO[k]; })) loadList();
 if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash) $('#amt').focus({ preventScroll: true });
 if (S.tab === 'earn') { paintEarn(); }
