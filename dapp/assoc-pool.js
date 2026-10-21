@@ -32,6 +32,22 @@ export const ETH_POOL = {
   entryBlock: 22153713,
 };
 
+// The pool's circuit files by the sha256 its own SDK pins for them, and the host that publishes them. A page fetches
+// them from there and takes only bytes with these hashes; the fork test proves with the same files.
+export const CIRCUITS = {
+  base: 'https://v1.privacypools.com/artifacts/',
+  withdraw: {
+    wasm: { file: 'withdraw.wasm', sha256: '36cda22791def3d520a55c0fc808369cd5849532a75fab65686e666ed3d55c10', bytes: 2607967 },
+    zkey: { file: 'withdraw.zkey', sha256: '2a893b42174c813566e5c40c715a8b90cd49fc4ecf384e3a6024158c3d6de677', bytes: 17793015 },
+    vkey: { file: 'withdraw.vkey', sha256: '666bd0983b20c1611543b04f7712e067fbe8cad69f07ada8a310837ff398d21e', bytes: 4208 },
+  },
+  commitment: {
+    wasm: { file: 'commitment.wasm', sha256: '254d2130607182fd6fd1aee67971526b13cfe178c88e360da96dce92663828d8', bytes: 2380442 },
+    zkey: { file: 'commitment.zkey', sha256: '494ae92d64098fda2a5649690ddc5821fcd7449ca5fe8ef99ee7447544d7e1f3', bytes: 901233 },
+    vkey: { file: 'commitment.vkey', sha256: '7d48b4eb3dedc12fb774348287b587f0c18c3c7254cd60e9cf0f8b3636a570d8', bytes: 3477 },
+  },
+};
+
 export const TOPIC = {
   deposited: '0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549', // Deposited(address,uint256 commitment,uint256 label,uint256 value,uint256 precommitment)
   withdrawn: '0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21', // Withdrawn(address,uint256 value,uint256 spentNullifier,uint256 newCommitment)

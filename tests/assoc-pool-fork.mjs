@@ -20,20 +20,13 @@ import { join } from 'node:path';
 import * as snarkjs from 'snarkjs';
 import { secp, keccak_256, sha256, hmac, concatBytes } from '../dapp/vendor/tacit-deps.min.js';
 import { poseidon1, poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } from '../dapp/vendor/tacit-poseidon.min.js';
-import { makeAssocPool, ETH_POOL, SEL, TOPIC } from '../dapp/assoc-pool.js';
+import { makeAssocPool, ETH_POOL, SEL, TOPIC, CIRCUITS } from '../dapp/assoc-pool.js';
 import { makeAssocSession } from '../dapp/assoc-pool-session.js';
 import { makeEvmPoolZk } from '../dapp/evm-pool-zk.js';
 import { evmPoolWallet, receiveKeys, receiveBoxAddress, EVM_POOL_ROUTER, RECEIVE_FEE_BPS } from '../dapp/evm-pool-gateway.js';
 
-// The files are the pool's published circuit artifacts; these are the hashes its SDK pins for them.
-const PINS = {
-  'withdraw.wasm': '36cda22791def3d520a55c0fc808369cd5849532a75fab65686e666ed3d55c10',
-  'withdraw.zkey': '2a893b42174c813566e5c40c715a8b90cd49fc4ecf384e3a6024158c3d6de677',
-  'withdraw.vkey': '666bd0983b20c1611543b04f7712e067fbe8cad69f07ada8a310837ff398d21e',
-  'commitment.wasm': '254d2130607182fd6fd1aee67971526b13cfe178c88e360da96dce92663828d8',
-  'commitment.zkey': '494ae92d64098fda2a5649690ddc5821fcd7449ca5fe8ef99ee7447544d7e1f3',
-  'commitment.vkey': '7d48b4eb3dedc12fb774348287b587f0c18c3c7254cd60e9cf0f8b3636a570d8',
-};
+// The files are the pool's published circuit artifacts; CIRCUITS holds the hashes its SDK pins for them.
+const PINS = Object.fromEntries(['withdraw', 'commitment'].flatMap((c) => ['wasm', 'zkey', 'vkey'].map((k) => [CIRCUITS[c][k].file, CIRCUITS[c][k].sha256])));
 const ART = process.env.ASSOC_ARTIFACTS;
 if (!ART) { console.log('ASSOC_ARTIFACTS must name a directory holding the six files in PINS'); process.exit(2); }
 for (const [f, h] of Object.entries(PINS)) assert.equal(createHash('sha256').update(readFileSync(join(ART, f))).digest('hex'), h, `${f} is not the pinned artifact`);
