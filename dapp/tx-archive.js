@@ -80,14 +80,15 @@ export function makeTxArchive({ base, network, sha256, fetchImpl = null, storage
 
   // Reads the archived history of every root at once (batches of 64) into memory; returns how many transactions it now holds.
   // An answer that fails or is refused rests the archive for ten minutes, so a page falls back without asking again and again.
-  async function prefetch(roots) {
+  // `depth` 0 reads the roots' own transactions only (notes already known valid need no history).
+  async function prefetch(roots, { depth = null } = {}) {
     if (!f || !base || off() || now() < restUntil) return 0;
     const want = [...new Set((roots || []).map((r) => String(r).toLowerCase()).filter((r) => /^[0-9a-f]{64}$/.test(r) && !held.has(r)))];
     for (let i = 0; i < want.length; i += MAX_ROOTS) {
       let body;
       try {
         const res = await f(`${base}/chain/tac/ancestry?network=${encodeURIComponent(network)}`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roots: want.slice(i, i + MAX_ROOTS) }),
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roots: want.slice(i, i + MAX_ROOTS), ...(Number.isInteger(depth) ? { depth } : {}) }),
           signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(30e3) : undefined,
         });
         if (!res.ok) { restUntil = now() + REST_MS; break; }

@@ -643,7 +643,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download', '/prover/board']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/live', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download', '/prover/board']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -1870,6 +1870,26 @@ async function handleReflectionDump(req, env, url, cors) {
   const raw = await env.REGISTRY_KV.get(`reflection:scan:${network}`);
   if (!raw) return jsonResponse({ error: 'no persisted state' }, 404, { ...cors, 'Cache-Control': 'no-store' });
   return new Response(raw, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': authed ? 'no-store' : 'public, max-age=10' } });
+}
+
+// GET /reflection/live?network= → { height, parts, liveTriples }: the reflection's live set (the notes it tracks) with the other
+// words of its digest, so a wallet checks the set against attestedReflectionDigest() by rebuilding only the set's root (a few
+// hundred KB and tens of milliseconds) rather than the whole state from /reflection/dump. Built once per attested state.
+const _reflectionLiveCache = new Map(); // network -> { raw, body }
+async function handleReflectionLive(req, env, url, cors) {
+  if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 500, cors);
+  const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
+  const raw = await env.REGISTRY_KV.get(`reflection:scan:${network}`);
+  if (!raw) return jsonResponse({ error: 'no persisted state' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+  let hit = _reflectionLiveCache.get(network);
+  if (!hit || hit.raw !== raw) {
+    const snap = JSON.parse(raw).snapshot;
+    const idx = makeScanReflectionIndexer({ secp, keccak256: keccak_256, sha256, swapBatchVk: SWAP_BATCH_VK });
+    idx.load(snap);
+    hit = { raw, body: JSON.stringify({ network, height: snap.height, parts: idx.digestParts(), liveTriples: snap.liveTriples }) };
+    _reflectionLiveCache.set(network, hit);
+  }
+  return new Response(hit.body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=10' } });
 }
 
 // Owned-notes / membership-witness lookup for Bitcoin-side (reflected) notes — the piece /reflection/dump
@@ -12340,7 +12360,7 @@ async function handleChainOutspendsBatch(req, env, network, cors) {
 }
 
 // ---- the Tacit transaction archive (tac-archive.js) ---------------------------------------------------------------
-// POST /chain/tac/ancestry { roots: [txid…] } → { txs: { txid: { hex, h, b? } }, truncated }: every archived transaction reached
+// POST /chain/tac/ancestry { roots: [txid…], depth? } → { txs: { txid: { hex, h, b? } }, truncated }: every archived transaction reached
 // from the roots through their inputs, from this service's own store only (it never asks upstream for it). A page reads a
 // note's history in one answer this way, checks each txid against its bytes, and asks a public explorer only for what is absent.
 const TAC_ANCESTRY_RL_BURST = 20, TAC_ANCESTRY_RL_REFILL_MS = 15_000;
@@ -12366,7 +12386,8 @@ async function handleTacAncestry(req, env, network, cors) {
   if (!roots || !roots.length || roots.length > ARCHIVE_MAX_ROOTS || !roots.every((t) => typeof t === 'string' && /^[0-9a-f]{64}$/i.test(t))) {
     return jsonResponse({ error: `roots: 1 to ${ARCHIVE_MAX_ROOTS} txids` }, 400, h);
   }
-  const { txs, truncated } = await tacArchive(env, network).ancestry(roots);
+  const depth = Number.isInteger(body.depth) && body.depth >= 0 ? body.depth : Infinity;
+  const { txs, truncated } = await tacArchive(env, network).ancestry(roots, { depth });
   return jsonMaybeGzip(req, JSON.stringify({ txs: Object.fromEntries(txs), truncated }), h);
 }
 // POST /chain/tac/import { txs: [{ hex, h, b? }…] } (operator token): confirmed Tacit transactions from a list, each kept only if it
@@ -27455,6 +27476,7 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/reflection/seed' && req.method === 'POST') return handleReflectionSeed(req, env, url, cors);
     if (url.pathname === '/reflection/state' && req.method === 'GET') return handleReflectionState(req, env, url, cors);
     if (url.pathname === '/reflection/dump' && req.method === 'GET') return handleReflectionDump(req, env, url, cors);
+    if (url.pathname === '/reflection/live' && req.method === 'GET') return handleReflectionLive(req, env, url, cors);
     if (url.pathname === '/reflection/status' && req.method === 'GET') return handleReflectionStatus(req, env, url, cors);
     if (url.pathname === '/farm/program' && req.method === 'GET') return handleFarm('program', url, env, cors, jsonResponse);
     if (url.pathname === '/farm/health' && req.method === 'GET') return handleFarm('health', url, env, cors, jsonResponse);

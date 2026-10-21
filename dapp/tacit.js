@@ -39,6 +39,7 @@ import { poseidon1, poseidon2, poseidon3 } from './vendor/tacit-poseidon.min.js'
 import { prfRegister, prfLogin, loadPrfMap, savePrfMap, clearPrfMap, isPasskeyAvailable, prfTryRestore, prfBytesToScalar as toValidScalar } from './prf-wallet.js';
 import { bppRangeProve, bppRangeVerify } from './bulletproofs-plus.js';
 import { makeConfidentialPool } from './confidential-pool.js';
+import { loadTrackedNotes } from './tracked-notes.js';
 import { makeConfidentialPoolUx, setExternalTacHolders, forgetKeys as forgetPoolKeys } from './confidential-pool-ux.js';
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW as BURNDEP_BETA_CAP_RAW_TAC } from './burndep-ux.js';
 import { makeTxArchive } from './tx-archive.js';
@@ -13492,6 +13493,57 @@ async function _reflectedHeight() {
   if (height != null) Object.assign(_reflectedHeightCache, { height, at: Date.now() });
   return height;
 }
+// The notes the reflection tracks, checked against the pool's attested digest before use (tracked-notes.js). validateOutpoint
+// credits a note in the set, at its attested commitment and asset, without walking its history. A note's validity does not
+// expire, so a set that checked out stays usable; a newer one is fetched after TRACKED_TTL_MS for notes made since. Off with
+// localStorage tacit-tracked-notes=off.
+const TRACKED_TTL_MS = 5 * 60e3;
+const _tracked = { set: null, at: 0, net: null, p: null };
+const _trackedOff = () => { try { return localStorage.getItem('tacit-tracked-notes') === 'off'; } catch { return false; } };
+function _trackedNotesLoad() {
+  const net = currentNetworkName(), dep = CROSSLANE_DEPLOYMENTS[net] || {};
+  if (_tracked.net !== net) Object.assign(_tracked, { set: null, at: 0, net, p: null });
+  if (_tracked.p) return _tracked.p;
+  if (_tracked.set && Date.now() - _tracked.at < TRACKED_TTL_MS) return Promise.resolve(_tracked.set);
+  if (!dep.pool || !WORKER_BASE || _trackedOff()) return Promise.resolve(null);
+  const p = loadTrackedNotes({
+    pool: _leafKitOf(), keccak256: keccak_256,
+    fetchLive: async () => {
+      const r = await fetch(`${WORKER_BASE}/reflection/live?network=${encodeURIComponent(net)}`);
+      if (!r.ok) throw new Error(`reflection/live ${r.status}`);
+      return r.json();
+    },
+    attestedDigest: () => _ethRpcCall('eth_call', [{ to: dep.pool, data: _selector('attestedReflectionDigest()') }, 'latest']),
+  }).then((set) => { if (_tracked.net === net) Object.assign(_tracked, { set, at: Date.now() }); return set; },
+    (e) => { console.warn('tracked notes not used:', e?.message || e); if (_tracked.net === net) _tracked.at = Date.now(); return _tracked.net === net ? _tracked.set : null; })
+    .finally(() => { if (_tracked.p === p) _tracked.p = null; });
+  _tracked.p = p;
+  return p;
+}
+// The checked set, waiting at most `ms` for it; null when there is none in time (the wallet then walks histories as before).
+function _trackedNotesReady(ms) { return Promise.race([_trackedNotesLoad(), new Promise((r) => setTimeout(() => r(null), ms))]); }
+const _trackedNow = () => (_tracked.net === currentNetworkName() ? _tracked.set : null);
+// Credits `txid:vout` when the checked set holds it, unbound, at the commitment and asset its own transaction carries.
+async function _trackedCredit(tracked, txid, vout, tx, validatedSet) {
+  const t = tracked.get(txid, vout);
+  if (!t || t.bound) return false;
+  const outEnv = _txOutputEnvelope(tx);
+  if (!outEnv || outEnv.opcode === T_CXFER_BOUND) return false;
+  let pd = null;
+  try { pd = await getParentEnvelopeData(outEnv, vout, txid); } catch { pd = null; }
+  if (!pd || String(pd.assetIdHex).toLowerCase() !== t.asset) return false;
+  // A walk learns an asset's name from its etch; one that is skipped knows TAC's, and walks any other asset it has no name for.
+  if (!getAssetMeta(pd.assetIdHex)) {
+    if (t.asset !== CANONICAL_TAC_ASSET_ID_HEX) return false;
+    registerAsset({ assetIdHex: CANONICAL_TAC_ASSET_ID_HEX, ticker: 'TAC', decimals: 8, etchTxid: TAC_ETCH_TXID, etchVout: 0 });
+  }
+  let a;
+  try { a = bytesToPoint(pd.commitment).toAffine(); } catch { return false; }
+  const be = (n) => n.toString(16).padStart(64, '0');
+  if (bytesToHex(keccak_256(hexToBytes(be(a.x) + be(a.y)))) !== t.commitmentHash) return false;
+  validatedSet.set(`${txid}:${vout}`, true);
+  return true;
+}
 async function _boundSpendPending(tx, label, validatedSet) {
   const bound = tx.vin.slice(1).map(v => `${v.txid}:${v.vout}`).filter(k => _boundOutpointKeys.has(k));
   if (!bound.length || bound.some(k => validatedSet.get(k) === false)) return null;
@@ -13720,6 +13772,7 @@ async function validateOutpoint(rootTxid, rootVout, validatedSet, fetchTx, _dept
   };
 
   enqueue(rootTxid, rootVout);
+  const tracked = _trackedNow();
 
   const FETCH_CONCURRENCY = 16;
   let cursor = 0;
@@ -13745,6 +13798,8 @@ async function validateOutpoint(rootTxid, rootVout, validatedSet, fetchTx, _dept
       expanding = node.key;
       const { tx, env } = decodedMap.get(node.txid) || { tx: null, env: null };
       if (!tx || !env) continue;
+      // A note the reflection tracks is valid as attested on Ethereum: its history is not walked.
+      if (tracked && await _trackedCredit(tracked, node.txid, node.vout, tx, validatedSet)) continue;
       if (env.opcode === T_CXFER || env.opcode === T_BURN || env.opcode === T_CXFER_BPP || env.opcode === T_CXFER_BOUND) {
         const dec = env.opcode === T_BURN ? decodeCBurnPayload(env.payload)
                   : env.opcode === T_CXFER_BPP ? decodeCXferBppPayload(env.payload)
@@ -15562,6 +15617,7 @@ function _testInjectHoldingsCache(c) { _holdingsCache = c && c.pubHex === undefi
 
 let _scanHoldingsOverride = null;
 function _testSetScanHoldingsOverride(fn) { _scanHoldingsOverride = fn; }
+function _testSetTrackedNotes(set) { Object.assign(_tracked, { set, at: Date.now(), net: currentNetworkName(), p: null }); }
 const _persistedValidatedTrue = new Map();
 class _ProvedOutpoints extends Map {
   set(k, v) { return _boundOutpointKeys.has(k) ? this : super.set(k, v); }
@@ -15961,6 +16017,7 @@ async function scanHoldings(force = false) {
     return _holdingsCache.holdings;
   }
   if (_holdingsInFlight) return _holdingsInFlight;
+  _trackedNotesLoad(); // checked while the coins are read, so it is usually ready when the walk starts
   const myGen = ++_holdingsLatestGen;
   let myScan = null;
   myScan = _holdingsInFlight = (async () => {
@@ -16046,10 +16103,17 @@ async function _scanHoldingsImpl() {
 
   const persistedTrue = _getPersistedValidatedTrue();
   let validatedSet = new Map(persistedTrue);
-  // The history of every output not yet proved in this browser, from the archive in one answer per 64, before the walk begins.
+  // The history of every output not yet proved in this browser, from the archive in one answer per 64, before the walk begins: a
+  // note the reflection tracks (checked against Ethereum, waited for briefly) needs only its own transaction, any other its history.
   {
-    const fresh = utxos.filter((u) => !validatedSet.has(`${u.txid}:${u.vout}`)).map((u) => u.txid);
-    if (fresh.length) await _txArchive().prefetch(fresh).catch(() => 0);
+    const fresh = utxos.filter((u) => !validatedSet.has(`${u.txid}:${u.vout}`));
+    const tracked = fresh.length ? await _trackedNotesReady(4000) : null;
+    const isTracked = (u) => !!(tracked && tracked.get(u.txid, u.vout));
+    const known = fresh.filter(isTracked).map((u) => u.txid), walked = fresh.filter((u) => !isTracked(u)).map((u) => u.txid);
+    await Promise.all([
+      known.length ? _txArchive().prefetch(known, { depth: 0 }).catch(() => 0) : 0,
+      walked.length ? _txArchive().prefetch(walked).catch(() => 0) : 0,
+    ]);
   }
   let validatedReasons = new Map();
   let rpBatch = [];
@@ -33400,6 +33464,7 @@ function _isMobileBrowser() {
 const AMM_CEREMONY_HEAVY_CIRCUITS = new Set(['amm_swap_batch']);
 
 const CANONICAL_TAC_ASSET_ID_HEX = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+const TAC_ETCH_TXID = 'e2d10be19c2b73b86e14be99dc237a3d999ba3dfbe6f3e3714590acee2ca481e';
 const CER_ELIGIBILITY_MIN_TAC_BASE_UNITS = 100_000_000n;
 const CER_ELIGIBILITY_MIN_TAC_DISPLAY = '1 TAC';
 const CER_ELIGIBILITY_MAX_OUTPOINTS = 8;
@@ -61461,7 +61526,7 @@ export {
   registerWatchtowerBid, listWatchtowerBids, cancelWatchtowerBid, reclaimWatchtowerBid, watchtowerBidAddress,
   deriveWatchtowerBidWalletKey, watchtowerBidWalletIndexOf, nextWatchtowerBidWalletIndex, sweepWatchtowerBidWallet, recoverWatchtowerBidWallets,
   deriveWatchtowerBidKey, encryptWatchtowerBidKey, watchtowerRegisterMsg, watchtowerCancelMsg,
-  _testInjectHoldingsCache, _testSetScanHoldingsOverride,
+  _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testSetTrackedNotes,
   _preauthSaleAuthMsg as preauthSaleAuthMsg,
   _preauthSaleCancelMsg as preauthSaleCancelMsg,
   _preauthSaleIdHex as preauthSaleIdHex,

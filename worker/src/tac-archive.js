@@ -86,11 +86,12 @@ export function makeTacArchive({ kv, network, dsha256, isTacit }) {
   }
 
   // Every archived transaction reached from `roots` through their inputs, roots included: { txs: Map txid -> { hex, h, b? },
-  // truncated } (truncated when the walk stopped at `cap`). Reads storage only, a level at a time.
-  async function ancestry(roots, { cap = ARCHIVE_MAX_TXS } = {}) {
+  // truncated } (truncated when the walk stopped at `cap`). Reads storage only, a level at a time, at most `depth` levels past the
+  // roots (0: the roots alone, for notes a reader already knows are valid and needs only their own transactions).
+  async function ancestry(roots, { cap = ARCHIVE_MAX_TXS, depth = Infinity } = {}) {
     const out = new Map(), seen = new Set();
     let frontier = [...new Set((roots || []).map((r) => String(r).toLowerCase()))], truncated = false;
-    while (frontier.length && !truncated) {
+    for (let level = 0; frontier.length && !truncated && level <= depth; level++) {
       for (const id of frontier) seen.add(id);
       const got = [];
       for (let i = 0; i < frontier.length; i += READ_CONCURRENCY) {

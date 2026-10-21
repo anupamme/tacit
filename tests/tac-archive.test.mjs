@@ -37,6 +37,8 @@ try {
     const capped = await a.ancestry([PURCHASE], { cap: 2 });
     ok(capped.truncated && capped.txs.size === 2, 'a walk past its cap stops and says so');
     ok((await a.ancestry(['ab'.repeat(32)])).txs.size === 0, 'a txid the archive does not hold has no history here');
+    const roots = await a.ancestry([PURCHASE], { depth: 0 }), one = await a.ancestry([PURCHASE], { depth: 1 });
+    ok([...roots.txs.keys()].join() === PURCHASE && one.txs.size === 2 && one.txs.has(MID), 'depth 0 answers the roots alone, and depth 1 their parents too');
   }
 
   // ── the routes ──

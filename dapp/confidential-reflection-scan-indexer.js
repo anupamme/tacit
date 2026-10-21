@@ -251,6 +251,7 @@ export function makeScanReflectionIndexer({ secp, keccak256, sha256, ownerTag, b
     pendingBurnTxids: () => state.pendingDepositRecords().filter((r) => !r.completed && r.burnTxid).map((r) => r.burnTxidDisplay || reverseHex(r.burnTxid)),
     coords: () => coords,
     digest: () => state.digest(),
+    digestParts: () => state.digestParts(),
     roots: () => state.commit(),
     liveCount: () => state.counts().live,
   };

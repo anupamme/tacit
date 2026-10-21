@@ -535,8 +535,10 @@ export function makeConfidentialPool({ secp, keccak256, sha256 }) {
     const spentCount = () => spent.links().length;
     const burnCount = () => burns.nodes().length;
     const commit = () => ({ poolRoot: notes.root(), spentRoot: spent.root(), burnRoot: burns.root(), height });
-    function digest() {
-      return hx(keccak(
+    // The 32-byte words the digest hashes, in order. The live set's root and size are words 4 and 5, so a reader holding the
+    // live set and these words checks the set against the attested digest without rebuilding the rest of the state.
+    function digestParts() {
+      return [
         notes.root(), u64be(noteCount()),
         spent.root(), u64be(spentCount()),
         live.root(), u64be(live.len()),
@@ -554,8 +556,9 @@ export function makeConfidentialPool({ secp, keccak256, sha256 }) {
         consumedOutpoints.root(), u64be(consumedOutpoints.links().length),
         ethSyncCommittee,
         pendingDeposits.root(), u64be(pendingDeposits.nodes().length),
-      ));
+      ].map((w) => hx(b32(w)));
     }
+    function digest() { return hx(keccak(...digestParts())); }
 
     function foldSpent(nu) {
       if (spent.contains(nu)) {
@@ -1164,7 +1167,7 @@ export function makeConfidentialPool({ secp, keccak256, sha256 }) {
     }
 
     return {
-      commit, digest, foldSpent, foldOutput, foldOutputBound, foldNoteAppend, foldBurn, foldCbtcLock, foldCbtcLockSpends, foldCbtcRedeem, foldSwapVar, foldSwapRoute, foldHarvest, foldProtocolFeeClaim, foldFarmInit, foldLpRemove, foldLpAdd, foldConsumed, foldCrossout, setConsumedCount, getConsumedCount, setEthReflDigest, getEthReflDigest, setHeight, cbtcLocks, getCbtcBackingSats: () => cbtcBackingSats, setCbtcBackingSats: (n) => { cbtcBackingSats = BigInt(n); },
+      commit, digest, digestParts, foldSpent, foldOutput, foldOutputBound, foldNoteAppend, foldBurn, foldCbtcLock, foldCbtcLockSpends, foldCbtcRedeem, foldSwapVar, foldSwapRoute, foldHarvest, foldProtocolFeeClaim, foldFarmInit, foldLpRemove, foldLpAdd, foldConsumed, foldCrossout, setConsumedCount, getConsumedCount, setEthReflDigest, getEthReflDigest, setHeight, cbtcLocks, getCbtcBackingSats: () => cbtcBackingSats, setCbtcBackingSats: (n) => { cbtcBackingSats = BigInt(n); },
       foldFarmInitRewards, foldLpBond, foldLpHarvest, foldLpUnbond, foldFarmRefund, farmRewards, farmEntries,
       consumedCrossoutRoot, consumedCrossoutCount, getFoldedCrossoutCount, setFoldedCrossoutCount, rebase,
       foldEthMessage, honoredMsgRoot, honoredMsgCount, honoredMsgs,
