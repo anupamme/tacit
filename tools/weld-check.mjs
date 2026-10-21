@@ -3546,6 +3546,33 @@ await step('xobridge', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).slice(0, 300)}`); });
     ok(true, 'xobridge: with no key open the landing page says bridges are under way in this browser and offers to open the key');
   }
+  // A bridge whose Bitcoin step has confirmed is credited with no key open: the server has recorded the mint past its depth, and the saved bridge and its Activity
+  // row catch up by themselves (a closed key used to leave the row at "Waiting for the tETH to be credited" for good).
+  if (!keyed) {
+    const REV = '9c'.repeat(32), jkey = `tacit-crossout-bridge-v1:mainnet:${pub}`;
+    await api(/^https:\/\/api\.tacit\.finance\/crossout\/minted/, (route, u) => (u.searchParams.get('txid') === REV
+      ? json(route, { network: 'mainnet', txid: REV, vout: 0, decided: true, minted: true, status: 'minted', mintedTxid: REV, scanned_height: 970400 }) : route.fallback()));
+    await api(/^https:\/\/api\.tacit\.finance\/chain\/tx\//, (route, u) => (u.pathname.endsWith('/' + REV) ? json(route, { txid: REV, status: { confirmed: true, block_height: 970300 } }) : route.fallback()));
+    const saved = JSON.parse(await r.page.evaluate((k) => localStorage.getItem(k), jkey));
+    const credit = rec('b9', 'mint-confirmed', { settle: settle('b9'), mint: { ...mint, revealTxid: REV } });
+    const reloaded9 = r.page.waitForEvent('load', { timeout: 120000 });
+    await r.page.evaluate(([akey, k, journal, item]) => {
+      const real = Storage.prototype.setItem;
+      addEventListener('pagehide', (e) => e.stopImmediatePropagation(), true);
+      real.call(localStorage, akey, JSON.stringify({ items: [item], cleared: 0 }));
+      real.call(localStorage, k, journal);
+      Storage.prototype.setItem = function (key, v) { return key === akey ? undefined : real.call(this, key, v); };
+      location.reload();
+    }, ['tacit-lite-activity-v1', jkey, JSON.stringify([...saved, credit]), op('b9', { label: 'Bridge 0.0039 tETH to Bitcoin', status: 'settled', hash: '0x' + 'b9'.repeat(32), at: Date.now() - 4 * 3600e3, end: Date.now() - 4 * 3600e3 + 60e3 })]).catch(() => {});
+    await reloaded9;
+    await r.page.waitForSelector('#act:not([hidden])', { timeout: 120000 });
+    await go(r.page, '#activity');
+    await until(r.page, () => /On your Bitcoin address\./.test(document.querySelector('#act-body')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | Activity (sheet open ${await r.page.evaluate(() => !!document.querySelector('#sheet-act')?.open)}): ${(await text(r.page, '#act-body')).replace(/\s+/g, ' ').trim().slice(0, 300)} | saved stage: ${JSON.parse(await r.page.evaluate((k) => localStorage.getItem(k), jkey)).find((x) => x.id === credit.id)?.stage}`); });
+    const now9 = JSON.parse(await r.page.evaluate((k) => localStorage.getItem(k), jkey)).find((x) => x.id === credit.id);
+    ok(!(await r.page.evaluate(() => !!document.querySelector('#wallet-dot.on'))) && now9?.stage === 'minted',
+      `xobridge: with no key open a confirmed Bitcoin step is credited on its own, in the saved bridge and in Activity (${now9?.stage})`);
+  }
   if (r.errors.length) { fails++; console.log('FAIL xobridge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });

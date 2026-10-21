@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MQVwNjPHYbVZqc5/9PVgC/ooD0+uVmJxl2e3+SC6L8U=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Z3HBMrLTbNhIxOcTssryjDUC6rtW3RAPD9ywbT+EOzY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3006,7 +3006,7 @@ const actDone = (it) => ended(it) && !actOpen(it);
 function actBridgeBody(it, b) {
   const fund = b.stage === 'covered' && !!b.lastError?.fundWait, failing = !!b.lastError && !fund, rejected = b.stage === 'mint-rejected';
   const at = b.stage === 'minted' ? 4 : XO_AT[b.stage] ?? 1;
-  const due = b.stage !== 'minted' && xoDue(b), locked = b.stage === 'settled' && xoCovered(b) && !xoKeyOpen(b);
+  const due = b.stage !== 'minted' && xoDue(b), locked = (b.stage === 'covered' || (b.stage === 'settled' && xoCovered(b))) && !xoKeyOpen(b);
   return html`<ol class="stp">${XO_STEPS.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing || rejected ? 'bad' : 'now') : ''))}</ol>
     <div class="actr-f">${b.stage === 'minted' ? html`On your Bitcoin address.` : fund ? xoFundRow(b) : xoNoteText(b)}${it.hash ? html` · <a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : ''}</div>
     ${failing ? html`<div class="actr-f err">${xoErr(b.lastError.message)}</div>` : ''}
@@ -5077,8 +5077,8 @@ function xoErr(e) {
   return errText(m === String(e?.message || e || '') ? e : new Error(m));
 }
 const xoFail = (e) => Object.assign(new Error(xoErr(e)), { said: true });
-// Whether Bitcoin's proof on Ethereum has reached a burn, asked of the proof's own service and kept for a minute and a half. A row only moves on while its key is
-// open, so a burn the proof has already reached would go on saying it waits for the proof: it says what is left for the holder instead.
+// Whether Bitcoin's proof on Ethereum has reached a burn, asked of the proof's own service and kept for a minute and a half. The Bitcoin step waits for its key
+// (every other step of a saved bridge goes on without one), so a burn the proof has already reached would go on saying it waits for the proof: it says what is left for the holder instead.
 const XOC = new Map();
 function xoCovered(r) {
   const block = Number(r.settle?.ethBlock);
@@ -5101,7 +5101,7 @@ const xoNoteText = (r) => ({
   settling: 'Sent to Ethereum. Waiting for the burn to land: this page looks for it again by itself, also after a reload.',
   settled: xoCovered(r) ? `The proof has seen the burn. ${xoKeyOpen(r) ? 'This page sends the Bitcoin step in a moment.' : 'Open your key to send the Bitcoin step: it goes out by itself once the key is open.'}`
     : 'Burned on Ethereum. Waiting for Bitcoin’s proof on Ethereum to see the burn, usually within an hour or two. The Bitcoin step is sent by this page once it has, while it is open with your key.',
-  covered: 'The proof has seen the burn. Sending the Bitcoin step needs your key: it goes on by itself while this page is open with it.',
+  covered: `The proof has seen the burn. ${xoKeyOpen(r) ? 'Sending the Bitcoin step needs your key: it goes on by itself while this page is open with it.' : 'Open your key to send the Bitcoin step: it goes out by itself once the key is open.'}`,
   'mint-signed': 'Signed. Sending it to Bitcoin…',
   'mint-submitted': 'With Bitcoin. It needs a confirmation first.',
   'mint-confirmed': `Confirmed on Bitcoin. Waiting for the ${xoTk(r)} to be credited to your Bitcoin address, usually within a few hours.`,
@@ -5141,6 +5141,7 @@ function xoRow(r) {
 async function xoAdvance(ux, pub, rec, allowHighFee = false) {
   let cur = rec;
   for (let i = 0; i < 4; i++) {
+    if (cur.stage === 'covered' && S.key?.pubHex !== pub) return cur;
     const next = cur.stage === 'covered' ? await withKey(() => ux.advance(pub, cur.id, { walletPriv: walletPriv(), allowHighFee }), pub) : await ux.advance(pub, cur.id);
     if (next.stage === cur.stage) return next;
     cur = next;
@@ -5175,17 +5176,25 @@ async function xoAct(run, kind, id) {
     else run.say(status(), xoNoteText(after) || 'Nothing has changed yet.');
   } catch (e) { run.fail(status(), xoFail(e)); } finally { rerender(a.sheet); paintAct(); }
 }
+// A bridge's proof, its confirmation and its credit are read from the chains, so a saved bridge goes on with no key open, or with another one's:
+// only the Bitcoin step and the rebuilding of a claim need its own key. The journals are found by their names in this browser's storage.
+const xoPubs = () => {
+  const own = 'tacit-crossout-bridge-v1:mainnet:', pubs = [];
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if (k.startsWith(own) && /^[0-9a-f]{66}$/.test(k.slice(own.length))) pubs.push(k.slice(own.length)); } } catch {}
+  return pubs.filter((pub) => Object.values(XA).some((a) => xoJournaled(pub, a)));
+};
 async function xoTick(first = false) {
-  const pub = S.key?.pubHex;
-  if (!pub || XO.auto || (!first && Date.now() - XO.autoAt < 75e3) || !Object.values(XA).some((a) => xoJournaled(pub, a))) return;
+  if (XO.auto || (!first && Date.now() - XO.autoAt < 75e3)) return;
+  const keyPub = S.key?.pubHex, pubs = xoPubs();
+  if (!pubs.length) return;
   XO.auto = true; XO.autoAt = Date.now();
   const moved = new Set();
   try {
     const ux = await xoUx();
-    for (const listed of Object.values(XA).flatMap((a) => xoRecords(pub, a))) {
-      if (S.key?.pubHex !== pub) break;
+    for (const [pub, listed] of pubs.flatMap((p) => Object.values(XA).flatMap((a) => xoRecords(p, a)).map((r) => [p, r]))) {
+      if (S.key?.pubHex !== keyPub) break;
       let rec = listed;
-      if (rec.stage === 'settled' && rec.settle?.claimIdVerified === false && rec.settle.txHash && Date.now() - Number(XO.rechecked[rec.id] || 0) > 10 * 60e3) {
+      if (pub === keyPub && rec.stage === 'settled' && rec.settle?.claimIdVerified === false && rec.settle.txHash && Date.now() - Number(XO.rechecked[rec.id] || 0) > 10 * 60e3) {
         XO.rechecked[rec.id] = Date.now();
         try { rec = await ux.recoverFromEthTx(xoHash(rec.settle.txHash), walletPriv(), { amount: BigInt(rec.source.amount ?? rec.source.value) }); } catch { rec = listed; }
         if (rec.settle?.claimIdVerified !== false) moved.add(xaOf(rec).sheet);
@@ -5195,7 +5204,7 @@ async function xoTick(first = false) {
       try {
         const after = await xoAdvance(ux, pub, rec);
         if (after?.stage !== rec.stage) moved.add(xaOf(rec).sheet);
-        if (after?.stage === 'minted') xoArrived(after);
+        if (after?.stage === 'minted' && (!keyPub || pub === keyPub)) xoArrived(after);
       } catch (e) {
         moved.add(xaOf(rec).sheet);
         if (e?.fundWait && !rec.lastError?.fundWait) {
@@ -12673,6 +12682,7 @@ paintWays();
 fetch(`${API}/leaderboard?day=today&limit=1`, { signal: within(20e3) }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.program) takeProgram(d.program); }).catch(() => {});
 refreshAll();
 resumeActivity();
+setTimeout(() => xoTick(), 8000);                       // saved bridges go on with no key open too
 restoreWallet();
 evm.onElsewhere(restoreWallet);
 let lastTick = Date.now();
