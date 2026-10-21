@@ -914,6 +914,9 @@ They are public and linked to each other, like any reused address. A sweep shows
 **Why should each payer get their own address?**
 One-time addresses keep one payer's payment apart from another's. Your key issues them, nothing on chain ties two of them together, and your key finds them again from the key alone.
 
+**Can I pay a deposit address from a private pool?**
+Yes. A withdrawal from a private pool is an ordinary payment to the address, so your depositing wallet never appears here. Pay a one-time address (tacit pay, Deposit, Fresh address), once: an address that also took an exchange payment ties the two together. The amount shows at both ends, so use a round one, and wait between the pool deposit and the withdrawal. How well that pool hides you is its own, not this pool's.
+
 **What does a payment link reveal?**
 A link carries a deposit address and your signature over it, made with the view key of your pool address. The payer's page uses it to check that the address is yours. Anyone who holds the link can tell the address is yours.
 
