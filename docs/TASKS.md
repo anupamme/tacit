@@ -58,6 +58,12 @@ quick blocks is not final in twelve of them. Nodes: `POINTS_TASKS_RPC_8453`, `_4
 nodes and MegaETH's public ones; a comma list is tried in order). A job on a chain with no node refuses to start the service, and a node
 that answers for another chain than the one it serves credits nothing.
 
+## What the page reads
+
+A step the service has claimed is shown as done without asking the chain (the service has read it from the chain), so a visit does not download the code
+of every contract a job deployed; the steps it has not claimed are read from the chain, and a send always reads the chain. Done jobs list the newest first.
+A done job with no claim says so; the account that sent it can name its transaction (`POST /tasks/claim`) and is credited like any other.
+
 ## The page's own endpoints
 
 Under *Endpoints* at the foot of `/tasks` a reader can set nodes of their own for each chain, the rewards service and the keepers (saved in
@@ -100,6 +106,7 @@ A change to the contracts changes the addresses: rebuild the files, run the test
 ## Tests
 
     node worker-relay/tests/points-tasks.test.mjs                       rewards, matching, guards, store, the service
+    node worker-relay/tests/tasks-page-state.test.mjs                   the page's reading of what is done, counted request by request (Chrome)
     anvil --fork-url <mainnet rpc> --port 8546 --chain-id 1
     FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/points-tasks-fork.test.mjs   all 21 steps, claimed and credited
     FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/tasks-page-e2e.mjs           the page in Chrome, wallet and all

@@ -1,8 +1,9 @@
 // The tasks page: jobs anyone can do for TAC from the points program's separate task budget. A job is a list of steps (transactions);
 // the page shows what each does, checks in the browser that the transactions it would send are the plan's, sends the ones still
 // open from the visitor's wallet, and names each one to the points service, which reads it from the chain, prices it from the gas
-// of its own block and the TAC price around it, and credits the account that sent it. Nothing the page reads or sends depends
-// on the service except the reward: the deployment is the same from any browser.
+// of its own block and the TAC price around it, and credits the account that sent it. What the page sends is decided from the chain,
+// never from the service: the deployment is the same from any browser. What it shows as done may come from the service's claims (each
+// is a step the service has read from the chain), so that a visit does not download the code of every contract a job deployed.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
@@ -98,14 +99,21 @@ function keepSeen(job, out) {
   if (more) { try { localStorage.setItem(SEEN, JSON.stringify([...seenDone])); } catch { /* the page works without it */ } }
 }
 
+// The service's answer is waited for a moment before the chain is read, so that the steps it has claimed need no read at all.
+let apiFirst = null;
+const apiSettled = () => (apiFirst ? Promise.race([apiFirst, new Promise((r) => setTimeout(() => { S.apiLate = true; r(); }, 4e3))]) : Promise.resolve());
+
 // Whether each step is already on the chain: code at a deployment's address, the registry's newest point, the asset or the pool in the
-// confidential pool's registry. One request per chain; a step that has been seen on the chain is not asked about again.
-async function readDone(job) {
-  const out = {}, prev = S.done[job.id] || {}, asks = new Map();
+// confidential pool's registry. One request per chain; a step that has been seen on the chain, or that the service has claimed, is not
+// asked about (a send passes `chain` and asks the chain about everything not seen on it).
+async function readDone(job, { chain = false } = {}) {
+  if (!chain) await apiSettled();
+  const out = {}, prev = S.done[job.id] || {}, asks = new Map(), aj = chain ? null : apiJob(job);
   const ask = (id, s, method, params, yes) => { if (!asks.has(id)) asks.set(id, []); asks.get(id).push({ s, method, params, yes }); };
   for (const s of job.steps) {
     const id = chainOf(job, s);
     if (prev[s.id] === true || (!ownNodes(id) && seenDone.has(stepKey(job, s)))) { out[s.id] = true; continue; }
+    if (aj && !ownNodes(id) && aj.steps.find((x) => x.id === s.id)?.claim) { out[s.id] = true; continue; }
     if (s.kind === 'createx') ask(id, s, 'eth_getCode', [s.expected, 'latest'], (r) => r !== '0x');
     else if (s.kind === 'post') ask(id, s, 'eth_call', [{ to: s.to, data: LATEST }, 'latest'], (r) => r !== '0x' && BigInt(r) >= BigInt(s.minSize));
     else if (s.kind === 'register') ask(id, s, 'eth_call', [{ to: s.to, data: `0x9fda5b66${s.asset.slice(2)}` }, 'latest'], flagged);
@@ -187,9 +195,9 @@ function renderStats() {
 function renderJobs() {
   const root = $('#jobs');
   if (!S.jobs.length) return;
-  if (!S.loaded) { root.innerHTML = '<p class="none">Reading the chain…</p>'; return; }
-  settled();
-  const open = S.jobs.filter((j) => stateOf(j) !== 'done'), done = S.jobs.filter(isDone);
+  if (!S.loaded || !(S.asked || S.apiLate)) { root.innerHTML = '<p class="none">Reading the chain…</p>'; return; }
+  $('#jobs').classList.remove('loading');
+  const open = S.jobs.filter((j) => stateOf(j) !== 'done'), done = S.jobs.filter(isDone).sort((a, b) => (b.opensAt || 0) - (a.opensAt || 0));
   root.innerHTML = `
     <h2 class="sec-h">Open jobs <span class="num">${open.length}</span></h2>
     ${open.length ? open.map(card).join('') : '<p class="none">No open jobs right now. The next one will show up here.</p>'}
@@ -217,7 +225,7 @@ function card(job) {
   if (st === 'done') {
     fig = res.count ? `${tac(res.total)}<small>TAC</small>` : '—';
     const waiting = Object.values(S.hashes).filter((v) => v.state === 'pending').length;
-    cap = res.count ? `paid to ${res.senders.map((a) => short(a)).join(', ')}` : waiting ? 'waiting for twelve confirmations' : 'deployed outside the rewards';
+    cap = res.count ? `paid to ${res.senders.map((a) => short(a)).join(', ')}` : waiting ? 'waiting for twelve confirmations' : S.api?.enabled && job.opensAt && Date.now() / 1000 >= job.opensAt ? 'no reward claimed yet' : 'deployed outside the rewards';
     foot = res.last ? `Done ${day(res.last)}` : 'Done';
   } else if (eco || apiJob(job)?.estimateWei != null) { fig = `≈ ${tacR(eco ? eco.pays : apiJob(job).estimateWei)}<small>TAC</small>`; cap = 'for the whole job, at today’s network fees'; }
   return `<article class="job ${st}${exp ? ' is-open' : ''}" id="${esc(job.id)}">
@@ -438,7 +446,7 @@ async function go(job, only = null) {
     const payload = S.payload[job.id];
     for (const [i, s] of job.steps.entries()) {
       if (only && s.id !== only) continue;
-      S.done[job.id] = await readDone(job);
+      S.done[job.id] = await readDone(job, { chain: true });
       if (S.done[job.id][s.id]) { if (only) say('That step is already on the chain.'); continue; }
       // A point goes to the registry, which must be on that chain first.
       if (s.kind === 'post') {
@@ -455,12 +463,12 @@ async function go(job, only = null) {
       track(hash, id);
       renderAll();
     }
-    S.done[job.id] = await readDone(job);
+    S.done[job.id] = await readDone(job, { chain: true });
     renderAll();
     say(only ? 'Sent. The rewards service reads the step after twelve confirmations.' : 'Everything is sent. The rewards service reads each step after twelve confirmations.');
   } catch (e) {
     say(esc(e instanceof UserStopped ? 'Cancelled in your wallet. Send again to continue where it left off.' : (e.message || 'The wallet did not send it.')), !(e instanceof UserStopped));
-  } finally { const id = S.running; S.running = null; S.done[id] = await readDone(job).catch(() => S.done[id]); renderAll(); settle(); }
+  } finally { const id = S.running; S.running = null; S.done[id] = await readDone(job, { chain: true }).catch(() => S.done[id]); renderAll(); settle(); }
 }
 
 // ── naming steps to the service ──
@@ -550,7 +558,8 @@ async function start() {
   const wanted = location.hash.slice(1);
   if (S.jobs.some((j) => j.id === wanted)) S.expanded.set(wanted, true);          // a link to a job opens it
   renderAll();
-  await Promise.all([loadApi(), refresh()]);
+  apiFirst = loadApi();
+  await Promise.all([apiFirst, refresh()]);
   setInterval(() => { if (!document.hidden && !S.running) { refresh(); loadApi(); } }, 30e3);
   setInterval(() => { if (!document.hidden) settle(); }, 20e3);
   settle();

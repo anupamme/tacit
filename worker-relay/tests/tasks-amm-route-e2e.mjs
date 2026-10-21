@@ -35,6 +35,7 @@ const snap = await rpc('evm_snapshot');
 let browser;
 try {
   await new Promise((r) => setTimeout(r, 800));
+  if ((await rpc('eth_getCode', [TACIT_AMM_ROUTE, 'latest'])) !== '0x') { await rpc('anvil_setCode', [TACIT_AMM_ROUTE, '0x']); await rpc('anvil_setNonce', [TACIT_AMM_ROUTE, '0x0']); }       // it is on mainnet now: the fork starts as it was before it was sent (an account with a nonce cannot be created over)
   assert.equal(await rpc('eth_getCode', [TACIT_AMM_ROUTE, 'latest']), '0x', 'TacitAmmRoute is not on the fork yet');
   const [account] = await rpc('eth_accounts');
   const pageJob = JSON.parse(readFileSync(new URL('../../dapp/tasks/jobs.json', import.meta.url), 'utf8')).jobs.find((j) => j.id === JOB);
