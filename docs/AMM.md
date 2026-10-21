@@ -42,7 +42,7 @@ swapPublic(assetIn, assetOut, feeBps, amountIn, minAmountOut, deadline, to)
   passes. `quoteSwap(assetIn, assetOut, feeBps, amountIn)` returns exactly what the swap pays.
 - **Atomic with other calls.** `swapPublic` is an ordinary synchronous call, so anything that can call a contract
   can put it in one transaction with other calls, and the transaction either does all of it or none. The repository
-  has several: the [swap page](../dapp/swap/) takes any token through another pool to the asset in one transaction;
+  has several: the [swap page](../dapp/swap/) takes any token through another pool to the asset, and the asset to any token, in one transaction;
   an order can be [split across the Precision pool and the Tacit pool](./TAC.md#trading-tac) in one transaction; and
   `ConfidentialRouter` has the swap, the liquidity add and the shielding of the position as single calls
   (`swapPublicPathWithPermit2`, `zapETHIntoLP`, `zapTokenIntoShieldedLP`, `zapETHIntoFarm`).
@@ -123,4 +123,5 @@ the addresses.
 | Pool, reserves and shares | [`ConfidentialPool.sol`](../contracts/src/ConfidentialPool.sol) |
 | Public swap and liquidity | [`TacitPublicAmm.sol`](../contracts/src/TacitPublicAmm.sol) |
 | Swaps and zaps in one call | [`ConfidentialRouter.sol`](../contracts/src/ConfidentialRouter.sol) |
+| The last step of a swap from any token into tacUSD or tacBTC | [`TacitAmmRoute.sol`](../contracts/src/TacitAmmRoute.sol) |
 | Private swap and liquidity ops | [`dapp/confidential-swap.js`](../dapp/confidential-swap.js), [`dapp/confidential-lp.js`](../dapp/confidential-lp.js) |

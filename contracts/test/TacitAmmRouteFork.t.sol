@@ -19,7 +19,7 @@ interface IBalance {
 }
 
 /// Against the live pool: set FORK_URL to an Ethereum node, else the tests skip.
-contract TacitAmmRouteTest is Test {
+contract TacitAmmRouteForkTest is Test {
     address constant AMM = 0x00000000E36C7EC997CC59DCda9E03673B448119;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant CUSD = 0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564;
