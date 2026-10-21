@@ -57,7 +57,7 @@ async function open({ service, jobs, viewport = { width: 1280, height: 900 }, st
 const pill = (page) => page.evaluate(() => { const a = document.getElementById('task-news'); return { shown: !!a && !a.hidden && a.getBoundingClientRect().width > 0, text: a?.innerText.replace(/\s+/g, ' ').trim(), href: a?.getAttribute('href'), title: a?.getAttribute('title') }; });
 const settle = async (page, want) => { await page.waitForFunction((w) => { const a = document.getElementById('task-news'); return w ? !!a && !a.hidden : true; }, want, { timeout: 15000 }).catch(() => {}); await page.waitForTimeout(want ? 200 : 1800); };
 
-const OPEN = [meta('amm-route', 'Deploy the swap page’s any-token route', NOW - 60)];
+const OPEN = [meta('amm-route', 'Deploy the swap route', NOW - 60)];
 
 // a live job
 {
@@ -65,7 +65,7 @@ const OPEN = [meta('amm-route', 'Deploy the swap page’s any-token route', NOW 
   await settle(page, true);
   const p = await pill(page);
   ok(p.shown && p.text === 'Task Earn 30 TAC →', `a live job shows the line with what it pays (${p.text})`);
-  ok(p.href === '/tasks/' && p.title === 'Deploy the swap page’s any-token route', 'it links to the tasks page and names the job on hover');
+  ok(p.href === '/tasks/' && p.title === 'Deploy the swap route', 'it links to the tasks page and names the job on hover');
   const air = await page.evaluate(() => { const a = document.getElementById('air-news').getBoundingClientRect(), t = document.getElementById('task-news').getBoundingClientRect(); return { a: [a.left, a.top, a.right, a.bottom], t: [t.left, t.top, t.right, t.bottom], over: document.documentElement.scrollWidth - document.documentElement.clientWidth }; });
   const apart = air.a[2] <= air.t[0] || air.t[2] <= air.a[0] || air.a[3] <= air.t[1] || air.t[3] <= air.a[1];
   ok(apart && air.over === 0, 'at a desktop width it sits beside the airdrop line without overlapping it or widening the page');

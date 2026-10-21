@@ -621,27 +621,19 @@
           "bound": false,
           "minWei": "30000000000000000000",
           "maxWei": "200000000000000000000",
-          "label": "Deploy TacitAmmRoute"
+          "label": "Deploy the contract"
         }
       ],
-      "title": "Deploy the swap page’s any-token route",
-      "tagline": "Let the swap page buy tacUSD and tacBTC with any token in one transaction: 1 transaction, from any wallet.",
+      "title": "Deploy the swap route",
+      "tagline": "One contract for the swap page: 1 transaction, from any wallet.",
       "about": [
         {
           "h": "What it does",
-          "p": "The swap page already sells TAC, tacUSD and tacBTC for any token on its list in one transaction. Buying tacUSD or tacBTC with a token needs one small contract on Ethereum to finish the swap in the Tacit pool. Once it is deployed the page offers those pairs by itself."
-        },
-        {
-          "h": "What gets deployed",
-          "p": "TacitAmmRoute, one contract at 0x00000065e3e51af95d330fb6932cA3E87912c554. It takes the WETH a swap hands it, unwraps it and swaps the ETH for tacUSD or tacBTC through the Tacit pool’s public door, paid to the buyer. The swap’s own minimum and deadline apply."
-        },
-        {
-          "h": "Who controls it",
-          "p": "Nobody. It has no owner and no settings, keeps nothing between swaps, and sends any change back to the buyer."
+          "p": "Lets the swap page buy tacUSD and tacBTC with any token in one transaction."
         },
         {
           "h": "Who can send it",
-          "p": "Anyone. The address is fixed by the contract’s exact code, so the sender cannot change what lands there."
+          "p": "Anyone. It has no owner, and its address is fixed by its code."
         }
       ],
       "links": [],
@@ -665,23 +657,19 @@
           "bound": false,
           "minWei": "30000000000000000000",
           "maxWei": "200000000000000000000",
-          "label": "Deploy TacitAmmRoute (first version)"
+          "label": "Deploy the contract (earlier address)"
         }
       ],
-      "title": "Deploy the swap page’s any-token route (first version)",
-      "tagline": "The first copy of the contract, sent before a fixed one replaced it: 1 transaction, done.",
+      "title": "Deploy the swap route (earlier address)",
+      "tagline": "The same contract at an earlier address: 1 transaction, done.",
       "about": [
         {
-          "h": "What it was",
-          "p": "The same contract as the job above, at 0x00000015FF76e81b258A75934Dd205998F5a00F7. The first account to take that job sent it."
-        },
-        {
-          "h": "Why there is a new one",
-          "p": "It was replaced by a fixed version before any swap used it. It holds nothing, and the swap page looks for the fixed one."
+          "h": "What it is",
+          "p": "The same contract at another address. The swap page uses the one in the job above."
         },
         {
           "h": "Who is paid",
-          "p": "The account that sent the transaction, for the step, as for any other."
+          "p": "The account that sent it, like any other step."
         }
       ],
       "links": [],

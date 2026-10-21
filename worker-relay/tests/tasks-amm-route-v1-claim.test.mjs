@@ -1,6 +1,5 @@
-// The first copy of TacitAmmRoute (sent by another account before a fix moved the address) is credited to the account that sent it, by the points service's own code
-// reading the real transaction from the chain: the `amm-route-v1` step is credited once, the open `amm-route` job (the fixed copy) is not touched, and the step pays
-// what any other step of the job pays.
+// TacitAmmRoute at its earlier address (sent by another account) is credited to the account that sent it, by the points service's own code reading the real transaction
+// from the chain: the `amm-route-v1` step is credited once, the open `amm-route` job is not touched, and the step pays what any other step of the job pays.
 //   anvil --fork-url <mainnet rpc> --port 8546 --chain-id 1 &
 //   FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/tasks-amm-route-v1-claim.test.mjs
 import assert from 'node:assert/strict';
