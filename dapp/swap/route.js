@@ -33,8 +33,9 @@ export const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 export const PRECISION_ROUTE = '0x0000007Be74558A1F8c9045301c6F44C8eD0c9eB';
 export const PRECISION_GUARD = '0x00000057B53fB5feEdedaf7066e1f1C7002b1961';
 export const TACIT_AMM = '0x00000000E36C7EC997CC59DCda9E03673B448119';
-// contracts/src/TacitAmmRoute.sol (WETH → ETH → TacitPublicAmm for an snwap), at the address the deterministic CREATE2 proxy gives its init code and salt.
-export const TACIT_AMM_ROUTE = '0x000000ce935718faa9D2649c5D0183b765A1C731';
+// contracts/src/TacitAmmRoute.sol (WETH → ETH → TacitPublicAmm for an snwap), at the address CreateX gives its init code under an open salt (the /tasks job
+// `amm-route` deploys it there from any wallet).
+export const TACIT_AMM_ROUTE = '0x00000015FF76e81b258A75934Dd205998F5a00F7';
 export const CONF_ROUTER = '0x000000005dA3E3B73726af3c774Deeb9472D4992';
 // The Tacit pool's asset ids: tETH's shared id, and each canonical token's ASSET_ID().
 export const POOL_ID = {
