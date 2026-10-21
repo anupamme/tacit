@@ -1052,6 +1052,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   const waiting = ux.list(WALLET_PUB)[0];
   ok(waiting.stage === 'covered' && waiting.lastError?.fundWait === true && !waiting.errorCount && world.broadcasts.length === 0, 'with no coin the Bitcoin step waits: eight checks leave a wait on the record and no failed tries, and nothing is sent');
   ok(e0?.fundWait === true && waiting.lastError.needSats > 0 && waiting.lastError.haveSats === 0 && /needs a free coin of \d+ sats/.test(waiting.lastError.message), 'the wait names the sats the step needs and what the address holds');
+  ok(/^bc1q[a-z0-9]{38}$/.test(waiting.lastError.address) && e0.address === waiting.lastError.address, 'and the address to send them to, the key\'s plain Bitcoin address');
   world.setUtxos([{ txid: FUND_TXID, vout: 0, value: waiting.lastError.needSats - 1 }]);
   try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch {}
   const small = ux.list(WALLET_PUB)[0];

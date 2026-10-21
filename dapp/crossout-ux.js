@@ -253,7 +253,7 @@ export function makeCrossoutUx(deps) {
       const cur = getRecord(walletPub, id) || rec;
       const waiting = !!(e && e.feeWait), funding = !!(e && e.fundWait);
       putRecord({ ...cur,
-        lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}), ...(funding ? { fundWait: true, needSats: e.needSats, haveSats: e.haveSats } : {}) },
+        lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}), ...(funding ? { fundWait: true, needSats: e.needSats, haveSats: e.haveSats, address: e.address } : {}) },
         errorCount: (cur.errorCount || 0) + (waiting || funding ? 0 : 1) });
       throw e;
     } finally { inFlight.delete(id); releaseLease(id); }
@@ -268,7 +268,7 @@ export function makeCrossoutUx(deps) {
     const pick = Array.isArray(sorted) ? sorted[0] : sorted;
     const haveSats = pick ? Number(pick.value) || 0 : 0;
     if (!pick || haveSats < needSats) {
-      throw Object.assign(new Error(`crossout-ux: the Bitcoin step needs a free coin of ${needSats} sats at ${address}${pick ? `, the largest holds ${haveSats}` : ''}`), { fundWait: true, needSats, haveSats });
+      throw Object.assign(new Error(`crossout-ux: the Bitcoin step needs a free coin of ${needSats} sats at ${address}${pick ? `, the largest holds ${haveSats}` : ''}`), { fundWait: true, needSats, haveSats, address });
     }
     return { txid: pick.txid, vout: pick.vout, value: pick.value };
   }

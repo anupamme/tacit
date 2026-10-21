@@ -3351,13 +3351,13 @@ await step('xobridge', async () => {
   // A Bitcoin step that is ready while the address holds no coin to pay it waits for sats: its row asks for them and names the sum, offers to check again, and is no failure.
   await r.page.evaluate(([k, id]) => {
     const l = JSON.parse(localStorage.getItem(k)), x = l.find((y) => y.id === id);
-    x.lastError = { message: 'crossout-ux: the Bitcoin step needs a free coin of 1214 sats', at: Date.now(), fundWait: true, needSats: 1214, haveSats: 0 }; x.errorCount = 0;
+    x.lastError = { message: 'crossout-ux: the Bitcoin step needs a free coin of 1214 sats', at: Date.now(), fundWait: true, needSats: 1214, haveSats: 0, address: 'bc1q' + 'a'.repeat(38) }; x.errorCount = 0;
     localStorage.setItem(k, JSON.stringify(l));
   }, [`tacit-crossout-bridge-v1:mainnet:${pub}`, '0x' + 'a3'.repeat(32)]);
   await go(r.page, '#private'); await go(r.page, '#private/bitcoin');
   await until(r.page, () => /needs one free coin of 1,214 sats/.test(document.querySelectorAll('#eth-v1 .brr')[2]?.textContent || ''), null, 120000);
   const fundRow = (await r.page.$$eval('#eth-v1 .brr', (xs) => xs[2].textContent.replace(/\s+/g, ' ').trim()));
-  ok(/Add bitcoin/.test(fundRow) && /Check again/.test(fundRow) && !/Try again|Send it anyway/.test(fundRow) && !(await r.page.$('#eth-v1 .brr:nth-child(3) .stp li.bad')), `xobridge: a Bitcoin step waiting for sats asks for them, offers to check again, and is not shown as failed (${fundRow.slice(0, 200)})`);
+  ok(/Add bitcoin/.test(fundRow) && fundRow.includes('bc1q' + 'a'.repeat(38)) && !!(await r.page.$('#eth-v1 .brr:nth-child(3) [data-copy-addr]')) && /Check again/.test(fundRow) && !/Try again|Send it anyway/.test(fundRow) && !(await r.page.$('#eth-v1 .brr:nth-child(3) .stp li.bad')), `xobridge: a Bitcoin step waiting for sats asks for them, offers to check again, and is not shown as failed (${fundRow.slice(0, 200)})`);
   // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
   await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   await until(r.page, () => /3 bridges of tETH to Bitcoin are waiting for you\./.test(document.querySelector('#dash')?.textContent || ''), null, 120000)
@@ -3385,7 +3385,7 @@ await step('xobridge', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')} | status: ${await text(r.page, '#v1-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
   const rc0 = (await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ');
   ok(/You get0\.0\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
-  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /Add bitcoin to it/.test(rc0) && await r.page.isDisabled('#xo-go') && await r.page.isVisible('#xo-ackrow'), 'xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and where to add them');
+  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /exchange:\s*bc1q[a-z0-9]{38}/.test(rc0) && await r.page.isVisible('#xo-rcpt [data-copy-addr]') && await r.page.isDisabled('#xo-go') && await r.page.isVisible('#xo-ackrow'), `xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and the whole address to send them to, with a copy (${rc0.slice(-200)})`);
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: and ticked, it starts with no sats on the address: the Bitcoin step is paid hours later');
   await r.page.uncheck('#xo-ack');
@@ -3397,6 +3397,15 @@ await step('xobridge', async () => {
   ok(await r.page.isDisabled('#xo-go') && !/Add bitcoin to it/.test(await text(r.page, '#xo-rcpt')) && /Keep about \d[\d,]* sats/.test(await text(r.page, '#xo-rcpt')), 'xobridge: with sats free, the button still waits for the box to be ticked, and the request for sats gives way to keeping them');
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: ticked, it can start');
+  // The Receive tab leads with the address an ordinary wallet can pay, whole, and says the Tacit address is for Tacit wallets.
+  await go(r.page, '#bitcoin/receive');
+  await until(r.page, () => /bc1q[a-z0-9]{38}/.test(document.querySelector('#btc-form .blk')?.textContent || ''), null, 60000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receive: ${(await text(r.page, '#btc-form')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+  const blks = await r.page.$$eval('#btc-form .blk', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  ok(/^Bitcoin address/.test(blks[0]) && /bc1q[a-z0-9]{38}/.test(blks[0]) && /^Tacit address/.test(blks[1]) && /cannot send to it/.test(blks[1]), `xobridge: the Bitcoin tab's Receive leads with the plain Bitcoin address, whole, and says the Tacit address is for Tacit wallets (${blks[0].slice(0, 100)} || ${(blks[1] || '').slice(0, 60)})`);
+  await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  await go(r.page, '#private/bitcoin');
+  await r.page.waitForSelector('#xo-amt');
   // The limits.
   await r.page.fill('#xo-amt', '0.6');
   await until(r.page, () => /at most 0\.5 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
@@ -5534,6 +5543,11 @@ await step('receipts', async () => {
         return b;
       };
       ux.quoteOpFee = async () => '100000';
+      // The pool's leaf count grows with the notes its jobs make, as the chain's does: the page looks again only when it has moved.
+      const leaves = ux.poolLeafCount;
+      ux.poolLeafCount = async () => Number(await leaves()) + S.notes.length;
+      const balanceWith = ux.balance;
+      ux.balance = async (priv) => { const b = await balanceWith(priv); if (b.leafCount != null) b.leafCount = Number(b.leafCount) + S.notes.length; return b; };
       const fire = (d) => dispatchEvent(new CustomEvent('tacit:job', { detail: { txHash: null, error: null, at: Date.now(), ...d } }));
       const job = async (type, waitOpts, spend, make) => {
         const jobId = 'rx-' + type + '-' + (spend[0]?.leaf || '').slice(-6);
@@ -5674,7 +5688,7 @@ await step('receipts', async () => {
     ok(/8(\.0+)? TAC is in private notes/.test(await text(r.page, '#tac-bal')), `receipts: 8 private TAC is offered to make public (${(await text(r.page, '#tac-bal')).replace(/\s+/g, ' ').slice(-120)})`);
     const before = (await rx()).calls.length;
     await r.page.click('#tac-pub');
-    await until(r.page, () => /each goes on by itself/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 60000)
+    await until(r.page, () => /Sent to the relay/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${await text(r.page, '#tac-bal-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
     const e0 = await rx(), first = e0.calls.at(-1);
     ok(e0.calls.length === before + 1 && first.type === 'unwrap' && !(await r.page.$('#tac-pub')), 'receipts: the first unwrap is queued, the sheet is handed back, and the notes are no longer offered');
@@ -5996,8 +6010,9 @@ await step('tacdeposit', async () => {
     await shot(r.page, 'tacdeposit-dash');
     const n0 = submits.length;
     await r.page.click('#dash-due [data-dash-do="tac"]');                               // opens the TAC sheet and presses its Finish
-    await until(r.page, () => /stubbed|err/i.test(document.querySelector('#tac-bal-status')?.innerHTML || ''), null, 120000).catch(() => {});
-    ok(/Finishing a 20 TAC deposit did not go through: Stubbed in the fork check/.test(await text(r.page, '#tac-bal-status')), `tacdeposit: the sheet's line sums up the Finish once its settle has ended (${await text(r.page, '#tac-bal-status')})`);
+    // The sheet is handed back once the relay has the settle (its line reads "Sent to the relay"); a settle that then fails is toasted with its reason and kept in Activity.
+    await until(r.page, () => /did not go through/.test(document.querySelector('#toast-container')?.textContent || ''), null, 120000).catch(() => {});
+    ok(/Finish a 20 TAC deposit did not go through: Stubbed in the fork check/.test(await text(r.page, '#toast-container')), `tacdeposit: once its settle has ended the failure is toasted with its reason (${await text(r.page, '#toast-container')})`);
     const subs = submits.slice(n0).filter((s) => s.type === 'wrap');
     ok(subs.length === 1 && String(subs[0].op?.asset).toLowerCase() === dep.asset.toLowerCase() && String(subs[0].op?.value) === dep.value,
       `tacdeposit: Finish submits one wrap, rebuilt under TAC's asset and scale (${subs.length} submitted, value ${subs[0]?.op?.value})`);

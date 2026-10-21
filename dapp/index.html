@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Yole+FLtOhRbznZq12z+W2H5VGApXRrLx5sTkt3Hiek=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-YNlkxCFEJX/UVFoJ0wNZmP5EwgsWDB8zeZCJnaRhc3A=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -890,6 +890,8 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .ack input:not([type]) { width: 72px; flex: none; font: 500 16px var(--mono); color: var(--ink); background: var(--field); border: 1px solid var(--err); padding: 6px 8px; }
 .kv .link { flex: none; }
 .kv .mono { margin-left: auto; }
+.addrline { display: block; margin-top: 6px; }
+.addrline code { font: 500 12.5px/1.45 var(--mono); color: var(--ink); overflow-wrap: anywhere; user-select: all; }
 .nw { white-space: nowrap; }
 .lbl.sep { border-top: 1px solid var(--hair); margin-top: 20px; padding-top: 14px; }
 .blk + .blk { margin-top: 16px; }
@@ -3039,10 +3041,10 @@ const actRow = (it) => {
   ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made with another Tacit key. Open that key to act on it.</div>` : ''}</li>`;
 };
 let ACT_VIEW = '';
-// A stopped row whose same action was sent again within a day and went through is no longer news, and a stopped one from days ago is not offered a retry (its own
+// A stopped row whose same action was sent again within a day and went through is no longer news (a retried attempt keeps its own receipt: its id carries a ~), and a stopped one from days ago is not offered a retry (its own
 // balance read is what answers whether it still holds).
 const actStale = (it) => Date.now() - (it.end || it.up || it.at) > 86400e3;
-const actRedone = (it, all) => (it.status === 'failed' || it.status === 'unknown') && all.some((x) => x !== it && x.label === it.label && x.at > it.at && x.at - (it.end || it.at) < 86400e3 && (x.status === 'settled' || x.status === 'confirmed'));
+const actRedone = (it, all) => (it.status === 'failed' || it.status === 'unknown') && !String(it.id).includes('~') && all.some((x) => x !== it && x.label === it.label && x.at > it.at && x.at - (it.end || it.at) < 86400e3 && (x.status === 'settled' || x.status === 'confirmed'));
 function renderAct() {
   const el = $('#act-body'), items = listed().filter((it, _, all) => !actRedone(it, all)), can = typeof Notification === 'function';
   const on = can && !!store.get(NOTIFY_KEY) && Notification.permission === 'granted';
@@ -5003,7 +5005,10 @@ const xoFundingText = (pf) => {
   return `${k === 1 ? 'A bridge under way takes a coin' : `${k} bridges under way take a coin each`} from this key’s Bitcoin address for ${k === 1 ? 'its' : 'their'} Bitcoin step. `
     + (coin ? `The next free coin holds ${coin}; this one needs a coin of ${need}, kept there until it arrives.` : `No other coin is free; this one needs a coin of ${need}, kept there until it arrives.`);
 };
-const xoFundNote = (pf, a = XA.teth) => html`${xoFundingText(pf)} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a> <button class="link" type="button" id="${a.pre}-recheck">Check again</button>`;
+// Where to send the sats: the address whole, ready to copy. The Tacit address (tacit1…) takes nothing from an ordinary wallet or an exchange.
+const addrLine = (a) => (a ? html`<span class="addrline"><code>${a}</code> <button class="link" type="button" data-copy-addr="${a}">Copy</button></span>` : '');
+document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-copy-addr]'); if (b) copy(b.dataset.copyAddr, 'Bitcoin address copied'); });
+const xoFundNote = (pf, a = XA.teth) => html`${xoFundingText(pf)} Send bitcoin to it from any wallet or exchange: ${addrLine(pf.address)} <button class="link" type="button" id="${a.pre}-recheck">Check again</button>`;
 const xoProblemText = () => 'Bitcoin’s proof on Ethereum could not be read, so nothing was started. Try again in a minute.';
 const xoPreflight = (ux, pub, exclude = []) => withKey(() => ux.preflight({ walletPriv: walletPriv(), exclude }), pub);
 const xbIs = (r, a) => xoIs(r, a) && (!a.mixed || r?.source?.p2tr === true);
@@ -5109,7 +5114,8 @@ const xoNoteText = (r) => ({
 // The Bitcoin step is ready and the key's address holds no coin big enough to pay it: the burn waits, and this asks for the sats.
 const xoFundRow = (r) => {
   const need = Number(r.lastError.needSats) || 0, have = Number(r.lastError.haveSats) || 0;
-  return html`The proof has seen the burn. The Bitcoin step needs one free coin of ${need.toLocaleString('en-US')} sats on your Bitcoin address${have ? `, and the largest holds ${have.toLocaleString('en-US')}` : ''}. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin</a>: it is sent by itself once they arrive, while this page is open with your key.`;
+  const addr = r.lastError.address;
+  return html`The proof has seen the burn. The Bitcoin step needs one free coin of ${need.toLocaleString('en-US')} sats on your Bitcoin address${have ? `, and the largest holds ${have.toLocaleString('en-US')}` : ''}. ${addr ? html`Add bitcoin: send it from any wallet or exchange to ${addrLine(addr)}` : html`<a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin</a>.`} It is sent by itself once it arrives, while this page is open with your key.`;
 };
 function xoRow(r) {
   const fund = r.stage === 'covered' && !!r.lastError?.fundWait, at = XO_AT[r.stage] ?? 1, failing = !!r.lastError && !fund, rejected = r.stage === 'mint-rejected';
@@ -5601,7 +5607,7 @@ function xoOut(el, status, a) {
       try { rec = await xoAdvance(ux, pub, rec); } catch {}
       toast(`Bridging ${amtText} to Bitcoin`);
       if (rec.settle?.claimIdVerified === false) say(status, html`<span class="err">Burned on Ethereum, but its claim was not matched to the record there, so the Bitcoin step is held back.</span> It shows under On the way: press Check it again.`);
-      else say(status, html`<span class="ok">✓ Burned on Ethereum</span> ${rec.settle?.txHash ? txLink(xoHash(rec.settle.txHash)) : ''}. It shows under On the way. The Bitcoin step goes on by itself while this page is open with your key.${pf.warnings.some((w) => w.name === 'funding') ? html` It needs about ${pf.needSats.toLocaleString('en-US')} sats on your Bitcoin address: <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin</a>.` : ''}`);
+      else say(status, html`<span class="ok">✓ Burned on Ethereum</span> ${rec.settle?.txHash ? txLink(xoHash(rec.settle.txHash)) : ''}. It shows under On the way. The Bitcoin step goes on by itself while this page is open with your key.${pf.warnings.some((w) => w.name === 'funding') ? html` It needs about ${pf.needSats.toLocaleString('en-US')} sats on your Bitcoin address: send them from any wallet or exchange to ${addrLine(pf.address)}` : ''}`);
       await scanPrivate(true).catch(() => {});
       rerender(a.sheet);
     } catch (e) { run.fail(status, waitRanOut(e) || jobSaid(e) ? e : xoFail(e)); }
@@ -6575,6 +6581,14 @@ function renderTokenPool(el) {
   }
 }
 
+// The key's plain Bitcoin address (bc1q…): any wallet or exchange can pay it, which the Tacit address (tacit1…) is not for. Derived from the key, so it is there at once.
+const PLAIN = { pub: null, addr: null };
+const plainAddr = () => (S.key && PLAIN.pub === S.key.pubHex ? PLAIN.addr : null);
+function loadPlain() {
+  const pub = S.key?.pubHex;
+  if (!pub || PLAIN.pub === pub) return Promise.resolve(PLAIN.addr);
+  return withKey((t) => t.wallet.address(), pub).then((a) => { if (S.key?.pubHex === pub) Object.assign(PLAIN, { pub, addr: a }); return a; });
+}
 const BTC = { mode: 'send', asset: 'btc', pub: null, at: 0, loading: null, err: null, share: null, check: null, sp: null, held: [], got: 0, part: false };
 const SPENT = new Set(), SPENT_LAST = new Map(), UNSPENT_AT = new Map();
 const SATS_DUST = 546n, ASSET_SEND_SATS = 3000n, TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -6807,11 +6821,13 @@ function btcSendForm(f, status, b) {
   });
 }
 function btcReceive(f, status, b) {
+  const plain = plainAddr() || b?.addr || null;
+  if (!plain) loadPlain().then(() => { if (f.isConnected) rerender('btc'); }).catch(() => {});
   const row = (label, v, note) => html`<div class="blk"><div class="kv"><span>${label}</span><b class="mono">${v ? short(v, 10) : '…'}</b>${v ? html`<button class="link" type="button" data-copy="${v}">copy</button>` : ''}</div>${idRow(v)}<p class="note">${note}</p></div>`;
   mount(f, html`
-    ${row('Tacit address', S.key.tacit, 'From any Tacit wallet: BTC arrives as a silent payment, and TAC with its amount hidden.')}
+    <div class="blk"><div class="kv"><span>Bitcoin address</span>${plain ? '' : html`<b class="mono">…</b>`}</div>${addrLine(plain)}${idRow(plain)}<p class="note">From any wallet or exchange. What arrives here is public. This is the address that pays the fees of a bridge to Bitcoin.</p></div>
+    ${row('Tacit address', S.key.tacit, 'From other Tacit wallets only: BTC arrives as a silent payment, and TAC with its amount hidden. An ordinary wallet or an exchange cannot send to it.')}
     ${row('Silent payments', BTC.sp, 'From any wallet that sends silent payments (BIP‑352).')}
-    ${row('Bitcoin address', b?.addr, 'From any wallet or exchange. What arrives here is public.')}
     <div class="lbl sep"><span>Got a payment link?</span></div>
     <div class="amt text"><input id="bt-chk" placeholder="Payment link or transaction id" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Payment link"><button class="link" type="button" id="bt-chk-go">Check</button></div>
     <p class="note">Silent and shielded payments are found from the link their sender shares. Shielded TAC is also found by a scan. <button class="link" type="button" id="bt-scan">Scan now</button></p>`);
