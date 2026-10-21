@@ -65,6 +65,19 @@ export function makeAssocNet({ fetchImpl = globalThis.fetch?.bind(globalThis), r
     ]);
     return { stateRoot, aspRoot, nonce, treeSize, block: Number(BigInt(block)) };
   }
+  // The entrypoint's terms for ETH: its smallest deposit, the fee it keeps from one, and the most a relay may take. Read
+  // for a few minutes at a time; the constants stand in when the read fails.
+  let cfg = null;
+  async function config() {
+    if (cfg && Date.now() - cfg.at < 300e3) return cfg.v;
+    let v = { minDeposit: 10n ** 16n, vettingBps: 50n, maxRelayBps: BigInt(MAX_RELAY_BPS) };
+    try {
+      const w = wordsOf(await rpc('eth_call', [{ to: target.entrypoint, data: SEL.assetConfig + pad32(target.asset).slice(2) }, 'latest']));
+      if (w.length >= 4 && w[1] > 0n) v = { minDeposit: w[1], vettingBps: w[2], maxRelayBps: w[3] };
+    } catch {}
+    cfg = { v, at: Date.now() };
+    return v;
+  }
   // Whether the pool still accepts `root` as a state root: its current one, or one of the last 64 it kept.
   async function stateRootKnown(root) {
     if (root === (await callBig(target.pool, SEL.currentRoot))) return true;
@@ -175,12 +188,12 @@ export function makeAssocNet({ fetchImpl = globalThis.fetch?.bind(globalThis), r
         const ask = BigInt(q.feeBPS);
         // Gas can move between the quote and the relay; ask a fifth more, within the entrypoint's cap, and an amount that
         // needs more than the cap is too small to relay at today's gas.
-        const bps = ask + (ask + 4n) / 5n;
-        return { relayer: r, feeReceiver: d.feeReceiverAddress, quotedBps: ask, bps: bps > BigInt(MAX_RELAY_BPS) ? (ask <= BigInt(MAX_RELAY_BPS) ? BigInt(MAX_RELAY_BPS) : null) : bps, gasPrice: BigInt(q.gasPrice ?? 0), maxGasPrice: BigInt(d.maxGasPrice ?? 0) };
+        const bps = ask + (ask + 4n) / 5n, cap = (await config()).maxRelayBps;
+        return { relayer: r, feeReceiver: d.feeReceiverAddress, quotedBps: ask, bps: bps > cap ? (ask <= cap ? cap : null) : bps, capBps: cap, gasPrice: BigInt(q.gasPrice ?? 0), maxGasPrice: BigInt(d.maxGasPrice ?? 0) };
       } catch (e) { err = e; }
     }
     throw new Error(`no relayer answered${err ? `: ${err.message}` : ''}`);
   }
 
-  return { leaves, reviews, head, stateRootKnown, spent, logs, deposits, withdrawals, ragequits, historyOf, allDeposits, allWithdrawals, relayerOf, pickRelayer };
+  return { leaves, reviews, head, config, stateRootKnown, spent, logs, deposits, withdrawals, ragequits, historyOf, allDeposits, allWithdrawals, relayerOf, pickRelayer };
 }

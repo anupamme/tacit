@@ -55,6 +55,12 @@ VAULT_OUT=$PWD/contracts/out node tests/vault-page.mjs
 If the output is missing, or is left over from an older build and has no bytecode, the test prints `skipped:` with the reason and exits 0 instead of
 crashing. `SHOTS=<dir>` saves screenshots.
 
+`assoc-pool-fork.mjs` runs the association-set pool client (`dapp/assoc-pool*.js`) against the live contracts and the pool's pinned circuits on an anvil
+fork of mainnet, and `assoc-pool-page.mjs` drives the pay page's "Through a pool" mode in Chromium on the same kind of fork. Both need `anvil`, network
+access and `ASSOC_ARTIFACTS=<dir with the six circuit files>` (published at the pool's host; each file is checked against its pinned sha256); the page
+test also takes `PLAYWRIGHT=<path>` and `SHOTS=<dir>`, and `RPC=<mainnet url>` for an upstream that serves old logs. Without `ASSOC_ARTIFACTS` they
+print why and exit 2. See [`docs/ASSOC-POOL.md`](../docs/ASSOC-POOL.md).
+
 ## Network-gated
 
 These need a live service, a funded wallet, or a Linux prover host, and are not part of an offline run:

@@ -60,7 +60,7 @@ export const SEL = {
   deposit: '0xb6b55f25', // Entrypoint.deposit(uint256 precommitment) payable
   relay: '0x8a44121e', // Entrypoint.relay((address,bytes),(uint256[2],uint256[2][2],uint256[2],uint256[8]),uint256)
   ragequit: '0x71235b34', // pool.ragequit((uint256[2],uint256[2][2],uint256[2],uint256[4]))
-  latestRoot: '0xd7b0fef1', currentRoot: '0xfdab463d', currentTreeSize: '0xa8f0f95a', scope: '0x33d09200', nonce: '0xaffed0e0', roots: '0xc2b40ae4', nullifierHashes: '0x1f79a1e9', duplicatePrecommitment: '0xda85277b', // the entrypoint's PrecommitmentAlreadyUsed()
+  latestRoot: '0xd7b0fef1', currentRoot: '0xfdab463d', currentTreeSize: '0xa8f0f95a', scope: '0x33d09200', nonce: '0xaffed0e0', roots: '0xc2b40ae4', nullifierHashes: '0x1f79a1e9', assetConfig: '0xd6dbaf58', duplicatePrecommitment: '0xda85277b', // the entrypoint's PrecommitmentAlreadyUsed()
 };
 
 // What the pool's own app signs and hashes to make an account from a wallet. These strings are inputs to its derivation,

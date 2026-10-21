@@ -252,6 +252,7 @@ try {
         return { aspLeaves: [...asp, ...approved], stateLeaves: [...state, ...ls.map((l) => words(l.data)[1])] };
       },
       async reviews(labels) { return new Map(labels.map((l) => [l, approved.includes(l) ? 'approved' : 'pending'])); },
+      async config() { return { minDeposit: 10n ** 16n, vettingBps: 50n, maxRelayBps: 1000n }; },
       async head() { return { stateRoot: await callBig(POOL, SEL.currentRoot), aspRoot: await callBig(ENTRY, SEL.latestRoot), nonce: await callBig(POOL, SEL.nonce), treeSize: await callBig(POOL, SEL.currentTreeSize), block: Number(await rpc('eth_blockNumber')) }; },
       async stateRootKnown(r) { return r === (await callBig(POOL, SEL.currentRoot)); },
       async spent(nf) { return (await callBig(POOL, SEL.nullifierHashes + word(nf))) !== 0n; },
@@ -263,7 +264,7 @@ try {
       async allWithdrawals() { return { events: events(await forkLogs([TOPIC.withdrawn])).withdrawals, complete: null }; },
       async pickRelayer() {
         return {
-          feeReceiver: feeTo, quotedBps: 10n, bps: 12n, gasPrice: 1n, maxGasPrice: 0n,
+          feeReceiver: feeTo, quotedBps: 10n, bps: 12n, capBps: 1000n, gasPrice: 1n, maxGasPrice: 0n,
           relayer: { async request({ withdrawal, proof, publicSignals }) {
             const rc = await send(sender, ENTRY, pool.relayCalldata(withdrawal, pool.proofArgs(proof, publicSignals), scope));
             relayed.push(rc);

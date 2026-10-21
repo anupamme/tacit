@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-C/4qN8DIM5qYfDT/DhAFoEWvzHO+SLqU+EJBUQ+VCwM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qvO2r/tGIGYNnF1OKhsOwMVeMKqc6QNwiMEdw8Ui/NQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.0xbow.io https://api.routescan.io https://fastrelay.xyz https://v1.privacypools.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay · ETH</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH, proved on your device and recovered from your key.">
@@ -113,6 +113,12 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .tk { width: 64px; height: 64px; display: block; flex: none; border-radius: 50%; }
 .tk.sm { width: 20px; height: 20px; }
 .tk.md { width: 40px; height: 40px; }
+.pn { padding: 10px 0; border-top: 1px solid var(--hair); }
+.lbl + .pn { border-top: 0; }
+.pn-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; }
+.pn-sheet { margin-top: 12px; padding: 12px 14px; background: var(--field); border: 1px solid var(--hair); }
+.chip { display: inline-block; margin-left: 6px; padding: 0 7px; border: 1px solid var(--hair-2); font-size: 11px; line-height: 1.7; color: var(--mute); }
+.chip.go { color: var(--ink); border-color: var(--ink); }
 .mk { display: inline-block; vertical-align: -1px; margin: -6px -6px -6px -1px; padding: 6px; color: var(--mute); opacity: .8; line-height: 0; text-decoration: none; }
 .mk svg { width: 11px; height: 11px; display: block; }
 @media (hover: hover) { .mk:hover { opacity: 1; } }
@@ -989,6 +995,11 @@ const warm = () => { if (!navigator.connection?.saveData) prover().catch(() => {
 const warmIfSaved = () => { if (PROVER.cached) (globalThis.requestIdleCallback || setTimeout)(warm); };
 
 const S = { key: null, keys: null, wallet: null, provider: null, chain: chainOf(readJson(CHAIN_PREF)) || CHAINS[1], tab: 'deposit', depMode: 'wallet', dest: 'addr', busy: 0, chainOnly: false };
+// The pool mode of Deposit is off until switched on: open the page once with ?pool=1 (?pool=0 turns it off again).
+const POOL_ON = (() => {
+  try { const q = new URLSearchParams(location.search).get('pool'); if (q === '1') kv.set('tacit-assoc-pool', 'on'); else if (q === '0') kv.set('tacit-assoc-pool', 'off'); } catch {}
+  return kv.get('tacit-assoc-pool') === 'on';
+})();
 const CH = Object.fromEntries(CHAINS.map((c) => [c.chainId, { W: null, for: null, bal: null, notes: [], quote: null, waiting: null, err: null, syncing: null, at: 0, fails: 0, fill: null, hist: null, histing: null, histNext: null, histErr: null, histFails: 0, histTimer: null, histStart: 0, last: null }]));
 const evm = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });
 const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
@@ -2504,13 +2515,54 @@ async function finish(c, h, via, text) {
   return false;
 }
 
+// The pool's account for this key, kept across the form's redraws: the panel draws into a host the form supplies.
+let poolP = null, poolFor = null;
+function poolPanel() {
+  if (poolFor !== S.key.pubHex) { poolP = null; poolFor = S.key.pubHex; }
+  return (poolP ||= (async () => {
+    const ui = await import('/assoc-pool-ui.js?cb=711d8166'), c = CHAINS[0], call = await rpcOn(c);
+    return ui.makeAssocPanel({
+      html, mount, copy, toast, fmt, parseUnits, short, amountField,
+      tacitPriv: hexToBytes(S.key.priv),
+      rpc: (m, p) => call(m, p),
+      wallet: () => (S.wallet && S.provider ? { address: S.wallet, send: async (tx) => { const sg = signerFor(c); await sg.ready(); return sg.send(tx); } } : null),
+      fresh: poolFresh,
+      arrived: (i) => watchBox(c, i, true),
+      makeWorker: () => new Worker('/assoc-pool-prove-worker.js?cb=6df7373d', { type: 'module' }),
+      store: kv, explorer: c.explorer, appUrl: 'https://v1.privacypools.com',
+    });
+  })().catch((e) => { poolP = null; throw e; }));
+}
+// The next unused receive address that no recent take-in went to (a used one moves on once the page sees it paid).
+function poolFresh(avoid = new Set()) {
+  const k = linkIndex();
+  if (k == null || !S.key) return null;
+  for (let i = k; i < k + 8; i++) {
+    const b = BOXQ.at[i];
+    if (!b) { boxMap(i + 1).then(() => poolP?.then((p) => p.repaint())); return null; }
+    if (!avoid.has(lc(b.address))) return { index: i, address: b.address };
+  }
+  return null;
+}
+// A Deposit mode, opened from its segment: the pool is on Ethereum, so that chain is selected with it.
+const setDepMode = (m) => { S.depMode = m; if (m === 'pool' && S.chain.chainId !== 1) switchChain(CHAINS[0]); else renderForm(); };
+function poolDeposit(f, seg) {
+  const k = linkIndex();
+  FORM.needsLink = k == null; FORM.linkK = k ?? undefined;
+  mount(f, html`${seg}<div id="pool-host"></div>`);
+  $$('[data-dep]', f).forEach((b) => b.onclick = () => setDepMode(b.dataset.dep));
+  poolPanel().then((p) => { const h = $('#pool-host'); if (h?.isConnected) p.attach(h); }).catch((e) => mount($('#pool-host'), html`<p class="note err">${errText(e)}</p>`));
+}
+
 function formDeposit(f) {
   const c = S.chain, st = cur(), W = st.W;
   FORM.needsW = !W && S.depMode === 'addr';
   const seg = html`<div class="seg sub" role="tablist" aria-label="Deposit from">
     <button type="button" role="tab" id="dep-wallet" data-dep="wallet" aria-selected="${S.depMode === 'wallet' ? 'true' : 'false'}" tabindex="${S.depMode === 'wallet' ? '0' : '-1'}">From my wallet<small>no fee</small></button>
     <button type="button" role="tab" id="dep-addr" data-dep="addr" aria-selected="${S.depMode === 'addr' ? 'true' : 'false'}" tabindex="${S.depMode === 'addr' ? '0' : '-1'}">From an exchange<small>up to 0.25%</small></button>
+    ${POOL_ON ? html`<button type="button" role="tab" id="dep-pool" data-dep="pool" aria-selected="${S.depMode === 'pool' ? 'true' : 'false'}" tabindex="${S.depMode === 'pool' ? '0' : '-1'}">Through a pool<small>needs approval</small></button>` : ''}
   </div>`;
+  if (S.depMode === 'pool' && POOL_ON && S.key) return poolDeposit(f, seg);
   if (S.depMode === 'addr') {
     FORM.waitShown = st.waiting;
     // The next unused box, which a new payment link would also take: watched and taken in like any other, and it moves on once paid.
@@ -2609,7 +2661,7 @@ function formDeposit(f) {
       });
     };
   }
-  $$('[data-dep]', f).forEach((b) => b.onclick = () => { S.depMode = b.dataset.dep; renderForm(); });
+  $$('[data-dep]', f).forEach((b) => b.onclick = () => setDepMode(b.dataset.dep));
 }
 
 const TADDR = makeTacitAddress({ secp });

@@ -82,8 +82,8 @@ export function makeAssocSession({ pool, net, rpc, tacitPriv, prover, sender, ta
   // Deposit `amount` wei from the pool key (`from: 'key'`) or the connected wallet. The next unused index is taken, and a
   // precommitment the entrypoint already holds (a deposit made elsewhere with this account) moves it on.
   async function deposit({ amount, from = 'key' }) {
-    const wei = BigInt(amount);
-    if (wei < MIN_DEPOSIT) throw new Error('The pool takes at least 0.01 ETH.');
+    const wei = BigInt(amount), terms = await net.config();
+    if (wei < terms.minDeposit) throw new Error(`The pool takes at least ${(Number(terms.minDeposit) / 1e18).toString()} ETH.`);
     const k = await keys();
     if (!state.at) await load();
     let index = pool.nextIndex(state.found);
@@ -115,7 +115,7 @@ export function makeAssocSession({ pool, net, rpc, tacitPriv, prover, sender, ta
   }
   // The least amount whose relay fee stays within the cap: gas × price over (cap − base − margin).
   function minRelayable(r) {
-    const gas = r.gasPrice * RELAY_GAS, room = BigInt(MAX_RELAY_BPS) - 12n;
+    const gas = r.gasPrice * RELAY_GAS, room = (r.capBps ?? BigInt(MAX_RELAY_BPS)) - 12n;
     return room > 0n ? (gas * 10000n) / room : null;
   }
 
@@ -174,5 +174,5 @@ export function makeAssocSession({ pool, net, rpc, tacitPriv, prover, sender, ta
     return { tx: rc.transactionHash, value: acct.last.value };
   }
 
-  return { key, phrase, load, deposit, quote, withdraw, exit, notes: present, minRelayable };
+  return { key, phrase, load, deposit, quote, withdraw, exit, notes: present, minRelayable, config: () => net.config() };
 }

@@ -13,7 +13,7 @@ import { poseidon1, poseidon2, poseidon3 } from './vendor/tacit-poseidon.min.js'
 import { makeEvmTx } from './evm-tx.js';
 import { makeAssocPool, CIRCUITS } from './assoc-pool.js';
 import { makeAssocNet } from './assoc-pool-net.js';
-import { makeAssocSession, MIN_DEPOSIT } from './assoc-pool-session.js';
+import { makeAssocSession } from './assoc-pool-session.js';
 
 const CACHE = 'tacit-assoc-pool-v1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -105,7 +105,7 @@ export function makeAssocPanel(ctx) {
 
   // ──────────────────── state ────────────────────
 
-  const S = { phase: 'idle', err: null, notes: [], keyBal: 0n, head: 0, busy: null, status: null, open: null, quote: null, sure: null, phrase: null, takes: ctx.store ? (() => { try { return JSON.parse(ctx.store.get(storeKey) || '[]'); } catch { return []; } })() : [] };
+  const S = { phase: 'idle', err: null, notes: [], keyBal: 0n, head: 0, terms: { minDeposit: 10n ** 16n, vettingBps: 50n }, busy: null, status: null, open: null, quote: null, sure: null, phrase: null, takes: ctx.store ? (() => { try { return JSON.parse(ctx.store.get(storeKey) || '[]'); } catch { return []; } })() : [] };
   let host = null, timer = 0, poll = 0, quoteTimer = 0, got = 0;
   const saveTakes = () => ctx.store?.set(storeKey, JSON.stringify(S.takes.slice(-5)));
   // Addresses a take-in went to lately: never offered again, while the page's own list of used addresses catches up.
@@ -117,8 +117,8 @@ export function makeAssocPanel(ctx) {
   async function refresh({ full = false, quiet = false } = {}) {
     if (!quiet) { S.phase = S.notes.length ? S.phase : 'loading'; S.err = null; paint(); }
     try {
-      const [notes, bal, head] = await Promise.all([session.load({ full }), rpc('eth_getBalance', [key.address, 'latest']).then(BigInt), rpc('eth_blockNumber', []).then((x) => Number(BigInt(x)))]);
-      Object.assign(S, { notes, keyBal: bal, head, phase: 'ready', err: null });
+      const [notes, bal, head, terms] = await Promise.all([session.load({ full }), rpc('eth_getBalance', [key.address, 'latest']).then(BigInt), rpc('eth_blockNumber', []).then((x) => Number(BigInt(x))), session.config()]);
+      Object.assign(S, { notes, keyBal: bal, head, terms, phase: 'ready', err: null });
     } catch (e) { if (!quiet || !S.notes.length) Object.assign(S, { phase: S.notes.length ? 'ready' : 'error', err: errText(e) }); }
     paint();
   }
@@ -135,7 +135,7 @@ export function makeAssocPanel(ctx) {
         <div class="kv"><span>You receive</span><b class="num">${eth(q.q.receive)} ETH</b></div>` : html`<p class="note mute">${q ? 'Reading the relay’s fee…' : 'Enter an amount.'}</p>`}
       <div class="kv"><span>Into</span><b class="num">${to ? html`your fresh address ${short(to.address, 6)}` : 'preparing your fresh address…'}</b></div>
       <button class="btn" type="button" id="p-go" ${!q?.q || !to ? 'disabled' : ''}>Take it in privately</button>
-      <p class="note">From there the relay moves it into your private balance, usually within minutes. Nothing on chain ties it to this deposit.</p>
+      <p class="note">From there the relay moves it into your private balance, usually within minutes. Nothing on chain ties it to this deposit. Points go to the address that sent the ETH, so a take-in earns none.</p>
     </div>`;
   };
   const row = (n) => html`<div class="pn" data-label="${n.label}">
@@ -156,14 +156,14 @@ export function makeAssocPanel(ctx) {
     const w = ctx.wallet();
     const mine = S.notes.filter((n) => n.status !== 'foreign');
     return html`
-      <div class="blk"><div class="lbl"><span>Through a pool</span><span>approval takes a while</span></div>
+      <div class="blk"><div class="lbl"><span>Through a pool<a class="mk" href="${ctx.appUrl}" target="_blank" rel="noopener" aria-label="Privacy Pools" title="Privacy Pools"><svg aria-hidden="true"><use href="#i-pp"/></svg></a></span><span>Ethereum · approval takes a while</span></div>
         <p class="note lead">Deposit into the pool, wait for its approval, then take it into your private balance. Nothing links the two once it is taken in.</p></div>
       <div class="blk"><div class="lbl"><span>Your pool key</span><span>pays your deposits</span></div>
         <div class="addr"><code>${key.address}</code><button class="link" type="button" data-copy="${key.address}">copy</button></div>
         <p class="note">It holds <b class="num">${eth(S.keyBal)}</b> ETH. Send it ETH to deposit from here${w ? ', or deposit from your wallet' : ''}.</p></div>
       <div class="blk">
         ${amountField('p-amt', 'Deposit')}
-        <p class="note">At least 0.01 ETH. The pool keeps 0.5% when it takes a deposit in.</p>
+        <p class="note">At least ${eth(S.terms.minDeposit)} ETH. The pool keeps ${Number(S.terms.vettingBps) / 100}% when it takes a deposit in.</p>
         <div class="${w ? 'row2' : ''}"><button class="btn" type="button" id="p-dep" ${S.busy ? 'disabled' : ''}>Deposit</button>${w ? html`<button class="btn ghost" type="button" id="p-depw" ${S.busy ? 'disabled' : ''}>From my wallet</button>` : ''}</div>
       </div>
       <p class="note" id="p-status" role="status">${S.status || ''}</p>
@@ -171,7 +171,7 @@ export function makeAssocPanel(ctx) {
         ${S.phase === 'loading' ? html`<p class="note"><span class="spin" aria-hidden="true"></span> Reading your pool account…</p>`
           : S.phase === 'error' ? html`<p class="note err">${S.err}</p>`
           : !mine.length ? html`<p class="note mute">None yet.</p>` : mine.map(row)}
-        ${S.takes.length ? html`<div class="note mute">${S.takes.slice(-3).reverse().map((t) => html`<div>Took in ${eth(t.amount)} ETH · <a href="${ctx.explorer}/tx/${t.tx}" target="_blank" rel="noopener">${short(t.tx, 6)} ↗</a></div>`)}</div>` : ''}
+        ${S.takes.length ? html`<div class="note mute">${S.takes.slice(-3).reverse().map((t) => html`<div>Took in ${eth(BigInt(t.amount))} ETH · <a href="${ctx.explorer}/tx/${t.tx}" target="_blank" rel="noopener">${short(t.tx, 6)} ↗</a></div>`)}</div>` : ''}
       </div>
       <div class="blk"><div class="lbl"><span>See them in the pool’s own app</span><span><a href="${ctx.appUrl}" target="_blank" rel="noopener">open ↗</a></span></div>
         <p class="note">Paste your recovery phrase into “Load account” there. It controls these deposits: keep it private.</p>
@@ -197,7 +197,7 @@ export function makeAssocPanel(ctx) {
   const wrap = (label, fn) => async () => {
     if (S.busy) return;
     S.busy = label; say(html`<span class="spin" aria-hidden="true"></span> Working…`); paint();
-    try { await fn(); } catch (e) { say(html`<span class="err">${errText(e)}</span>`); }
+    try { await fn(); } catch (e) { console.error('pool panel:', e?.stack || e); say(html`<span class="err">${errText(e)}</span>`); }
     finally { S.busy = null; await refresh({ quiet: true }); }
   };
   const progress = (word) => (s) => { got = 0; say(html`<span class="spin" aria-hidden="true"></span> ${({ lists: 'Reading the pool’s lists…', proving: `Proving on this device${word}…`, sending: 'Sending it through a relay…', waiting: 'Waiting for the block…' })[s] || s}`); };
@@ -205,7 +205,7 @@ export function makeAssocPanel(ctx) {
 
   async function doDeposit(from) {
     const el = host.querySelector('#p-amt'), amt = parseUnits(el.value);
-    if (amt == null || amt < MIN_DEPOSIT) throw new Error('The pool takes at least 0.01 ETH.');
+    if (amt == null || amt < S.terms.minDeposit) throw new Error(`The pool takes at least ${eth(S.terms.minDeposit)} ETH.`);
     const r = await session.deposit({ amount: amt, from });
     el.value = '';
     toast('Deposited. The pool reviews it before you can take it in.');
@@ -217,8 +217,9 @@ export function makeAssocPanel(ctx) {
     if (!n || amt == null || amt <= 0n || amt > n.balance) throw new Error('Enter an amount within the deposit.');
     if (!to) throw new Error('Your fresh address is not ready yet. Try again in a moment.');
     const r = await session.withdraw({ note: n, amount: amt, recipient: to.address, onStep: progress(' · about 10 seconds') });
-    S.takes.push({ tx: r.tx, amount: r.received, to: to.address, at: Date.now() }); saveTakes();
-    ctx.arrived?.(to.index);
+    // The funds are on their way: nothing after this point may report a failure.
+    S.takes.push({ tx: r.tx, amount: r.received.toString(), to: to.address, at: Date.now() });
+    try { saveTakes(); ctx.arrived?.(to.index); } catch {}
     S.open = null; S.quote = null;
     toast('Taken in. It reaches your private balance in a few minutes.');
     say(html`<span class="ok">Sent ${eth(r.received)} ETH to your fresh address.</span> The relay moves it into your private balance in a few minutes. <a href="${ctx.explorer}/tx/${r.tx}" target="_blank" rel="noopener">${short(r.tx, 6)} ↗</a>`);

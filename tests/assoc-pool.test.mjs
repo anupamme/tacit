@@ -214,7 +214,7 @@ const verifyPath = (leaf, proof) => {
   assert.equal(SEL.deposit, sigOf('deposit(uint256)'));
   assert.equal(SEL.relay, sigOf('relay((address,bytes),(uint256[2],uint256[2][2],uint256[2],uint256[8]),uint256)'));
   assert.equal(SEL.ragequit, sigOf('ragequit((uint256[2],uint256[2][2],uint256[2],uint256[4]))'));
-  for (const [k, s] of Object.entries({ latestRoot: 'latestRoot()', currentRoot: 'currentRoot()', currentTreeSize: 'currentTreeSize()', scope: 'SCOPE()', nonce: 'nonce()', roots: 'roots(uint256)' })) assert.equal(SEL[k], sigOf(s), k);
+  for (const [k, s] of Object.entries({ latestRoot: 'latestRoot()', currentRoot: 'currentRoot()', currentTreeSize: 'currentTreeSize()', scope: 'SCOPE()', nonce: 'nonce()', roots: 'roots(uint256)', nullifierHashes: 'nullifierHashes(uint256)', assetConfig: 'assetConfig(address)', duplicatePrecommitment: 'PrecommitmentAlreadyUsed()' })) assert.equal(SEL[k], sigOf(s), k);
   const topicOf = (s) => '0x' + hex(keccak_256(utf8(s)));
   assert.equal(TOPIC.deposited, topicOf('Deposited(address,uint256,uint256,uint256,uint256)'));
   assert.equal(TOPIC.withdrawn, topicOf('Withdrawn(address,uint256,uint256,uint256)'));
