@@ -82,6 +82,16 @@ contract TacitAmmRouteTest is Test {
         assertEq(rejects.balance - before, 5, "forced in");
     }
 
+    function test_theRecipientRunsNoCodeWhenItIsRefunded() public {
+        if (!_fork()) return;
+        Greedy greedy = new Greedy{salt: keccak256("Greedy test")}();
+        uint256 before = address(greedy).balance;
+        _hand(1 ether + 7);
+        route.routeFromWETH(CUSD_ID, FEE, 0, 0, address(greedy));
+        assertEq(address(greedy).balance - before, 7, "the change still arrives");
+        assertEq(greedy.ran(), 0, "and its code did not run (a store costs more than the call stipend)");
+    }
+
     function test_wethAloneUnderOneStepIsRefused() public {
         if (!_fork()) return;
         _hand(UNIT - 1);
@@ -134,6 +144,14 @@ contract TacitAmmRouteTest is Test {
         new TacitAmmRoute(AMM, WETH, CUSD_ID); // a pool-minted token, not ETH
         vm.expectRevert(TacitAmmRoute.BadConfig.selector);
         new TacitAmmRoute(AMM, WETH, bytes32(uint256(1))); // not registered
+    }
+}
+
+contract Greedy {
+    uint256 public ran;
+
+    receive() external payable {
+        ran = 1;
     }
 }
 

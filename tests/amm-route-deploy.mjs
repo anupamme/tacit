@@ -9,7 +9,7 @@ import { TACIT_AMM, TACIT_AMM_ROUTE, WETH, POOL_ID, ZERO } from '../dapp/swap/ro
 
 export const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 // 20 zero bytes and the flag 0x00: CreateX guards it as keccak256(salt) alone, so any account can deploy it and nothing but this init code can land there.
-export const SALT = '0x000000000000000000000000000000000000000000834270100000000013697a';
+export const SALT = '0x000000000000000000000000000000000000000000c004b080000000004144e5';
 const word = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 const keccak = (hex) => '0x' + Buffer.from(keccak_256(Buffer.from(hex.replace(/^0x/, ''), 'hex'))).toString('hex');
 

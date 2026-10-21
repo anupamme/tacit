@@ -2,7 +2,7 @@ import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=92d1611e';
+import * as R from '/swap/route.js?cb=841ac4fc';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 

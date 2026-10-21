@@ -446,16 +446,16 @@
     {
       "id": "amm-route",
       "chainId": 1,
-      "opensAt": 1792573720,
+      "opensAt": 1792574461,
       "steps": [
         {
           "id": "01-amm-route",
           "kind": "createx",
           "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
-          "gas": 358000,
-          "expected": "0x00000015FF76e81b258A75934Dd205998F5a00F7",
-          "salt": "0x000000000000000000000000000000000000000000834270100000000013697a",
-          "initCodeHash": "0x3d4ea9feef068cc66146e32e7f114dc41a9d56e991abf03797a2c870af396149",
+          "gas": 357000,
+          "expected": "0x00000065e3e51af95d330fb6932cA3E87912c554",
+          "salt": "0x000000000000000000000000000000000000000000c004b080000000004144e5",
+          "initCodeHash": "0xec0d28f4c8b9e344ac8dc29ea7a0bc1d3af91d800233b63208a17d38bf7a366e",
           "bound": false,
           "minWei": "30000000000000000000",
           "maxWei": "200000000000000000000"

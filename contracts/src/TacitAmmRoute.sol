@@ -69,7 +69,8 @@ contract TacitAmmRoute {
         if (eth == 0) revert NothingToSwap();
         amountOut = AMM.swapPublic{value: eth}(ETH_ID, assetOut, feeBps, eth, minOut, deadline, to);
         uint256 rest = address(this).balance;
-        if (rest != 0) SafeTransferLib.forceSafeTransferETH(to, rest);
+        // With no gas beyond the call stipend, `to` cannot run code in the middle of the buyer's transaction (zRouter holds the buyer's unspent input then).
+        if (rest != 0) SafeTransferLib.forceSafeTransferETH(to, rest, 0);
     }
 
     receive() external payable {
