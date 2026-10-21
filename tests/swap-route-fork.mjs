@@ -285,11 +285,17 @@ async function sellFor(label, { token, out, amount, only = null, how, to = null 
     access = { kind: 'permit', value: q.amountIn, deadline: dl, ...splitSig(sign(w, permitTyped({ token, name: 'Tacit Token', version: '1', owner: w.address, spender: ZROUTER, value: q.amountIn, nonce: acc.nonce, deadline: dl }))) };
   } else { assert.ok((await send(w.address, { to: token, data: encApprove(ZROUTER, q.amountIn) })).ok, `${label}: approve`); access = { kind: 'approved' }; }
   const tx = buildTacitToToken({ quote: q, account: w.address, ...(to ? { to } : {}), venues, access });
-  const holder = to || w.address, before = await balanceOf(tOut.addr, holder), lo = await leftovers([token, tOut.addr, WETH]);
+  const holder = to || w.address, before = await balanceOf(tOut.addr, holder), wethBefore = await balanceOf(WETH, holder), lo = await leftovers([token, tOut.addr, WETH]);
   const r = await send(w.address, tx);
   assert.ok(r.ok, `${label}: the transaction landed`);
   const got = (await balanceOf(tOut.addr, holder)) - before, spent = amount - (await balanceOf(token, w.address));
   assert.ok(got >= q.min, `${label}: ${got} received, at least the floor ${q.min}`);
+  if (q.hop) {
+    assert.ok(got * 1000n >= q.out * 995n && got * 1000n <= q.out * 1005n, `${label}: what the screen shows (${q.out}) is what arrives (${got})`);
+    const rest = (await balanceOf(WETH, holder)) - wethBefore;
+    assert.ok(q.rest > 0n && rest >= q.rest - q.rest / 10n, `${label}: the WETH the sale did not sell (${rest}, shown ${q.rest}) went to the recipient`);
+    if (to) assert.equal(await balanceOf(WETH, w.address), 0n, `${label}: the payer got none of it`);
+  }
   assert.equal(spent, q.amountIn, `${label}: exactly the quoted amount was sold`);
   if (to) assert.equal(await balanceOf(tOut.addr, w.address), 0n, `${label}: the payer received none of the output`);
   const la = await leftovers([token, tOut.addr, WETH]);

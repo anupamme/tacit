@@ -93,8 +93,8 @@ export function encMulticall(calls) {
 }
 const encRouteFromWeth = ({ pools, amountIn, minOut, to }) =>
   '0x' + SEL.routeFromWETH + word(160) + addr(TAC) + word(amountIn) + word(minOut) + addr(to) + word(pools.length) + pools.map(addr).join('');
-const encSwapPublic = ({ assetIn, assetOut, amountIn, minOut, deadline, to }) =>
-  '0x' + SEL.swapPublic + b32(assetIn) + b32(assetOut) + word(AMM_FEE) + word(amountIn) + word(minOut) + word(deadline) + addr(to);
+const encSwapPublic = ({ assetIn, assetOut, feeBps = AMM_FEE, amountIn, minOut, deadline, to }) =>
+  '0x' + SEL.swapPublic + b32(assetIn) + b32(assetOut) + word(feeBps) + word(amountIn) + word(minOut) + word(deadline) + addr(to);
 const encAmmRoute = ({ assetOut, minOut, deadline, to }) => '0x' + SEL.ammRoute + b32(assetOut) + word(AMM_FEE) + word(minOut) + word(deadline) + addr(to);
 
 // ── reads ──
@@ -269,15 +269,16 @@ export async function quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut, am
   if (!leg) return null;
   const spend = BigInt(leg.quote.amountIn), floor1 = (leg.eth * (10000n - slip)) / 10000n;
   if (floor1 <= 0n) return null;
-  let hop = null, out, min = floor1;
+  let hop = null, out, val, min = floor1, rest = 0n;
   if (!same(tokenOut, WETH)) {
     hop = await zqSwap({ ethCall, to, tokenIn: WETH, tokenOut, amount: floor1, exactOut: false, slippageBps: slip, deadline: dl });
-    if (!hop) return null;
-    // The second leg must be one swap that sells exactly the ETH the first leg is sure to pay, and pays the recipient.
-    if (checkZRouterCall(hop.callData, { to, tokenIn: WETH, tokenOut, exactOut: false, amount: floor1, maxIn: floor1, deadline: dl })) return null;
-    out = (hop.amountOut * leg.eth) / floor1; min = hop.amountLimit;       // what the whole sale pays; the floor is the one zQuoter set for the part it is sure of
-  } else out = leg.eth;
-  return { kind: 'out', tokenIn, tokenOut, amountIn: spend, leg, eth: leg.eth, floor1, hop: hop && { ...hop, name: SOURCES[hop.source] || 'a pool' }, out, min, to, deadline: dl };
+    if (!hop || hop.amountLimit <= 0n) return null;
+    // The second leg must be one swap that sells exactly the ETH the first leg is sure to pay, pays the recipient, and pays at least what is shown.
+    if (checkZRouterCall(hop.callData, { to, tokenIn: WETH, tokenOut, exactOut: false, amount: floor1, maxIn: floor1, minOut: hop.amountLimit, deadline: dl })) return null;
+    out = hop.amountOut; min = hop.amountLimit;       // what the ETH the first leg is sure to pay buys; the rest of what it pays goes to the recipient as WETH
+    rest = leg.eth - floor1; val = (hop.amountOut * leg.eth) / floor1;       // `val`: the whole sale at that rate, for the price and the comparison with the market
+  } else { out = leg.eth; val = out; }
+  return { kind: 'out', tokenIn, tokenOut, amountIn: spend, leg, eth: leg.eth, floor1, rest, hop: hop && { ...hop, name: SOURCES[hop.source] || 'a pool' }, out, val, min, to, deadline: dl };
 }
 // `access` is how the Tacit token reaches zRouter: { kind: 'permit', value, deadline, v, r, s } or { kind: 'approved' } (see buildAnyToTac).
 export function buildTacitToToken({ quote, account, to = quote.to, venues, access }) {
@@ -286,15 +287,15 @@ export function buildTacitToToken({ quote, account, to = quote.to, venues, acces
   const legs = accessLegs(access, tokenIn, amountIn, 'buildTacitToToken');
   if (leg.venue === 'precision') legs.push(...venues.precisionLegs({ quote: leg.quote, account, to: ZROUTER, minOut: floor1, deadline }).legs);
   else {
-    const { assetIn, assetOut } = leg.quote;
+    const { assetIn, assetOut, feeBps } = leg.quote;
     legs.push(guardLeg(account, deadline), encSnwap({
       tokenIn, amountIn, recipient: ZROUTER, tokenOut: ZERO, minOut: floor1, executor: MC3,
-      data: encAggregate3([{ to: tokenIn, data: encApprove(TACIT_AMM, amountIn) }, { to: TACIT_AMM, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut: floor1, deadline, to: ZROUTER }) }]),
+      data: encAggregate3([{ to: tokenIn, data: encApprove(TACIT_AMM, amountIn) }, { to: TACIT_AMM, data: encSwapPublic({ assetIn, assetOut, feeBps: feeBps ?? AMM_FEE, amountIn, minOut: floor1, deadline, to: ZROUTER }) }]),
     }));
   }
   legs.push('0x' + SEL.wrap + word(0));
-  if (hop) legs.push(hop.callData, encSweep(WETH, account));       // what the swap did not need goes back to the payer
-  else legs.push(encSweep(WETH, to));
+  if (hop) legs.push(hop.callData);
+  legs.push(encSweep(WETH, to));       // what the swap did not sell goes to the recipient, as WETH
   return { to: ZROUTER, data: encMulticall(legs), value: 0n };
 }
 

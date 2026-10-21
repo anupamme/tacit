@@ -2,7 +2,7 @@ import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=841ac4fc';
+import * as R from '/swap/route.js?cb=183c7ea0';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -91,7 +91,7 @@ const KEY = { [lc(R.ZERO)]: 'ether', teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD
 const POOLID = (k) => (k === 'teth' ? CETH_ID : R.POOL_ID[Object.keys(R.POOL_ID).find((a) => lc(a) === k)]);
 
 // ── the output to another address (public swaps only; never read from the address bar, so a shared link cannot name one) ──
-const NOT_A_WALLET = new Set([R.ZERO, R.TAC, R.CUSD, R.CBTC, R.WETH, R.ZROUTER, R.PRECISION_ROUTE, R.PRECISION_GUARD, R.TACIT_AMM, R.CONF_ROUTER, PRECISION_POOL, MULTICALL3].map(lc));
+const NOT_A_WALLET = new Set([R.ZERO, R.TAC, R.CUSD, R.CBTC, R.WETH, R.ZROUTER, R.ZQUOTER, R.PERMIT2, R.PRECISION_ROUTE, R.PRECISION_GUARD, R.TACIT_AMM, R.TACIT_AMM_ROUTE, R.CONF_ROUTER, PRECISION_POOL, MULTICALL3].map(lc));
 // EIP-55: the capitals of an address are its checksum
 const checksum = (a) => {
   const body = lc(a).slice(2), h = Array.from(keccak_256(new TextEncoder().encode(body)), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -102,7 +102,7 @@ function recipientOf(text) {
   if (!t) return { addr: null, bad: '' };
   if (!/^0x[0-9a-fA-F]{40}$/.test(t)) return { addr: null, bad: 'Paste a full 0x address.' };
   if (/[a-f]/.test(t.slice(2)) && /[A-F]/.test(t.slice(2)) && t !== checksum(t)) return { addr: null, bad: 'The capitals do not match this address’s checksum. Check it.' };
-  if (NOT_A_WALLET.has(lc(t))) return { addr: null, bad: 'That is a contract this swap uses. Send to a wallet.' };
+  if (NOT_A_WALLET.has(lc(t)) || listed().some((x) => lc(x.addr) === lc(t))) return { addr: null, bad: 'That is a contract this swap uses. Send to a wallet.' };
   return { addr: lc(t), bad: '' };
 }
 const shortAddr = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -117,7 +117,7 @@ function kindOf(pay, get, mode = S.mode) {
   const tin = tacitKey(pay), tout = tacitKey(get);
   if (get === lc(R.TAC) && !tin) return 'any';
   if (tin && !tout) return listed().some((t) => t.addr === get) ? 'out' : null;                          // TAC, tacUSD or tacBTC out to any token
-  if (!tin && (get === lc(R.CUSD) || get === lc(R.CBTC))) return S.ammRoute === true ? 'in' : null;         // any token in to tacUSD or tacBTC, once TacitAmmRoute is deployed
+  if (!tin && pay !== lc(R.WETH) && (get === lc(R.CUSD) || get === lc(R.CBTC))) return S.ammRoute === true ? 'in' : null;         // any token in to tacUSD or tacBTC, once TacitAmmRoute is deployed
   return null;
 }
 const payList = () => (S.mode === 'private' ? [lc(R.ZERO), 'teth', lc(R.TAC), lc(R.CUSD), lc(R.CBTC)] : listed().map((t) => t.addr));
@@ -142,11 +142,11 @@ const tidy = (s) => s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 function usdOf(k, wei) {
   const t = tokenOf(k), p = S.px;
   if (!t || wei == null) return null;
-  const n = Number(wei) / 10 ** t.dec;
-  if (isEth(k) || k === 'teth' || t.sym === 'WETH') return p.ethUsd ? n * p.ethUsd : null;
-  if (t.sym === 'wstETH') return p.ethUsd && p.wstEth ? n * p.wstEth * p.ethUsd : null;
-  if (['cBTC', 'tacBTC', 'WBTC'].includes(t.sym)) return p.btcUsd ? n * p.btcUsd : null;
-  if (['USDC', 'USDT', 'DAI', 'cUSD', 'tacUSD'].includes(t.sym) && !t.custom) return n;
+  const n = Number(wei) / 10 ** t.dec, is = (sym) => R.TOKENS.some((x) => x.sym === sym && lc(x.addr) === lc(k));
+  if (isEth(k) || k === 'teth' || lc(k) === lc(R.WETH)) return p.ethUsd ? n * p.ethUsd : null;
+  if (is('wstETH')) return p.ethUsd && p.wstEth ? n * p.wstEth * p.ethUsd : null;
+  if (lc(k) === lc(R.CBTC) || is('WBTC')) return p.btcUsd ? n * p.btcUsd : null;
+  if (lc(k) === lc(R.CUSD) || is('USDC') || is('USDT') || is('DAI')) return n;
   if (k === lc(R.TAC)) return p.ethUsd && p.perEth ? (n / p.perEth) * p.ethUsd : null;
   return null;
 }
@@ -248,7 +248,7 @@ async function quote(my, wei) {
       const q = await within(R.quoteTacitToToken({ ...args, venues, tokenIn: S.pay, tokenOut: S.get }), 20e3, 'zQuoter did not answer in time. Try again.');
       if (!q) return done({ rows: [], why: `No pool trades WETH for ${esc(get.sym)} deeply enough. Sell ${esc(pay.sym)} for ETH, then swap it elsewhere.` });
       const via = q.leg.venue === 'precision' ? 'Precision pool' : 'Tacit pool', hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
-      return done({ rows: [{ k: 'out', name: hop ? `${via} → ${hop}` : via, note: '', out: q.out, min: q.min, sell: q, gas: GAS.out, best: true }] });
+      return done({ rows: [{ k: 'out', name: hop ? `${via} → ${hop}` : via, note: '', out: q.out, val: q.val, min: q.min, sell: q, gas: GAS.out, best: true }] });
     }
     const q = await within(R.quoteTokenToTacit({ ...args, token: S.pay, tokenOut: S.get }), 20e3, 'zQuoter did not answer in time. Try again.');
     if (!q) return done({ rows: [], why: `No pool trades ${esc(pay.sym)} against WETH deeply enough. Swap it for ETH elsewhere first.` });
@@ -295,7 +295,7 @@ const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).le
 const spentOf = (q, r) => (r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : q.wei);
 function vsMarket(q = S.q, r = picked(q)) {
   if (!q || !r) return null;
-  const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.out);
+  const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.val ?? r.out);
   return vin && vout ? vout / vin - 1 : null;
 }
 const BAD = -0.03, GATE = -0.1;
@@ -360,9 +360,10 @@ function paintQuote() {
   }
   const lines = first ? (kind === 'private' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
   if (r) {
-    const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec;
+    const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.val ?? r.out) / 10 ** get.dec;
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`]);
     if (!r.priv) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
+    if (r.sell?.rest > 0n) lines.push(['Plus', `about ${tidy(amtFmt(r.sell.rest, 18))} WETH`]);
     if (r.any?.hop || r.sell || r.buy) lines.push(['Route', r.name]);
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
@@ -432,7 +433,7 @@ async function go() {
     say(`Sent ${txLink(h)}. Waiting for it to land…`);
     live('Swap sent');
     const rc = await wallet.receipt(h);
-    if (rc.status !== '0x1') throw new Error(`The transaction failed (${txLink(h)}). Nothing was swapped.`);
+    if (rc.status !== '0x1') throw Object.assign(new Error(`The transaction failed (${txLink(h)}). Nothing was swapped.`), { html: true });
     const after = P.to ? null : await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
     const g = tokenOf(P.get), where = P.to ? esc(shortAddr(P.to)) : 'your wallet';
     S.lastBuy = P.get === lc(R.TAC) && got > 0n ? got : null;
@@ -445,7 +446,7 @@ async function go() {
     readPrices().catch(() => {});
   } catch (e) {
     S.busy = false; paintQuote();
-    say(e instanceof UserStopped || e?.userStopped ? 'Cancelled in your wallet. Nothing was sent.' : `<span class="err">${e?.message?.includes('<a ') ? e.message : esc(e?.message || String(e)).slice(0, 300)}</span>`, '', true);
+    say(e instanceof UserStopped || e?.userStopped ? 'Cancelled in your wallet. Nothing was sent.' : `<span class="err">${e?.html ? e.message : esc(e?.message || String(e)).slice(0, 300)}</span>`, '', true);
   } finally { S.busy = false; }
 }
 const balanceNow = async (k, who) => (isEth(k) ? BigInt(await rpc('eth_getBalance', [who, 'latest'])) : wordAt(await ethCall(k, '0x70a08231' + addrWord(who)), 0));
@@ -489,7 +490,7 @@ async function prepare(P, from) {
     if (!q || q.out < P.floor) return moved();
     tx = R.buildTacitToToken({ quote: q, account: from, to: dest, venues, access: await tacitAccess(P.pay, q.amountIn, from, dl) });
   } else if (P.kind === 'in') {
-    if ((await R.ammRouteLive({ ethCall })) !== true) { S.ammRoute = false; say('That swap is not available right now. Nothing was sent.', '', true); S.busy = false; paint(); return null; }
+    { const live = await R.ammRouteLive({ ethCall }); if (live !== true) { if (live === false) S.ammRoute = false; say(live === false ? 'That swap is not available right now. Nothing was sent.' : 'Could not check that swap right now. Nothing was sent; try again.', '', true); S.busy = false; paint(); return null; } }
     const q = await within(R.quoteTokenToTacit({ ethCall, token: P.pay, tokenOut: P.get, amountIn: P.wei, account: from, to: dest, slippageBps: S.slip, deadline: dl }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
     if (!q || q.out < P.floor) return moved();
     tx = R.buildTokenToTacit({ quote: q, account: from, to: dest, minOut: floorFor(q.out), access: await anyAccess(q, from) });
