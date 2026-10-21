@@ -28,7 +28,7 @@
   const label = summary.getAttribute('aria-label') || 'More pages';
   // stages that wait on the holder: the Bitcoin step to send (or its sats to add), a note not credited, a bridge in ready to mint
   const waits = (out, r) => (out ? r.stage === 'covered' || r.stage === 'mint-rejected' : (r.stage === 'folded' || r.stage === 'rfolded') && !(r.arm && r.arm.ok));
-  const paint = () => {
+  const count = () => {
     let under = 0, needs = 0;
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -44,6 +44,11 @@
         }
       }
     } catch {}
+    return { under, needs };
+  };
+  window.tacitBridges = count;
+  const paint = () => {
+    const { under, needs } = count();
     dot.hidden = tag.hidden = !under;
     tag.textContent = under ? (needs ? `${needs} needs you` : `${under} under way`) : '';
     summary.setAttribute('aria-label', under ? `${label}, ${under} bridge${under === 1 ? '' : 's'} under way${needs ? `, ${needs} needs you` : ''}` : label);

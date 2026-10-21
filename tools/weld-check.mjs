@@ -835,8 +835,8 @@ await step('v1refuse', async () => {
     ok(/Your deposit is in the Tacit pool/.test(kept) && /free settles for today are used up/.test(kept) && /no need to send it again/.test(kept)
       && await r.page.$eval('#w-amt', (i) => i.value === '') && await r.page.$eval('#w-go', (b) => b.disabled), `v1refuse: a settle the relay refuses after the deposit empties the form and points to Finish (${kept.slice(0, 130)})`);
     ok(await until(r.page, () => !!document.querySelector('#v1-finish'), null, 600000).then(() => true, () => false), 'v1refuse: the deposit is then offered to Finish');
-    // Or from the wallet: the relay is asked for the proof only, and settle() goes to the pool from the wallet. The
-    // proof is a stand-in here, so the pool refuses it and the page says so; the deposit is still offered after.
+    // Or from the wallet: the relay is asked for the proof only, and settle() is tried against the pool before the wallet is asked to send it. The
+    // proof is a stand-in here, so the pool refuses it: nothing is sent, the page says so, and the deposit is still offered after.
     ok(/Or finish from your wallet/.test(await text(r.page, '#v1-finish-self')), 'v1refuse: it can also be finished from the wallet');
     const wrapSub = refused.findLast((x) => x.type === 'wrap');
     proveStub = true;
@@ -846,8 +846,8 @@ await step('v1refuse', async () => {
     const prove = submits.slice(n1).find((x) => x.type === 'wrap' && x.op.cx === wrapSub?.op.cx);   // every waiting deposit is finished, this one among them
     const settle = walletTxs.slice(t1).find((x) => String(x.to).toLowerCase() === '0x000000000ed1eabd231be41d93b719056f7febfc');
     ok(prove?.mode === 'prove' && prove.op.cx === wrapSub?.op.cx && prove.op.owner === wrapSub?.op.owner, 'v1refuse: finishing from the wallet asks the relay for this deposit\'s proof only');
-    ok(settle && settle.from.toLowerCase() === A0 && settle.data.startsWith('0x' + Buffer.from(keccak_256(Buffer.from('settle(bytes,bytes,bytes[])'))).toString('hex').slice(0, 8)),
-      `v1refuse: and sends settle() to the pool from the wallet (${(await text(r.page, '#v1-status')).slice(0, 90)})`);
+    ok(!settle && /Nothing was sent: the pool refuses this as it stands/.test(await text(r.page, '#v1-status')),
+      `v1refuse: and the settle is tried against the pool before the wallet is asked: a refusal sends nothing and says so (${(await text(r.page, '#v1-status')).slice(0, 90)})`);
     // The same from its receipt, once it has waited in line: a receipt as another tab of this page would write it (the
     // page takes in what other tabs write), still queued, for the deposit the scan above found waiting.
     const depositId = depositIdOf(wrapSub.op);
@@ -866,7 +866,7 @@ await step('v1refuse', async () => {
     if (offered) {
       await r.page.click('[data-act="job:stub-inline"] [data-self]');
       await until(r.page, () => !!document.querySelector('[data-act="job:stub-inline"] .actr-f.err'), null, 600000).catch(() => {});
-      ok(walletTxs.slice(t2).some((x) => String(x.to).toLowerCase() === '0x000000000ed1eabd231be41d93b719056f7febfc'), `v1refuse: pressed, it proves and sends from the wallet, and a refusal shows on the receipt (${(await inline()).slice(0, 160)})`);
+      ok(!walletTxs.slice(t2).some((x) => String(x.to).toLowerCase() === '0x000000000ed1eabd231be41d93b719056f7febfc') && /Nothing was sent: the pool refuses this as it stands/.test(await inline()), `v1refuse: pressed, it proves, tries the settle first, and a refusal sends nothing and shows on the receipt (${(await inline()).slice(0, 160)})`);
     }
     if (offered) {
       // From an account that cannot pay the network fee, the receipt says so before the relay is asked to prove anything.
@@ -3279,7 +3279,8 @@ await step('xobridge', async () => {
   let utxos = [];
   const head = Number(BigInt(await rpc('eth_blockNumber')));
   await api(/^https:\/\/api\.tacit\.finance\/reflection\/status/, (route) => json(route, { network: 'mainnet', attestedHeight: 970373, tipHeight: 970373, lagBlocks: 0 }));
-  await api(/^https:\/\/api\.tacit\.finance\/reflection\/eth-state\/covers/, (route, u) => json(route, { network: 'mainnet', block: Number(u.searchParams.get('block')), bestBlock: head - 300, confirmedBlock: head - 3000, covered: false }));
+  let coversNow = false;
+  await api(/^https:\/\/api\.tacit\.finance\/reflection\/eth-state\/covers/, (route, u) => json(route, { network: 'mainnet', block: Number(u.searchParams.get('block')), bestBlock: head - 300, confirmedBlock: head - 3000, covered: coversNow }));
   await api(/^https:\/\/api\.tacit\.finance\/crossout\/minted/, (route, u) => json(route, { decided: u.searchParams.get('txid') === '9a'.repeat(32), minted: false, status: 'rejected' }));
   await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?address\/[^/]+\/utxo/, (route) => json(route, utxos));
   await r.page.goto(r.url + '#wallet');
@@ -3461,9 +3462,15 @@ await step('xobridge', async () => {
   // through is not listed, and a stopped one from days ago is told quietly with no press to try again.
   await r.page.setViewportSize({ width: 1100, height: 900 });
   const day = 86400e3, op = (id, extra) => ({ id: 'op:' + id, kind: 'op', pub, steps: [], ...extra });
-  // The page writes its own list back when it unloads, so its handler is stopped first: what is seeded here is what the reloaded page reads.
+  // The page writes its own list back when it unloads and a moment after any change, so writes to it are stopped first: what is seeded here is what the reloaded page reads.
   const reloaded = r.page.waitForEvent('load', { timeout: 120000 });
-  await r.page.evaluate(([items]) => { addEventListener('pagehide', (e) => e.stopImmediatePropagation(), true); localStorage.setItem('tacit-lite-activity-v1', JSON.stringify({ items, cleared: 0 })); location.reload(); }, [[
+  await r.page.evaluate(([items]) => {
+    const key = 'tacit-lite-activity-v1', real = Storage.prototype.setItem;
+    addEventListener('pagehide', (e) => e.stopImmediatePropagation(), true);
+    real.call(localStorage, key, JSON.stringify({ items, cleared: 0 }));
+    Storage.prototype.setItem = function (k, v) { return k === key ? undefined : real.call(this, k, v); };
+    location.reload();
+  }, [[
     op('b1', { label: 'Bridge 0.0039 tETH to Bitcoin', status: 'settled', hash: '0x' + 'a2'.repeat(32), at: Date.now() - 3600e3, end: Date.now() - 3500e3 }),
     op('b2', { label: 'Send 0.002 tETH privately', status: 'settled', hash: '0x' + 'cc'.repeat(32), at: Date.now() - 2 * day, end: Date.now() - 2 * day + 60e3 }),
     op('b3', { label: 'Send 0.002 tETH privately', status: 'failed', err: 'The relay’s free settles for today are used up.', at: Date.now() - 3 * day, end: Date.now() - 3 * day + 60e3 }),
@@ -3481,6 +3488,27 @@ await step('xobridge', async () => {
   const old = acts.find((x) => /Withdraw 0\.001 ETH/.test(x.text));
   ok(old && !old.err && !old.again, `xobridge: a stopped row from days ago is told quietly, with no press to try again (${old?.text.slice(0, 120)})`);
   ok(/1/.test(await r.page.textContent('#act-n')) && await r.page.isVisible('#act-n'), 'xobridge: the Activity button counts the bridge as in progress');
+  // Once the proof has reached the burn the row says what is left: with no key open that is to open it, and the landing page says a bridge is under way.
+  coversNow = true;
+  await r.page.reload();
+  await r.page.waitForSelector('#act:not([hidden])', { timeout: 120000 });
+  await go(r.page, '#activity');
+  await until(r.page, () => /The proof has seen the burn\./.test(document.querySelector('#act-body')?.textContent || ''), null, 60000);
+  const keyed = await r.page.evaluate(() => !!document.querySelector('#wallet-dot.on'));
+  const reached = (await r.page.$$eval('#act-body .actr', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), key: !!x.querySelector('[data-act-key]') })))).find((x) => /Bridge 0\.0039 tETH to Bitcoin/.test(x.text));
+  ok(reached && !/Waiting for Bitcoin’s proof/.test(reached.text) && reached.key === !keyed && (keyed ? /in a moment/ : /Open your key to send the Bitcoin step/).test(reached.text),
+    `xobridge: a burn the proof has reached says so and, with no key open, offers to open it (key open ${keyed}: ${reached?.text.slice(0, 220)})`);
+  if (!keyed) {
+    // The summary is there once a wallet is connected, key or not.
+    await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
+    await go(r.page, '#airdrop');
+    await r.page.click('#air-connect');
+    await r.page.waitForSelector('#air-body', { timeout: 60000 }).catch(() => {});
+    await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await until(r.page, () => /under way in this browser\. Open your key/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).slice(0, 300)}`); });
+    ok(true, 'xobridge: with no key open the landing page says bridges are under way in this browser and offers to open the key');
+  }
   if (r.errors.length) { fails++; console.log('FAIL xobridge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
@@ -5571,7 +5599,7 @@ await step('receipts', async () => {
     await r.page.fill('#o-amt', '0.25');
     await until(r.page, () => /Arrives/.test(document.querySelector('#o-rcpt')?.textContent || '') && !document.querySelector('#o-go').disabled, null, 60000);
     await r.page.click('#o-go');
-    await until(r.page, () => /Withdraw 0\.25 ETH[^]*with the relay/.test(document.querySelector('#v1-status')?.textContent || ''), null, 60000);
+    await until(r.page, () => /Sent to the relay/.test(document.querySelector('#v1-status')?.textContent || ''), null, 60000);
     const b0 = await rx();
     ok(b0.calls.length === 2 && b0.calls[1].type === 'sendunwrap' && b0.calls[1].spend[0] === b0.notes[0][0], `receipts: the withdrawal starts at once, on the 0.3 note (${JSON.stringify(b0.calls[1])})`);
     // C: what is left free (0.05) cannot cover 0.1, and the form says so.

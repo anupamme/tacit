@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Pv5LT4eZX/OBwJs/BSmCmejh8oJtVjwkpL8JV/Stn3U=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Yole+FLtOhRbznZq12z+W2H5VGApXRrLx5sTkt3Hiek=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1174,7 +1174,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 @font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
 @font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
 </style>
-<script src="/chrome.js?cb=acc78084" defer></script>
+<script src="/chrome.js?cb=b97485b4" defer></script>
 <!-- chrome:head:end -->
 </head>
 <body>
@@ -3025,11 +3025,12 @@ const actDone = (it) => ended(it) && !actOpen(it);
 function actBridgeBody(it, b) {
   const fund = b.stage === 'covered' && !!b.lastError?.fundWait, failing = !!b.lastError && !fund, rejected = b.stage === 'mint-rejected';
   const at = b.stage === 'minted' ? 4 : XO_AT[b.stage] ?? 1;
-  const due = b.stage !== 'minted' && xoDue(b);
+  const due = b.stage !== 'minted' && xoDue(b), locked = b.stage === 'settled' && xoCovered(b) && !xoKeyOpen(b);
   return html`<ol class="stp">${XO_STEPS.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing || rejected ? 'bad' : 'now') : ''))}</ol>
     <div class="actr-f">${b.stage === 'minted' ? html`On your Bitcoin address.` : fund ? xoFundRow(b) : xoNoteText(b)}${it.hash ? html` · <a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : ''}</div>
     ${failing ? html`<div class="actr-f err">${xoErr(b.lastError.message)}</div>` : ''}
-    ${due ? html`<div class="brr-a"><a class="btn ghost" href="#private/bitcoin/out" data-link="private/bitcoin/out">${due}</a></div>` : ''}`;
+    ${locked ? html`<div class="brr-a"><button class="btn ghost" type="button" data-act-key>Open your key</button></div>`
+      : due ? html`<div class="brr-a"><a class="btn ghost" href="#private/bitcoin/out" data-link="private/bitcoin/out">${due}</a></div>` : ''}`;
 }
 const actRow = (it) => {
   const b = actBridge(it), open = !!b && b.stage !== 'minted', done = ended(it) && !open;
@@ -3086,6 +3087,10 @@ function againLine(it) {
   return html`${/nothing was spent/i.test(failText(it)) ? '' : html`<div class="actr-f">Nothing was spent: it is still in your private balance.</div>`}
     <div class="brr-a"><button class="btn ghost" type="button" data-act-again="${sheet || ''}">${sheet ? 'Try again' : 'Read my balance again'}</button></div>`;
 }
+document.addEventListener('click', (e) => {
+  if (!e.target.closest?.('[data-act-key]')) return;
+  $('#sheet-act').close(); openSheet('wallet'); if (!S.key) getUx().catch(() => {});
+});
 document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-act-again]');
   if (!b) return;
@@ -5074,9 +5079,26 @@ function xoErr(e) {
   return errText(m === String(e?.message || e || '') ? e : new Error(m));
 }
 const xoFail = (e) => Object.assign(new Error(xoErr(e)), { said: true });
+// Whether Bitcoin's proof on Ethereum has reached a burn, asked of the proof's own service and kept for a minute and a half. A row only moves on while its key is
+// open, so a burn the proof has already reached would go on saying it waits for the proof: it says what is left for the holder instead.
+const XOC = new Map();
+function xoCovered(r) {
+  const block = Number(r.settle?.ethBlock);
+  if (r.stage !== 'settled' || !Number.isFinite(block)) return false;
+  const c = XOC.get(block);
+  if (c && Date.now() - c.at < 90e3) return c.v === true;
+  if (!c?.busy) {
+    XOC.set(block, { at: c?.at || 0, v: c?.v ?? null, busy: true });
+    fetch(`${API}/reflection/eth-state/covers?block=${block}`, { signal: within(10e3) }).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+      .then((j) => { XOC.set(block, { at: Date.now(), v: j && !j.error ? j.covered === true : null }); paintAct(); rerender(xaOf(r)?.sheet || 'eth'); dashSoon(); });
+  }
+  return c?.v === true;
+}
+const xoKeyOpen = (r) => !!S.key && S.key.pubHex === r.walletPub;
 const xoNoteText = (r) => ({
   settling: 'Sent to Ethereum. Waiting for the burn to land: this page looks for it again by itself, also after a reload.',
-  settled: 'Burned on Ethereum. Waiting for Bitcoin’s proof on Ethereum to see the burn, usually within an hour or two. The Bitcoin step is sent by this page once it has, while it is open with your key.',
+  settled: xoCovered(r) ? `The proof has seen the burn. ${xoKeyOpen(r) ? 'This page sends the Bitcoin step in a moment.' : 'Open your key to send the Bitcoin step: it goes out by itself once the key is open.'}`
+    : 'Burned on Ethereum. Waiting for Bitcoin’s proof on Ethereum to see the burn, usually within an hour or two. The Bitcoin step is sent by this page once it has, while it is open with your key.',
   covered: 'The proof has seen the burn. Sending the Bitcoin step needs your key: it goes on by itself while this page is open with it.',
   'mint-signed': 'Signed. Sending it to Bitcoin…',
   'mint-submitted': 'With Bitcoin. It needs a confirmation first.',
@@ -11189,6 +11211,10 @@ function paintDash() {
       due.push([`This key also holds ${what.length > 1 ? `${what.slice(0, -1).join(', ')} and ${what.at(-1)}` : what[0]} privately, which this page has no sheet for. Spend ${other.length === 1 ? 'it' : 'them'} on tacit.finance.`, null, 'tacit.finance ↗', 'https://tacit.finance/']);
     }
   }
+  if (!k) {
+    const n = window.tacitBridges?.().under || 0;
+    if (n) due.push([n === 1 ? 'A bridge is under way in this browser. Open your key to follow it and to send its next step.' : `${n} bridges are under way in this browser. Open your key to follow them and to send their next steps.`, 'key', 'Open your key']);
+  }
   const dueHtml = html`${due.map(([t, go, label, href]) => html`<div class="callout"><span>${t}</span>${href ? html`<a class="btn ghost" href="${href}" target="_blank" rel="noopener">${label}</a>`
     : html`<button class="btn ghost" type="button" data-dash-do="${go}">${label}</button>`}</div>`)}`.s;
   const gridHtml = html`${items.map(cell)}`.s, view = dueHtml + gridHtml;
@@ -11199,7 +11225,7 @@ function paintDash() {
     const was = f && (f.dataset.dashOpen ? `[data-dash-open="${f.dataset.dashOpen}"]` : f.dataset.asset ? `[data-asset="${f.dataset.asset}"]` : f.dataset.hx ? `[data-hx="${f.dataset.hx}"]` : `[data-dash-do="${f.dataset.dashDo}"]`);
     $('#dash-due').innerHTML = dueHtml; $('#dash-g').innerHTML = gridHtml; DASH.view = view;
     $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => (b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen)));
-    $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => { if (b.dataset.dashDo === 'act') return openAct(); if (b.dataset.dashDo === 'bridge' || b.dataset.dashDo.includes('/')) return openLink(b.dataset.dashDo); const [link, sheet, btn] = DASH_DO[b.dataset.dashDo], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {}); });
+    $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => { if (b.dataset.dashDo === 'act') return openAct(); if (b.dataset.dashDo === 'key') { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); return; } if (b.dataset.dashDo === 'bridge' || b.dataset.dashDo.includes('/')) return openLink(b.dataset.dashDo); const [link, sheet, btn] = DASH_DO[b.dataset.dashDo], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {}); });
     if (was) $(was, sec)?.focus();
   }
   clearTimeout(dashSaveT);

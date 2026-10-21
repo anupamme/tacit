@@ -218,7 +218,7 @@ try {
     await page.click('#hood-dir button[data-dir="in"]');
     await page.click('.faq summary');
     ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
-    ok((await page.$$('.faq details')).length === 4, 'four questions');
+    ok((await page.$$('.faq details')).length === 5, 'five questions');
     const faq = await page.textContent('.faq');
     ok(/tETH takes 0\.001 to 0\.5 to Bitcoin and up to 0\.5 back/.test(faq) && /TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back/.test(faq) && /255 transfers/.test(faq), 'the limits answer gives each asset its own range, both ways, and the history it proves');
     ok(/Ethereum to Bitcoin takes a small relay fee out of the note/.test(faq) && /Tacit is covering the Ethereum mint/.test(faq), 'and the cost answer is right for both directions');
