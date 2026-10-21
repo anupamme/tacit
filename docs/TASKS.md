@@ -89,6 +89,10 @@ the first points on two) from the page build's `out/` and the registry's init co
 chain's own node with `eth_estimateGas` (nothing is sent). The page fetches a point from the chain's keeper when it is sent
 (`GET /<chainId>/evm-pool/keeper/point`) and checks its shape against the plan.
 
+`worker-relay/scripts/tasks-amm-route.mjs` builds the `amm-route` job: one CreateX deployment of `TacitAmmRoute` (the contract that lets the swap
+page buy tacUSD and tacBTC with any token in one transaction) under an open salt, so any wallet can send it. The init code, the salt and the
+address are `tests/amm-route-deploy.mjs`'s, which `dapp/swap/route.js` and the fork tests check against each other; the step pays 30 to 200 TAC (its gas at a slow price, doubled by the tip, between a least that carries the effort and a most that covers a gas spike).
+
 A change to the contracts changes the addresses: rebuild the files, run the tests and `npm run build`.
 
 ## Tests
@@ -97,3 +101,4 @@ A change to the contracts changes the addresses: rebuild the files, run the test
     anvil --fork-url <mainnet rpc> --port 8546 --chain-id 1
     FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/points-tasks-fork.test.mjs   all 21 steps, claimed and credited
     FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/tasks-page-e2e.mjs           the page in Chrome, wallet and all
+    FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/tasks-amm-route-e2e.mjs      the amm-route job in Chrome, on a current fork

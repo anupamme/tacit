@@ -51,6 +51,7 @@ const groupsOf = (job) => { const m = new Map(); job.steps.forEach((s, i) => { c
 // Where a step shows: its chain's name when the job is on more than one.
 const manyChains = (job) => new Set(job.steps.map((s) => chainOf(job, s))).size > 1;
 const atChain = (job, s) => (manyChains(job) ? `${CHAINS[chainOf(job, s)].name} · ` : '');
+const steps = (n) => (n === 1 ? 'step' : 'steps');
 const STORE = 'tacit.tasks.v1';
 const tac = (wei, max = 2) => (wei == null ? '—' : fmtUnits(BigInt(wei), 18, max));
 // A whole number of TAC, rounded to the nearest (the figures a person reads at a glance).
@@ -224,8 +225,8 @@ function card(job) {
       <span class="job-top"><b>${esc(job.title)}</b><span class="pill ${cls}">${label}</span></span>
       <span class="job-sub">${esc(job.tagline)}</span>
       <span class="job-fig"><span class="big num">${fig}</span><span class="cap">${cap}</span></span>
-      <span class="bar" role="img" aria-label="${n} of ${total} steps on the chain"><i style="width:${(100 * n) / total}%"></i></span>
-      <span class="job-foot"><span>${n} of ${total} steps on the chain</span><span>${foot}</span></span>
+      <span class="bar" role="img" aria-label="${n} of ${total} ${steps(total)} on the chain"><i style="width:${(100 * n) / total}%"></i></span>
+      <span class="job-foot"><span>${n} of ${total} ${steps(total)} on the chain</span><span>${foot}</span></span>
     </button>
     <div class="job-body" id="body-${esc(job.id)}"${exp ? '' : ' hidden'}>${exp ? (st === 'done' ? doneBody(job, res) : openBody(job)) : ''}</div>
   </article>`;
@@ -349,7 +350,7 @@ function openBody(job) {
             <div class="kv"><span>Pays, about</span><b class="num">${payNow != null ? `${tacR(payNow)} TAC` : '—'}</b></div>
           </div>
           <p class="hint">${hint}</p>
-          <button class="btn" type="button" data-go="${esc(job.id)}" ${!todo.length || !open || busy ? 'disabled' : ''}>${busy ? 'Sending…' : !W.account ? 'Connect wallet' : todo.length ? `Send ${todo.length === job.steps.length ? 'all' : 'the remaining'} ${todo.length} steps` : 'Done'}</button>
+          <button class="btn" type="button" data-go="${esc(job.id)}" ${!todo.length || !open || busy ? 'disabled' : ''}>${busy ? 'Sending…' : !W.account ? 'Connect wallet' : todo.length ? (todo.length === 1 ? `Send the ${job.steps.length === 1 ? '' : 'remaining '}step` : `Send ${todo.length === job.steps.length ? 'all' : 'the remaining'} ${todo.length} steps`) : 'Done'}</button>
           <div class="status" role="status" data-for="${esc(job.id)}"></div>
         </section>
         <section class="panel p-rewards" aria-label="Rewards">${rewardsPanel(job)}</section>

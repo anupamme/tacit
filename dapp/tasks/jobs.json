@@ -604,6 +604,50 @@
       "verified": false,
       "created": [],
       "payloadUrl": "/tasks/anon-wei-4-payload.json"
+    },
+    {
+      "id": "amm-route",
+      "chainId": 1,
+      "opensAt": 1792573720,
+      "steps": [
+        {
+          "id": "01-amm-route",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 358000,
+          "expected": "0x00000015FF76e81b258A75934Dd205998F5a00F7",
+          "salt": "0x000000000000000000000000000000000000000000834270100000000013697a",
+          "initCodeHash": "0x3d4ea9feef068cc66146e32e7f114dc41a9d56e991abf03797a2c870af396149",
+          "bound": false,
+          "minWei": "30000000000000000000",
+          "maxWei": "200000000000000000000",
+          "label": "Deploy TacitAmmRoute"
+        }
+      ],
+      "title": "Deploy the swap page’s any-token route",
+      "tagline": "Let the swap page buy tacUSD and tacBTC with any token in one transaction: 1 transaction, from any wallet.",
+      "about": [
+        {
+          "h": "What it does",
+          "p": "The swap page already sells TAC, tacUSD and tacBTC for any token on its list in one transaction. Buying tacUSD or tacBTC with a token needs one small contract on Ethereum to finish the swap in the Tacit pool. Once it is deployed the page offers those pairs by itself."
+        },
+        {
+          "h": "What gets deployed",
+          "p": "TacitAmmRoute, one contract at 0x00000015FF76e81b258A75934Dd205998F5a00F7. It takes the WETH a swap hands it, unwraps it and swaps the ETH for tacUSD or tacBTC through the Tacit pool’s public door, paid to the buyer. The swap’s own minimum and deadline apply."
+        },
+        {
+          "h": "Who controls it",
+          "p": "Nobody. It has no owner and no settings, keeps nothing between swaps, and sends any change back to the buyer."
+        },
+        {
+          "h": "Who can send it",
+          "p": "Anyone. The address is fixed by the contract’s exact code, so the sender cannot change what lands there."
+        }
+      ],
+      "links": [],
+      "verified": false,
+      "created": [],
+      "payloadUrl": "/tasks/amm-route-payload.json"
     }
   ]
 }
