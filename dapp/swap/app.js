@@ -1,8 +1,8 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
-import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=183c7ea0';
+import { rpc, RPCS, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
+import * as R from '/swap/route.js?cb=166e1efd';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -16,7 +16,8 @@ const wordAt = (h, i) => BigInt('0x' + (strip(h).slice(i * 64, (i + 1) * 64) || 
 const addrWord = (a) => strip(a).toLowerCase().padStart(64, '0');
 const lc = (a) => String(a).toLowerCase();
 
-const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: '0x' + BigInt(o.value).toString(16) } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]);
+const HEAVY_HOSTS = [RPCS[RPCS.length - 1], ...RPCS.slice(0, -1)];
+const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: '0x' + BigInt(o.value).toString(16) } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block], o.gas ? HEAVY_HOSTS : undefined);
 const batch = async (calls) => V.decAggregate3(await ethCall(MULTICALL3, V.encAggregate3(calls)), calls.length);
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
 const within = (p, ms, why) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(why)), ms))]);
@@ -65,8 +66,11 @@ try { const c = JSON.parse(localStorage.getItem(TL.key) || 'null'); if (c?.rows)
 async function checkAmmRoute() {
   const v = await R.ammRouteLive({ ethCall }).catch(() => null);
   if (v == null || v === S.ammRoute) return;
+  const was = `${S.pay}>${S.get}:${kindOf(S.pay, S.get)}`;
   S.ammRoute = v;
-  if (!S.busy) { fit('pay'); paint(); if (S.q) requote(true); }
+  if (S.busy) return;
+  fit('pay'); paint();
+  if (S.q && `${S.pay}>${S.get}:${kindOf(S.pay, S.get)}` !== was) requote(true);
 }
 function loadList() {
   if (Date.now() - TL.at < TL.day && TL.rows.length) return Promise.resolve();
@@ -237,13 +241,13 @@ async function quote(my, wei) {
     return done({ rows: [{ k: 'amm', name: 'Tacit pool', note: '', out: q.amountOut, amm: q, gas: isEth(S.pay) ? GAS.amm : GAS.ammIn, best: true }], dust: wei - q.amountIn });
   }
   if (kind === 'any') {
-    const q = await within(R.quoteAnyToTac({ ethCall, venues, token: S.pay, amountIn: wei, account: account || '0x0000000000000000000000000000000000000001', slippageBps: S.slip, deadline: chainDeadline(1800) }), 15e3, 'zQuoter did not answer in time. Try again.');
+    const q = await within(R.quoteAnyToTac({ ethCall, venues, token: S.pay, amountIn: wei, account: account || '0x0000000000000000000000000000000000000001', slippageBps: S.slip, deadline: chainDeadline(1800), reuse: true }), 15e3, 'zQuoter did not answer in time. Try again.');
     if (!q) return done({ rows: [], why: `No pool trades ${esc(pay.sym)} against WETH deeply enough. Swap it for ETH elsewhere first.` });
     const hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
     return done({ rows: [{ k: 'any', name: hop ? `${hop} → Precision pool` : 'Precision pool', note: '', out: q.tacOut, any: q, gas: GAS.any, best: true }] });
   }
   if (kind === 'out' || kind === 'in') {
-    const who = account || '0x0000000000000000000000000000000000000001', dest = recipient() || who, args = { ethCall, amountIn: wei, account: who, to: dest, slippageBps: S.slip, deadline: chainDeadline(1800) };
+    const who = account || '0x0000000000000000000000000000000000000001', dest = recipient() || who, args = { ethCall, amountIn: wei, account: who, to: dest, slippageBps: S.slip, deadline: chainDeadline(1800), reuse: true };
     if (kind === 'out') {
       const q = await within(R.quoteTacitToToken({ ...args, venues, tokenIn: S.pay, tokenOut: S.get }), 20e3, 'zQuoter did not answer in time. Try again.');
       if (!q) return done({ rows: [], why: `No pool trades WETH for ${esc(get.sym)} deeply enough. Sell ${esc(pay.sym)} for ETH, then swap it elsewhere.` });

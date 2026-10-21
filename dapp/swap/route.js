@@ -147,7 +147,24 @@ export async function readAccess({ ethCall, token, owner, spender = ZROUTER }) {
 
 // ── zQuoter: the best single pool for `tokenIn` against WETH. → { source, feeBps, amountIn, amountOut, callData, amountLimit } or null ──
 export const SOURCES = ['Uniswap v2', 'Sushi', 'zAMM', 'Uniswap v3', 'Uniswap v4', 'Curve', 'Lido', 'WETH', 'Uniswap v4'];
-async function zqSwap({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline }) {
+// The quote the screen shows may be asked for several times at once and again within seconds (the page re-quotes when prices, the token list or the contract
+// are read), and each ask is a scan of every pool: with `reuse`, an ask for the same recipient, tokens, amount, slippage and deadline within ten seconds shares the
+// one in flight or just done, and the deadline of such a quote is rounded up to the minute so that repeated asks are the same ask. What a transaction is built
+// from is asked fresh (no `reuse`), so its call data carries its own deadline.
+const coarse = (d) => ((BigInt(d) + 59n) / 60n) * 60n;
+const ZQ_REUSE_MS = 10_000, zqMemo = new Map();
+function zqSwap(args) {
+  if (!args.reuse) return zqRead(args);
+  const { to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline } = args, key = [to, exactOut ? 1 : 0, tokenIn, tokenOut, amount, slippageBps, deadline].map((x) => String(x).toLowerCase()).join(':'), t = Date.now();
+  const hit = zqMemo.get(key);
+  if (hit && t - hit.at < ZQ_REUSE_MS) return hit.p;
+  for (const [k, v] of zqMemo) if (t - v.at >= ZQ_REUSE_MS) zqMemo.delete(k);
+  const p = zqRead(args);
+  zqMemo.set(key, { at: t, p });
+  p.catch(() => { if (zqMemo.get(key)?.p === p) zqMemo.delete(key); });
+  return p;
+}
+async function zqRead({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline }) {
   const data = '0x' + SEL.buildBestSwap + addr(to) + word(exactOut ? 1 : 0) + addr(tokenIn) + addr(tokenOut) + word(amount) + word(slippageBps) + word(deadline);
   let raw;
   try { raw = strip(await ethCall(ZQUOTER, data, 'latest', { gas: '0x5F5E100' })); } catch (e) { if (e?.revert || /revert/i.test(e?.message || '')) return null; throw e; }
@@ -156,21 +173,21 @@ async function zqSwap({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippa
   const q = { source: Number(wordAt(raw, 0)), feeBps: wordAt(raw, 1), amountIn: wordAt(raw, 2), amountOut: wordAt(raw, 3), callData: '0x' + raw.slice((at + 1) * 64, (at + 1) * 64 + len * 2), amountLimit: wordAt(raw, 5), msgValue: wordAt(raw, 6) };
   return q.amountOut > 0n && q.amountIn > 0n && q.msgValue === 0n ? q : null;
 }
-const bestToWeth = ({ ethCall, tokenIn, amount, exactOut, slippageBps, deadline }) => zqSwap({ ethCall, to: PRECISION_ROUTE, tokenIn, tokenOut: WETH, amount, exactOut, slippageBps, deadline });
+const bestToWeth = ({ ethCall, tokenIn, amount, exactOut, slippageBps, deadline, reuse }) => zqSwap({ ethCall, to: PRECISION_ROUTE, tokenIn, tokenOut: WETH, amount, exactOut, slippageBps, deadline, reuse });
 
 // Any ERC-20 → TAC. `venues.quotePrecision` prices the TAC leg (the Precision pool the lens finds best, which the policy allows).
 // Spends at most `amountIn`: the WETH bought is what `amountIn` buys less `slippageBps`, so the leg's own limit (its quote plus the same
 // margin) stays inside what was typed. → { kind: 'any', token, amountIn, maxIn, spend, weth, tacOut, pool, hop } or null (no pool for the token).
-export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account, slippageBps = 50, deadline }) {
-  const slip = BigInt(slippageBps), dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account, slippageBps = 50, deadline, reuse = false }) {
+  const slip = BigInt(slippageBps), dl0 = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800), dl = reuse ? coarse(dl0) : dl0;
   let weth, hop = null;
   if (same(token, WETH)) weth = amountIn;
   else {
-    const fwd = await bestToWeth({ ethCall, tokenIn: token, amount: amountIn, exactOut: false, slippageBps: 0, deadline: dl });
+    const fwd = await bestToWeth({ ethCall, tokenIn: token, amount: amountIn, exactOut: false, slippageBps: 0, deadline: dl, reuse });
     if (!fwd) return null;
     weth = (fwd.amountOut * (10000n - slip)) / 10000n;
     for (let i = 0; i < 3 && weth > 0n; i++) {
-      hop = await bestToWeth({ ethCall, tokenIn: token, amount: weth, exactOut: true, slippageBps: slip, deadline: dl });
+      hop = await bestToWeth({ ethCall, tokenIn: token, amount: weth, exactOut: true, slippageBps: slip, deadline: dl, reuse });
       if (!hop) return null;
       if (hop.amountLimit <= amountIn) break;
       weth = (weth * amountIn * 9990n) / (hop.amountLimit * 10000n);          // a curve steeper than the margin: ask for a little less
@@ -255,8 +272,8 @@ function encAggregate3(calls) {
 // ── a Tacit asset out to any ERC-20, public, in one transaction ──
 // The pool pays its ETH to zRouter itself (a call's output may go there), zRouter wraps it, and zQuoter's exact-in swap of that WETH pays the
 // wallet. `quote.leg` is the first sale: Precision (TAC only) or the Tacit pool, whichever pays more ETH.
-export async function quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline }) {
-  const slip = BigInt(slippageBps), dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+export async function quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline, reuse = false }) {
+  const slip = BigInt(slippageBps), dl0 = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800), dl = reuse ? coarse(dl0) : dl0;
   if (!tacitToken(tokenIn) || tacitToken(tokenOut) || same(tokenOut, ZERO)) return null;
   let leg = null;
   if (same(tokenIn, TAC)) {
@@ -271,7 +288,7 @@ export async function quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut, am
   if (floor1 <= 0n) return null;
   let hop = null, out, val, min = floor1, rest = 0n;
   if (!same(tokenOut, WETH)) {
-    hop = await zqSwap({ ethCall, to, tokenIn: WETH, tokenOut, amount: floor1, exactOut: false, slippageBps: slip, deadline: dl });
+    hop = await zqSwap({ ethCall, to, tokenIn: WETH, tokenOut, amount: floor1, exactOut: false, slippageBps: slip, deadline: dl, reuse });
     if (!hop || hop.amountLimit <= 0n) return null;
     // The second leg must be one swap that sells exactly the ETH the first leg is sure to pay, pays the recipient, and pays at least what is shown.
     if (checkZRouterCall(hop.callData, { to, tokenIn: WETH, tokenOut, exactOut: false, amount: floor1, maxIn: floor1, minOut: hop.amountLimit, deadline: dl })) return null;
@@ -306,17 +323,17 @@ export async function ammRouteLive({ ethCall }) {
     return /revert|execution/i.test(`${e?.data?.data || e?.data || ''} ${e?.message || ''}`) ? false : null;
   }
 }
-export async function quoteTokenToTacit({ ethCall, token, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline }) {
-  const slip = BigInt(slippageBps), dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+export async function quoteTokenToTacit({ ethCall, token, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline, reuse = false }) {
+  const slip = BigInt(slippageBps), dl0 = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800), dl = reuse ? coarse(dl0) : dl0;
   if (same(token, ZERO) || same(token, WETH) || tacitToken(token) || !(same(tokenOut, CUSD) || same(tokenOut, CBTC))) return null;
-  const fwd = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: amountIn, exactOut: false, slippageBps: 0n, deadline: dl });
+  const fwd = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: amountIn, exactOut: false, slippageBps: 0n, deadline: dl, reuse });
   if (!fwd) return null;
   // The WETH is bought exactly (the pool takes ETH in steps of 1e10) and for no more than was typed: a curve steeper than the margin asks for a little less.
   // One wei more is bought than is swapped: snwap leaves one wei of zRouter's balance behind when it hands the rest on.
   let weth = (fwd.amountOut * (10000n - slip)) / 10000n, hop = null;
   weth -= weth % UNIT;
   for (let i = 0; i < 3 && weth > 0n; i++) {
-    hop = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: weth + 1n, exactOut: true, slippageBps: slip, deadline: dl });
+    hop = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: weth + 1n, exactOut: true, slippageBps: slip, deadline: dl, reuse });
     if (!hop) return null;
     if (hop.amountLimit <= amountIn) break;
     weth = (weth * amountIn * 9990n) / (hop.amountLimit * 10000n); weth -= weth % UNIT;
