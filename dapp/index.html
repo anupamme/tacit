@@ -621,7 +621,6 @@ a.di { color: inherit; text-decoration: none; }
 }
 .tc h2 { font: 400 clamp(34px, 4vw, 52px)/1 var(--serif); letter-spacing: -.02em; max-width: 18ch; margin: 0; }
 .tc h2 em { font-style: italic; }
-.tc-p { font-size: 16px; line-height: 1.65; margin: 20px 0 0; max-width: 56ch; }
 .tc-facts { display: flex; flex-wrap: wrap; gap: 14px 44px; margin: 28px 0 0; padding: 0; }
 .tc-facts div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .tc-facts dt { font-size: 12px; color: var(--mute); }
@@ -642,8 +641,6 @@ a.di { color: inherit; text-decoration: none; }
 .tp-flow span { display: grid; gap: 2px; min-width: 0; }
 .tp-flow b { font: 400 19px/1.1 var(--serif); }
 .tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
-.tc-spec { max-width: 62ch; margin: 22px 0 0; font-size: 13px; line-height: 1.6; color: var(--mute); }
-.tc-spec a { color: var(--ink); }
 .tc-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
 .tc-links .tl { font-size: 14px; }
 .tc-links .btn { width: auto; min-height: 52px; margin: 0; padding: 0 24px; background: transparent; color: var(--ink); border-color: var(--ink); }
@@ -653,31 +650,23 @@ a.di { color: inherit; text-decoration: none; }
 
 /* Integrations: other apps that read the same names and keys, as two quiet rows under a rule. */
 /* features: four quiet lines under the hero; the press card sits above the integrations */
-.ft { padding-top: 56px; }
-.ft-l { list-style: none; margin: 0; padding: 18px 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 32px; border-top: 1px solid var(--hair); }
-.ft-l li { display: grid; align-content: start; gap: 3px; }
-.ft-l b { font: 400 20px/1.15 var(--serif); letter-spacing: -.01em; }
-.ft-l span { font-size: 13px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
 .pw { padding-top: 72px; }
 .pw-a { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: center; gap: 0 36px; padding: 20px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); color: inherit; text-decoration: none; }
 .pw-i { display: block; width: 100%; height: auto; aspect-ratio: 2 / 1; object-fit: cover; border-radius: 11px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); transition: transform .3s var(--spring); }
 .pw-t { display: grid; gap: 8px; min-width: 0; justify-items: start; }
 .pw-m { font: 400 12px/1.4 var(--mono); color: var(--mute); }
 .pw-n { font: 400 28px/1.1 var(--serif); letter-spacing: -.01em; text-wrap: balance; }
-.pw-d { font-size: 14px; line-height: 1.5; color: var(--mute); max-width: 52ch; text-wrap: balance; }
 .pw-go { font-size: 13px; font-weight: 500; }
 .pw-go i { display: inline-block; font-style: normal; color: var(--mute); transition: transform .3s var(--spring), color .15s; }
 @media (hover: hover) { .pw-a:hover .pw-go i { transform: translate(2px, -2px); color: var(--ink); } .pw-a:hover .pw-i { transform: translateY(-2px); } }
 .pw-a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-@media (max-width: 980px) { .ft-l { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
-  .ft { padding-top: 44px; }
   .pw { padding-top: 56px; }
   .pw-a { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 0; }
   .pw-n { font-size: 24px; }
 }
 .ig { padding-top: 72px; }
-.ft-k, .pw-k, .ig-k { display: block; margin: 0 0 14px; font-size: 11px; font-weight: 400; line-height: 1.2; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.pw-k, .ig-k { display: block; margin: 0 0 14px; font-size: 11px; font-weight: 400; line-height: 1.2; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
 .ig-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 56px; border-top: 1px solid var(--hair); }
 .ig-l li { border-bottom: 1px solid var(--hair); }
 .ig-l a { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 20px 0; color: inherit; text-decoration: none; }
@@ -1272,7 +1261,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b>private transactions</span>
           <span class="go">All stats <span aria-hidden="true">→</span></span>
         </a>
-        <span class="trust">No custodian or multisig</span>
+        <span class="trust">No custodian, no multisig, an immutable pool</span>
       </div>
     </div>
     <section class="hx" id="hx" aria-label="Shield, swap, send, earn or borrow"><div id="hx-body"></div></section>
@@ -1289,20 +1278,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <ul class="dash-g" id="dash-g"></ul>
   </section>
 
-  <section class="sx ft" aria-labelledby="ft-h">
-    <h2 class="ft-k" id="ft-h">Features</h2>
-    <ul class="ft-l">
-      <li><b>Private by default</b><span>Amounts and owners stay hidden.</span></li>
-      <li><b>No custodian</b><span>Proofs, not a multisig, bridge the chains.</span></li>
-      <li><b>One key</b><span>Everything recovers from it alone.</span></li>
-      <li><b>One contract</b><span>The Ethereum pool is immutable.</span></li>
-    </ul>
-  </section>
-
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h">
       <div><span class="sx-k">How it works</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
-      <p>One key holds your private balances on both chains, and zero-knowledge proofs move them between the two.</p>
     </div>
     <div class="wd">
       <div class="wd-top">
@@ -1359,7 +1337,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="tc-t">
       <span class="sx-k">TAC</span>
       <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
-      <p class="tc-p">Fair-launched by airdrop. Private on Bitcoin in its own shielded pool, and on Ethereum in the Tacit pool.</p>
       <dl class="tc-facts">
         <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
         <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
@@ -1374,13 +1351,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </ol>
       </div>
       <ul class="tc-do" aria-label="What holding TAC does">
-        <li><b>Cheaper exits</b><span>Private exits cost 0.30%, down to 0.15% for holders.</span></li>
-        <li><b>More points</b><span>Up to 2× points, with TAC held in an Ethereum wallet.</span></li>
-        <li><b>A vote</b><span>On how the protocol’s governed parts are run.</span></li>
-        <li><b>Never sold</b><span>TAC paid as relay fees goes to the reserve, and part of the relay’s ETH surplus buys more.</span></li>
+        <li><b>Cheaper exits</b><span>0.30%, down to 0.15% for holders.</span></li>
+        <li><b>More points</b><span>Up to 2× when held on Ethereum.</span></li>
+        <li><b>A vote</b><span>On the protocol’s governed parts.</span></li>
+        <li><b>Never sold</b><span>Relay fees in TAC go to the reserve; part of the ETH surplus buys more.</span></li>
       </ul>
-      <p class="tc-spec">TAC is the standing example of the <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Tacit spec</a>: a confidential token issued on Bitcoin with no mint key. Anyone can issue one.</p>
-      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/vault/">Borrow against TAC →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
+      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec →</a></div>
     </div>
   </section>
 
@@ -1391,7 +1367,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <span class="pw-t">
         <span class="pw-m">Bankless · William M. Peaster · 1 Jun 2026</span>
         <b class="pw-n">Tacit: A New Take on Confidential Bitcoin DeFi</b>
-        <span class="pw-d">Confidential tokens, an anonymous mixer, a private AMM, and trustless wrapped BTC, all on the Bitcoin L1.</span>
         <span class="pw-go">Read on Bankless <i aria-hidden="true">↗</i></span>
       </span>
     </a>
