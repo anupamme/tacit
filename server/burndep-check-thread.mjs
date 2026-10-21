@@ -9,6 +9,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'node:worker_thread
 
 const THREAD_TIMEOUT_MS = Number(process.env.BURNDEP_CHECK_TIMEOUT_MS) || 6 * 60_000;
 export const CHECK_QUEUE_MAX = Number(process.env.BURNDEP_CHECK_QUEUE_MAX) || 3;
+export const CHECK_PER_OWNER = Number(process.env.BURNDEP_CHECK_PER_OWNER) || 2;
 
 if (!isMainThread) {
   const { createCacheStorage } = await import('./cache-mem.mjs');
@@ -27,20 +28,31 @@ if (!isMainThread) {
   }
 }
 
-// A gate of one, with a short queue: `enter()` resolves with a release function, or null when the queue is full.
-export function makeGate({ max = CHECK_QUEUE_MAX } = {}) {
+// A gate of one, with a short queue: `enter()` resolves with a release function, or null when the queue is full or the
+// ticket's owner already holds `perOwner` places (running or waiting), so one holder cannot take the whole lane. A waiter
+// passes a ticket so `ahead(ticket)` can say how many checks stand before it.
+export function makeGate({ max = CHECK_QUEUE_MAX, perOwner = CHECK_PER_OWNER } = {}) {
+  let current = null;
   let running = false;
   const waiting = [];
   const next = () => {
     const w = waiting.shift();
-    if (!w) { running = false; return; }
-    w();
+    if (!w) { running = false; current = null; return; }
+    current = w.ticket;
+    w.wake();
   };
+  const holds = (owner) => (current && current.owner === owner ? 1 : 0) + waiting.filter((w) => w.ticket && w.ticket.owner === owner).length;
   return {
-    enter() {
-      if (!running) { running = true; return Promise.resolve(() => next()); }
+    enter(ticket = null) {
+      const owner = ticket && ticket.owner && ticket.owner !== 'anon' ? ticket.owner : null;
+      if (owner && perOwner > 0 && holds(owner) >= perOwner) return Promise.resolve(null);
+      if (!running) { running = true; current = ticket; return Promise.resolve(() => next()); }
       if (waiting.length >= max) return Promise.resolve(null);
-      return new Promise((resolve) => waiting.push(() => resolve(() => next())));
+      return new Promise((resolve) => waiting.push({ ticket, wake: () => resolve(() => next()) }));
+    },
+    ahead(ticket) {
+      const i = waiting.findIndex((w) => w.ticket === ticket);
+      return i < 0 ? 0 : i + (running ? 1 : 0);
     },
     get waiting() { return waiting.length; },
     get busy() { return running; },
@@ -48,26 +60,49 @@ export function makeGate({ max = CHECK_QUEUE_MAX } = {}) {
 }
 const gate = makeGate();
 
+const secs = (ms) => Math.round(ms / 1000);
+
 // → { status, body, retryAfter? }, never a rejection: a thread that fails, is killed or runs out of time answers as the
-// check would for a bundle it could not judge.
-export async function runBurnDepositCheck(network, body) {
-  const release = await gate.enter();
-  if (!release) return { status: 429, body: { ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }, retryAfter: 15 };
-  const t0 = Date.now();
+// check would for a bundle it could not judge. `progress` is filled in for the caller: `snapshot()` says where the check
+// stands, waiting for its turn with so many ahead of it, or running for so long.
+export async function runBurnDepositCheck(network, body, progress = {}) {
+  const queuedAt = Date.now();
+  progress.state = 'queued';
+  progress.snapshot = () => ({
+    state: progress.state,
+    ahead: progress.state === 'queued' ? gate.ahead(progress) : 0,
+    queuedSec: secs((progress.startedAt || Date.now()) - queuedAt),
+    runningSec: progress.startedAt ? secs(Date.now() - progress.startedAt) : 0,
+  });
+  const release = await gate.enter(progress);
+  if (!release) {
+    progress.state = 'refused';
+    return { status: 429, body: { ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }, retryAfter: 15 };
+  }
+  const t0 = progress.startedAt = Date.now();
+  progress.state = 'running';
+  const waited = secs(t0 - queuedAt);
+  const said = (what, extra = '') => console.log(`[burndep-check-thread] ${network} ${what} in ${((Date.now() - t0) / 1000).toFixed(1)}s${waited ? `, after ${waited}s in line` : ''}${extra}`);
   try {
     return await new Promise((resolve) => {
       const worker = new Worker(new URL(import.meta.url), { workerData: { network, body } });
       let settled = false;
       const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
-      const timer = setTimeout(() => { worker.terminate(); done({ status: 504, body: { ok: false, error: `the check took longer than ${Math.round(THREAD_TIMEOUT_MS / 1000)} s and was stopped` } }); }, THREAD_TIMEOUT_MS);
+      const timer = setTimeout(() => {
+        worker.terminate();
+        said('stopped', ` (limit ${secs(THREAD_TIMEOUT_MS)}s)`);
+        done({ status: 504, body: { ok: false, error: `the check took longer than ${secs(THREAD_TIMEOUT_MS)} s and was stopped` } });
+      }, THREAD_TIMEOUT_MS);
       worker.on('message', (m) => {
-        console.log(`[burndep-check-thread] ${network} ${m.error ? 'failed' : `${m.out?.status}`} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        const t = m.out?.timing;
+        said(m.error ? 'failed' : `${m.out?.status}`, t ? ` (${t.hops} hops: read ${t.enrichMs} ms, headers ${t.headersMs} ms, verify ${t.admitMs} ms)` : '');
         if (m.error) done({ status: 502, body: { ok: false, error: `check failed: ${m.error}` } }); else done(m.out);
       });
-      worker.on('error', (e) => done({ status: 502, body: { ok: false, error: `check failed: ${e?.message || e}` } }));
-      worker.on('exit', (code) => done({ status: 502, body: { ok: false, error: `the check stopped (${code}) before answering` } }));
+      worker.on('error', (e) => { said('errored', `: ${e?.message || e}`); done({ status: 502, body: { ok: false, error: `check failed: ${e?.message || e}` } }); });
+      worker.on('exit', (code) => { if (!settled) said('exited', ` (code ${code}) before answering`); done({ status: 502, body: { ok: false, error: `the check stopped (${code}) before answering` } }); });
     });
   } finally {
+    progress.state = 'done';
     release();
   }
 }

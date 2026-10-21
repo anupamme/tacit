@@ -88,6 +88,21 @@ export function inDue(r, now = Date.now(), plan = null) {
   return '';
 }
 
+// What the API last said about a bridge's history check, as a fragment ('' when it said nothing or has not been heard from for
+// minutes): so many checks ahead of it, or running for so long, or the line full. Only `progress` and `busy` are read out of
+// the record's `checkWait`. The front page words the same fragment in its own copy (brCheckNote, dapp/index.html).
+const CHECK_NOTE_FRESH_MS = 3 * 60_000;
+export function checkNote(cw, now = Date.now()) {
+  if (!cw || !(now - Number(cw.at || 0) <= CHECK_NOTE_FRESH_MS)) return '';
+  if (cw.busy) return 'the check is busy with others, so it asks again by itself';
+  const p = cw.progress;
+  if (p && p.state === 'queued') return p.ahead < 1 ? 'it is next' : p.ahead === 1 ? 'one check is ahead of it' : `${p.ahead} checks are ahead of it`;
+  if (p && p.state === 'running') {
+    const m = Math.floor((Number(p.runningSec || 0) + (now - Number(cw.at)) / 1000) / 60);
+    return m < 1 ? 'checking now' : `checking now, ${m} min in`;
+  }
+  return '';
+}
 export function inRow(r, now = Date.now(), plan = null) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.in || ROUTES.tac.in;
@@ -98,6 +113,7 @@ export function inRow(r, now = Date.now(), plan = null) {
     at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: route.steps, href: route.href,
     done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
     due: done ? '' : inDue(r, now, plan), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
+    checkNote: r.stage === 'traced' && !r.lastError ? checkNote(r.checkWait, now) : '',
     btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: r.mintedTxHash ? '0x' + lc(r.mintedTxHash) : null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
   };
@@ -198,7 +214,7 @@ export function btcSpan(blocks) {
 // `live` = { btcAttested, btcConfs, ethCovered, txs: Map(txid → { confirmed, height }) }. Returns a short line, or ''.
 export function liveLine(row, live) {
   if (row.done || row.back) return '';
-  if (row.checking) return 'Its history is being checked before its burn';
+  if (row.checking) return `Its history is being checked before its burn${row.checkNote ? `: ${row.checkNote}` : ''}`;
   if (!live) return '';
   if (row.dir === 'in') {
     const tx = row.btcTx && live.txs?.get(row.btcTx);

@@ -2459,11 +2459,14 @@ async function handleBridgeRecoverMark(req, env, url, cors) {
 // One check per distinct request at a time. A page answered 202 asks again with the same body: that ask joins the check still
 // running, or reads its answer for BURNDEP_CHECK_KEEP_MS after, rather than starting another (each takes a place in the thread's
 // one-at-a-time queue and tens of seconds of CPU). Only new work spends a rate-limit token.
-const _burndepChecks = new Map(); // `${network}:${sha256(body)}` -> { work, out, at }
+const _burndepChecks = new Map(); // `${network}:${sha256(body)}` -> { work, out, at, progress }
 const BURNDEP_CHECK_KEEP_MS = 10 * 60_000;
+// The longest an unanswered check can honestly be pending: the whole queue ahead of it, each held to the thread's time limit.
+// One older than that is not waiting for anything, and asking again starts it afresh.
+const BURNDEP_CHECK_STALE_MS = 30 * 60_000;
 function _burndepCheckFor(key) {
   const t = Date.now();
-  for (const [k, e] of _burndepChecks) if (e.out && t - e.at > BURNDEP_CHECK_KEEP_MS) _burndepChecks.delete(k);
+  for (const [k, e] of _burndepChecks) if (t - e.at > (e.out ? BURNDEP_CHECK_KEEP_MS : BURNDEP_CHECK_STALE_MS)) _burndepChecks.delete(k);
   return _burndepChecks.get(key) || null;
 }
 async function handleBurnDepositCheck(req, env, url, cors) {
@@ -2476,12 +2479,12 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   if (!entry) {
     // Kept before the rate limit is read, so an identical ask arriving meanwhile joins this one rather than racing it.
     let start;
-    const e = entry = { work: new Promise((resolve) => { start = resolve; }), out: null, at: Date.now() };
+    const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+    const e = entry = { work: new Promise((resolve) => { start = resolve; }), out: null, at: Date.now(), progress: { owner: ip } };
     _burndepChecks.set(key, e);
     // A full queue, a refusal, or a thread that failed or was stopped, is no answer to keep: the next ask starts the check again.
     const drop = () => { if (_burndepChecks.get(key) === e) _burndepChecks.delete(key); };
     e.work.then((out) => { if (out && out.status < 500 && out.status !== 429) { e.out = out; e.at = Date.now(); } else drop(); }, drop);
-    const ip = req.headers.get('CF-Connecting-IP') || 'anon';
     const rl = await proveRateLimit(env, ip, 'burndep-check', Number(env.BURNDEP_CHECK_RL_BURST || 10), Number(env.BURNDEP_CHECK_RL_REFILL_MS || 60000));
     if (!rl.ok) {
       const body429 = { ok: false, error: `too many check requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter };
@@ -2492,7 +2495,7 @@ async function handleBurnDepositCheck(req, env, url, cors) {
     // of seconds of CPU for a deep lineage, which on this thread holds every other request and the health check with it.
     // The server runs it on a worker thread (env.burnDepositCheckOffThread, server/burndep-check-thread.mjs); without one
     // (tests, the in-memory driver) it runs here.
-    start(env.burnDepositCheckOffThread ? env.burnDepositCheckOffThread(network, body) : burnDepositCheckOutcome(env, network, body));
+    start(env.burnDepositCheckOffThread ? env.burnDepositCheckOffThread(network, body, entry.progress) : burnDepositCheckOutcome(env, network, body));
   }
   // A deep lineage's first check reads one Bitcoin block per transfer (each kept for good after, burndep-admission.js), which can
   // take longer than a request may stay open behind the gateway. Past BURNDEP_CHECK_ANSWER_MS this answers 202 and the check goes
@@ -2502,7 +2505,9 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   const out = entry.out || await Promise.race([entry.work, new Promise((resolve) => { timer = setTimeout(() => resolve(null), budget); })]).finally(() => clearTimeout(timer));
   if (!out) {
     entry.work.catch(() => {});
-    return jsonResponse({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment' }, 202, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '20' });
+    // Where the check stands when the thread says (waiting for its turn behind so many, or running for so long), so a page can tell its holder.
+    const progress = typeof entry.progress.snapshot === 'function' ? entry.progress.snapshot() : null;
+    return jsonResponse({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment', ...(progress && { progress }) }, 202, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '20' });
   }
   const headers = { ...cors, 'Cache-Control': 'no-store', ...(out.retryAfter ? { 'Retry-After': String(out.retryAfter) } : {}) };
   return jsonResponse(out.body, out.status, headers);
@@ -2556,14 +2561,20 @@ export async function burnDepositCheckOutcome(env, network, body) {
 
   const admission = makeBurndepAdmission({ env, api: apiText, apiRawBytes, network, kit, deps });
   let enriched, withHeaders;
+  const t0 = Date.now();
+  let tEnriched = t0, tHeaders = t0;
   try {
     enriched = await admission.enrichBurnDeposit(bundle);
+    tEnriched = Date.now();
     withHeaders = await admission.buildOrExtendProvHeaders(enriched, anchorHeight);
+    tHeaders = Date.now();
   } catch (e) {
     return { status: 502, body: { ok: false, error: `bundle enrichment failed: ${e && e.message || e}` } };
   }
   const provHeaders = Array.isArray(withHeaders.provHeaders) ? withHeaders.provHeaders : [];
   const hops = (withHeaders.cxfers || []).length;
+  // Where the time went, for the server's own log: it never reaches the caller.
+  const timed = (out) => ({ ...out, timing: { hops, enrichMs: tEnriched - t0, headersMs: tHeaders - tEnriched, admitMs: Date.now() - tHeaders } });
 
   let blobHex = '0x';
   try {
@@ -2585,12 +2596,12 @@ export async function burnDepositCheckOutcome(env, network, body) {
   try {
     verdict = admission.admit({ burnTxHex, envAsset, envNu, blobHex, provHeaders, burnedCx, burnedCy, batchPrevHash });
   } catch (e) {
-    return { status: 200, body: { ok: true, network, admitted: false, reason: `admission check threw: ${e && e.message || e}`, hops, headerChainLength: provHeaders.length, anchorHeight } };
+    return timed({ status: 200, body: { ok: true, network, admitted: false, reason: `admission check threw: ${e && e.message || e}`, hops, headerChainLength: provHeaders.length, anchorHeight } });
   }
-  return { status: 200, body: {
+  return timed({ status: 200, body: {
     ok: true, network, admitted: !!verdict.admitted, reason: verdict.reason,
     hops, headerChainLength: provHeaders.length, anchorHeight,
-  } };
+  } });
 }
 
 // Auto-completes pending burn-deposits from pure on-chain data — the same two steps a holder would run

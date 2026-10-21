@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nb3uvKbf/Yv9zl2RmsMq3bW9uW/MpokckkBlMIeIigs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MQVwNjPHYbVZqc5/9PVgC/ooD0+uVmJxl2e3+SC6L8U=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -7199,10 +7199,23 @@ function brMoveText(rec) {
   return p >= h ? `Moved, in Bitcoin block ${at(h)}, which the proof has reached: it is checked before its burn at the next look.`
     : `Moved, in Bitcoin block ${at(h)}. Waiting for Bitcoin’s proof on Ethereum (at block ${at(p)}, ${at(h - p)} block${h - p === 1 ? '' : 's'} to go), then it is checked before its burn.`;
 }
+// What the API last said about the history check, as a sentence ('' when it said nothing or has not been heard from for minutes); the
+// bridge page words the same facts in dapp/bridge/track.js (checkNote).
+function brCheckNote(cw) {
+  if (!cw || !(Date.now() - Number(cw.at || 0) <= 180_000)) return '';
+  if (cw.busy) return 'The check is busy with others, so this page asks again by itself.';
+  const p = cw.progress;
+  if (p && p.state === 'queued') return p.ahead < 1 ? 'It is next.' : p.ahead === 1 ? 'One check is ahead of it.' : `${p.ahead} checks are ahead of it.`;
+  if (p && p.state === 'running') {
+    const m = Math.floor((Number(p.runningSec || 0) + (Date.now() - Number(cw.at)) / 1000) / 60);
+    return m < 1 ? 'Checking now.' : `Checking now, ${m} min in.`;
+  }
+  return '';
+}
 function brTracedText(rec) {
   const plan = brPlanOf(rec);
   if (rec.checkWait?.fund === 'others' && !rec.lastError) return 'Moved. Its burn waits for your other bridges’ burns, which hold this address’s free bitcoin; their change pays this one, and it goes out on its own. Add a little bitcoin to send it sooner.';
-  if (rec.checkWait && !rec.lastError) return 'Moved. Its history is being checked before its burn, which goes out once the check is done.';
+  if (rec.checkWait && !rec.lastError) return `Moved. Its history is being checked before its burn, which goes out once the check is done.${brCheckNote(rec.checkWait) ? ` ${brCheckNote(rec.checkWait)}` : ''}`;
   if (!plan?.burn || rec.lastError) return 'Moved, and ready for its burn. Burn it sends it to a miner and pays its fee in sats.';
   if (rec.feeWait) return `Moved. The miner’s rate is ${Number(rec.feeWait.rate).toFixed(1)} sat/vB, over the ${rec.feeWait.max} sat/vB you allowed (twice the rate quoted), so its burn waits for the rate to fall. Burn it sends it now at today’s rate.`;
   return 'Moved. Its burn is sent for you within a few minutes, while this page is open with your wallet.';
@@ -7874,7 +7887,7 @@ async function brAct(run, kind, id) {
       let after = await withKey(() => ux.advance(pub, id, { walletPriv: walletPriv(), go: true }), pub);
       if (after.stage === 'burn-signed') after = await ux.advance(pub, id).catch(() => ux.list(pub).find((r) => r.id === id) || after);
       run.say(status(), after.stage === 'traced' && after.checkWait?.fund === 'others' ? 'Its burn waits for your other bridges’ burns, which hold this address’s free bitcoin. This page sends it once one of them is out, while it is open with your wallet.'
-        : after.stage === 'traced' && after.checkWait ? 'Its history is being checked before the burn. This page sends the burn once the check is done, while it is open with your wallet.'
+        : after.stage === 'traced' && after.checkWait ? `Its history is being checked before the burn. This page sends the burn once the check is done, while it is open with your wallet.${brCheckNote(after.checkWait) ? ` ${brCheckNote(after.checkWait)}` : ''}`
         : after.stage === 'traced' ? 'Not yet: it waits for Bitcoin’s proof to reach the move. Try again later.'
         : after.stage === 'burn-signed' ? html`<span class="err">Signed, but the miner did not take it yet. It is tried again on its own, or press Try again on its row.</span>`
         : BR_BURN_SENT.includes(after.stage) ? html`<span class="ok">✓ Burn sent for ${amt}.</span>`

@@ -475,7 +475,7 @@ let rec;
   let checks = 0;
   const fetchImpl = async (url, opts) => {
     if (new URL(url).pathname === '/reflection/burndep/check' && checks++ === 0) {
-      return { ok: true, status: 202, json: async () => ({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment' }) };
+      return { ok: true, status: 202, json: async () => ({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment', progress: { state: 'queued', ahead: 2, queuedSec: 40, runningSec: 0, owner: 'x' } }) };
     }
     return world.fetchImpl(url, opts);
   };
@@ -494,8 +494,39 @@ let rec;
   r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
   ok(r.stage === 'traced' && r.checkWait && r.checkWait.go === true && !r.lastError && !r.burn && world.broadcasts.length === sent,
     'a check that is still reading leaves the bridge where it was, with nothing signed or sent and no error, and remembers the press');
+  ok(r.checkWait.progress && r.checkWait.progress.state === 'queued' && r.checkWait.progress.ahead === 2 && r.checkWait.progress.runningSec === 0 && !('owner' in r.checkWait.progress) && !('queuedSec' in r.checkWait.progress),
+    'where the check stands in its line is kept, and only the public numbers of it');
   r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
   ok(r.stage === 'burn-signed' && r.checkWait === null && checks === 2, 'asked again, the check answers and the burn is signed');
+}
+
+// ==== a full line, and an answer that says nothing usable about the wait: the bridge waits either way, and keeps only what is sound ====
+{
+  const world = makeWorld();
+  const answers = [
+    () => ({ ok: false, status: 429, headers: { get: () => null }, json: async () => ({ ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }) }),
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'running', ahead: -3, runningSec: 'soon' } }) }),
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'sideways' } }) }),
+  ];
+  let asked = 0;
+  const fetchImpl = async (url, opts) => (new URL(url).pathname === '/reflection/burndep/check' && asked < answers.length ? answers[asked++]() : world.fetchImpl(url, opts));
+  const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+  let r = await ux.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+  ok(r.stage === 'traced' && r.checkWait && r.checkWait.busy === true && !r.checkWait.progress && !r.lastError, 'a full line is a wait that says so, not an error');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.checkWait && !r.checkWait.busy && r.checkWait.progress && r.checkWait.progress.state === 'running' && r.checkWait.progress.ahead === 0 && r.checkWait.progress.runningSec === 0,
+    'a nonsense number is kept as zero, and a later answer replaces the full-line note');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.stage === 'traced' && r.checkWait && !r.checkWait.progress && !r.checkWait.busy && !r.lastError, 'a state it does not know says nothing');
 }
 
 // ==== the move's change pays its own burn, and is held for it: a busy check is waited out, and the burn asked about again is the

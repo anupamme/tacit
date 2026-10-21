@@ -384,6 +384,13 @@ export function makeBurnDepositUx(deps) {
     return putRecord({ ...rec, stage: 'rburn-mined', burnHeight: Number(t.status.block_height), lastError: null, errorCount: 0 });
   }
 
+  // The public part of an API's 202 answer: where the check stands in its line.
+  function waitProgress(p) {
+    if (!p || (p.state !== 'queued' && p.state !== 'running')) return {};
+    const n = (x) => (Number.isFinite(Number(x)) && Number(x) >= 0 ? Math.round(Number(x)) : 0);
+    return { progress: { state: p.state, ahead: n(p.ahead), runningSec: n(p.runningSec) } };
+  }
+
   // A history the reflection guest cannot follow back to the etch: some transfer in it spends an output that no transfer made
   // (a pool or farm action, a shielded-pool exit, TAC that arrived from Ethereum, or a shape the guest refuses). That does not
   // change with time, unlike a read that failed, so it is told apart: 'pool', 'shielded', 'arrived' or 'other'.
@@ -672,11 +679,12 @@ export function makeBurnDepositUx(deps) {
       }
       // A long history's first check is still reading its blocks, or the API is busy checking others: nothing is sent yet, and the
       // next advance asks again (a holder who pressed Burn it is carried on by the page without a second press, `go`).
-      const wait = () => putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go), burn } });
+      // What the API said about the wait (where the check stands in its line, or that the line is full) is kept for the page to show.
+      const wait = (said) => putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go), burn, ...said } });
       let check;
       try { check = await callWorker('POST', '/reflection/burndep/check', { bundle: rec.bundle, assetId: withHex(tacAssetId), burnTxHex: burn.hex }); }
-      catch (e) { if (Number(e && e.status) === 429) return wait(); throw e; }
-      if (check && check.pending) return wait();
+      catch (e) { if (Number(e && e.status) === 429) return wait({ busy: true }); throw e; }
+      if (check && check.pending) return wait(waitProgress(check.progress));
       if (!check.ok || !check.admitted) throw new Error(`burndep-ux: the burn would not be admitted yet: ${(check && check.reason) || (check && check.error) || 'unknown'}`);
 
       const { at: _builtAt, ...signed } = burn;

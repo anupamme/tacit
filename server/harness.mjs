@@ -114,6 +114,10 @@ const UPLOAD_PATH = /^\/(pin|pin-airdrop-snapshot|ceremony\/[0-9a-f]{64}\/contri
 // A page's program input on its way to the prover network (worker/src/prover-proxy.js caps it at the same 2 MiB).
 const PROVER_UPLOAD_PATH = /^\/prover\/upload(\?|$)/i;
 export const PROVER_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
+// A burn-deposit bundle carries every transfer's transaction (a few KB each, up to 256 of them, more with merges), so the
+// registration and the check take more than the anonymous ceiling.
+const BURNDEP_PATH = /^\/reflection\/burndep(\/check)?(\?|$)/i;
+export const BURNDEP_MAX_BYTES = 4 * 1024 * 1024;
 
 function sizeEnv(env, key, dflt) {
   const raw = Number(env?.[key] ?? process.env[key]);
@@ -132,6 +136,7 @@ export function maxRequestBytes(env, nodeReq) {
   const full = sizeEnv(env, 'MAX_REQUEST_BYTES', DEFAULT_MAX_REQUEST_BYTES);
   if (!nodeReq || UPLOAD_PATH.test(nodeReq.url || '') || carriesBoxToken(nodeReq, env)) return full;
   if (PROVER_UPLOAD_PATH.test(nodeReq.url || '')) return Math.min(full, PROVER_UPLOAD_MAX_BYTES);
+  if (BURNDEP_PATH.test(nodeReq.url || '')) return Math.min(full, sizeEnv(env, 'MAX_BURNDEP_REQUEST_BYTES', BURNDEP_MAX_BYTES));
   return Math.min(full, sizeEnv(env, 'MAX_ANON_REQUEST_BYTES', DEFAULT_MAX_ANON_REQUEST_BYTES));
 }
 

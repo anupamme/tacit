@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { checkNote, readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 import { makeCrossoutMintReveal } from '../dapp/crossout-mint-reveal.js';
@@ -232,4 +232,42 @@ test('a step the chains say is ready for its holder is named before the journal 
   assert.equal(readyNow(burn, covered), 'Mint now', 'a burn the proof has reached waits for its mint');
   assert.equal(readyNow(inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_100 }), NOW), covered), '', 'one it has not reached does not');
   assert.equal(readyNow(inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_080, arm: { ok: true } }), NOW), covered), '', 'the relay mints an armed one');
+});
+
+test('a bridge waiting on its history check says where the check stands, and nothing once that is old news', () => {
+  const traced = (cw) => inRec({ path: 'deposit', stage: 'traced', checkWait: { go: true, burn: { hex: 'ff'.repeat(10) }, ...cw } });
+  const note = (cw) => inRow(traced(cw), NOW).checkNote;
+  assert.equal(note({ at: NOW, progress: { state: 'queued', ahead: 2, runningSec: 0 } }), '2 checks are ahead of it');
+  assert.equal(note({ at: NOW, progress: { state: 'queued', ahead: 1, runningSec: 0 } }), 'one check is ahead of it');
+  assert.equal(note({ at: NOW, progress: { state: 'queued', ahead: 0, runningSec: 0 } }), 'it is next');
+  assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 30 } }), 'checking now');
+  assert.equal(note({ at: NOW - 90e3, progress: { state: 'running', ahead: 0, runningSec: 150 } }), 'checking now, 4 min in', 'the time since the answer is added');
+  assert.equal(note({ at: NOW, busy: true }), 'the check is busy with others, so it asks again by itself');
+  assert.equal(note({ at: NOW - 4 * 60e3, progress: { state: 'queued', ahead: 2, runningSec: 0 } }), '', 'an answer from minutes ago says nothing');
+  assert.equal(note({ at: NOW }), '');
+  assert.equal(inRow(traced({ at: NOW, progress: { state: 'queued', ahead: 2 } }), NOW).checkNote.includes('hex'), false);
+  const row = inRow(traced({ at: NOW, progress: { state: 'queued', ahead: 2, runningSec: 0 } }), NOW);
+  assert.equal(liveLine(row, null), 'Its history is being checked before its burn: 2 checks are ahead of it');
+  assert.equal(inRow(inRec({ path: 'deposit', stage: 'traced', lastError: { message: 'x' }, checkWait: { at: NOW, busy: true } }), NOW).checkNote, '', 'a failed bridge names its failure, not a wait');
+  assert.equal(checkNote(null, NOW), '');
+});
+
+test('the front page words the same wait, from the same facts', () => {
+  const src = readFileSync(new URL('../dapp/index.html', import.meta.url), 'utf8');
+  const m = /function brCheckNote\(cw\) \{[\s\S]*?\n\}\n/.exec(src);
+  assert.ok(m, 'the front page has brCheckNote');
+  const real = Date.now; Date.now = () => NOW;
+  try {
+    const brCheckNote = new Function(`${m[0]}; return brCheckNote;`)();
+    const cases = [
+      { at: NOW, progress: { state: 'queued', ahead: 2, runningSec: 0 } }, { at: NOW, progress: { state: 'queued', ahead: 1, runningSec: 0 } },
+      { at: NOW, progress: { state: 'queued', ahead: 0, runningSec: 0 } }, { at: NOW, progress: { state: 'running', ahead: 0, runningSec: 30 } },
+      { at: NOW - 90e3, progress: { state: 'running', ahead: 0, runningSec: 150 } }, { at: NOW, busy: true }, { at: NOW - 4 * 60e3, busy: true }, { at: NOW }, null,
+    ];
+    for (const cw of cases) {
+      const page = brCheckNote(cw), bridge = checkNote(cw, NOW);
+      const sentence = bridge ? bridge[0].toUpperCase() + bridge.slice(1) + '.' : '';
+      assert.equal(page.replace('so this page asks', 'so it asks'), sentence, JSON.stringify(cw));
+    }
+  } finally { Date.now = real; }
 });
