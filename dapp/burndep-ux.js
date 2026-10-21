@@ -280,7 +280,11 @@ export function makeBurnDepositUx(deps) {
     catch (e) {
       if (e && e.code === 'trace_reading') { step('trace', false, String(e.message), { reading: true, read: e.read }); return out; }
       const through = unprovableThrough(String((e && e.message) || e));
-      if (through) { step('trace', false, String(e.message || e), { unprovable: true, through }); return out; }
+      if (through) {
+        const at = /burndep-live-tracer: (?:input )?([0-9a-f]{64})/i.exec(String((e && e.message) || e));
+        step('trace', false, String(e.message || e), { unprovable: true, through, ...(at ? { at: at[1].toLowerCase() } : {}) });
+        return out;
+      }
       const long = /provenance exceeded (?:maxDepth \((\d+)\)|\d+ outpoints)/.exec(String((e && e.message) || e));
       step('trace', false, long ? `over ${long[1] || MAX_HOPS_SOURCE} hop(s) to the etch (max ${MAX_HOPS_SOURCE})` : String(e.message || e),
         long ? { tooLong: true, hops: Number(long[1]) || null, atLeast: true, max: MAX_HOPS_SOURCE } : undefined);

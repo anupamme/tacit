@@ -123,6 +123,31 @@ test('real esplora JSON rebuilds to the raw transaction byte for byte, witness i
   assert.equal(rebuiltRawTx(JSON.parse(FIX[PURCHASE].json), PURCHASE, dsha), null, 'the older fixture keeps only status and vin');
 });
 
+test('an answer whose segwit inputs come without their witnesses is not rebuilt (it would read a transfer as plain funding)', () => {
+  for (const [txid, rec] of Object.entries(REAL)) {
+    const bare = { ...rec.json, vin: rec.json.vin.map((v) => ({ ...v, witness: [] })) };
+    assert.equal(rebuiltRawTx(bare, txid, dsha), null, `${rec.kind} ${txid.slice(0, 8)} without witnesses`);
+  }
+});
+
+test('a non-transfer reading kept before this version is read again, and one kept now is not', async () => {
+  const [txid, rec] = Object.entries(REAL).find(([, r]) => r.kind === '22');
+  const store = new Map([[`burndepshallow:mainnet:${txid}`, JSON.stringify({ kind: 'funding' })]]), asked = [];
+  const kv = { get: async (k) => (store.has(k) ? JSON.parse(store.get(k)) : null), put: async (k, v) => { store.set(k, v); } };
+  const make = () => makeLiveBurnDepositTracer({
+    env: { REGISTRY_KV: kv }, network: 'mainnet', outpointKey: pool.outpointKey, sha256, fullBlockWitness: false,
+    apiText: async (env, path) => { asked.push(path); return path.endsWith('/hex') ? rec.hex : JSON.stringify(rec.json); },
+    apiRawBytes: async () => { throw new Error('no blocks'); },
+  });
+  const healed = await make().resolveShallow(txid);
+  assert.equal(healed.kind, 'cxfer', 'an old plain-funding reading of a real TAC transfer is read again and corrected');
+  assert.equal(JSON.parse(store.get(`burndepshallow:mainnet:${txid}`)).v, 2);
+  const n = asked.length;
+  store.set(`burndepshallow:mainnet:${'ab'.repeat(32)}`, JSON.stringify({ kind: 'funding', v: 2 }));
+  assert.equal((await make().resolveShallow('ab'.repeat(32))).kind, 'funding');
+  assert.equal(asked.length, n, 'a reading kept at this version is used as it is');
+});
+
 // The older fixture keeps only status and vin; an esplora answer carries the rest, read here from the raw hex.
 function esploraJsonOf(hex, kept) {
   const b = Buffer.from(hex.trim().replace(/^0x/, ''), 'hex');

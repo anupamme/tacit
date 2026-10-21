@@ -26,6 +26,7 @@ const stripHexPrefix = (h) => String(h).replace(/^0x/, '');
 const withHexPrefix = (h) => (String(h).startsWith('0x') ? String(h) : '0x' + h);
 const hexToBytes = (h) => { const s = stripHexPrefix(h); const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16); return a; };
 const reverseBytes = (b) => Uint8Array.from(b).reverse();
+const SHALLOW_V = 2;
 
 // A transaction's raw bytes rebuilt from esplora's JSON for it (version, each input's outpoint, scriptSig, sequence and
 // witness, each output's value and script, locktime), or null unless the rebuilt bytes hash to `txidDisplay`. The witness
@@ -46,7 +47,11 @@ export function rebuiltRawTx(j, txidDisplay, dsha256) {
     const version = le(j.version >>> 0, 4), locktime = le(j.locktime >>> 0, 4);
     const txid = rev(Array.from(dsha256(hexToBytes(version + body + locktime)), (b) => b.toString(16).padStart(2, '0')).join(''));
     if (txid !== stripHexPrefix(txidDisplay).toLowerCase()) return null;
-    if (!vin.some((v) => Array.isArray(v.witness) && v.witness.length)) return version + body + locktime;
+    // An input spending a segwit output carries a witness. JSON with none for it (a mirror that left witnesses out) would rebuild
+    // a transaction with its envelope missing, which the txid cannot catch, so the raw hex is asked for instead.
+    const witnessed = (v) => Array.isArray(v.witness) && v.witness.length > 0;
+    if (vin.some((v) => !witnessed(v) && (!v.prevout || /^v\d_/.test(String(v.prevout.scriptpubkey_type || ''))))) return null;
+    if (!vin.some(witnessed)) return version + body + locktime;
     let witness = '';
     for (const v of vin) { const w = Array.isArray(v.witness) ? v.witness : []; witness += vi(w.length) + w.map(field).join(''); }
     return version + '0001' + body + witness + locktime;
@@ -126,7 +131,10 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
     let rec;
     if (env.REGISTRY_KV) {
       const cached = await env.REGISTRY_KV.get(shallowCacheKey(key), 'json');
-      if (cached) { shallowCache.set(key, cached); return cached; }
+      // A transfer or the etch was read from its envelope, so its reading stands. Any other reading kept before SHALLOW_V may
+      // come from a rebuild that lacked its witness (a transfer read as plain funding), which refuses every history through it
+      // for good: those are read once more.
+      if (cached && (cached.kind === 'cxfer' || cached.kind === 'cetch' || Number(cached.v) >= SHALLOW_V)) { shallowCache.set(key, cached); return cached; }
     }
     // One request per transaction: its JSON carries everything, and the raw bytes are rebuilt from it and checked against
     // the txid asked for; only a transaction that does not rebuild exactly costs a second request for its hex.
@@ -150,6 +158,7 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
         : envHex ? { kind: 'unrecognized-envelope', opcode: envHex.slice(2, 4) }
         : { kind: 'funding' };
     }
+    rec.v = SHALLOW_V;
     shallowCache.set(key, rec);
     // Confirmed, classified, immutable — safe to cache forever. Any caller sharing this KV (a future request,
     // or an offline crawler warming it ahead of time) reads it back with zero esplora calls.

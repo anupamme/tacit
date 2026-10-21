@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-xxOt1HkEJ8a4gTNVNcz1arNv+WxFnA0InyavmnhxN6Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lq7v6JEEeL7QXaLuGGG9ZsNwTp6Rc75Dm+osVwAIdyc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3189,7 +3189,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=b4234605';
+const TACIT_URL = '/tacit.js?cb=320a3bb0';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -6974,7 +6974,7 @@ function brCheckText(s) {
   if (s.name === 'source-ownership') return 'This TAC is not at this key’s own Bitcoin address.';
   if (s.name === 'source-confirmed') return 'This TAC is waiting for its Bitcoin confirmation.';
   if (s.name === 'trace' && s.tooLong) return `This TAC has ${brLongCount(s)} in its history, and the bridge proves up to ${s.max}, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
-  if (s.name === 'trace' && s.unprovable) return `This TAC’s history includes ${brThrough(s)} the bridge’s proof does not follow, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
+  if (s.name === 'trace' && s.unprovable) return `This TAC’s history includes ${brThrough(s)} the bridge’s proof does not follow${!BR_THROUGH[s.through] && s.at ? ` (${s.at.slice(0, 8)}…${s.at.slice(-6)})` : ''}, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
   if (s.name === 'trace' && s.reading) return `Reading this TAC’s history from Bitcoin: ${brTransfers(Number(s.read) || 0)} so far. Pick it again in a few minutes and the reading goes on from there.`;
   if (s.name === 'trace') {
     const wait = /retry in ~(\d+)s/.exec(s.detail || '');

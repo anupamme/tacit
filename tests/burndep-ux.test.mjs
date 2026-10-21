@@ -1848,6 +1848,9 @@ function storageContainsPrivkey(storage, priv) {
     && pool.through === 'pool' && arrived.through === 'arrived' && shielded.through === 'shielded' && dangling.through === 'other',
     `a history through a pool, an arrival from Ethereum, the shielded pool or an output no transfer made is marked as one a bridge cannot follow (${[pool, arrived, shielded, dangling].map((x) => x && x.through).join(', ')})`);
   ok(!down.step.unprovable, 'and a read that failed is not');
+  const order = await through(`burndep-live-tracer: ${'c3'.repeat(32)} has a non-confidential input at index 2, after a confidential one at a lower index — funding inputs are expected to be leading only`);
+  ok(order.through === 'other' && order.at === 'c3'.repeat(32) && dangling.at === undefined,
+    'a history the bridge cannot follow names the transaction that stops it, when the tracer said which (so a report can be looked into)');
   const world70 = makeWorld();
   world70.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB));
   const ux70 = makeUx({ ...world70, fetchImpl: async (url, opts) => (new URL(url).pathname === '/reflection/burndep/trace' ? { ok: true, json: async () => ({ ok: true, hops: 256, bundle: {} }) } : world70.fetchImpl(url, opts)) }, makeMemStorage());

@@ -48972,7 +48972,7 @@ async function renderHoldings() {
                   const bad = pf.steps.find((s) => !s.ok) || {};
                   const plain = bad.tooLong ? `This note has ${bad.hops ? `${bad.atLeast ? 'more than ' : ''}${bad.hops}` : `far more than ${bad.max}`} transfers in its history, and the bridge proves up to ${bad.max}, so it stays on Bitcoin, where it can be sent and traded as usual.`
                     : bad.reading ? `Reading this note's history from Bitcoin: ${Number(bad.read) || 0} transfers so far. Try again in a few minutes and the reading goes on from there.`
-                    : bad.unprovable ? 'This note\'s history includes a pool trade, a shielded-pool move or TAC from Ethereum, which the bridge\'s proof does not follow, so it stays on Bitcoin, where it can be sent and traded as usual.' : '';
+                    : bad.unprovable ? `This note's history includes ${({ pool: 'a pool or farm trade, which', shielded: 'a shielded-pool move, which', arrived: 'TAC from Ethereum, which' })[bad.through] || `a transaction${bad.at ? ` (${bad.at.slice(0, 8)}…${bad.at.slice(-6)})` : ''}`} the bridge's proof does not follow, so it stays on Bitcoin, where it can be sent and traded as usual.` : '';
                   body.innerHTML = `<div style="color:var(--red);font-size:11px;line-height:1.6;">${plain ? `${escapeHtml(plain)}<br>` : ''}${pf.steps.map((s) => `${s.ok ? '✓' : '✗'} ${escapeHtml(s.name)}${s.detail ? ' — ' + escapeHtml(s.detail) : ''}`).join('<br>')}</div>`;
                   return false;
                 }
