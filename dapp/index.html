@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dkAbnAj7pXAsXa4piqi593R7FLC5hjnieL2hbTwOrdM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9BuIR8HzyvKSRqazamNKZqcop9nWDYmW8eBoAgINRag=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1174,7 +1174,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 @font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
 @font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
 </style>
-<script src="/chrome.js?cb=f4128c12" defer></script>
+<script src="/chrome.js?cb=acc78084" defer></script>
 <!-- chrome:head:end -->
 </head>
 <body>
@@ -2245,7 +2245,7 @@ addEventListener('pagehide', () => { if (actSaving) actWrite(); });
 function actTrim() {
   RUNS.forEach(lastEnd);
   for (let top = listed(); top.length > ACT_MAX; top = listed()) {
-    const gone = top.findLast(ended) || top.at(-1);
+    const gone = top.findLast(actDone) || top.at(-1);
     ACT.items = ACT.items.filter((x) => x !== gone && x.in !== gone.id);
   }
 }
@@ -2528,7 +2528,7 @@ function opWhere(it) {
 }
 function actFoot(it) {
   const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : '';
-  if (it.status === 'failed' || it.status === 'unknown') return html`<div class="actr-f err">${linked(failText(it))}</div>${selfDoLine(it)}${proofHelp(it)}${SELF.has(it.id) ? '' : againLine(it)}`;
+  if (it.status === 'failed' || it.status === 'unknown') return html`<div class="actr-f${actStale(it) ? '' : ' err'}">${linked(failText(it))}</div>${selfDoLine(it)}${proofHelp(it)}${SELF.has(it.id) || actStale(it) ? '' : againLine(it)}`;
   const took = it.end ? clock(it.end - it.at) : '';
   if (it.kind === 'op' && !ended(it)) return html`<div class="actr-f">${opWhere(it)}</div>${selfLine(it)}${openLine(it)}`;
   const say_ = {
@@ -3007,18 +3007,49 @@ document.addEventListener('click', (e) => {
   openProve();
 });
 const otherKey = (it) => !!(it.pub && S.key && it.pub !== S.key.pubHex);
-const actRow = (it) => html`<li class="actr" data-act="${it.id}">
-  <div class="actr-h"><b>${it.label}</b>${ended(it) ? html`<span>${ago(it.end || it.up || it.at)}</span>` : html`<span class="num" data-since="${it.at}">${clock(Date.now() - it.at)}</span>`}</div>
-  <ol class="stp">${actSteps(it)}</ol>${actFoot(it)}${otherKey(it) ? html`<div class="actr-f">Made with another Tacit key. Open that key to act on it.</div>` : ''}</li>`;
+// The relay's job for a bridge to Bitcoin ends when the burn lands on Ethereum, hours before the bridge does. Its row goes on with the bridge's own
+// record (read from the journal, so with no key open too) until the note arrives: Burned, Proven for Bitcoin, Sent to Bitcoin, Arrived.
+const ACT_BR = { raw: new Map() };
+function actBridge(it) {
+  if (it.kind !== 'op' || it.status !== 'settled' || !it.hash || !it.pub) return null;
+  try {
+    const key = `tacit-crossout-bridge-v1:mainnet:${it.pub}`, raw = localStorage.getItem(key) || '';
+    let list = ACT_BR.raw.get(key);
+    if (!list || list.raw !== raw) { let v = null; try { v = JSON.parse(raw || '[]'); } catch {} list = { raw, v: Array.isArray(v) ? v : [] }; ACT_BR.raw.set(key, list); }
+    const h = String(it.hash).replace(/^0x/, '').toLowerCase();
+    return list.v.find((r) => String(r?.settle?.txHash || '').replace(/^0x/, '').toLowerCase() === h) || null;
+  } catch { return null; }
+}
+const actOpen = (it) => { const b = actBridge(it); return !!b && b.stage !== 'minted'; };
+const actDone = (it) => ended(it) && !actOpen(it);
+function actBridgeBody(it, b) {
+  const fund = b.stage === 'covered' && !!b.lastError?.fundWait, failing = !!b.lastError && !fund, rejected = b.stage === 'mint-rejected';
+  const at = b.stage === 'minted' ? 4 : XO_AT[b.stage] ?? 1;
+  const due = b.stage !== 'minted' && xoDue(b);
+  return html`<ol class="stp">${XO_STEPS.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing || rejected ? 'bad' : 'now') : ''))}</ol>
+    <div class="actr-f">${b.stage === 'minted' ? html`On your Bitcoin address.` : fund ? xoFundRow(b) : xoNoteText(b)}${it.hash ? html` · <a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : ''}</div>
+    ${failing ? html`<div class="actr-f err">${xoErr(b.lastError.message)}</div>` : ''}
+    ${due ? html`<div class="brr-a"><a class="btn ghost" href="#private/bitcoin/out" data-link="private/bitcoin/out">${due}</a></div>` : ''}`;
+}
+const actRow = (it) => {
+  const b = actBridge(it), open = !!b && b.stage !== 'minted', done = ended(it) && !open;
+  return html`<li class="actr" data-act="${it.id}">
+  <div class="actr-h"><b>${it.label}</b>${done ? html`<span>${ago(b?.mintedAt || it.end || it.up || it.at)}</span>` : html`<span class="num" data-since="${it.at}">${clock(Date.now() - it.at)}</span>`}</div>
+  ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made with another Tacit key. Open that key to act on it.</div>` : ''}</li>`;
+};
 let ACT_VIEW = '';
+// A stopped row whose same action was sent again within a day and went through is no longer news, and a stopped one from days ago is not offered a retry (its own
+// balance read is what answers whether it still holds).
+const actStale = (it) => Date.now() - (it.end || it.up || it.at) > 86400e3;
+const actRedone = (it, all) => (it.status === 'failed' || it.status === 'unknown') && all.some((x) => x !== it && x.label === it.label && x.at > it.at && x.at - (it.end || it.at) < 86400e3 && (x.status === 'settled' || x.status === 'confirmed'));
 function renderAct() {
-  const el = $('#act-body'), items = listed(), can = typeof Notification === 'function';
+  const el = $('#act-body'), items = listed().filter((it, _, all) => !actRedone(it, all)), can = typeof Notification === 'function';
   const on = can && !!store.get(NOTIFY_KEY) && Notification.permission === 'granted';
   const view = html`
     ${items.length ? html`<ol class="acts">${items.map(actRow)}</ol>` : html`<p class="gate-p">Nothing yet. What you send from this page, and what the relay proves for you, shows up here as it happens.</p>`}
     ${can ? html`<label class="pick"><input type="checkbox" id="act-notify" ${on ? 'checked' : ''}><span>Notify me when something finishes while this tab is in the background.</span></label>` : ''}
     <div class="status" role="status" id="act-note"></div>
-    <div class="act-foot"><span>Kept in this browser only. Your balances never depend on it.</span>${items.some(ended) ? html`<button class="link" type="button" id="act-clear">Clear finished</button>` : ''}</div>`;
+    <div class="act-foot"><span>Kept in this browser only. Your balances never depend on it.</span>${items.some(actDone) ? html`<button class="link" type="button" id="act-clear">Clear finished</button>` : ''}</div>`;
   const sig = view.s.replace(/(data-since="\d+">)[^<]*/g, '$1');
   if (sig === ACT_VIEW && el.firstChild) return;
   ACT_VIEW = sig;
@@ -3031,13 +3062,13 @@ function renderAct() {
   };
   const cl = $('#act-clear', el);
   if (cl) cl.onclick = () => {
-    const kept = new Set(listed().filter((x) => !ended(x)).map((x) => x.id));
+    const kept = new Set(listed().filter((x) => !actDone(x)).map((x) => x.id));
     ACT.cleared = Date.now(); RUNS.forEach(lastEnd);
     ACT.items = ACT.items.filter((x) => kept.has(x.in || x.id)); actSave(); paintAct();
   };
 }
 function paintAct() {
-  const top = listed(), live = top.filter((x) => !ended(x)).length, b = $('#act'), n = $('#act-n');
+  const top = listed(), live = top.filter((x) => !actDone(x)).length, b = $('#act'), n = $('#act-n');
   b.hidden = !top.length;
   b.classList.toggle('busy', live > 0);
   n.hidden = !live; n.textContent = live ? String(live) : '';
@@ -5117,7 +5148,7 @@ async function xoAct(run, kind, id) {
     if (after.stage === 'minted') xoArrived(after);
     else if (after.stage !== rec.stage) run.say(status(), xoNoteText(after));
     else run.say(status(), xoNoteText(after) || 'Nothing has changed yet.');
-  } catch (e) { run.fail(status(), xoFail(e)); } finally { rerender(a.sheet); }
+  } catch (e) { run.fail(status(), xoFail(e)); } finally { rerender(a.sheet); paintAct(); }
 }
 async function xoTick(first = false) {
   const pub = S.key?.pubHex;
@@ -5150,7 +5181,7 @@ async function xoTick(first = false) {
     }
   } catch {} finally { XO.auto = false; }
   for (const sheet of moved) rerender(sheet);
-  if (moved.size) dashSoon();
+  if (moved.size) { dashSoon(); paintAct(); }
 }
 // What was bridged to Bitcoin sits at the key's Taproot address, which this page reads only for a key it has a bridge or a balance on record
 // for. A browser with neither (a new one, or one whose data was cleared) reads that address once for each asset, so the notes are listed

@@ -3456,6 +3456,31 @@ await step('xobridge', async () => {
   await r.page.evaluate(() => document.querySelector('#eth-v1 #xo-find')?.closest('details')?.setAttribute('open', ''));
   const wideXo = await r.page.evaluate(() => { const d = document.querySelector('#sheet-eth .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
   ok(wideXo[0] <= wideXo[1] + 1 && wideXo[2] <= wideXo[3] + 1, `xobridge: no sideways scroll at phone width (${wideXo})`);
+  // The Activity panel. The relay's job for a bridge ends when the burn lands, hours before the bridge does, so its row goes on with the bridge's own
+  // record (here the journal's a2, burned and waiting for Bitcoin's proof) and is counted as in progress; a stopped row that was sent again and went
+  // through is not listed, and a stopped one from days ago is told quietly with no press to try again.
+  await r.page.setViewportSize({ width: 1100, height: 900 });
+  const day = 86400e3, op = (id, extra) => ({ id: 'op:' + id, kind: 'op', pub, steps: [], ...extra });
+  // The page writes its own list back when it unloads, so its handler is stopped first: what is seeded here is what the reloaded page reads.
+  const reloaded = r.page.waitForEvent('load', { timeout: 120000 });
+  await r.page.evaluate(([items]) => { addEventListener('pagehide', (e) => e.stopImmediatePropagation(), true); localStorage.setItem('tacit-lite-activity-v1', JSON.stringify({ items, cleared: 0 })); location.reload(); }, [[
+    op('b1', { label: 'Bridge 0.0039 tETH to Bitcoin', status: 'settled', hash: '0x' + 'a2'.repeat(32), at: Date.now() - 3600e3, end: Date.now() - 3500e3 }),
+    op('b2', { label: 'Send 0.002 tETH privately', status: 'settled', hash: '0x' + 'cc'.repeat(32), at: Date.now() - 2 * day, end: Date.now() - 2 * day + 60e3 }),
+    op('b3', { label: 'Send 0.002 tETH privately', status: 'failed', err: 'The relay’s free settles for today are used up.', at: Date.now() - 3 * day, end: Date.now() - 3 * day + 60e3 }),
+    op('b4', { label: 'Withdraw 0.001 ETH', status: 'failed', err: 'The relay’s free settles for today are used up.', at: Date.now() - 4 * day, end: Date.now() - 4 * day + 60e3 }),
+  ]]).catch(() => {});
+  await reloaded;
+  await r.page.waitForSelector('#act:not([hidden])', { timeout: 120000 });
+  await go(r.page, '#activity');
+  await until(r.page, () => document.querySelector('#sheet-act')?.open && document.querySelectorAll('#act-body .actr').length > 0, null, 60000);
+  const acts = await r.page.$$eval('#act-body .actr', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), err: !!x.querySelector('.actr-f.err'), again: !!x.querySelector('[data-act-again]'), now: x.querySelector('.stp li.now')?.textContent.trim() || '' })));
+  ok(acts.length === 3 && !acts.some((x) => /free settles/.test(x.text) && /Send 0\.002/.test(x.text)), `xobridge: Activity does not list a stopped send that was sent again and went through (${acts.length}: ${acts.map((x) => x.text.slice(0, 50)).join(' || ')})`);
+  const bridge = acts.find((x) => /Bridge 0\.0039 tETH to Bitcoin/.test(x.text));
+  ok(bridge && bridge.now === 'Proven for Bitcoin' && /Burned on Ethereum.*Proven for Bitcoin.*Sent to Bitcoin.*Arrived/.test(bridge.text) && /Waiting for Bitcoin’s proof/.test(bridge.text) && !/Done in/.test(bridge.text),
+    `xobridge: Activity follows a bridge past the relay's job, step by step, and does not call it done (${bridge?.text.slice(0, 200)})`);
+  const old = acts.find((x) => /Withdraw 0\.001 ETH/.test(x.text));
+  ok(old && !old.err && !old.again, `xobridge: a stopped row from days ago is told quietly, with no press to try again (${old?.text.slice(0, 120)})`);
+  ok(/1/.test(await r.page.textContent('#act-n')) && await r.page.isVisible('#act-n'), 'xobridge: the Activity button counts the bridge as in progress');
   if (r.errors.length) { fails++; console.log('FAIL xobridge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
@@ -5363,7 +5388,7 @@ await step('activity', async () => {
     seed = await r.page.evaluate(() => localStorage.getItem('tacit-lite-activity-v1'));
     await r.page.evaluate(() => {
       const k = 'tacit-lite-activity-v1', s = JSON.parse(localStorage.getItem(k)), t = Date.now();
-      s.items.push({ id: 'job:j-old', kind: 'job', type: 'unwrap', label: 'Withdraw', status: 'failed', err: 'settle reverted: stale root', at: t - 8 * 3600e3, up: t - 7 * 3600e3, end: t - 7 * 3600e3 });
+      s.items.push({ id: 'job:j-old', kind: 'job', type: 'unwrap', label: 'Withdraw 0.003 ETH', status: 'failed', err: 'settle reverted: stale root', at: t - 8 * 3600e3, up: t - 7 * 3600e3, end: t - 7 * 3600e3 });
       localStorage.setItem(k, JSON.stringify(s));
     });
     Object.assign(served, { 'j-send': { type: 'stealthlock', status: 'settled', txHash: H('e5') }, 'j-mint': { type: 'cbtcmint', status: 'settled', txHash: H('f6') }, 'j-old': { type: 'unwrap', status: 'settled', txHash: H('a7') } });

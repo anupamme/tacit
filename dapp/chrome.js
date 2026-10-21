@@ -9,6 +9,51 @@
   m.addEventListener('click', (e) => { if (e.target.closest('.sm-p a')) shut(); });
 })();
 
+// A bridge under way shows on every page: a dot on the menu button, and its count on the Bridge entry. It reads the journals the front page keeps for
+// its bridges in this browser (the stage and any error, nothing else), so it shows with no key open, and it follows another tab through the storage event.
+(() => {
+  const m = document.querySelector('.sm');
+  if (!m) return;
+  const OUT = 'tacit-crossout-bridge-v1:mainnet:', IN = 'tacit-burndep-bridge-v1:mainnet:';
+  const summary = m.querySelector('summary'), link = m.querySelector('.sm-p a[href="/bridge/"]');
+  if (!summary) return;
+  const dot = document.createElement('span'), tag = document.createElement('span');
+  dot.setAttribute('aria-hidden', 'true');
+  dot.style.cssText = 'position:absolute;top:5px;right:3px;width:8px;height:8px;border-radius:50%;background:var(--orange,#c2410c);box-shadow:0 0 0 2px var(--paper,transparent);pointer-events:none';
+  tag.style.cssText = 'margin-left:auto;font-size:12px;color:var(--orange,#c2410c)';
+  dot.hidden = tag.hidden = true;
+  summary.style.position = 'relative';
+  summary.append(dot);
+  if (link) link.append(tag);
+  const label = summary.getAttribute('aria-label') || 'More pages';
+  // stages that wait on the holder: the Bitcoin step to send (or its sats to add), a note not credited, a bridge in ready to mint
+  const waits = (out, r) => (out ? r.stage === 'covered' || r.stage === 'mint-rejected' : (r.stage === 'folded' || r.stage === 'rfolded') && !(r.arm && r.arm.ok));
+  const paint = () => {
+    let under = 0, needs = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i), out = k.startsWith(OUT);
+        if (!out && !k.startsWith(IN)) continue;
+        let list = null; try { list = JSON.parse(localStorage.getItem(k)); } catch {}
+        if (!Array.isArray(list)) continue;
+        for (const r of list) {
+          const s = r && r.stage;
+          if (!s || (out ? s === 'minted' : s === 'minted' || s === 'reclaimed' || s === 'recovered')) continue;
+          under++;
+          if (waits(out, r)) needs++;
+        }
+      }
+    } catch {}
+    dot.hidden = tag.hidden = !under;
+    tag.textContent = under ? (needs ? `${needs} needs you` : `${under} under way`) : '';
+    summary.setAttribute('aria-label', under ? `${label}, ${under} bridge${under === 1 ? '' : 's'} under way${needs ? `, ${needs} needs you` : ''}` : label);
+  };
+  paint();
+  addEventListener('storage', (e) => { if (!e.key || e.key.startsWith(OUT) || e.key.startsWith(IN)) paint(); });
+  addEventListener('focus', paint);
+  setInterval(paint, 30e3);
+})();
+
 // The pages share one service worker (dapp/sw.js). It keeps a versioned file (a ?cb= URL whose token matches its bytes) and answers for it from disk, so a
 // repeat visit asks the network for the page and little else. It is registered once the page has loaded, and a page works the same without it.
 (() => {

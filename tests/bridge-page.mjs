@@ -330,6 +330,34 @@ try {
     await browser.close();
   }
 
+  // ── the header menu shows a bridge under way, on this page and on any other that has the menu ──
+  for (const path of ['/bridge/', '/swap/']) {
+    const { browser, page } = await openPage({ width: 1024, height: 800 }, { path });
+    await page.waitForSelector('.sm summary', { state: 'attached' });
+    await page.waitForTimeout(500);
+    const read = () => page.evaluate(() => {
+      const s = document.querySelector('.sm summary'), t = document.querySelector('.sm-p a[href="/bridge/"]'), d = s.querySelector(':scope > span');
+      return { dot: !!d && !d.hidden, label: s.getAttribute('aria-label'), tag: t?.lastElementChild && !t.lastElementChild.hidden ? t.lastElementChild.textContent : '' };
+    });
+    let m = await read();
+    ok(m.dot && m.tag === '1 needs you' && /4 bridges under way, 1 needs you/.test(m.label), `${path}: the menu button carries a dot, and the Bridge entry says what waits on the holder (${JSON.stringify(m)})`);
+    await page.evaluate(([pub, a, b]) => {
+      localStorage.setItem('tacit-burndep-bridge-v1:mainnet:' + pub, a); localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, b);
+      window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub }));
+    }, [PUB, JSON.stringify(IN.map((r) => ({ ...r, stage: 'minted' }))), JSON.stringify(OUT.map((r) => ({ ...r, stage: r.id.endsWith('dd'.repeat(32)) ? 'mint-submitted' : 'minted' })))]);
+    await page.waitForTimeout(300);
+    m = await read();
+    ok(m.dot && m.tag === '1 under way', `${path}: another tab's write shows at once: one bridge still under way, none waiting on the holder (${JSON.stringify(m)})`);
+    await page.evaluate(([pub, b]) => {
+      localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, b);
+      window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub }));
+    }, [PUB, JSON.stringify(OUT.map((r) => ({ ...r, stage: 'minted' })))]);
+    await page.waitForTimeout(300);
+    m = await read();
+    ok(!m.dot && !m.tag && m.label === 'More pages', `${path}: once every bridge has arrived the dot and the count go (${JSON.stringify(m)})`);
+    await browser.close();
+  }
+
   // ── a browser with no bridges ──
   {
     const { browser, page, errors } = await openPage({ width: 1024, height: 800 }, { seed: false });
