@@ -70,3 +70,27 @@ writeJobs(SERVICE_OUT, job);
 writeJobs(PAGE_OUT, { ...job, ...COPY, steps: [{ ...kept, label: 'Deploy TacitAmmRoute' }] });
 writeFileSync(PAYLOAD_OUT, `${JSON.stringify({ chainId: 1, factory: CREATEX, steps: [{ id: step.id, to: CREATEX, data: tx.data }] })}\n`);
 console.log(`1 step; opens ${opensAt}; expected pay between ${BOUNDS[0]} and ${BOUNDS[1]} TAC`);
+
+// The first version of the contract, sent by another account (block 26239991, transaction 0x1b2ffc8538c2ecaba2d460d24f39dbd8c1b54e1b4fa8e5e8193f47dcbbef7150) in the
+// minutes before a fix moved the address. Nobody can deploy it again, so it is a job of its own that is closed to new work: it stays so the service can credit the
+// account that sent that transaction like any other, and the page shows it as a done tile (`retired` keeps the front page from counting it as a task to do).
+const V1 = { id: 'amm-route-v1', opensAt: 1792573720, gas: 358000, salt: '0x000000000000000000000000000000000000000000834270100000000013697a',
+  initCodeHash: '0x3d4ea9feef068cc66146e32e7f114dc41a9d56e991abf03797a2c870af396149', expected: getAddress('0x00000015ff76e81b258a75934dd205998f5a00f7') };
+const keptV1 = { id: step.id, kind: 'createx', to: CREATEX, gas: V1.gas, expected: V1.expected, salt: V1.salt, initCodeHash: V1.initCodeHash, bound: false, minWei: step.minWei, maxWei: step.maxWei };
+const jobV1 = { id: V1.id, chainId: 1, opensAt: V1.opensAt, steps: [keptV1] };
+const COPY_V1 = {
+  title: 'Deploy the swap page’s any-token route (first version)',
+  tagline: 'The first copy of the contract, sent before a fixed one replaced it: 1 transaction, done.',
+  about: [
+    { h: 'What it was', p: `The same contract as the job above, at ${V1.expected}. The first account to take that job sent it.` },
+    { h: 'Why there is a new one', p: 'It was replaced by a fixed version before any swap used it. It holds nothing, and the swap page looks for the fixed one.' },
+    { h: 'Who is paid', p: 'The account that sent the transaction, for the step, as for any other.' },
+  ],
+  links: [],
+  verified: false,
+  created: [],
+  retired: true,
+  payloadUrl: `/tasks/${V1.id}-payload.json`,
+};
+writeJobs(SERVICE_OUT, jobV1);
+writeJobs(PAGE_OUT, { ...jobV1, ...COPY_V1, steps: [{ ...keptV1, label: 'Deploy TacitAmmRoute (first version)' }] });

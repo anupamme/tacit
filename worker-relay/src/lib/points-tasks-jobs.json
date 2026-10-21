@@ -461,6 +461,25 @@
           "maxWei": "200000000000000000000"
         }
       ]
+    },
+    {
+      "id": "amm-route-v1",
+      "chainId": 1,
+      "opensAt": 1792573720,
+      "steps": [
+        {
+          "id": "01-amm-route",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 358000,
+          "expected": "0x00000015FF76e81b258A75934Dd205998F5a00F7",
+          "salt": "0x000000000000000000000000000000000000000000834270100000000013697a",
+          "initCodeHash": "0x3d4ea9feef068cc66146e32e7f114dc41a9d56e991abf03797a2c870af396149",
+          "bound": false,
+          "minWei": "30000000000000000000",
+          "maxWei": "200000000000000000000"
+        }
+      ]
     }
   ]
 }

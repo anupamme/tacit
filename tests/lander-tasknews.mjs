@@ -118,6 +118,13 @@ for (const [name, opts] of [
   ok(p.text === '2 tasks Earn up to 130 TAC →', `two live jobs are counted, and only the steps still open are summed (${p.text})`);
   await ctx.close();
 }
+// a retired job is a record, not a task, even while a step of it is still unclaimed
+{
+  const { ctx, page } = await open({ service: api([{ id: 'amm-route-v1', estimateWei: String(30n * TAC), steps: [step('01-amm-route', 30)] }]), jobs: [{ ...meta('amm-route-v1', 'Old', NOW - 60), retired: true }] });
+  await settle(page, false);
+  ok(!(await pill(page)).shown, 'no line for a retired job whose step has not been claimed yet');
+  await ctx.close();
+}
 // a job whose reward is not known yet
 {
   const { ctx, page } = await open({ service: api([{ id: 'amm-route', estimateWei: null, steps: [{ id: '01', chainId: 1, estimateWei: null, claim: null }] }]), jobs: OPEN });

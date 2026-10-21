@@ -648,6 +648,47 @@
       "verified": false,
       "created": [],
       "payloadUrl": "/tasks/amm-route-payload.json"
+    },
+    {
+      "id": "amm-route-v1",
+      "chainId": 1,
+      "opensAt": 1792573720,
+      "steps": [
+        {
+          "id": "01-amm-route",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 358000,
+          "expected": "0x00000015FF76e81b258A75934Dd205998F5a00F7",
+          "salt": "0x000000000000000000000000000000000000000000834270100000000013697a",
+          "initCodeHash": "0x3d4ea9feef068cc66146e32e7f114dc41a9d56e991abf03797a2c870af396149",
+          "bound": false,
+          "minWei": "30000000000000000000",
+          "maxWei": "200000000000000000000",
+          "label": "Deploy TacitAmmRoute (first version)"
+        }
+      ],
+      "title": "Deploy the swap page’s any-token route (first version)",
+      "tagline": "The first copy of the contract, sent before a fixed one replaced it: 1 transaction, done.",
+      "about": [
+        {
+          "h": "What it was",
+          "p": "The same contract as the job above, at 0x00000015FF76e81b258A75934Dd205998F5a00F7. The first account to take that job sent it."
+        },
+        {
+          "h": "Why there is a new one",
+          "p": "It was replaced by a fixed version before any swap used it. It holds nothing, and the swap page looks for the fixed one."
+        },
+        {
+          "h": "Who is paid",
+          "p": "The account that sent the transaction, for the step, as for any other."
+        }
+      ],
+      "links": [],
+      "verified": false,
+      "created": [],
+      "retired": true,
+      "payloadUrl": "/tasks/amm-route-v1-payload.json"
     }
   ]
 }

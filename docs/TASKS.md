@@ -93,6 +93,8 @@ chain's own node with `eth_estimateGas` (nothing is sent). The page fetches a po
 page buy tacUSD and tacBTC with any token in one transaction) under an open salt, so any wallet can send it. The init code, the salt and the
 address are `tests/amm-route-deploy.mjs`'s, which `dapp/swap/route.js` and the fork tests check against each other; the step pays 30 to 200 TAC (its gas at a slow price, doubled by the tip, between a least that carries the effort and a most that covers a gas spike).
 
+A job whose contract was replaced after someone had already sent it stays in the files as its own job (`amm-route-v1`, marked `retired` on the page so the front page does not count it as work to do): the service credits the account that sent that transaction like any other, once it is named to `POST /tasks/claim` (anyone may name it), and the page shows it as a done tile. `worker-relay/tests/tasks-amm-route-v1-claim.test.mjs` claims the real transaction on a fork.
+
 A change to the contracts changes the addresses: rebuild the files, run the tests and `npm run build`.
 
 ## Tests

@@ -13,7 +13,7 @@ export function liveJobs(jobs, api, now = Date.now() / 1000) {
   const out = [];
   for (const j of api.jobs) {
     const meta = jobs.find((x) => x.id === j.id);
-    if (!meta?.opensAt || now < meta.opensAt || !Array.isArray(j.steps)) continue;
+    if (!meta?.opensAt || meta.retired || now < meta.opensAt || !Array.isArray(j.steps)) continue;
     const left = j.steps.filter((s) => !s.claim);
     if (!left.length) continue;
     let wei = null;
