@@ -35,9 +35,10 @@ the dapp's deployment config, which the API also imports.
 | EthCallOutbox (Ethereum→Bitcoin message outbox; pinned in the Bitcoin reflection guest) | [`0x00000000a26a6E291972666a9687741dBa11Af46`](https://etherscan.io/address/0x00000000a26a6E291972666a9687741dBa11Af46) |
 | CbtcEscrowHelper (one-transaction wstETH escrow; bound to this engine) | [`0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA`](https://etherscan.io/address/0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA) |
 | CbtcEscrowHelperTipForwarder (splits a tip off a self-proved escrow+settle call to the helper above) | [`0x000000006fcb52Aa67AC4A420a4D43A0e48F136F`](https://etherscan.io/address/0x000000006fcb52Aa67AC4A420a4D43A0e48F136F) |
+| TacitAmmRoute (the last step of a swap from any token into tacUSD or tacBTC: unwraps the WETH it is handed and swaps the ETH through TacitPublicAmm; no owner, holds nothing) | [`0x00000065e3e51af95d330fb6932cA3E87912c554`](https://etherscan.io/address/0x00000065e3e51af95d330fb6932cA3E87912c554) |
 
-Every row but CbtcEscrowHelper/CbtcEscrowHelperTipForwarder matches `contracts/deployments/1-createx.json`
-exactly. Both are deployed by their own scripts (`DeployCbtcEscrowHelperCreateX.s.sol`,
+Every row but CbtcEscrowHelper/CbtcEscrowHelperTipForwarder and TacitAmmRoute matches `contracts/deployments/1-createx.json`
+exactly. TacitAmmRoute is deployed by the `amm-route` job of [`/tasks`](https://tacit.finance/tasks/) (CreateX, an open salt). Both are deployed by their own scripts (`DeployCbtcEscrowHelperCreateX.s.sol`,
 `DeployCbtcEscrowHelperTipForwarderCreateX.s.sol`), and their addresses live in `contracts/deployments/1.json`
 instead.
 
