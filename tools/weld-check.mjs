@@ -3411,7 +3411,9 @@ await step('xobridge', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')} | status: ${await text(r.page, '#v1-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
   const rc0 = (await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ');
   ok(/You get0\.0\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
-  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /exchange:\s*bc1q[a-z0-9]{38}/.test(rc0) && await r.page.isVisible('#xo-rcpt [data-copy-addr]') && await r.page.isDisabled('#xo-go') && await r.page.isVisible('#xo-ackrow'), `xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and the whole address to send them to, with a copy (${rc0.slice(-200)})`);
+  // the receipt can be drawn again while the quote settles, so the button, the box and the copy are read together once they hold
+  const formReady = await until(r.page, () => { const ack = document.querySelector('#xo-ackrow'); return !!document.querySelector('#xo-rcpt [data-copy-addr]') && document.querySelector('#xo-go')?.disabled && ack && !ack.hidden; }, null, 30000).then(() => true, () => false);
+  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /exchange:\s*bc1q[a-z0-9]{38}/.test(rc0) && formReady, `xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and the whole address to send them to, with a copy (${rc0.slice(-200)})`);
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: and ticked, it starts with no sats on the address: the Bitcoin step is paid hours later');
   await r.page.uncheck('#xo-ack');

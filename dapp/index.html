@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6JhAH9FtA1aZbH5yfeGd09MGe1pcQAtuDzhCxNgT9+I=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rR6FfSjg57lgSz0lKlYwGeL1wyiUxm8jSxfG8ScEzM8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -4954,18 +4954,28 @@ function v1Out(el, status) {
   });
 }
 
+// The assets that live on both chains, by the one id both name them with (cxfer-core, lower case, no 0x): the pool on Ethereum and the notes
+// on Bitcoin. `dp` is the places a balance is shown to; every one carries 8 decimals on Bitcoin.
+const CHAIN_ASSETS = {
+  tac: { id: 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', ticker: 'TAC', dp: 4 },
+  teth: { id: '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', ticker: 'tETH', dp: 6 },
+  cbtc: { id: '62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8', ticker: 'cBTC', dp: 8 },
+};
+const assetById = (id) => Object.values(CHAIN_ASSETS).find((a) => a.id === String(id || '').toLowerCase().replace(/^0x/, '')) || null;
+// The ones a key holds as notes at its Bitcoin address and moves there itself (cBTC comes back through its lock).
+const BTC_NOTE_ASSETS = [CHAIN_ASSETS.tac, CHAIN_ASSETS.teth];
 const XA = {
   teth: { key: 'teth', ticker: 'tETH', pool: 'cETH', k: 'eth', icon: 'tk-teth', flag: 'tacit-teth-btc', seg: true, sheet: 'eth', status: '#v1-status', pre: 'xo', bpre: 'xb', dp: 6,
     held: 'tETH on your Bitcoin address', see: 'Private ETH, Bitcoin', none: 'You have no private tETH yet. The Make private tab turns ETH into it.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
-    get id() { return CETH_ID; } },
+    id: '0x' + CHAIN_ASSETS.teth.id },
   tac: { key: 'tac', ticker: 'TAC', pool: 'cTAC', k: 'tac', icon: 'tk-tac', flag: 'tacit-tac-btc', sheet: 'tac', status: '#bt-status', pre: 'xt', bpre: 'xc', dp: 4, mixed: true, floor: true, min: 2_000_000_000n,
     held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', none: 'You have no private TAC yet. Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin on the From Bitcoin side.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
-    get id() { return '0x' + TAC_BTC_ID; } },
+    id: '0x' + CHAIN_ASSETS.tac.id },
   cbtc: { key: 'cbtc', ticker: 'cBTC', pool: 'cBTC', k: 'cbtc', icon: 'tk-cbtc', flag: 'tacit-cbtc-redeem', dark: true, redeem: true, sheet: 'borrow', status: '#bw-status', pre: 'xk', bpre: 'xkb', dp: 8,
     held: 'cBTC on your Bitcoin address', see: 'Borrow, Redeem', none: 'You have no private cBTC yet. Buy some in Swap.', after: 'There it is burned to redeem your lock.',
-    get id() { return CBTC_BTC_ID; } },
+    id: '0x' + CHAIN_ASSETS.cbtc.id },
 };
-const CBTC_BTC_ID = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
+const CBTC_BTC_ID = '0x' + CHAIN_ASSETS.cbtc.id;
 const xoOn = (a = XA.teth) => (a.dark ? store.get(a.flag) === true : store.get(a.flag) !== false);
 const XO = { pf: null, auto: false, autoAt: 0, acked: null, rechecked: {} };
 const XO_STEPS = ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'];
@@ -5095,7 +5105,11 @@ function xoCovered(r) {
   if (!c?.busy) {
     XOC.set(block, { at: c?.at || 0, v: c?.v ?? null, busy: true });
     fetch(`${API}/reflection/eth-state/covers?block=${block}`, { signal: within(10e3) }).then((x) => (x.ok ? x.json() : null)).catch(() => null)
-      .then((j) => { XOC.set(block, { at: Date.now(), v: j && !j.error ? j.covered === true : null }); paintAct(); rerender(xaOf(r)?.sheet || 'eth'); dashSoon(); });
+      .then((j) => {
+        const v = j && !j.error ? j.covered === true : null, was = XOC.get(block)?.v ?? null;
+        XOC.set(block, { at: Date.now(), v });
+        if (v !== was) { paintAct(); rerender(xaOf(r)?.sheet || 'eth'); dashSoon(); }                // a sheet is drawn again only when the answer changed, not under a form being filled
+      });
   }
   return c?.v === true;
 }
@@ -6591,9 +6605,8 @@ function loadPlain() {
 }
 const BTC = { mode: 'send', asset: 'btc', pub: null, at: 0, loading: null, err: null, share: null, check: null, sp: null, held: [], got: 0, part: false };
 const SPENT = new Set(), SPENT_LAST = new Map(), UNSPENT_AT = new Map();
-const SATS_DUST = 546n, ASSET_SEND_SATS = 3000n, TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
-// tETH carries the same id on Bitcoin as in the pool on Ethereum; like TAC it has 8 decimals there.
-const TETH_BTC_ID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', BTC_TOKENS = { [TAC_BTC_ID]: 'TAC', [TETH_BTC_ID]: 'tETH' };
+const SATS_DUST = 546n, ASSET_SEND_SATS = 3000n, TAC_BTC_ID = CHAIN_ASSETS.tac.id, TETH_BTC_ID = CHAIN_ASSETS.teth.id;
+const BTC_TOKENS = Object.fromEntries(BTC_NOTE_ASSETS.map((a) => [a.id, a.ticker]));
 const MOVE_SATS = 5000n, NOTES_MAX = 10;
 function withKey(fn, pub = S.key?.pubHex) {
   return tacitTurn(async () => {
@@ -6715,7 +6728,7 @@ render.btc = () => {
         <div class="u">BTC${b?.pending ? ` · ${fmt(b.pending, 8, 8)} arriving` : ''}${!b || b.got === 3 ? '' : b.part ? ' · checking silent payments…' : ' · could not check silent payments'}</div></div>
       <div class="side">${b || BTC.err ? html`<button class="link" type="button" id="btc-re">${BTC.err || !b ? 'retry' : 'refresh'}</button>` : 'updating…'}</div>
     </div>
-    ${(b?.held || []).map((a) => html`<div class="kv"><span>${a.ticker} on Bitcoin${a.id === TAC_BTC_ID ? html` · <a href="#bridge" data-link="bridge">Bridge to Ethereum</a>` : ''}</span><b class="num">${fmt(a.balance, a.decimals, a.id === TETH_BTC_ID ? 6 : 4)}</b></div>`)}
+    ${(b?.held || []).map((a) => html`<div class="kv"><span>${a.ticker} on Bitcoin${a.id === TAC_BTC_ID ? html` · <a href="#bridge" data-link="bridge">Bridge to Ethereum</a>` : ''}</span><b class="num">${fmt(a.balance, a.decimals, assetById(a.id)?.dp ?? 4)}</b></div>`)}
     ${shLookingNote(S.key.pubHex)}
     ${segSub('btcm', BTC.mode, [['send', 'Send'], ['receive', 'Receive'], ['notes', 'Notes']])}
     <div id="btc-form"></div>
@@ -6833,12 +6846,24 @@ function loadBridgedHere(force = false) {
   if (BNOTES.loading) return BNOTES.loading;
   if (!force && BNOTES.pub === pub && Date.now() - BNOTES.at < 60e3) return Promise.resolve();
   return (BNOTES.loading = withKey(async (t) => {
-    const [a, b] = await Promise.all([t.bridgedNotes(TETH_BTC_ID), t.bridgedNotes(TAC_BTC_ID)]);
-    return [...a.notes.map((n) => ({ ...n, aid: TETH_BTC_ID })), ...b.notes.map((n) => ({ ...n, aid: TAC_BTC_ID }))];
+    const read = await Promise.all(BTC_NOTE_ASSETS.map((a) => t.bridgedNotes(a.id).then((r) => r.notes.map((n) => ({ ...n, aid: a.id })))));
+    return read.flat();
   }, pub).then((v) => { if (S.key?.pubHex === pub) Object.assign(BNOTES, { pub, at: Date.now(), bridged: v, err: null }); },
     (e) => { if (S.key?.pubHex === pub) Object.assign(BNOTES, { pub, at: Date.now(), err: e }); }).finally(() => { BNOTES.loading = null; }));
 }
 const noteKey = (n) => `${n.txid}:${n.vout}`;
+// Notes of one asset at the key's Bitcoin address sent to the key itself in one transfer: an amount off one note (a split, its rest coming back as
+// a second note) or, with no amount, the whole of several as read now (a combine). The notes are read afresh, so one spent meanwhile is refused
+// before anything is built. Resolves to { txid, amount }.
+const toSelf = (pub, assetId, ns, amount = null) => withKey(async (t) => {
+  const h = await t.scanHoldings(true), have = h.get(assetId)?.utxos || [];
+  const us = ns.map((n) => have.find((x) => x.utxo.txid === n.txid && x.utxo.vout === n.vout));
+  if (us.some((u) => !u)) throw new Error(`That ${BTC_TOKENS[assetId] || 'note'} is no longer at this address. Refresh, then try again.`);
+  const v = amount ?? us.reduce((x, u) => x + BigInt(u.amount), 0n);
+  const r = await t.buildAndBroadcastCXfer({ assetIdHex: assetId, amount: v, recipientPubHex: bytesToHex(t.wallet.pub), forceUtxos: us });
+  try { t.invalidateHoldingsCache?.(); } catch {}
+  return { txid: r.revealTxid, amount: v };
+}, pub);
 const satsShort = (e) => /insufficient (plain )?sats|no plain-sats/i.test(String(e?.message || ''));
 function btcNotes(f, status, b) {
   const pub = S.key.pubHex, mine = BNOTES.pub === pub;
@@ -6865,16 +6890,7 @@ function btcNotes(f, status, b) {
   $$('[data-bnpick]', f).forEach((x) => x.onchange = () => { BNOTES.pick[x.dataset.bnpick] = x.value; rerender('btc'); });
   const re = $('#bn-re', f);
   if (re) re.onclick = () => busy(re, () => loadBridgedHere(true).then(() => rerender('btc')));
-  // One transfer to the key itself, from the notes given: the whole of them (a combine), or an amount off one (a split, whose rest comes back as a second note).
-  const toSelf = (a, ns, amount, label) => withKey(async (t) => {
-    const h = await t.scanHoldings(true), have = h.get(a.id)?.utxos || [];
-    const us = ns.map((n) => have.find((x) => x.utxo.txid === n.txid && x.utxo.vout === n.vout));
-    if (us.some((u) => !u)) throw new Error(`That ${a.ticker} is no longer at this address. Refresh, then try again.`);
-    say(status, `${label}…`);
-    const r = await t.buildAndBroadcastCXfer({ assetIdHex: a.id, amount, recipientPubHex: bytesToHex(t.wallet.pub), forceUtxos: us });
-    try { t.invalidateHoldingsCache?.(); } catch {}
-    return r.revealTxid;
-  }, pub);
+  const self = (a, ns, amount, label) => { say(status, `${label}…`); return toSelf(pub, a.id, ns, amount).then((r) => r.txid); };
   const done = async (txid, label) => {
     actBtc(txid, label); BNOTES.pick = {};
     say(status, html`<span class="ok">✓ ${label}.</span> ${txid ? html`<a href="${MEMPOOL}/tx/${txid}" target="_blank" rel="noopener">${short(txid, 6)} ↗</a> ` : ''}It shows here once Bitcoin confirms it.`);
@@ -6887,13 +6903,13 @@ function btcNotes(f, status, b) {
     if (!n) return sayErr(status, new Error('Pick the note to split first.'));
     if (!n.confirmed) return sayErr(status, new Error('That note is waiting for its Bitcoin confirmation. Split it once it has one.'));
     if (!v || v >= n.amount) return sayErr(status, new Error(`Split off less than the note holds (${fmt(n.amount, a.decimals, 8)} ${a.ticker}).`));
-    try { await done(await toSelf(a, [n], v, `Splitting ${fmt(v, a.decimals, 8)} ${a.ticker} off`), `Split ${fmt(v, a.decimals, 8)} ${a.ticker} off a note`); } catch (e) { fail(e); }
+    try { await done(await self(a, [n], v, `Splitting ${fmt(v, a.decimals, 8)} ${a.ticker} off`), `Split ${fmt(v, a.decimals, 8)} ${a.ticker} off a note`); } catch (e) { fail(e); }
   }));
   $$('[data-bncombine]', f).forEach((x) => x.onclick = () => busy(x, async () => {
     const a = toks.find((t) => t.id === x.dataset.bncombine), ns = (a?.notes || []).filter((n) => n.confirmed).sort((p, q) => (q.amount > p.amount ? 1 : -1)).slice(0, NOTES_MAX);
     if (ns.length < 2) return;
     const sum = ns.reduce((s, n) => s + n.amount, 0n);
-    try { await done(await toSelf(a, ns, sum, `Combining ${ns.length} ${a.ticker} notes`), `Combined ${ns.length} notes into ${fmt(sum, a.decimals, 8)} ${a.ticker}`); } catch (e) { fail(e); }
+    try { await done(await self(a, ns, null, `Combining ${ns.length} ${a.ticker} notes`), `Combined ${ns.length} notes into ${fmt(sum, a.decimals, 8)} ${a.ticker}`); } catch (e) { fail(e); }
   }));
   $$('[data-bnmove]', f).forEach((x) => x.onclick = () => busy(x, async () => {
     const aid = x.dataset.bnaid, tk = BTC_TOKENS[aid], n = bridged.find((m) => m.txid === x.dataset.bnmove && m.aid === aid);
@@ -7631,13 +7647,7 @@ async function brSend(run, n, amount, verb, plan = null) {
   const status = $('#br-status'), pub = S.key.pubHex, amt = `${fmt(amount, 8, 4)} TAC`, split = amount < BigInt(n.amount);
   try {
     run.say(status, split ? `Splitting ${amt} off…` : 'Sending it to your own address…');
-    const txid = await withKey(async (t) => {
-      const h = await t.scanHoldings(true), u = h.get(TAC_BTC_ID)?.utxos.find((x) => x.utxo.txid === n.txid && x.utxo.vout === n.vout);
-      if (!u) throw new Error('That TAC is no longer at this address. Refresh, then try again.');
-      const r = await t.buildAndBroadcastCXfer({ assetIdHex: TAC_BTC_ID, amount, recipientPubHex: bytesToHex(t.wallet.pub), forceUtxos: [u] });
-      try { t.invalidateHoldingsCache?.(); } catch {}
-      return r.revealTxid;
-    }, pub);
+    const { txid } = await toSelf(pub, TAC_BTC_ID, [n], amount);
     actBtc(txid, `${verb} ${amt}${split ? '' : ' to your own address'}`);
     brPrepAdd(pub, { txid, amount: String(amount), at: Date.now(), ...(plan && (plan.auto || plan.publicTo) ? { plan } : {}) });
     BR.pick = null; BR.rv = null; BR.at = 0;
@@ -7668,15 +7678,8 @@ async function brTry(pub, sentBefore, fn) {
 }
 const brTac = (v) => `${fmt(BigInt(v), 8, 4)} TAC`;
 // Notes sent whole to this key's own address in one transaction: several make one note (a merge), and the new note is what gets bridged.
-const brMergeSend = (pub, ns, plan) => withKey(async (t) => {
-  const h = await t.scanHoldings(true), have = h.get(TAC_BTC_ID)?.utxos || [];
-  const us = ns.map((n) => have.find((x) => x.utxo.txid === n.txid && x.utxo.vout === n.vout));
-  if (us.some((u) => !u)) throw new Error('That TAC is no longer at this address. Refresh, then try again.');
-  const amount = us.reduce((s, u) => s + BigInt(u.amount), 0n);
-  const r = await t.buildAndBroadcastCXfer({ assetIdHex: TAC_BTC_ID, amount, recipientPubHex: bytesToHex(t.wallet.pub), forceUtxos: us });
-  try { t.invalidateHoldingsCache?.(); } catch {}
-  return { txid: r.revealTxid, amount, n: ns.length };
-}, pub).then((r) => {
+const brMergeSend = (pub, ns, plan) => toSelf(pub, TAC_BTC_ID, ns).then(({ txid, amount }) => {
+  const r = { txid, amount, n: ns.length };
   actBtc(r.txid, r.n > 1 ? `Merged ${brNotes(r.n)} (${brTac(r.amount)})` : `Sent ${brTac(r.amount)} to your own address`);
   brPrepAdd(pub, { txid: r.txid, amount: String(r.amount), at: Date.now(), ...(plan && (plan.auto || plan.publicTo) ? { plan } : {}) });
   return r;
@@ -9077,7 +9080,7 @@ load.farm = () => loadFarms();
 const LOGO = { TAC: 'tk-tac', cETH: 'tk-teth', cUSD: 'tk-cusd', cBTC: 'tk-cbtc', ETH: 'tk-eth' };
 const logoPair = (a, b, cls = 'md') => html`<span class="pair"><svg class="tk ${cls}" aria-hidden="true"><use href="#${LOGO[a]}"/></svg><svg class="tk ${cls}" aria-hidden="true"><use href="#${LOGO[b]}"/></svg></span>`;
 const pairName = (pair) => { const k = String(pair).split('/').map((x) => (x === 'cETH' ? 'tETH' : x)); if (k[1] === 'tETH') k.reverse(); return k.join(' / '); };
-const CETH_ID = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+const CETH_ID = '0x' + CHAIN_ASSETS.teth.id;
 const aprOf = (tacPerDay, stakedEth) => aprFrom(tacPerDay, stakedEth, FARM.precision?.tacEth);
 const precisionApr = (x) => (x?.supply ? aprOf(Number(x.perDay) / 1e18, x.value / 1e18 * Number(x.totalStaked) / Number(x.supply)) : null);
 // A private pool holds what its two sides are worth, each at its price (the page's own, the ones a pool's "vs market" line reads), not twice its tETH side.
@@ -11181,9 +11184,9 @@ function dashItems() {
   out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true, send: spendable('tac') > 0n ? 'tac' : pubTac > 0n ? 'wtac' : null,
     meta: !k ? 'on Ethereum' : pubTac != null && privTac != null ? `${fmt(privTac, 18, 2)} private · ${fmt(pubTac, 18, 2)} public` : '' });
   if (k) {
-    const b = BTC.pub === k ? BTC : null, tacB = b?.held.find((a) => a.id === TAC_BTC_ID), tethB = b?.held.find((a) => a.id === TETH_BTC_ID), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
-    out.push({ key: 'btc', icon: 'tk-btc', label: 'BTC', dec: 8, max: 6, v: b?.got === 3 ? b.sats + b.silent : null, lazy: true, open: 'btc', send: b?.got === 3 && b.sats + b.silent > 0n ? 'btc' : null, show: !!b && (b.sats + b.silent > 0n || !!tacB || !!tethB),
-      meta: tacB || tethB ? `and ${[tacB && `${fmt(tacB.balance, tacB.decimals, 2)} TAC`, tethB && `${fmt(tethB.balance, tethB.decimals, 6)} tETH`].filter(Boolean).join(' and ')} on Bitcoin` : b ? 'at your Bitcoin address' : 'open to read' });
+    const b = BTC.pub === k ? BTC : null, onBtc = BTC_NOTE_ASSETS.map((x) => [x, b?.held.find((a) => a.id === x.id)]).filter(([, h]) => h), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
+    out.push({ key: 'btc', icon: 'tk-btc', label: 'BTC', dec: 8, max: 6, v: b?.got === 3 ? b.sats + b.silent : null, lazy: true, open: 'btc', send: b?.got === 3 && b.sats + b.silent > 0n ? 'btc' : null, show: !!b && (b.sats + b.silent > 0n || onBtc.length > 0),
+      meta: onBtc.length ? `and ${onBtc.map(([x, h]) => `${fmt(h.balance, h.decimals, x === CHAIN_ASSETS.tac ? 2 : x.dp)} ${x.ticker}`).join(' and ')} on Bitcoin` : b ? 'at your Bitcoin address' : 'open to read' });
     const sats = HELD.pub === k ? HELD.sats : null;
     for (const a of sats || []) out.push({ key: `sats-${a.ticker.toLowerCase()}`, icon: a.ticker === 'TAC' ? 'tk-tac' : 'tk-cbtc', label: a.ticker, dec: a.decimals, max: a.ticker === 'TAC' ? 2 : 6,
       v: a.value, meta: 'Secret Sats, private on Bitcoin', href: a.ticker === 'TAC' ? '/tac/' : '/sats/', show: a.value > 0n, send: a.ticker === 'TAC' && a.value > 0n ? 'tacb' : null });
