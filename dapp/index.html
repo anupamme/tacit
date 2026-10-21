@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rR6FfSjg57lgSz0lKlYwGeL1wyiUxm8jSxfG8ScEzM8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nb3uvKbf/Yv9zl2RmsMq3bW9uW/MpokckkBlMIeIigs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1731,6 +1731,9 @@ function parseUnits(s, dec = 18) {
 }
 const plain = (v, dec) => fmt(v, dec, dec).replace(/,/g, '');
 const big = (v) => { try { return v == null || v === '' ? null : BigInt(v); } catch { return null; } };
+const lsKv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const devBal = (id, pub) => big(store.get(`tacit-lite-device-bal-v1:${id}:${pub}`)?.v);
+const devBalSet = (id, pub, v) => store.set(`tacit-lite-device-bal-v1:${id}:${pub}`, { v: v.toString(), at: Date.now() });
 const dayFmt = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 const pctFmt = (x) => (x >= 99.5 && x < 99.95 ? `${x.toFixed(1)}%` : `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`);
 
@@ -2207,6 +2210,7 @@ function runFail(run, el, e) {
 }
 function endRun(run) {
   run.live = false;
+  HXW.clear(); L2BAL.at = 0;
   if (run.op) opSync(run.op);
   batchLine(run);
   runsPrune();
@@ -3141,7 +3145,7 @@ function resumeActivity() {
 const render = {}, load = {};
 
 const evm = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });
-const WC = announceWalletConnect({
+announceWalletConnect({
   projectId: WC_PROJECT_ID,
   chains: DEVICE_CHAINS.map((c) => c.chainId),
   rpcMap: Object.fromEntries(DEVICE_CHAINS.map((c) => [c.chainId, c.rpc[0]])),
@@ -3389,27 +3393,30 @@ function pickWallet(list) {
     d.showModal();
   });
 }
+// The wallet is another account, or none: a key opened with it no longer has it and locks.
+function walletMoved(why = 'switched accounts') {
+  if (S.key?.mode === 'eth' && S.key.address !== S.wallet) { S.key = null; resetPrivate(); toast(`Your wallet ${why}, so the Tacit key opened with it was locked. Open it again to continue.`); }
+  syncAccount(); paintWallet(); refreshAll();
+}
 async function connect({ change = false } = {}) {
   const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({ pick: pickWallet });
   const a = '0x' + address;
-  if (S.key?.mode === 'eth' && S.key.address !== a) { S.key = null; resetPrivate(); toast('Your wallet switched accounts, so the Tacit key opened with it was locked. Open it again to continue.'); }
   if (S.provider === provider && S.wallet === a) return;
-  S.provider = provider; S.wallet = a; syncAccount();
-  paintWallet(); refreshAll();
+  S.provider = provider; S.wallet = a;
+  walletMoved();
 }
 async function restoreWallet() {
   const c = await evm.restore().catch(() => null);
   if (!c || S.wallet) return;
-  S.provider = c.provider; S.wallet = '0x' + c.address; syncAccount();
-  paintWallet(); refreshAll();
+  S.provider = c.provider; S.wallet = '0x' + c.address;
+  walletMoved();
 }
 window.addEventListener('tacit:evm-accounts', (e) => {
   if (e.detail?.provider && S.provider && e.detail.provider !== S.provider) return;
   const a = (e.detail?.accounts || [])[0], next = a ? String(a).toLowerCase() : null;
   if (next === S.wallet) return;
   S.wallet = next;
-  if (S.key?.mode === 'eth' && S.key.address !== S.wallet) { S.key = null; resetPrivate(); toast(`Your wallet ${a ? 'switched accounts' : 'locked'}, so the Tacit key opened with it was locked. Open it again to continue.`); }
-  syncAccount(); paintWallet(); refreshAll();
+  walletMoved(a ? 'switched accounts' : 'locked');
 });
 const CHAIN_META = {
   1: { chainName: 'Ethereum', rpcUrls: ['https://ethereum-rpc.publicnode.com'], blockExplorerUrls: ['https://etherscan.io'] },
@@ -3556,7 +3563,7 @@ function paintStart() {
   else if (!k) show = !(S.address || knownWallet());
   else {
     const s = P.scan, seen = (key) => (lastSeen(key) ?? 0n) > 0n;
-    const dev = DEVICE_CHAINS.some((c) => (big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v) ?? 0n) > 0n) || (big(store.get(`tacit-lite-device-bal-v1:tac:${k}`)?.v) ?? 0n) > 0n;
+    const dev = [...DEVICE_CHAINS.map((c) => c.chainId), 'tac'].some((id) => (devBal(id, k) ?? 0n) > 0n);
     const sats = HELD.pub === k && (HELD.sats || []).some((a) => a.value > 0n);
     show = !dev && !sats && (s ? !s.partial && !s.notes.length && !s.pending.length : !P.err && !['teth', 'cbtc', 'cusd'].some(seen));
   }
@@ -3613,13 +3620,14 @@ render.wallet = () => {
   $('#w-copy').onclick = () => k.tacit && copy(k.tacit, 'Tacit address copied');
   $('#w-backup')?.addEventListener('click', () => navigator.clipboard.writeText(k.priv).then(() => toast('Key copied. Keep it somewhere private.'), () => toast('Could not copy the key: the browser refused clipboard access.', true)));
   $('#w-lock').onclick = () => { if (midAction()) return; evm.deselectProvider(); S.key = null; syncAccount(); resetPrivate(); paintWallet(); refreshAll(); rerender('wallet'); };
-  const bal = (id, who) => who && rpc('eth_getBalance', [who, 'latest']).then((b) => { const e = $('#' + id); if (e) e.textContent = `${fmt(BigInt(b), 18, 4)} ETH`; }, () => { const e = $('#' + id); if (e) e.textContent = '—'; });
+  const bal = (id, who) => { const e = $('#' + id); if (who && e) rpc('eth_getBalance', [who, 'latest']).then((b) => `${fmt(BigInt(b), 18, 4)} ETH`, () => '—').then((t) => { e.textContent = t; }); };
   bal('ac-abal', a.address); bal('ac-wbal', S.wallet);
+  const l2 = $('#ac-l2');
   l2Balances(a.address)
     .then((rows) => {
-      const e = $('#ac-l2'), has = rows.filter(([, b]) => b != null && b >= 10n ** 14n);
-      if (!e?.isConnected || !has.length) return;
-      mount(e, html`Also ${has.map(([c, b]) => `${fmt(b, 18, 4)} ETH on ${c.name}`).join(' and ')}, which pays for the private pool there.`); e.hidden = false;
+      const has = rows.filter(([, b]) => b != null && b >= 10n ** 14n);
+      if (!l2.isConnected || !has.length) return;
+      mount(l2, html`Also ${has.map(([c, b]) => `${fmt(b, 18, 4)} ETH on ${c.name}`).join(' and ')}, which pays for the private pool there.`); l2.hidden = false;
     });
   $$('[data-pay]', el).forEach((b) => b.onclick = () => !midAction() && busy(b, async () => {
     try { if (b.dataset.pay === 'wallet' && !S.wallet) await connect(); setPayer(b.dataset.pay); } catch (e) { toast(errText(e), true); }
@@ -4181,7 +4189,7 @@ const getUx = lazy(async () => {
 });
 const P = { scan: null, scanning: null, err: null };
 function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
-  try { FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.auto = {}; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
+  try { for (const x of Object.values(HOLD.byKey)) x.w = {}; FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.auto = {}; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
   dropTacitKey(); }
 async function scanPrivate(force = false) {
   if (!S.key) return null;
@@ -4201,7 +4209,7 @@ async function scanPrivate(force = false) {
       return { id, ticker: g.ticker || e?.ticker || null, value: BigInt(g.value), dec: m ? m.tacitDecimals ?? m.decimals ?? 8 : e?.dec ?? 8 };
     });
     P.scan = { at: Date.now(), since, notes: r.notes, eth: of('cETH'), cusd: of('cUSD'), tac: of('cTAC'), cbtc: { id: String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase(), notes: r.notes.filter((n) => String(n.asset).toLowerCase() === String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase()) },
-      pending: [...pending.values()].map((d) => depositOf(t, d)), others, spentNotes: r.spentNotes || [], partial: Object.keys(r.diag?.errors || {}).length > 0,
+      pending: [...pending.values()].map((d) => depositOf(t, d)), others, spentNotes: r.spentNotes || [], partial: Object.keys(r.diag?.errors || {}).length > 0, cbtcUnread: !!r.diag?.errors?.cbtc,
       farmPositions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, leafCount: r.leafCount ?? null };
     P.err = null;
     runsPrune();
@@ -5724,9 +5732,8 @@ async function deviceWallet() {
   if (DEV.W && DEV.key === S.key.pubHex + DEV.chain.chainId) return DEV.W;
   const m = await getDeviceMods(), c = DEV.chain;
   const keys = m.evmPoolKeys(m.zk, walletPriv());
-  const kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   DEV.W = m.makeEvmPoolWallet({
-    zk: m.zk, keys, keeper: c.keeper, store: kv,
+    zk: m.zk, keys, keeper: c.keeper, store: lsKv,
     chain: { chainId: c.chainId, pool: EVM_POOL, router: EVM_ROUTER, rpc: m.jsonRpc(c.rpc), deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk },
     prove: async (input) => (await prover(provingNote))(input),
   });
@@ -5774,7 +5781,7 @@ function deviceSync(fresh = false) {
     const [s, q] = await Promise.all([W.sync(), W.quote().catch(() => null)]);
     if (DEV.W === W) {
       DEV.bal = s.balance; DEV.quote = q; DEV.gq = {}; DEV.err = null; DEV.at = Date.now();
-      store.set(`tacit-lite-device-bal-v1:${DEV.chain.chainId}:${S.key.pubHex}`, { v: s.balance.toString(), at: Date.now() });
+      devBalSet(DEV.chain.chainId, S.key.pubHex, s.balance);
       dashSoon();
       holdingSoon(W, DEV.chain.chainId);
     }
@@ -5784,9 +5791,8 @@ function deviceSync(fresh = false) {
 const POINTS_DIRECT = 'https://tacit-points.onrender.com';
 const HOLD_CONSENT = 'tacit-holding-consent-v1';
 const HOLD = { byKey: {}, status: null, statusAt: 0, running: false, again: false, step: '', err: '', logRows: null };
-const holdKv = { get: (x) => { try { return localStorage.getItem(x); } catch { return null; } }, set: (x, v) => { try { localStorage.setItem(x, v); } catch {} } };
 const holdPayTo = () => S.acct?.address || S.wallet || null;
-const holdConsented = () => holdKv.get(HOLD_CONSENT) === '1';
+const holdConsented = () => lsKv.get(HOLD_CONSENT) === '1';
 const holdMod = () => import('/holding-run.js?cb=a37f06f7');
 async function holdingStatus() {
   if (HOLD.status && Date.now() - HOLD.statusAt < 5 * 60e3) return HOLD.status;
@@ -5846,7 +5852,7 @@ async function holdingRound({ manual = false } = {}) {
   try {
     const [m, h] = await Promise.all([getDeviceMods(), holdMod()]);
     return await h.runHolding({
-      api: POINTS_DIRECT, wallets: { ...slot.w }, keys: m.evmPoolKeys(m.zk, walletPriv()), claimAddress: to, zk: m.zk, kv: holdKv,
+      api: POINTS_DIRECT, wallets: { ...slot.w }, keys: m.evmPoolKeys(m.zk, walletPriv()), claimAddress: to, zk: m.zk, kv: lsKv,
       build: async (args) => { same(); return hwBuild(args); },
       prove: async (input) => { same(); return hwProve(input); },
       checkRoot: holdingCheckRoot,
@@ -5857,14 +5863,14 @@ async function holdingRound({ manual = false } = {}) {
 }
 async function holdingRows() {
   const to = holdPayTo();
-  HOLD.logRows = to ? (await holdMod()).holdingLog(holdKv, to) : [];
+  HOLD.logRows = to ? (await holdMod()).holdingLog(lsKv, to) : [];
 }
 function holdingRefresh() {
   if (!(S.wallet || S.key)) return;
   holdingStatus().then((st) => st.enabled && holdingRows()).then(() => rerender('pts')).catch(() => {});
 }
 async function holdingProveNow() {
-  holdKv.set(HOLD_CONSENT, '1');
+  lsKv.set(HOLD_CONSENT, '1');
   HOLD.err = ''; HOLD.step = 'Reading your pool balance…'; rerender('pts');
   try { await loadHeld(true); } catch {}
   HOLD.step = '';
@@ -5883,25 +5889,25 @@ function holdingSoon(W, chainId) {
   if (slot.day[chainId] === day) return;
   holdingStatus().then((st) => { if (st.enabled) { slot.day[chainId] = day; return holdingRound(); } }).catch(() => {});
 }
-const HELD = { pub: null, at: 0, loading: null, sats: null, satsErr: false };
+const HELD = { pub: null, at: 0, loading: null, sats: null };
 function loadHeld(force = false) {
   const pub = S.key?.pubHex;
   if (!pub) return Promise.resolve();
-  if (HELD.pub !== pub) Object.assign(HELD, { pub, at: 0, loading: null, sats: null, satsErr: false });
+  if (HELD.pub !== pub) Object.assign(HELD, { pub, at: 0, loading: null, sats: null });
   if (HELD.loading) return HELD.loading;
   if (!force && Date.now() - HELD.at < 5 * 60e3) return Promise.resolve();
-  const priv = walletPriv(), kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  const priv = walletPriv();
   const one = async (c) => {
     if (c.chainId === DEV.chain.chainId) return deviceSync();
     await poolSyncInWorker(c);
     const m = await getDeviceMods();
-    const W = m.makeEvmPoolWallet({ zk: m.zk, keys: m.evmPoolKeys(m.zk, priv), keeper: c.keeper, store: kv, prove: null,
+    const W = m.makeEvmPoolWallet({ zk: m.zk, keys: m.evmPoolKeys(m.zk, priv), keeper: c.keeper, store: lsKv, prove: null,
       chain: { chainId: c.chainId, pool: EVM_POOL, router: EVM_ROUTER, rpc: m.jsonRpc(c.rpc), deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk } });
     const s = await W.sync();
-    if (S.key?.pubHex === pub) { store.set(`tacit-lite-device-bal-v1:${c.chainId}:${pub}`, { v: s.balance.toString(), at: Date.now() }); dashSoon(); }
+    if (S.key?.pubHex === pub) { devBalSet(c.chainId, pub, s.balance); dashSoon(); }
     if (S.key?.pubHex === pub) holdingSoon(W, c.chainId);
   };
-  const seen = (c) => (big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${pub}`)?.v) ?? 0n) > 0n;
+  const seen = (c) => (devBal(c.chainId, pub) ?? 0n) > 0n;
   const order = [...DEVICE_CHAINS].sort((a, b) => Number(seen(b)) - Number(seen(a)) || Number(b.chainId === DEV.chain.chainId) - Number(a.chainId === DEV.chain.chainId));
   const idle = () => new Promise((r) => ('requestIdleCallback' in window ? requestIdleCallback(() => r(), { timeout: 4000 }) : setTimeout(r, 1500)));
   const chains = [(async () => {
@@ -5912,8 +5918,8 @@ function loadHeld(force = false) {
     const X = await import('/sats/secret.js?cb=a8c52b0f');
     const notes = (await X.poolNotes(X.poolWalletFor(priv, 'mainnet'))).filter((n) => !n.spent);
     const held = X.livePoolAssets().map((a) => ({ ...a, value: notes.filter((n) => strip(n.asset).toLowerCase() === a.id).reduce((t, n) => t + BigInt(n.value), 0n) }));
-    if (S.key?.pubHex === pub) { HELD.sats = held; HELD.satsErr = false; dashSoon(); }
-  })().catch(() => { if (S.key?.pubHex === pub) { HELD.satsErr = true; dashSoon(); } });
+    if (S.key?.pubHex === pub) { HELD.sats = held; dashSoon(); }
+  })().catch(() => {});
   return (HELD.loading = Promise.allSettled([...chains, sats]).then(() => { if (HELD.pub === pub) HELD.at = Date.now(); }).finally(() => { if (HELD.pub === pub) HELD.loading = null; }));
 }
 async function devResolve(raw) {
@@ -6018,7 +6024,7 @@ function renderDevice(el) {
   if (DEV.tok) return renderTokenPool(el);
   if (!needKey(el, 'Keep ETH private on Ethereum, Base, Robinhood Chain or MegaETH, proved in your browser.')) return;
   const c = DEV.chain, W = DEV.W && DEV.key === S.key.pubHex + c.chainId ? DEV.W : null;
-  const last = DEV.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${S.key.pubHex}`)?.v) : null;
+  const last = DEV.bal == null ? devBal(c.chainId, S.key.pubHex) : null;
   mount(el, html`
     ${segSub('chain', String(c.chainId), devPools())}
     <div class="bal">
@@ -6293,9 +6299,8 @@ const tokCfg = (p) => ({ chainId: p.chainId, keeper: null, rpc: p.rpc, deployBlo
 async function tokenWallet(p = DEV.tok) {
   if (TK.W && TK.key === S.key.pubHex + p.slug) return TK.W;
   const m = await getDeviceMods();
-  const kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   TK.W = m.makeEvmPoolWallet({
-    zk: m.zk, keys: m.evmPoolKeys(m.zk, walletPriv()), keeper: null, store: kv,
+    zk: m.zk, keys: m.evmPoolKeys(m.zk, walletPriv()), keeper: null, store: lsKv,
     chain: { ...tokCfg(p), rpc: m.jsonRpc(p.rpc) },
     prove: async (input) => (await prover(provingNote))(input),
   });
@@ -6312,7 +6317,7 @@ function tokenSync(fresh = false, p = DEV.tok) {
     const W = await tokenWallet(p), s = await W.sync();
     if (TK.W === W) {
       TK.bal = s.balance; TK.err = null; TK.at = Date.now();
-      store.set(`tacit-lite-device-bal-v1:${p.slug}:${S.key.pubHex}`, { v: s.balance.toString(), at: Date.now() });
+      devBalSet(p.slug, S.key.pubHex, s.balance);
       dashSoon();
     }
   }).finally(() => { if (TK.syncing === run) TK.syncing = null; });
@@ -6424,7 +6429,7 @@ function renderTokenPool(el) {
   const t = DEV.tok;
   if (!needKey(el, `Keep ${t.sym} private on Ethereum, proved in your browser.`)) return;
   const W = TK.W && TK.key === S.key.pubHex + t.slug ? TK.W : null;
-  const last = TK.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${t.slug}:${S.key.pubHex}`)?.v) : null;
+  const last = TK.bal == null ? devBal(t.slug, S.key.pubHex) : null;
   mount(el, html`
     ${segSub('chain', t.slug, devPools())}
     <div class="bal">
@@ -8829,7 +8834,7 @@ render.pts = () => {
   if (PTS.jump && $('#pts-lb', el)) { PTS.jump = false; $('#pts-lb', el).scrollIntoView({ block: 'start' }); }
   wireConnect('pts-connect', () => rerender('pts'));
   { const f = $('#pl-look-f', el), inp = $('#pl-look', el); if (f) { inp.oninput = () => { PTS.draft = inp.value; }; f.onsubmit = (ev) => { ev.preventDefault(); lookPoints(inp.value); }; } }
-  { const b = $('#hold-now', el); if (b) b.onclick = () => holdingProveNow(); const o = $('#hold-off', el); if (o) o.onclick = () => { holdKv.set(HOLD_CONSENT, '0'); rerender('pts'); }; }
+  { const b = $('#hold-now', el); if (b) b.onclick = () => holdingProveNow(); const o = $('#hold-off', el); if (o) o.onclick = () => { lsKv.set(HOLD_CONSENT, '0'); rerender('pts'); }; }
   wireSub(el, 'plv', (v) => { PTS.view = v; rerender('pts'); });
   $$('[data-earn]', el).forEach((b) => b.onclick = () => openLink(b.dataset.earn));
   const q = $('#pl-q', el);
@@ -11118,7 +11123,9 @@ async function nextKeyNonce(t, priv, controller, ps, ownerOf) {
 
 async function paintPrivateFeet() {
   if (!S.key) { setFoot('eth', ''); setFoot('borrow', ''); return; }
+  const pub = S.key.pubHex;
   const foot = (s) => {
+    if (S.key?.pubHex !== pub) return;
     const bits = [];
     if (s.eth.value > 0n) bits.push(`${fmt(s.eth.value, 8, 4)} tETH private`);
     const due = pendingFor('eth').length;
@@ -11126,7 +11133,7 @@ async function paintPrivateFeet() {
     if (LK.pub === S.key?.pubHex && lockList('claim').length) bits.push(`${lockList('claim').length} to claim`);
     if (!bits.length) {
       let dev = 0n;
-      for (const c of DEVICE_CHAINS) { const cached = store.get(`tacit-lite-device-bal-v1:${c.chainId}:${S.key.pubHex}`); if (cached?.v) try { dev += BigInt(cached.v); } catch {} }
+      for (const c of DEVICE_CHAINS) dev += devBal(c.chainId, S.key.pubHex) ?? 0n;
       bits.push(dev > 0n ? 'Private ETH on this device too' : 'Ethereum, Base, Robinhood Chain and MegaETH');
     }
     setFoot('eth', bits.join(' · '), s.eth.value > 0n || lockList('claim').length ? 'on' : '');
@@ -11162,9 +11169,9 @@ function dashItems() {
     out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value : null, err: scanErr, meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
     let dev = null;
     const on = [];
-    for (const c of DEVICE_CHAINS) { const v = big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
+    for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
     out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
-    const devTac = big(store.get(`tacit-lite-device-bal-v1:tac:${k}`)?.v);
+    const devTac = devBal('tac', k);
     out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
     // What a key holds on its Bitcoin address: read again whenever it is known to have held some (or has a bridge under way), and shown from
     // what it last held until the read is back, so it is there on every visit and not only the first of the day.
@@ -11190,7 +11197,7 @@ function dashItems() {
     const sats = HELD.pub === k ? HELD.sats : null;
     for (const a of sats || []) out.push({ key: `sats-${a.ticker.toLowerCase()}`, icon: a.ticker === 'TAC' ? 'tk-tac' : 'tk-cbtc', label: a.ticker, dec: a.decimals, max: a.ticker === 'TAC' ? 2 : 6,
       v: a.value, meta: 'Secret Sats, private on Bitcoin', href: a.ticker === 'TAC' ? '/tac/' : '/sats/', show: a.value > 0n, send: a.ticker === 'TAC' && a.value > 0n ? 'tacb' : null });
-    const cb = s ? s.cbtc.notes.reduce((a, n) => a + BigInt(n.value), 0n) : null;
+    const cb = s && !s.cbtcUnread ? s.cbtc.notes.reduce((a, n) => a + BigInt(n.value), 0n) : null;
     out.push({ key: 'cbtc', icon: 'tk-cbtc', label: 'cBTC', dec: 8, max: 6, v: cb, err: scanErr, meta: lk?.text || 'private', open: 'borrow', send: spendable('cbtc') > 0n ? 'cbtc' : null, show: cb > 0n || !!lk?.text });
     out.push({ key: 'cusd', icon: 'tk-cusd', label: 'cUSD', dec: 8, max: 2, v: s ? s.cusd.value : null, err: scanErr, open: 'borrow', send: spendable('cusd') > 0n ? 'cusd' : null, show: s?.cusd.value > 0n || !!lk?.borrowed,
       meta: lk?.borrowed ? `${fmt(lk.borrowed, 8, 2)} borrowed` : 'private' });
@@ -11225,11 +11232,12 @@ const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'tethbtc', 'tacbridged', 'cb
 function dashWorth(items) {
   const v = TPX.v;
   if (!v?.usdBtc || !v.ethBtc) { if (!TPX.p && S.key) loadTacPrice().then(dashSoon, () => {}); return null; }
-  const usd = { eth: v.usdBtc / v.ethBtc, btc: v.usdBtc, usd: 1, tac: v.mid ? v.mid * v.usdBtc / v.ethBtc : 0 };
+  const usd = { eth: v.usdBtc / v.ethBtc, btc: v.usdBtc, usd: 1, tac: v.mid ? v.mid * v.usdBtc / v.ethBtc : null };
   let all = 0, priv = 0;
   for (const it of items) {
     const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : DASH_PX[it.key];
     if (!kind || it.v == null) continue;
+    if (usd[kind] == null) { if (it.v > 0n || it.priv > 0n) return null; continue; }
     const n = Number(it.v) / 10 ** it.dec * usd[kind];
     all += n;
     if (it.key === 'tac') priv += Number(it.priv ?? 0n) / 1e18 * usd.tac;
@@ -12246,7 +12254,7 @@ function hxHeldOf(k) {
     if (k === 'btc') return BTC.pub === pub && BTC.got === 3 ? [BTC.sats + BTC.silent, 8, 'BTC'] : null;
     return a ? [a.decimals > 8 ? a.value / 10n ** BigInt(a.decimals - 8) : a.value * 10n ** BigInt(8 - a.decimals), 8, 'TAC'] : null;
   }
-  if (k === 'pp') { const v = big(store.get(`tacit-lite-device-bal-v1:${hxChain().chainId}:${S.key.pubHex}`)?.v); return v == null ? null : [v, 18, 'ETH']; }
+  if (k === 'pp') { const v = devBal(hxChain().chainId, S.key.pubHex); return v == null ? null : [v, 18, 'ETH']; }
   if (k === 'btc' && HX.tab === 'borrow') { const st = LOCK.state; return st?.sats != null ? [st.sats - st.pendingSats, 8, 'BTC'] : BTC.pub === S.key.pubHex && BTC.got === 3 ? [BTC.sats, 8, 'BTC'] : null; }
   if (!P.scan || !['eth', 'tac', 'cusd', 'cbtc'].includes(k)) return null;
   return [spendable(k), 8, { eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' }[k]];
