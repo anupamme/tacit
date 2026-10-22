@@ -449,33 +449,51 @@ async function stubPoolSettle(onSettle = 'ok') {
 async function chainUntil(fn, ms = 240000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(1500); } return false; }
 const toastSays = (page, re) => until(page, (r) => new RegExp(r).test(document.querySelector('#toast-container')?.textContent || '') || !!document.querySelector('#farm-precision .status .err'), re.source, 240000);
 
+// The TAC sheet drawn again (and read again), as another tab and back once did: its link followed while it is open
+const redrawTac = async (p) => { await p.evaluate(() => { location.hash = '#bridge/in'; }); await sleep(300); };
+// The front page's links for buying, selling and the airdrop leave for the pages that do them
+// Where a press sends the page, read from the request and refused, so the page (and its open key) stays as it was
+const asksFor = async (p, re, act) => {
+  let asked = null;
+  const h = (rt) => { asked = rt.request().url(); return rt.abort(); };
+  await p.route(re, h);
+  try { await act(); for (let i = 0; i < 300 && !asked; i++) await sleep(100); } finally { await p.unroute(re, h); }
+  return asked || '';
+};
+const leavesFor = async (p, base, h, re) => { await p.goto(base + h); await p.waitForURL(re, { timeout: 30000 }); return p.url(); };
+
 const main = await openPage({ account: A0, key: K0 });
 const { page, url } = main;
 
 await step('airdrop', async () => {
   await rpc('anvil_impersonateAccount', [RECIPIENT]);
   await rpc('anvil_setBalance', [RECIPIENT, '0x' + (10n ** 18n).toString(16)]);
+  // claimed on a snapshot, taken back after: the rewards checks that follow claim it themselves
+  const snapAir = await rpc('evm_snapshot');
   const r = await openPage({ account: RECIPIENT });
-  await r.page.goto(r.url + '#airdrop');
-  await r.page.click('#air-connect');
-  await r.page.waitForSelector('#air-claim', { timeout: 60000 });
-  await r.page.click('#air-claim');
-  await until(r.page, () => /Claimed\./.test(document.querySelector('#air-body')?.textContent || ''));
+  ok(/\/rewards\/$/.test(await leavesFor(r.page, r.url, '#airdrop', /\/rewards\//)), 'airdrop: the front page\'s #airdrop link opens the rewards page');
+  await r.page.goto(r.url + 'rewards/?q=' + RECIPIENT);
+  await r.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+  r.page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => r.page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
+  await r.page.click('[data-claim="airdrop"]');
+  await until(r.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]'), null, 180000);
   await shot(r.page, 'airdrop');
   ok((await tacOf(RECIPIENT)) >= 216176408192580000000000n, 'airdrop: the allocation arrives');
-  // The tile re-renders a few milliseconds after the claim's own line does, so it is waited for, not read once.
-  ok(await until(r.page, () => /claimed/i.test(document.querySelector('[data-foot="tac"]')?.textContent || ''), null, 15000).then(() => true, () => false), 'airdrop: the tile says claimed');
+  // The front page's tile reads the claim.
+  await r.page.goto(r.url);
+  ok(await until(r.page, () => /claimed/i.test(document.querySelector('[data-foot="tac"]')?.textContent || ''), null, 60000).then(() => true, () => false), 'airdrop: the tile says claimed');
   await r.browser.close();
-  await rpc('eth_sendTransaction', [{ from: RECIPIENT, to: TAC, data: '0xa9059cbb' + addrWord(A0) + word(1000n * 10n ** 18n) }]);
+  await rpc('evm_revert', [snapAir]);
+  await fundTac(A0, 1000n * 10n ** 18n);
 });
 
 await step('links', async () => {
-  await page.goto(url + '#swap');
-  await page.waitForSelector('#sheet-tac[open] [data-tac-mode="buy"][aria-selected="true"]', { timeout: 60000 });
-  ok(true, 'links: #swap opens TAC on Buy');
-  await page.click('[data-tac-mode="sell"]');
-  ok((await page.evaluate(() => location.hash)) === '#sell', 'links: the address bar follows the tab (#sell)');
-  await shot(page, 'links-sell');
+  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#swap', /\/swap\//)), 'links: #swap opens the swap page, ETH for TAC');
+  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#buy', /\/swap\//)), 'links: so does #buy');
+  ok(/\/swap\/\?from=TAC&to=ETH$/.test(await leavesFor(page, url, '#sell', /\/swap\//)), 'links: #sell opens it the other way, TAC for ETH');
+  await page.goto(url + '#bridge');
+  await page.waitForSelector('#sheet-tac[open] .tac-ways a[href^="/swap/"]', { timeout: 60000 });
+  ok((await page.getAttribute('#sheet-tac .tac-ways a[href^="/swap/"]', 'href')) === '/swap/?from=ETH&to=TAC' && (await page.getAttribute('#sheet-tac .tac-ways a[href="/rewards/"]', 'href')) === '/rewards/', 'links: the TAC sheet links to the swap and rewards pages');
   await page.goto(url + '#points');
   await page.waitForSelector('#sheet-pts[open]', { timeout: 60000 });
   await page.goto(url + '#earn');
@@ -516,10 +534,10 @@ await step('flowpanel', async () => {
 });
 
 await step('ux', async () => {
-  await page.goto(url + '#sell');
-  await page.waitForSelector('#sell-connect, #sl-amt', { timeout: 60000 });
-  if (await page.$('#sell-connect')) await page.click('#sell-connect');
-  await page.waitForSelector('#sl-amt');
+  await page.goto(url + '#farm');
+  await page.waitForSelector('#pf-connect, #pf-amt', { timeout: 60000 });
+  if (await page.$('#pf-connect')) await page.click('#pf-connect');
+  await page.waitForSelector('#sheet-farm[open] #pf-amt', { timeout: 120000 });
   // The page outside a modal dialog is inert, so a toast has to sit inside it to be pressed.
   await page.evaluate(() => {
     const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = '<button id="ux-toast" type="button">Open</button>'; window.__ux = 0;
@@ -527,23 +545,23 @@ await step('ux', async () => {
   });
   await page.waitForSelector('#ux-toast');
   await page.click('#ux-toast');
-  ok((await page.evaluate(() => window.__ux)) === 1 && await page.$eval('#sheet-tac', (d) => d.open), 'ux: a toast over an open sheet can be pressed, and the sheet stays open');
+  ok((await page.evaluate(() => window.__ux)) === 1 && await page.$eval('#sheet-farm', (d) => d.open), 'ux: a toast over an open sheet can be pressed, and the sheet stays open');
   await page.evaluate(() => document.querySelector('#toast-container .toast')?.remove());
-  const box = await page.locator('#sl-amt').boundingBox();
+  const box = await page.locator('#pf-amt').boundingBox();
   await page.mouse.move(box.x + 20, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(2, 2); await page.mouse.up();
-  ok(await page.$eval('#sheet-tac', (d) => d.open), 'ux: a drag that starts in the sheet and ends on the backdrop leaves it open');
-  await page.fill('#sl-amt', '1,500');
-  await page.locator('#sl-amt').blur();                                       // 1,500 is flagged on leaving the field, not while it may still be typed
+  ok(await page.$eval('#sheet-farm', (d) => d.open), 'ux: a drag that starts in the sheet and ends on the backdrop leaves it open');
+  await page.fill('#pf-amt', '1,500');
+  await page.locator('#pf-amt').blur();                                       // 1,500 is flagged on leaving the field, not while it may still be typed
   const hintSays = (re) => until(page, (r) => new RegExp(r).test(document.querySelector('[data-amt-hint]')?.textContent || ''), re.source, 5000).then(() => true, () => false);
   ok(await hintSays(/Write 1500 for fifteen hundred, or 1,5 for a decimal comma/), 'ux: an ambiguous 1,500 says how to write it');
-  await page.fill('#sl-amt', '1.2.3');
+  await page.fill('#pf-amt', '1.2.3');
   ok(await hintSays(/cannot be read/), 'ux: an unreadable amount says so');
-  await page.fill('#sl-amt', '1');
+  await page.fill('#pf-amt', '1');
   ok(!(await page.$('[data-amt-hint]')), 'ux: a readable amount shows no hint');
-  await page.evaluate(() => { location.hash = '#farm'; });
-  await page.waitForSelector('#sheet-farm[open]', { timeout: 60000 });
+  await page.evaluate(() => { location.hash = '#bridge'; });
+  await page.waitForSelector('#sheet-tac[open]', { timeout: 60000 });
   await sleep(600);
-  ok((await page.evaluate(() => location.hash)) === '#farm', 'ux: one sheet replacing another keeps the new sheet\'s link in the address bar');
+  ok((await page.evaluate(() => location.hash)) === '#bridge', 'ux: one sheet replacing another keeps the new sheet\'s link in the address bar');
   await page.goto(url + '#constructor');
   await page.waitForSelector('#hx-body .hx-h');
   await page.evaluate(() => { location.hash = '#points'; });
@@ -725,15 +743,8 @@ await step('reinvest', async () => {
 });
 
 await step('buy', async () => {
-  await page.goto(url + '#buy');
-  if (await page.$('#buy-connect')) await page.click('#buy-connect');
-  await page.waitForSelector('#b-amt');
-  await page.fill('#b-amt', '0.0005');
-  await until(page, () => !document.querySelector('#b-go').disabled, null, 240000);   // a cold fork makes the lens scan slow
-  const t0 = await tacOf(A0);
-  await page.click('#b-go');
-  await until(page, () => /Bought|err/.test(document.querySelector('#b-status')?.innerHTML || ''));
-  ok((await tacOf(A0)) > t0, `buy: TAC arrives ${await text(page, '#b-status')}`);
+  // Buying TAC is the swap page's (tests/swap-page.mjs buys on the fork): the front page's link goes there
+  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#buy', /\/swap\//)), 'buy: #buy opens the swap page, ETH for TAC');
 });
 
 await step('tacfarm', async () => {
@@ -775,30 +786,8 @@ await step('tacfarm', async () => {
 });
 
 await step('sell', async () => {
-  // A fresh EOA: the anvil keys carry sweeper code on mainnet, which forwards ETH on before a router can count it.
-  const key = '0x' + Buffer.from(secp.utils.randomPrivateKey()).toString('hex');
-  const who = '0x' + Buffer.from(keccak_256(secp.getPublicKey(key.slice(2), false).slice(1)).slice(12)).toString('hex');
-  await rpc('anvil_impersonateAccount', [who]); await rpc('anvil_setBalance', [who, '0x' + (10n ** 17n).toString(16)]);
-  await fundTac(who, 100n * 10n ** 18n);
-  const r = await openPage({ account: who, key });
-  try {
-    await r.page.goto(r.url + '#sell');
-    await r.page.waitForSelector('#sell-connect, #sl-amt', { timeout: 60000 });
-    if (await r.page.$('#sell-connect')) await r.page.click('#sell-connect');
-    await r.page.waitForSelector('#sl-amt');
-    await r.page.fill('#sl-amt', '25');
-    await acceptLoss(r.page, '#sl-go', '#sl-ackv');
-    const e0 = BigInt(await rpc('eth_getBalance', [who, 'latest'])), n0 = BigInt(await rpc('eth_getTransactionCount', [who, 'latest']));
-    const route = (await text(r.page, '#sl-rcpt')).replace(/\s+/g, ' ');
-    await r.page.click('#sl-go');
-    await until(r.page, () => /Sold|class="err"/.test(document.querySelector('#sl-status')?.innerHTML || ''), null, 240000);
-    ok((await tacOf(who)) === 75n * 10n ** 18n, `sell: 25 TAC sold ${await text(r.page, '#sl-status')}`);
-    // The pool that pays most takes the sale, and that moves with the market: through the Precision pool (or a split) the permit rides inside
-    // one transaction; through the Tacit pool the TAC is approved for exactly the sale first, a second transaction. Either leaves no allowance.
-    const sent = BigInt(await rpc('eth_getTransactionCount', [who, 'latest'])) - n0, viaTacit = /Route\s*Tacit public pool/.test(route);
-    ok(sent === (viaTacit ? 2n : 1n) && (await allowanceOf(TAC, who, ZROUTER)) === 0n && (await allowanceOf(TAC, who, '0x00000000E36C7EC997CC59DCda9E03673B448119')) === 0n, `sell: ${viaTacit ? 'the Tacit pool: an approval for the sale, then the sale' : 'one transaction, the permit riding inside it'}, no allowance left (${sent} sent; ${route.match(/Route\s*([^$]*?)(This pool|$)/)?.[1]?.slice(0, 60)})`);
-    ok(BigInt(await rpc('eth_getBalance', [who, 'latest'])) > e0, 'sell: ETH arrives, net of gas');
-  } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
+  // Selling TAC is the swap page's (tests/swap-page.mjs sells by permit on the fork): the front page's link goes there
+  ok(/\/swap\/\?from=TAC&to=ETH$/.test(await leavesFor(page, url, '#sell', /\/swap\//)), 'sell: #sell opens the swap page, TAC for ETH');
 });
 
 await step('v1', async () => {
@@ -1786,8 +1775,7 @@ await step('shieldwallet', async () => {
     await r.page.click('[data-pay="wallet"]');                                              // connects the stub wallet, which pays
     await until(r.page, () => document.querySelector('[data-pay="wallet"]')?.classList.contains('main'));
     await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
-    await r.page.waitForSelector('#sheet-tac[open] [data-tac-mode="buy"]', { timeout: 120000 });
-    await r.page.click('[data-tac-mode="buy"]');                                            // a wallet connected opens the sheet on the airdrop alone, which hides the balance
+    await r.page.waitForSelector('#sheet-tac[open] #tac-bal', { timeout: 120000 });
   };
   const maxIs = (p, re) => until(p, (x) => new RegExp(x).test((document.querySelector('#tsh-max')?.textContent || '').trim()), re, 120000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | max: ${await text(p, '#tsh-max')} | shield: ${(await text(p, '#tac-shield')).replace(/\s+/g, ' ').slice(0, 200)}`); });
@@ -2465,15 +2453,7 @@ await step('acct', async () => {
   await r.page.click('#pf-max');
   ok(/Max keeps/.test(await text(r.page, '#pf-status')) && !(await r.page.inputValue('#pf-amt')), `acct: Max with no ETH to spare says why it fills nothing (${await text(r.page, '#pf-status')})`);
   await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);             // funded from outside, as an exchange would
-
-  await go(r.page, '#buy');
-  await r.page.waitForSelector('#b-amt', { timeout: 60000 });
-  ok(/Tacit account/.test(await text(r.page, '#b-max')), 'acct: the pay line names the Tacit account');
-  await r.page.fill('#b-amt', '0.001');
-  await until(r.page, () => !document.querySelector('#b-go').disabled, null, 240000);
-  await r.page.click('#b-go');
-  await until(r.page, () => /Bought|err/.test(document.querySelector('#b-status')?.innerHTML || ''), null, 120000);
-  ok((await tacOf(want)) > 0n, `acct: Buy signs from the Tacit account, no wallet asked ${await text(r.page, '#b-status')}`);
+  await fundTac(want, 100n * 10n ** 18n);                                                // and some TAC (bought on the swap page, which is tested on its own)
 
   await go(r.page, '#farm');
   await r.page.waitForSelector('[data-pfm="pair"]', { timeout: 60000 });
@@ -2758,14 +2738,14 @@ await step('bridge', async () => {
     `bridge: the card's Bitcoin tab says what the key holds on Bitcoin and what is under way (${have.slice(0, 260)})`);
   await shot(r.page, 'hx-bitcoin-have');
   await r.page.click('#hx-go');
-  await until(r.page, () => location.hash === '#bridge' && !document.querySelector('#bridge-body').hidden && document.querySelector('[data-tac-mode="bridge"]').getAttribute('aria-selected') === 'true', null, 120000);
+  await until(r.page, () => location.hash === '#bridge' && !!document.querySelector('#sheet-tac[open] #bridge-body'), null, 120000);
   ok(true, 'bridge: the landing card\'s Bridge TAC from Bitcoin opens the TAC sheet on its Bridge tab, and the link reads #bridge');
   await shot(r.page, 'hx-bitcoin-bridge-tab');
   // The Bitcoin sheet's TAC line links here.
   await go(r.page, '#bitcoin');
   await until(r.page, () => !!document.querySelector('#btc-body a[data-link="bridge"]'), null, 120000);
   await r.page.click('#btc-body a[data-link="bridge"]');
-  await until(r.page, () => location.hash === '#bridge' && !document.querySelector('#bridge-body').hidden && document.querySelector('[data-tac-mode="bridge"]').getAttribute('aria-selected') === 'true');
+  await until(r.page, () => location.hash === '#bridge' && !!document.querySelector('#sheet-tac[open] #bridge-body'));
   ok(true, 'bridge: the Bitcoin sheet’s TAC line opens the TAC sheet’s Bridge tab, and the link reads #bridge');
   await until(r.page, () => document.querySelectorAll('#bridge-body .brn').length === 4, null, 120000);
   const notes = (await text(r.page, '#bridge-body .brns')).replace(/\s+/g, ' ').trim();
@@ -2773,21 +2753,19 @@ await step('bridge', async () => {
     `bridge: the notes are listed, the one over 1,000 TAC with its reason and a split control, not a dead choice (${notes})`);
   await r.page.check(`#bridge-body input[value="${N1}:0"]`);
   await until(r.page, () => /One Bitcoin transaction|err/.test(document.querySelector('#br-rcpt')?.innerHTML || ''), null, 120000);
-  ok(/Bridge/.test(await text(r.page, '[data-tac-mode="bridge"]')) && !!(await r.page.$('[data-tac-mode="bridge"] .dot.live')) && /waiting for you/.test(await text(r.page, '[data-tac-mode="bridge"] .sr')),
-    'bridge: the Bridge tab carries a dot, and says to a screen reader that bridges wait for their holder');
   const rc = (await text(r.page, '#br-rcpt')).replace(/\s+/g, ' ');
   ok(/One Bitcoin transaction/.test(rc) && /250(\.0+)? private TAC on Ethereum/.test(rc) && /Relay fee\s*None/.test(rc), `bridge: a tracked note checks out as one Bitcoin transaction with no relay fee (${rc.slice(0, 160)})`);
   await until(r.page, () => /short of the/.test(document.querySelector('#br-rcpt')?.textContent || ''), null, 120000).catch(() => {});
   // The check reads the whole reflection state: redrawing the sheet (another tab and back) must not read it again.
   const before = dumps;
-  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await redrawTac(r.page);
   await until(r.page, () => /short of the/.test(document.querySelector('#br-rcpt')?.textContent || ''), null, 60000);
   ok(dumps === before, `bridge: redrawing the sheet does not run the check, or read the reflection state, again (${before} → ${dumps})`);
   // The receipt offers public TAC on arrival, off unless asked for (a one-step bridge has no burn to send for the holder), and it stays as set across a redraw.
   const opt = await r.page.$$eval('#br-rcpt .pick', (xs) => xs.map((x) => [x.querySelector('input')?.id, x.querySelector('input')?.checked, x.textContent.replace(/\s+/g, ' ').trim().slice(0, 90)]));
   ok(opt.length === 1 && opt[0][0] === 'br-public' && opt[0][1] === false && /Make it public TAC when it arrives, in your Tacit account/.test(opt[0][2]), `bridge: a one-step receipt offers public TAC on arrival, unticked, and nothing to send for the holder (${JSON.stringify(opt)})`);
   await r.page.check('#br-public');
-  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await redrawTac(r.page);
   await until(r.page, () => !!document.querySelector('#br-public'), null, 60000);
   ok(await r.page.isChecked('#br-public'), 'bridge: the public-TAC choice is still ticked after the sheet is drawn again');
   await r.page.uncheck('#br-public');
@@ -2823,7 +2801,7 @@ await step('bridge', async () => {
     `bridge: Recover files one signed claim for that burn, and the row says the TAC is on its way back (${await text(r.page, '#br-rstatus')})`);
   // While a bridge is under way and notices are off, the tab offers them: a notice from this browser while the tab is in the background.
   // Not once the browser has blocked them.
-  const redraw = async () => { await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]'); };
+  const redraw = () => redrawTac(r.page);
   await r.page.evaluate(() => { Object.defineProperty(Notification, 'permission', { get: () => 'default', configurable: true }); });
   await redraw();
   await until(r.page, () => !!document.querySelector('#br-notify'), null, 60000);
@@ -2859,7 +2837,7 @@ await step('bridge', async () => {
   await r.page.evaluate(([k, p, n1, n2]) => localStorage.setItem(k, JSON.stringify({ [p]: [
     { txid: n1, amount: '25000000000', at: Date.now() - 3e6, height: 969990 }, { txid: n2, amount: '150000000000', at: Date.now() - 6e5, height: 970020 }] })),
   ['tacit-lite-bridge-prep-v1', pub, N1, N2]);
-  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await redrawTac(r.page);
   await until(r.page, () => /Getting ready/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 60000);
   const prepRows = await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter((t) => /^(250|1,500)/.test(t)));
   ok(prepRows.length === 2 && /Your turn/.test(prepRows[0]) && /Bridge it/.test(prepRows[0]) && /proof is at Bitcoin block 970,000, 20 blocks to go/.test(prepRows[1]) && !/Your turn|Bridge it/.test(prepRows[1]),
@@ -2872,7 +2850,7 @@ await step('bridge', async () => {
   await r.page.evaluate(([k, p, n1]) => localStorage.setItem(k, JSON.stringify({ [p]: [{ txid: n1, amount: '25000000000', at: Date.now() - 3e6, height: 969990, plan: { auto: { maxFee: 3000 } } }] })),
     ['tacit-lite-bridge-prep-v1', pub, N1]);
   await r.page.evaluate(() => { document.querySelector('#bridge-body [data-brprep]')?.scrollIntoView(); });
-  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await redrawTac(r.page);
   await until(r.page, () => /was not bridged for you/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 240000);
   const heldRow = (await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter((t) => /^250/.test(t)))).join(' | ');
   ok(/too few sats free for the fee/.test(heldRow) && /Your turn/.test(heldRow) && /Bridge it/.test(heldRow), `bridge: a note that asked to be bridged when ready, with no sats free, is held, says why, and is the holder's turn (${heldRow.slice(0, 260)})`);
@@ -2957,7 +2935,7 @@ await step('bridgedeep', async () => {
       `bridgedeep: a history through a pool trade says the bridge does not follow it and the note stays on Bitcoin, not to try again (${poolText})`);
     ok(/Its history includes a pool or farm trade on Bitcoin, which the bridge does not follow\./.test(await row(N3)) && traces === 7, `bridgedeep: and its row says so at once, after one ask (${await row(N3)})`);
     // The sheet drawn again lists both as not to be picked, without reading either history again.
-    await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+    await redrawTac(r.page);
     await until(r.page, () => document.querySelectorAll('#bridge-body .brn.off').length === 3, null, 60000);
     ok(traces === 7 && (await r.page.$$('#bridge-body input[name="br-note"]:not([disabled])')).length === 0, `bridgedeep: a note found too long or unprovable is not traced again, and all three are listed as not to be picked (${traces} asks)`);
     if (r.errors.length) { fails++; console.log('FAIL bridgedeep page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -3590,9 +3568,9 @@ await step('xobridge', async () => {
   if (!keyed) {
     // The summary is there once a wallet is connected, key or not.
     await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
-    await go(r.page, '#airdrop');
-    await r.page.click('#air-connect');
-    await r.page.waitForSelector('#air-body', { timeout: 60000 }).catch(() => {});
+    await go(r.page, '#points');
+    await r.page.click('#pts-connect');
+    await r.page.waitForSelector('#pts-body', { timeout: 60000 }).catch(() => {});
     await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
     await until(r.page, () => /under way in this browser\. Open your key/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).slice(0, 300)}`); });
@@ -3868,7 +3846,7 @@ await step('xtbridge', async () => {
   await r.page.evaluate(() => localStorage.setItem('tacit-tac-btc', 'true'));
   await toSide();
   await until(r.page, () => !!document.querySelector('#bridge-body [data-brm="out"][aria-selected="true"]'), null, 120000)
-    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash: ${await r.page.evaluate(() => location.hash)} | tab: ${await r.page.evaluate(() => document.querySelector('[data-tac-mode][aria-selected="true"]')?.dataset.tacMode)} | body: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(0, 200)} | flag: ${await r.page.evaluate(() => localStorage.getItem('tacit-tac-btc'))} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash: ${await r.page.evaluate(() => location.hash)} | tab: ${await r.page.evaluate(() => document.querySelector('#sheet-tac')?.open)} | body: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(0, 200)} | flag: ${await r.page.evaluate(() => localStorage.getItem('tacit-tac-btc'))} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
   ok((await r.page.evaluate(() => location.hash)) === '#bridge/out' && !!(await r.page.$('#bridge-body [data-brm="in"]')), 'xtbridge: enabled, the side is there, the link selects it and the address reads #bridge/out');
   await r.page.click('#bridge-body [data-brm="in"]');
   await until(r.page, () => !!document.querySelector('#bridge-body [data-brm="in"][aria-selected="true"]') && !!document.querySelector('#bridge-body #br-go'), null, 120000);
@@ -3909,7 +3887,6 @@ await step('xtbridge', async () => {
     `xtbridge: the six unfinished TAC bridges are listed in order, a finished one and a tETH one are not (${rows.length}: ${rows.map((x) => x.slice(0, 80)).join(' || ')})`);
   ok(/48 TAC/.test(rows[0]) && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')), 'xtbridge: a row names what arrives (the note less the relay fee, in TAC) and marks its step');
   ok(/Cancel/.test(rows[0]) && /Look again/.test(rows[0]) && /Send it anyway/.test(rows[2]) && /Sign it again/.test(rows[3]), 'xtbridge: the rows offer what each state allows');
-  ok(!!(await r.page.$('[data-tac-mode="bridge"] .dot.live')), 'xtbridge: the Bridge tab carries a dot while a bridge is under way');
   // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
   await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   await until(r.page, () => /3 bridges of TAC to Bitcoin are waiting for you\./.test(document.querySelector('#dash')?.textContent || ''), null, 120000)
@@ -5039,11 +5016,9 @@ await step('rewardsto', async () => {
       await n.page.waitForSelector('#air-news', { timeout: 60000 });
       ok((await n.page.getAttribute('#air-news', 'href')) === '/rewards/', 'rewardsto: the lander\'s airdrop line is a link to the rewards page');
       await n.page.evaluate(() => { location.hash = '#airdrop'; });
-      await until(n.page, () => document.querySelector('#sheet-tac')?.open === true && !document.querySelector('#air-more').hidden, null, 60000);
-      ok((await n.page.getAttribute('#air-more a', 'href')) === '/rewards/', 'rewardsto: and the Airdrop tab of its TAC sheet points there too');
-      await n.page.click('[data-tac-mode="buy"]');
-      await until(n.page, () => document.querySelector('#air-more').hidden, null, 10000);
-      ok(true, 'rewardsto: (only on that tab)');
+      await n.page.waitForURL(/\/rewards\/$/, { timeout: 30000 });
+      ok(true, 'rewardsto: and its #airdrop link opens the rewards page');
+      await n.page.goto(n.url);
       // The host serves the front page for a path that is not a file; this server does not, so it is asked to for /airdrop.
       await n.ctx.route(/\/airdrop(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: readFileSync(join(DAPP, 'index.html')) }));
       await n.page.goto(n.url + 'airdrop?x=1');
@@ -6048,8 +6023,8 @@ await step('dash', async () => {
       await r.page.waitForSelector('#hx-body .hx-h');
       if (tag === 'phone') { const w = await wide(r.page); ok(w.sw <= w.iw, `dash: the first paint at 390px has no sideways scroll (${w.sw} ≤ ${w.iw})`); }
       await shot(r.page, `first-paint-${tag}`);
-      await go(r.page, '#buy');
-      await r.page.click('#buy-connect');
+      await go(r.page, '#points');
+      await r.page.click('#pts-connect');
       await until(r.page, () => !document.querySelector('#dash').hidden, null, 30000);
       await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
       const early = await r.page.evaluate(() => document.querySelectorAll('#dash .sk').length);
@@ -6757,9 +6732,9 @@ await step('hxsendwallet', async () => {
   const p = r.page;
   const line = async () => (await text(p, '#hx-q')).replace(/\s+/g, ' ').trim();
   try {
-    await p.goto(r.url + '#airdrop');
-    await p.click('#air-connect');
-    await p.waitForSelector('#air-body', { timeout: 60000 }).catch(() => {});
+    await p.goto(r.url + '#points');
+    await p.click('#pts-connect');
+    await p.waitForSelector('#pts-body', { timeout: 60000 }).catch(() => {});
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
     await p.click('[data-hxm="send"]');
     await p.selectOption('#hx-sa', 'wtac');
@@ -7347,8 +7322,8 @@ await step('hxpanel', async () => {
     ok(await form('#w-amt', '1') && /Then swap it for TAC/.test(await text(p, '#sheet-eth .farm-back')), `hxpanel: more than the tETH held makes the ETH private first, and the wrap's sheet names the swap next (${(await text(p, '#sheet-eth .farm-back')).trim()})`);
     await p.click('#sheet-eth .farm-back a');
     ok(await form('#sw-amt', '1') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: the second step opens the swap with the same amount, and the line is gone');
-    await press('swap', '0.05', 'public', 'Buy TAC');
-    ok(await form('#b-amt', '0.05'), 'hxpanel: the public route opens Buy TAC with the amount');
+    const toSwap = await asksFor(p, /\/swap\/\?/, () => press('swap', '0.05', 'public', 'Buy TAC'));
+    ok(/\/swap\/\?from=ETH&to=TAC&amt=0\.05$/.test(toSwap), `hxpanel: the public route opens the swap page with the amount (${toSwap})`);
     await press('earn', '0.05', null, 'Farm with ETH');
     ok(await form('#pf-amt', '0.05'), 'hxpanel: Earn opens the public farm with the ETH in');
     await press('earn', '0.01', '0', 'Farm privately');
@@ -7568,23 +7543,8 @@ await step('hxsell', async () => {
       await until(p, () => /your wallet/.test(document.querySelector('#hx-to-w')?.textContent || ''), null, 120000);
     }
     ok(/your wallet/.test(w0), `hxsell: what you get is said to land where the chosen route sends it (${w0}), and follows the route picked`);
-    await p.click('#hx-go');
-    await p.waitForSelector('#sell-connect, #sl-amt', { timeout: 60000 });
-    if (await p.$('#sell-connect')) await p.click('#sell-connect');
-    await p.waitForSelector('#sl-amt');
-    ok(await until(p, () => document.querySelector('#sl-amt')?.value === '12000', null, 30000).then(() => true, () => false), 'hxsell: the Sell sheet opens with the amount from the card');
-    await until(p, () => /Split: \d+% Precision pool, \d+% Tacit public pool/.test(document.querySelector('#sl-rcpt')?.textContent || ''), null, 300000);
-    ok(true, `hxsell: and quotes the same split (${(await text(p, '#sl-rcpt')).replace(/\s+/g, ' ').slice(0, 160)})`);
-    const sheetPct = Number(((await text(p, '#sl-rcpt')).match(/Price impact\s*([\d.]+)%/) || [])[1]);
-    ok(Math.abs(cardPct - sheetPct) <= 1, `hxsell: the card's price impact is the sheet's (${cardPct}% and ${sheetPct}%)`);
-    await acceptLoss(p, '#sl-go', '#sl-ackv');
-    const e0 = BigInt(await rpc('eth_getBalance', [who, 'latest'])), n0 = BigInt(await rpc('eth_getTransactionCount', [who, 'latest']));
-    const mc0 = await tacOf('0xcA11bde05977b3631167028862bE2a173976CA11');
-    await p.click('#sl-go');
-    await until(p, () => /Sold|class="err"/.test(document.querySelector('#sl-status')?.innerHTML || ''), null, 300000);
-    ok((await tacOf(who)) === 28000n * 10n ** 18n, `hxsell: 12,000 TAC sold through the split (${await text(p, '#sl-status')})`);
-    ok(BigInt(await rpc('eth_getTransactionCount', [who, 'latest'])) === n0 + 1n && (await allowanceOf(TAC, who, ZROUTER)) === 0n, 'hxsell: one transaction, the permit riding inside it, no allowance left');
-    ok(BigInt(await rpc('eth_getBalance', [who, 'latest'])) > e0 + 5n * 10n ** 17n && (await tacOf('0xcA11bde05977b3631167028862bE2a173976CA11')) === mc0, 'hxsell: the ETH arrives (over 0.5 ETH for 12,000 TAC) and Multicall3 keeps no TAC');
+    const toSwap = await asksFor(p, /\/swap\/\?/, () => p.click('#hx-go'));
+    ok(/\/swap\/\?from=TAC&to=ETH&amt=12000$/.test(toSwap), `hxsell: the swap page opens, TAC for ETH, with the amount from the card (${toSwap})`);
     if (r.errors.length) { fails++; console.log('FAIL hxsell page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
 });
@@ -7980,8 +7940,7 @@ await step('tour', async () => {
     for (const m of ['send', 'out', 'receive']) { await p.click(`[data-dev="${m}"]`); await snap(`device-${m}`); }
     await go(p, '#btc'); await shown(p, '#bt-to', 120000); await loaded(p, '#btc-body .bal'); await p.fill('#bt-to', other).catch(() => {}); await p.fill('#bt-amt', '0.001').catch(() => {}); await shown(p, '#bt-rcpt:not([hidden])'); await snap('btc-send');
     await p.click('[data-btcm="receive"]'); await snap('btc-receive');
-    await go(p, '#airdrop'); await shown(p, '#air-body .gate'); await snap('tac-airdrop');
-    await p.click('[data-tac-mode="buy"]'); await p.fill('#b-amt', '0.01'); await shown(p, '#b-rcpt:not([hidden])'); await snap('tac-buy');
+    await go(p, '#bridge'); await shown(p, '#sheet-tac .tac-ways'); await snap('tac-bridge');
     await go(p, '#pts'); await shown(p, '#wei-name'); await shown(p, '#pts-body .pt', 120000); await p.fill('#wei-name', 'tacitlite'); await shown(p, '#wei-rcpt:not([hidden])'); await snap('points');
     await go(p, '#farm'); await shown(p, '#pf-amt', 120000); await p.fill('#pf-amt', '0.05'); await shown(p, '#pf-rcpt:not([hidden])'); await snap('farm-precision');
     const pid = await p.$('[data-farm^="pid"] > button');
