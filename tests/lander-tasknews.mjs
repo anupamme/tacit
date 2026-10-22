@@ -1,6 +1,6 @@
 // The front page's "Task" line (dapp/tasks/open.js) in a real browser, under the page's own CSP, with every request to a service the page would
-// make stubbed or refused: it shows only when the rewards service is on, a job's rewards have opened, some step of it has no claim and the tasks
-// budget has room; it says what there is to earn; it is remembered for five minutes; and it fits beside the airdrop line at a phone and a desktop width.
+// make stubbed or refused: it shows only when the rewards service is on, a job's rewards have opened, some step of it has no claim and is not already
+// on the chain, and the tasks budget has room; it says what there is to earn; it is remembered for five minutes; and it fits beside the airdrop line at a phone and a desktop width.
 //   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/lander-tasknews.mjs      (SHOTS=dir saves screenshots)
 import { createRequire } from 'node:module';
 import http from 'node:http';
@@ -28,11 +28,14 @@ const TAC = 10n ** 18n, NOW = Math.floor(Date.now() / 1000);
 const step = (id, tac, claimed = false) => ({ id, chainId: 1, estimateWei: String(BigInt(tac) * TAC), claim: claimed ? { address: '0x1', wei: String(BigInt(tac) * TAC), txHash: '0x2', state: 'credited' } : null });
 const api = (jobs, budget = 760) => ({ enabled: true, endSec: NOW + 1e6, budget: { totalWei: String(1150n * TAC), creditedWei: '0', pendingWei: '0', remainingWei: String(BigInt(budget) * TAC) }, jobs });
 const meta = (id, title, opensAt) => ({ id, title, opensAt, steps: [] });
+const AT = '0x00000065e3e51af95d330fb6932ca3e87912c554';
+const deploy = (id, title, opensAt) => ({ ...meta(id, title, opensAt), chainId: 1, steps: [{ id: '01-amm-route', kind: 'createx', expected: AT }] });
+const NODE = /^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.drpc\.org|1rpc\.io|mainnet\.gateway\.tenderly\.co)$/, CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type' };
 
 const browser = await chromium.launch();
-async function open({ service, jobs, viewport = { width: 1280, height: 900 }, store = null }) {
+async function open({ service, jobs, viewport = { width: 1280, height: 900 }, store = null, chain = null }) {
   const ctx = await browser.newContext({ viewport });
-  const errors = [], blocked = [];
+  const errors = [], blocked = [], reads = [];
   await ctx.addInitScript(() => { window.__cls = 0; try { new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); } catch { } });
   if (store) await ctx.addInitScript((s) => { try { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); } catch { } }, store);
   await ctx.route('**/*', async (route) => {
@@ -45,6 +48,13 @@ async function open({ service, jobs, viewport = { width: 1280, height: 900 }, st
       if (service === 'down') return route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*' }, body: 'down' });
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(service) });
     }
+    if (chain && NODE.test(u.origin)) {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
+      const call = JSON.parse(route.request().postData() || '{}'), at = String(call.params?.[0]).toLowerCase();
+      if (call.method !== 'eth_getCode') return route.abort();
+      reads.push(at);
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ jsonrpc: '2.0', id: call.id, result: chain.has(at) ? '0x6080' : '0x' }) });
+    }
     return route.abort();
   });
   const page = await ctx.newPage();
@@ -52,7 +62,7 @@ async function open({ service, jobs, viewport = { width: 1280, height: 900 }, st
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); } });
   await page.goto(`${SITE}/`, { waitUntil: 'load' });
   await page.waitForSelector('#air-news');
-  return { ctx, page, errors, blocked };
+  return { ctx, page, errors, blocked, reads };
 }
 const pill = (page) => page.evaluate(() => { const a = document.getElementById('task-news'); return { shown: !!a && !a.hidden && a.getBoundingClientRect().width > 0, text: a?.innerText.replace(/\s+/g, ' ').trim(), href: a?.getAttribute('href'), title: a?.getAttribute('title') }; });
 const settle = async (page, want) => { await page.waitForFunction((w) => { const a = document.getElementById('task-news'); return w ? !!a && !a.hidden : true; }, want, { timeout: 15000 }).catch(() => {}); await page.waitForTimeout(want ? 200 : 1800); };
@@ -124,6 +134,26 @@ for (const [name, opts] of [
   await settle(page, false);
   ok(!(await pill(page)).shown, 'no line for a retired job whose step has not been claimed yet');
   await ctx.close();
+}
+// a contract that is already on the chain has nothing left to send, claimed or not
+{
+  const live = api([{ id: 'amm-route', estimateWei: String(30n * TAC), steps: [step('01-amm-route', 30)] }]), jobs = [deploy('amm-route', 'Deploy the swap route', NOW - 60)];
+  const a = await open({ service: live, jobs, chain: new Set([AT]) });
+  await settle(a.page, false);
+  ok(!(await pill(a.page)).shown && a.reads.includes(AT), 'no line for a step whose contract is already on the chain, though its reward is not claimed');
+  await a.ctx.close();
+  const b = await open({ service: live, jobs, chain: new Set() });
+  await settle(b.page, true);
+  ok((await pill(b.page)).text === 'Task Earn 30 TAC →', 'a contract that is not on the chain yet is still a task');
+  await b.ctx.close();
+  const c = await open({ service: live, jobs });
+  await settle(c.page, true);
+  ok((await pill(c.page)).shown, 'and when no node answers the line stays');
+  await c.ctx.close();
+  const d = await open({ service: api([{ id: 'amm-route', estimateWei: String(30n * TAC), steps: [step('01-amm-route', 30, true)] }]), jobs, chain: new Set() });
+  await settle(d.page, false);
+  ok(!(await pill(d.page)).shown && !d.reads.length, 'a claimed step is not looked up on the chain');
+  await d.ctx.close();
 }
 // a job whose reward is not known yet
 {

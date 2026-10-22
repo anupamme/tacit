@@ -5,7 +5,7 @@ const WAD = 10n ** 18n;
 
 const get = (url) => fetch(url, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-export function liveJobs(jobs, api, now = Date.now() / 1000) {
+export function liveJobs(jobs, api, now = Date.now() / 1000, deployed = new Set()) {
   if (!api?.enabled || !Array.isArray(api.jobs) || !Array.isArray(jobs)) return [];
   let room = null;
   try { if (api.budget?.remainingWei != null) room = BigInt(api.budget.remainingWei); } catch { return []; }
@@ -14,13 +14,29 @@ export function liveJobs(jobs, api, now = Date.now() / 1000) {
   for (const j of api.jobs) {
     const meta = jobs.find((x) => x.id === j.id);
     if (!meta?.opensAt || meta.retired || now < meta.opensAt || !Array.isArray(j.steps)) continue;
-    const left = j.steps.filter((s) => !s.claim);
+    const left = j.steps.filter((s) => !s.claim && !deployed.has(`${j.id}:${s.id}`));
     if (!left.length) continue;
     let wei = null;
     try { if (left.every((s) => s.estimateWei != null)) wei = left.reduce((n, s) => n + BigInt(s.estimateWei), 0n); } catch { wei = null; }
     out.push({ id: j.id, title: String(meta.title || ''), wei: wei === null ? null : String(room !== null && wei > room ? room : wei) });
   }
   return out;
+}
+
+// A contract that is already on Ethereum has nothing left to send, whether or not its reward has been named to the service yet.
+async function deployedSteps(jobs, api, live) {
+  const asks = [];
+  for (const j of api.jobs) {
+    const meta = live.some((l) => l.id === j.id) ? jobs.find((x) => x.id === j.id) : null;
+    for (const s of j.steps || []) {
+      const at = meta && !s.claim ? meta.steps?.find((x) => x.id === s.id) : null;
+      if (at?.kind === 'createx' && (at.chainId ?? meta.chainId) === 1) asks.push([`${j.id}:${s.id}`, at.expected]);
+    }
+  }
+  if (!asks.length) return new Set();
+  const { rpc } = await import('/trade/util.js?cb=509d6618');
+  const code = await Promise.all(asks.map(([, to]) => rpc('eth_getCode', [to, 'latest']).catch(() => '0x')));
+  return new Set(asks.filter((_, i) => code[i] !== '0x').map(([key]) => key));
 }
 
 export function pill(live) {
@@ -54,7 +70,11 @@ async function run() {
   if (kept) return show(kept);
   const [jobs, api] = await Promise.all([get('/tasks/jobs.json'), get(`${POINTS}/tasks`)]);
   if (!jobs || !api) return;
-  const live = liveJobs(jobs.jobs, api);
+  let live = liveJobs(jobs.jobs, api);
+  if (live.length) {
+    const deployed = await deployedSteps(jobs.jobs, api, live).catch(() => new Set());
+    if (deployed.size) live = liveJobs(jobs.jobs, api, undefined, deployed);
+  }
   try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), live })); } catch { }
   show(live);
 }
