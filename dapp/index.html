@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hlsWP1hv0wQQqCJLptaCpCBk9mwkpG8q7kRCEyg2xqo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-F54T2DC03K7z0ZYRyrDiO9zck56qepI7uBFougVH1Gg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1594,6 +1594,8 @@ import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor } from '/farm-ops.js?cb=4470442d';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
+import { stepIn, stepOut, advanceOut, outPubs, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=84475d9e';
+import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
 if (window.__tacitAway) await new Promise(() => {});
 
@@ -2147,7 +2149,6 @@ function exitKind(k, units) {
 }
 const OBOX = { pub: null, box: null, min: null };
 const maxNotes = async (k) => { const v = spendable(k), keep = await noteKeep(k); return v > keep ? v - keep : 0n; };
-const waitRanOut = (e) => /settle timed out|status polling for job/i.test(e?.message || '');
 function relayCode(e) { return typeof e?.code === 'string' ? e.code : ''; }
 function proveCapped(e) { return relayCode(e) === 'prove_budget' || /\bprove_budget\b|prove capacity for today|as many proofs as it can/i.test(String(e?.message || e || '')); }
 function proved(e) { return relayCode(e) === 'open' && !!e?.open?.proof && Array.isArray(e.open.memos); }
@@ -3168,37 +3169,11 @@ function setKey(k) {
 }
 
 const TACIT_URL = '/tacit.js?cb=c69646c8';
-const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
-const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
-  ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
 let T = null;
-const loadTacit = lazy(async () => {
-  try { const cur = localStorage.getItem(SHARED_NET); if (sessionStorage.getItem(PREV_NET) === null && cur !== 'mainnet') sessionStorage.setItem(PREV_NET, cur ?? ''); localStorage.setItem(SHARED_NET, 'mainnet'); } catch {}
-  globalThis.__TACIT_NO_INIT__ = true;
-  T = await import(TACIT_URL);
-  return T;
-});
-window.addEventListener('pagehide', () => {
-  try { const p = sessionStorage.getItem(PREV_NET); if (p !== null) { p === '' ? localStorage.removeItem(SHARED_NET) : localStorage.setItem(SHARED_NET, p); sessionStorage.removeItem(PREV_NET); } } catch {}
-});
-async function keepShared(fn) {
-  let snap = [];
-  try { snap = SHARED_WALLET_KEYS.map((k) => [k, localStorage.getItem(k)]); } catch {}
-  const theirs = new Set(), seen = (e) => { if (e.storageArea === localStorage) theirs.add(e.key); };
-  window.addEventListener('storage', seen);
-  try { return await fn(); } finally {
-    window.removeEventListener('storage', seen);
-    for (const [k, v] of snap) { if (theirs.has(k) || theirs.has(null)) continue; try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
-  }
-}
-let tacitQ = Promise.resolve();
-function tacitTurn(fn) {
-  const run = tacitQ.then(async () => { await loadTacit(); return keepShared(fn); });
-  tacitQ = run.catch(() => {});
-  return run;
-}
+// tacit.js under this page's key, one call at a time (/tacit-session.js)
+const TS = makeTacitSession({ url: TACIT_URL, key: () => S.key, secp, bytesToHex, hexToBytes, onLoad: (m) => { T = m; } });
+const loadTacit = TS.load, tacitTurn = TS.turn, withKey = TS.withKey, dropTacitKey = TS.drop, tPriv = TS.tPriv;
 const mainnetBtc = (a) => { if (!/^(bc1|[13])/i.test(String(a || ''))) throw new Error('Your Bitcoin wallet is on a test network. Switch it to mainnet.'); };
-const tPriv = () => { const h = bytesToHex(T.wallet.priv); T.wallet.priv.fill(0); T.wallet.priv = null; return h; };
 
 const open = {
   async eth(k) {
@@ -5099,17 +5074,7 @@ function xoRow(r) {
     ${cancel ? html`<div class="actr-f">Cancelling looks for the burn on Ethereum once more first. If it shows up later, “A bridge you started is not listed” finds it from its transaction.</div>` : ''}
   </li>`;
 }
-async function xoAdvance(ux, pub, rec, allowHighFee = false) {
-  let cur = rec;
-  for (let i = 0; i < 4; i++) {
-    if (cur.stage === 'covered' && S.key?.pubHex !== pub) return cur;
-    const next = cur.stage === 'covered' ? await withKey(() => ux.advance(pub, cur.id, { walletPriv: walletPriv(), allowHighFee }), pub) : await ux.advance(pub, cur.id);
-    if (next.stage === cur.stage) return next;
-    cur = next;
-    if (cur.stage === 'mint-submitted' || cur.stage === 'minted') return cur;
-  }
-  return cur;
-}
+const xoAdvance = (ux, pub, rec, allowHighFee = false) => advanceOut(ux, pub, rec, { withKey, priv: walletPriv, keyPub: () => S.key?.pubHex, allowHighFee });
 function xoArrived(rec) {
   toast(`${xoAmt(rec)} is on your Bitcoin address. See ${xaOf(rec)?.see || 'To Bitcoin'}.`);
   osNote('Bridge to Bitcoin', `${xoAmt(rec)} is on your Bitcoin address`, `${rec.id}:xminted`, () => openLink(xaOf(rec)?.key === 'tac' ? 'bridge/out' : xaOf(rec)?.key === 'cbtc' ? 'borrow' : 'private/bitcoin/back'));
@@ -5139,41 +5104,24 @@ async function xoAct(run, kind, id) {
 }
 // A bridge's proof, its confirmation and its credit are read from the chains, so a saved bridge goes on with no key open, or with another one's:
 // only the Bitcoin step and the rebuilding of a claim need its own key. The journals are found by their names in this browser's storage.
-const xoPubs = () => {
-  const own = 'tacit-crossout-bridge-v1:mainnet:', pubs = [];
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if (k.startsWith(own) && /^[0-9a-f]{66}$/.test(k.slice(own.length))) pubs.push(k.slice(own.length)); } } catch {}
-  return pubs.filter((pub) => Object.values(XA).some((a) => xoJournaled(pub, a)));
-};
+const xoPubs = () => outPubs().filter((pub) => Object.values(XA).some((a) => xoJournaled(pub, a)));
 async function xoTick(first = false) {
   if (XO.auto || (!first && Date.now() - XO.autoAt < 75e3)) return;
-  const keyPub = S.key?.pubHex, pubs = xoPubs();
+  const pubs = xoPubs();
   if (!pubs.length) return;
   XO.auto = true; XO.autoAt = Date.now();
   const moved = new Set();
   try {
     const ux = await xoUx();
-    for (const [pub, listed] of pubs.flatMap((p) => Object.values(XA).flatMap((a) => xoRecords(p, a)).map((r) => [p, r]))) {
-      if (S.key?.pubHex !== keyPub) break;
-      let rec = listed;
-      if (pub === keyPub && rec.stage === 'settled' && rec.settle?.claimIdVerified === false && rec.settle.txHash && Date.now() - Number(XO.rechecked[rec.id] || 0) > 10 * 60e3) {
-        XO.rechecked[rec.id] = Date.now();
-        try { rec = await ux.recoverFromEthTx(xoHash(rec.settle.txHash), walletPriv(), { amount: BigInt(rec.source.amount ?? rec.source.value) }); } catch { rec = listed; }
-        if (rec.settle?.claimIdVerified !== false) moved.add(xaOf(rec).sheet);
-      }
-      const sends = rec.stage === 'covered' || rec.stage === 'mint-signed';
-      if (rec.lastError && sends && ((!rec.lastError.feeWait && !rec.lastError.fundWait && (Number(rec.errorCount) || 0) >= 6) || Date.now() - Number(rec.lastError.at || 0) < (rec.lastError.fundWait ? 2 : 10) * 60e3)) continue;
-      try {
-        const after = await xoAdvance(ux, pub, rec);
-        if (after?.stage !== rec.stage) moved.add(xaOf(rec).sheet);
-        if (after?.stage === 'minted' && (!keyPub || pub === keyPub)) xoArrived(after);
-      } catch (e) {
-        moved.add(xaOf(rec).sheet);
-        if (e?.fundWait && !rec.lastError?.fundWait) {
+    const recs = await stepOut({ ux, pubs, records: (p) => Object.values(XA).flatMap((a) => xoRecords(p, a)), keyPub: () => S.key?.pubHex, withKey, priv: walletPriv, rechecked: XO.rechecked,
+      on: {
+        arrived: xoArrived,
+        fundWait: (rec, e) => {
           const msg = `Add about ${Number(e.needSats).toLocaleString('en-US')} sats to your Bitcoin address to finish bridging ${xoAmt(rec)}`;
           toast(msg); osNote('Bridge to Bitcoin', msg, `${rec.id}:xfund`, () => openLink('bitcoin/receive'));
-        }
-      }
-    }
+        },
+      } });
+    for (const r of recs) moved.add(xaOf(r).sheet);
   } catch {} finally { XO.auto = false; }
   for (const sheet of moved) rerender(sheet);
   if (moved.size) { dashSoon(); paintAct(); }
@@ -6558,21 +6506,6 @@ const SPENT = new Set(), SPENT_LAST = new Map(), UNSPENT_AT = new Map();
 const SATS_DUST = 546n, ASSET_SEND_SATS = 3000n, TAC_BTC_ID = CHAIN_ASSETS.tac.id, TETH_BTC_ID = CHAIN_ASSETS.teth.id;
 const BTC_TOKENS = Object.fromEntries(BTC_NOTE_ASSETS.map((a) => [a.id, a.ticker]));
 const MOVE_SATS = 5000n, NOTES_MAX = 10;
-function withKey(fn, pub = S.key?.pubHex) {
-  return tacitTurn(async () => {
-    if (!S.key || S.key.pubHex !== pub) throw new Error('Your Tacit wallet changed, so nothing was done.');
-    if (!T.wallet.priv || bytesToHex(T.wallet.pub || new Uint8Array()) !== pub) {
-      const priv = hexToBytes(S.key.priv);
-      T.wallet.priv = priv; T.wallet.pub = secp.getPublicKey(priv, true);
-      try { T.invalidateHoldingsCache({ fromPoll: true }); } catch {}
-    }
-    return fn(T);
-  });
-}
-function dropTacitKey() {
-  if (!T) return;
-  tacitTurn(() => { T.wallet.priv?.fill(0); T.wallet.priv = null; T.wallet.pub = null; try { T.invalidateHoldingsCache({ fromPoll: true }); } catch {} }).catch(() => {});
-}
 function loadBtc(force = false) {
   if (!S.key) return Promise.resolve();
   if (BTC.loading) return force ? BTC.loading.catch(() => {}).then(() => loadBtc(true)) : BTC.loading;
@@ -7036,7 +6969,7 @@ load.tac = () => { loadTacPrice(false, true).then(paintTacPrice).catch(() => {})
 
 const BR = { pub: null, notes: null, at: 0, loading: null, err: null, pick: null, refl: null, reflAt: 0, reflP: null, autoAt: 0, auto: false, rv: null, acked: null, drop: null, starting: false, publishing: false, noPublic: false,
   opts: { selfburn: true, prepauto: true, public: false }, deep: new Map(), checks: new Map() };
-const BR_DONE = ['minted', 'reclaimed'], BR_HELD = ['not-recorded', 'stopped', 'recovered'];
+const BR_DONE = IN_DONE, BR_HELD = IN_HELD;
 const BR_STEPS = { reflected: ['Burn sent', 'Confirmed', 'Recorded', 'Arrived'], deposit: ['Moved', 'Burned', 'Recorded', 'Arrived'] };
 // Paying someone else from the bridge form is off until switched on: open the page once with ?stealth=1 (?stealth=0 turns it off again).
 const BR_TO_ON = (() => {
@@ -7052,7 +6985,7 @@ const brUx = async () => (await loadTacit()).bridgeUx();
 const brId = (n) => `${n.txid}:${n.vout}`;
 const brTk = (rec) => rec?.source?.ticker || 'TAC';
 const brRaw = (v) => BigInt(v?.__big ?? v ?? 0);
-const BR_BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'minted'];
+const BR_BURN_SENT = IN_BURN_SENT;
 const brAmt = (rec) => `${fmt(brRaw(rec.source.amount), 8, brTk(rec) === 'TAC' ? 4 : 6)} ${brTk(rec)}`;
 const brList = (pub) => (!pub ? [] : T ? T.bridgeUx().list(pub) : brJournal(pub));
 const brRecords = (pub) => brList(pub).filter((r) => !BR_DONE.includes(r.stage) && brTk(r) === 'TAC').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -7929,29 +7862,16 @@ async function brTick(first = false) {
   let moved = false;
   try {
     const ux = await brUx();
-    for (const rec of ux.list(pub).filter((r) => !BR_DONE.includes(r.stage) && !BR_HELD.includes(r.stage))) {
-      if (S.key?.pubHex !== pub) break;
-      if (rec.path === 'reflected' && rec.mint && !rec.arm?.ok && Number(rec.arm?.tries || 0) < 6) await withKey(() => ux.armMint(pub, rec.id, { walletPriv: walletPriv() }), pub).catch(() => {});
-      const ready = rec.stage === 'folded' || rec.stage === 'rfolded';
-      const due = ready && ux.mintRetryDue(rec, { ranOut: waitRanOut(rec.lastError) });
-      try {
-        let after;
-        if (rec.stage === 'traced' && (brPlanOf(rec)?.burn || rec.checkWait?.go) && !rec.lastError) {
-          after = await withKey(() => ux.advance(pub, rec.id, { walletPriv: walletPriv(), maxFeeRate: brPlanOf(rec)?.burn?.maxRate ?? null }), pub);
-          if (after.stage === 'burn-signed') after = await ux.advance(pub, rec.id).catch(() => ux.list(pub).find((r) => r.id === rec.id) || after);
-          if (BR_BURN_SENT.includes(after.stage)) toast(`${brAmt(after)}: the burn is sent`);
-          else if (after.feeWait && !rec.feeWait) moved = true;
-        } else after = due ? await ux.advance(pub, rec.id, { walletPriv: walletPriv() })
-          : ready || rec.stage === 'traced' ? await ux.verify(pub, rec.id) : await ux.advance(pub, rec.id);
-        if (after?.stage !== rec.stage) moved = true;
-        if (after?.stage === 'minted') {
+    ({ moved } = await stepIn({ ux, pub, withKey, priv: walletPriv, planOf: brPlanOf, alive: () => S.key?.pubHex === pub,
+      on: {
+        burnSent: (after) => toast(`${brAmt(after)}: the burn is sent`),
+        minted: (after) => {
           const said = `${brAmt(after)} from Bitcoin is in your private ${brTk(after)}`;
           toast(said); osNote('Bridge from Bitcoin', said, `${after.id}:minted`, () => openLink(brLinkOf(after)));
           scanPrivate(true).catch(() => {}).then(() => rerender(brTk(after) === 'TAC' ? 'tac' : 'eth'));
-        }
-        else if (after?.stage === 'traced' && rec.stage !== 'traced') toast(`${brAmt(after)} is moved and ready to burn: open Bridge to finish`);
-      } catch { moved = true; }
-    }
+        },
+        traced: (after) => toast(`${brAmt(after)} is moved and ready to burn: open Bridge to finish`),
+      } }));
     brNews(pub, ux.list(pub));
   } catch {} finally { BR.auto = false; }
   if (moved) { BR.at = 0; rerender('tac'); rerender('eth'); dashSoon(); }
