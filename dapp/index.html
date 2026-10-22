@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NG1ukbr68+DVk1m9ceJDZqOpdfMjsjoyX3j3e3D1D80=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PnPKFMSDlplvCDKJdAeHcfpBmze6g/Q/WC0ejWUJnUo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -4928,6 +4928,8 @@ const CHAIN_ASSETS = {
   cbtc: { id: '62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8', ticker: 'cBTC', dp: 8 },
 };
 const assetById = (id) => Object.values(CHAIN_ASSETS).find((a) => a.id === String(id || '').toLowerCase().replace(/^0x/, '')) || null;
+// A ticker is not unique: anyone can etch a TAC, and send it to any address. An asset held on Bitcoin that carries one of these names and is not that asset is shown with the start of its id.
+const LOOKALIKE = new Set(Object.values(CHAIN_ASSETS).map((a) => a.ticker.toLowerCase()));
 // The ones a key holds as notes at its Bitcoin address and moves there itself (cBTC comes back through its lock).
 const BTC_NOTE_ASSETS = [CHAIN_ASSETS.tac, CHAIN_ASSETS.teth];
 const XA = {
@@ -6614,7 +6616,8 @@ function loadBtc(force = false) {
     const held = [...(h instanceof Map ? h.entries() : [])].map(([id, x]) => {
       const aid = String(x.assetIdHex || id).toLowerCase(), dec = Number.isInteger(x.decimals) ? x.decimals : BTC_TOKENS[aid] ? 8 : null;
       const notes = (x.utxos || []).filter((u) => u?.utxo && u.amount != null).map((u) => ({ txid: u.utxo.txid, vout: u.utxo.vout, amount: BigInt(u.amount), confirmed: u.utxo.status?.confirmed !== false }));
-      return { id: aid, ticker: BTC_TOKENS[aid] || (x.ticker && x.ticker !== '???' ? x.ticker : short(aid, 4)), decimals: dec ?? 0, known: dec != null, balance: typeof x.balance === 'bigint' ? x.balance : 0n, notes };
+      const name = BTC_TOKENS[aid] || (x.ticker && x.ticker !== '???' ? x.ticker : short(aid, 4));
+      return { id: aid, ticker: LOOKALIKE.has(String(name).toLowerCase()) && !assetById(aid) ? `${name} (${aid.slice(0, 4)}…)` : name, decimals: dec ?? 0, known: dec != null, balance: typeof x.balance === 'bigint' ? x.balance : 0n, notes };
     }).filter((a) => a.balance > 0n);
     // TAC notes the scan found at the address but whose history it could not read this time: not in the balance, and said so.
     const tacH = h instanceof Map ? [...h.entries()].find(([id, x]) => String(x.assetIdHex || id).toLowerCase() === TAC_BTC_ID)?.[1] : null;

@@ -2638,7 +2638,8 @@ await step('btc', async () => {
     const note = (txid, amount) => ({ utxo: { txid, vout: 0, value: 546, status: { confirmed: true } }, amount, blinding: 7n + amount });
     const tn = [note('e1'.repeat(32), 50000n), note('e2'.repeat(32), 25000n)], cn = [note('f1'.repeat(32), 2000000000n)], on = [note('e3'.repeat(32), 150000000n)];
     T._testSetScanHoldingsOverride(() => new Map([[teth, { assetIdHex: teth, ticker: '???', balance: 75000n, utxos: tn, ghosts: [], inflated: [], pending: [] }], [tac, { assetIdHex: tac, ticker: 'TAC', decimals: 8, balance: 2000000000n, utxos: cn, ghosts: [], inflated: [], pending: [] }],
-      [orange, { assetIdHex: orange, ticker: 'ORANGE', decimals: 8, balance: 150000000n, utxos: on, ghosts: [], inflated: [], pending: [] }]]));
+      [orange, { assetIdHex: orange, ticker: 'ORANGE', decimals: 8, balance: 150000000n, utxos: on, ghosts: [], inflated: [], pending: [] }],
+      ['b9'.repeat(32), { assetIdHex: 'b9'.repeat(32), ticker: 'TAC', decimals: 8, balance: 500000000n, utxos: [note('e4'.repeat(32), 500000000n)], ghosts: [], inflated: [], pending: [] }]]));
     T.invalidateHoldingsCache?.();
   }, [TAC, TETH, ORANGE]);
   await r.page.click('[data-btcm="send"]');
@@ -2666,6 +2667,8 @@ await step('btc', async () => {
   const orow = (await text(r.page, `#dash-g [data-btc-asset="${ORANGE}"]`)).replace(/\s+/g, ' ').trim();
   ok(/ORANGE/.test(orow) && /1\.5(?!\d)/.test(orow) && /on Bitcoin/.test(orow), `btc: the dashboard lists it as a row of its own, with its balance (${orow})`);
   ok(!(await r.page.$(`#dash-g [data-btc-asset="${TAC}"], #dash-g [data-btc-asset="${TETH}"]`)), 'btc: TAC and tETH keep the rows they have, not a second one');
+  const fake = (await text(r.page, `#dash-g [data-btc-asset="${'b9'.repeat(32)}"]`)).replace(/\s+/g, ' ');
+  ok(/TAC \(b9b9…\)/.test(fake) && !(await text(r.page, '#dash-g [data-btc-asset="' + ORANGE + '"]')).includes('('), `btc: another asset called TAC is shown with the start of its id, beside the real one (${fake})`);
   await r.page.click(`#dash-g [data-btc-asset="${ORANGE}"]`);
   await until(r.page, () => /Send ORANGE/.test(document.querySelector('#bt-go')?.textContent || ''), null, 60000);
   ok(true, 'btc: the row opens the Bitcoin sheet on Send, with that asset chosen');
