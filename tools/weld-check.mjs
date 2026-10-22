@@ -37,6 +37,7 @@
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
 //   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
 //   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
+//   selfwallet a refused exit from a key whose Tacit account holds no ETH offers the connected wallet as the sender too, and pressed, the settle goes from the wallet
 //   farmreuse a stopped zap's two notes (one of the swapped amount, one that pairs with its return) are spent whole: Max takes both and
 //            nothing is split again
 //   farmexit Exit on a private position is one press: harvest what is worth harvesting, unbond giving up what accrued since (a plain
@@ -180,7 +181,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8168,6 +8169,75 @@ await step('heldoff', async () => {
     ok(calls.filter((c) => c.type === 'sendunwrap').map((c) => c.self).join() === 'undefined,function' && /Done in/.test(after.text),
       `heldoff: pressed, the same exit goes out from the paying account, and the receipt reads done (${JSON.stringify(calls)}; ${after.text.slice(0, 140)})`);
     if (r.errors.length) { fails++; console.log('FAIL heldoff page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { if (restore) await restore(); await r.browser.close(); }
+});
+
+// A key whose Tacit account holds no ETH, with the relay holding settles: the offer to send it names the wallet beside the Tacit account, and
+// pressed it connects the wallet, makes it the one that pays, and the settle goes out from the wallet (the Tacit account sends nothing).
+await step('selfwallet', async () => {
+  const PV = '0x' + '01'.repeat(32), PF = '0x' + '02'.repeat(32);
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const ETH = String(ux.assetByTicker.cETH.assetId).toLowerCase();
+      const S = window.__sw = { spent: false, calls: [] };
+      const held = { asset: ETH, value: '12000000', leaf: '0x' + (0xdef001).toString(16).padStart(64, '0'), leafIndex: 700001, cx: '0x' + '1'.padStart(64, '0'), cy: '0x01', owner: '0x02', root: '0x' + '1'.padStart(64, '0'), path: [] };
+      ux.poolLeafCount = async () => 700002;
+      ux.balance = async (priv) => {
+        const b = await balance(priv);
+        if (S.spent) return b;
+        b.notes = [...b.notes, held];
+        const g = b.byAsset[ETH] ||= { asset: ETH, value: 0n, notes: [] };
+        g.notes = [...(g.notes || []), held]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n);
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      ux.sendUnwrap = async (a) => {
+        S.calls.push(typeof a.selfSettle);
+        if (!a.selfSettle) throw Object.assign(new Error('relay 429: the relay can’t take this one right now; send it from your own wallet, or try again later'), { code: 'relay_held', httpStatus: 429 });
+        const jobId = 'sw-prove';
+        a.waitOpts?.onJob?.(jobId, 'sendunwrap');
+        S.spent = true;
+        return { jobId, ...(await a.selfSettle({ jobId, publicValues: '${PV}', proof: '${PF}', memos: [] })) };
+      };
+      return ux;
+    }` }));
+  const hx = 'a0fe'.padEnd(64, '4'), pub = Buffer.from(secp.getPublicKey(hx, true)).toString('hex');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hx, 'hex'), 'mainnet').address;
+  await rpc('anvil_setBalance', [acct, '0x0']);
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hx);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('#sheet-eth[open]');
+    await r.page.click('[data-v1="out"]');
+    await until(r.page, () => /Private 0\.12 tETH/.test(document.querySelector('#o-max')?.textContent || ''), null, 240000);
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.1');
+    await until(r.page, () => /Arrives/.test(document.querySelector('#o-rcpt')?.textContent || '') && !document.querySelector('#o-go').disabled, null, 60000);
+    await r.page.click('#o-go');
+    await r.page.waitForSelector('#v1-status [data-selfdo-as]', { timeout: 120000 });
+    const offer = await said();
+    ok(/can’t take this one right now/.test(offer) && /Send it from your Tacit account/.test(offer) && /Send it from your wallet instead/.test(offer) && !/gas|credit|low on/i.test(offer),
+      `selfwallet: a refused exit names the wallet beside the Tacit account (${offer.slice(0, 220)})`);
+    restore = await stubPoolSettle('ok');
+    const w0 = walletTxs.length;
+    await r.page.click('#v1-status [data-selfdo-as]');
+    const sent = await chainUntil(() => walletTxs.slice(w0).some((x) => String(x.to).toLowerCase() === POOL_ADDR), 240000);
+    const tx = walletTxs.slice(w0).find((x) => String(x.to).toLowerCase() === POOL_ADDR);
+    ok(sent && tx.from.toLowerCase() === A0.toLowerCase() && tx.data.startsWith('0x' + SETTLE_SEL),
+      `selfwallet: pressed, the wallet is connected and sends the settle to the pool (${tx ? `${tx.from} ${tx.data.slice(0, 10)}` : 'no wallet transaction'})`);
+    const calls = await r.page.evaluate(() => window.__sw.calls), kept = await r.page.evaluate((k) => (JSON.parse(localStorage.getItem('tacit-lite-pay-v1') || '{}') || {})[k], pub);
+    ok(calls.join() === 'undefined,function' && kept === 'wallet' && Number(await rpc('eth_getTransactionCount', [acct, 'latest'])) === 0,
+      `selfwallet: the same exit goes out with the settle handed over, the wallet is kept as the payer, and the Tacit account sent nothing (${calls.join()}; ${kept})`);
+    if (r.errors.length) { fails++; console.log('FAIL selfwallet page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { if (restore) await restore(); await r.browser.close(); }
 });
 
