@@ -254,7 +254,8 @@ try {
   chain.lockStates.set(op(1), { recorded: true, bonded: true, minted: true, sats: 5000000n });
   chain.lockStates.set(op(2), { recorded: true, bonded: true, minted: false, sats: 1000000n });
   chain.lockStates.set(op(3), { recorded: false, bonded: false, minted: false, sats: 200000n });
-  await cfg(p, { positions: [{ pid: 2, shares: String(6810283 / 4), pendingTac: '1.5', unlockAt: 0 }], locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } });
+  const mineCfg = { positions: [{ pid: 2, shares: String(6810283 / 4), pendingTac: '1.5', unlockAt: 0 }], locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } };
+  await cfg(p, mineCfg);
   await p.click('#lk-signin');
   await p.waitForSelector('.bsheet.top [data-in="eth"]');
   await p.click('.bsheet.top [data-in="eth"]');
@@ -297,6 +298,25 @@ try {
   u = await ux(p);
   ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')) && /Sign in/.test(await text(p, '#lk-mine')), 'Lock drops the key and the pool module\'s copies of it');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error with a key (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
+  // ── the Borrow page's Bitcoin side: the same key's locks, loans and cBTC, read only when the holder asks ──
+  await p.goto(`http://127.0.0.1:${WEB}/vault/#btc`);
+  await p.waitForSelector('#btc-mine [data-mine="open"]');
+  await p.waitForTimeout(1500);
+  ok(await p.evaluate(() => !window.__ux), 'the Borrow page loads nothing of a key until it is asked to');
+  await cfg(p, mineCfg);
+  await p.click('#btc-mine [data-mine="open"]');
+  await p.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
+  await p.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+  await until(p, () => /Lock /.test(document.querySelector('#btc-mine')?.textContent || ''), null, 30000);
+  const vm = (await text(p, '#btc-mine')).replace(/\s+/g, ' ');
+  ok(/cBTC, private0\.042/.test(vm) && /cUSD, private1,234/.test(vm) && /Loan900 cUSD/.test(vm) && /0\.05 BTC/.test(vm) && /0\.01 BTC/.test(vm) && !/0\.002 BTC/.test(vm),
+    `vault: the key's private cBTC and cUSD, its loan and its two live locks (${vm.slice(0, 220)})`);
+  const vlinks = await p.$$eval('#btc-mine a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
+  ok(vlinks.includes('Mint cBTC:/#lock') && vlinks.includes('Repay:/#borrow') && !vlinks.some((x) => /Post the bond/.test(x)), `vault: what is next for each lock and loan links to where it is done (${vlinks.join(' ')})`);
+  await p.click('#btc-mine [data-mine="lock"]');
+  await until(p, () => !!document.querySelector('#btc-mine [data-mine="open"]'), null, 10000);
+  ok(true, 'vault: Lock your key puts the panel back to asking');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `vault: no page error or blocked request with a key (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   await r.browser.close();
 
   // ── what cannot be read ──

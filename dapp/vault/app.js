@@ -888,6 +888,15 @@ document.addEventListener('click', (e) => {
   location.hash = tacHash;
   if (!tacHash) history.replaceState(null, '', location.pathname + location.search);
 });
+// The Bitcoin side's own position (vault/mine.js): loaded on the holder's first press, so the side reads nothing more until then
+const pickProvider = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
+let mineP = null;
+$('#btc-mine').addEventListener('click', (e) => {
+  if (mineP || !e.target.closest('[data-mine="open"]')) return;
+  e.stopImmediatePropagation();
+  mineP = import('/vault/mine.js?cb=0f7f7bd9').then((m) => { m.mountMine($('#btc-mine'), { pick: pickProvider }); $('#btc-mine [data-mine="open"]')?.click(); })
+    .catch((err) => { mineP = null; console.warn('your position:', err?.message || err); });
+});
 const refresh = () => load().catch((e) => { console.warn('vault read:', e?.message || e); if (!S.loaded) S.failed = true; }).then(() => { renderAll(); pools.read(); });
 
 $('#pick').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || S.busy || b.dataset.v === S.v) return; S.v = b.dataset.v; S.pre = S.t === 'borrow'; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderAll(); });
