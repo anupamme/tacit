@@ -496,8 +496,8 @@ async function paintEarn() {
     ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
     ['evmpooldeposit', 'Deposit ETH in a device pool (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
     ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/swap/', (r) => `${n(r)} points per ETH`],
-    ['cbtcmint', 'Post a bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`],
-    ['cusdmint', 'Borrow cUSD', '/#borrow', (r) => `${n(r)} points per dollar, when you send the loan yourself`],
+    ['cbtcmint', 'Post a bond toward cBTC', '/vault/#btc', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`],
+    ['cusdmint', 'Borrow cUSD', '/vault/#btc', (r) => `${n(r)} points per dollar, when you send the loan yourself`],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);
   const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets', wrap: 'wrapping ETH', evmpooldeposit: 'pool deposits', btcpool: 'the Bitcoin pool' };
   const orList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);

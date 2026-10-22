@@ -132,9 +132,8 @@ async function requote() {
 }
 function renderRoute() {
   const z = D.size, el = $('#route'), px = usdBtc();
-  // The front page's card opens on minting cBTC with the BTC typed here (an amount it would not read opens the plain lock step).
-  const amt = String(S.amt || '').trim();
-  $('#go').href = getSats() && /^\d{0,12}(?:\.\d{1,8})?$/.test(amt) ? `/#card=borrow:cbtc:mint&amt=${amt}` : '/#lock';
+  // locking, the bond and the mint are the Borrow page's Bitcoin side
+  $('#go').href = '/vault/#btc';
   $('#chips').innerHTML = PRESETS.map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}">${l}</button>`).join('');
   if (!z) { el.innerHTML = ''; return; }
   if (z.loading) { el.innerHTML = '<div class="kv"><span>Bond</span><b class="mute">reading…</b></div>'; return; }
@@ -193,13 +192,13 @@ function renderLocks() {
   else if (!m || m.loading) h = '<p class="note">Reading your locks…</p>';
   else if (m.err) h = `<p class="note err">${esc(m.err)} <button class="linkbtn" type="button" id="lk-re">Try again</button></p>`;
   else if (m.errs.locks) h = `<p class="note err">Could not read your locks: ${esc(m.errs.locks)} <button class="linkbtn" type="button" id="lk-re">Try again</button></p>`;
-  else if (!m.locks?.length) h = '<p class="note">No locks yet. <a href="/#lock">Lock BTC →</a></p>';
+  else if (!m.locks?.length) h = '<p class="note">No locks yet. <a href="/vault/#btc">Lock BTC →</a></p>';
   else h = `<table class="table lk"><thead><tr><th>Your lock</th><th class="r">Bitcoin</th><th>Next</th><th></th></tr></thead><tbody>${m.locks.map((l) => {
     const step = lockStep(l);
     return `<tr><td>${esc(short(l.lockTxid, 6))}:${l.lockVout}</td><td class="r num">${esc(btcTxt(l.sats))} BTC${px != null ? `<small>${compact(Number(l.sats) / 1e8 * px)}</small>` : ''}</td><td class="st ${l.minted ? 'ok' : 'wait'}">${esc(step)}</td><td class="go"><a href="${MEMPOOL}tx/${esc(l.lockTxid)}" target="_blank" rel="noopener noreferrer" aria-label="Open the lock’s transaction">↗</a></td></tr>`;
-  }).join('')}</tbody></table><p class="note"><a href="/#lock">Manage your locks on tacit.finance →</a></p>`;
+  }).join('')}</tbody></table><p class="note"><a href="/vault/#btc">Manage your locks on the Borrow page →</a></p>`;
   if (box.__h !== h) { box.__h = h; box.innerHTML = h; }
-  $('#lk-note').textContent = 'Lock, bond, mint and borrow on tacit.finance.';
+  $('#lk-note').textContent = 'Lock, bond, mint and borrow on the Borrow page.';
 }
 
 // ── use cBTC ──
@@ -212,7 +211,7 @@ function renderUse() {
     : `<div class="held"><span><b class="num">${esc(btcTxt(h.cbtc.value))}</b> <span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC, private</span></span><button class="linkbtn" type="button" id="lk-re">Refresh</button><button class="linkbtn" type="button" id="held-lock">Lock</button></div>
       ${owed != null ? `<div class="kv"><span>Borrowed against it</span><b>${loans.length ? `${esc(cusdTxt(owed))} cUSD in ${loans.length} loan${loans.length === 1 ? '' : 's'}` : 'nothing'}</b></div>` : m.errs.loans ? '<p class="note err">Could not read your loans.</p>' : ''}
       ${h.cusd.value > 0n ? `<div class="kv"><span>Private cUSD</span><b>${esc(cusdTxt(h.cusd.value))}</b></div>` : ''}${h.partial ? '<p class="note err">Could not read part of your balance. Refresh to try again.</p>' : ''}`;
-  const rows = [['/#borrow', 'Borrow cUSD', 'Borrow dollars against your cBTC. Repay to unlock it.'],
+  const rows = [['/vault/#btc', 'Borrow cUSD', 'Borrow dollars against your cBTC. Repay to unlock it.'],
     ['/#private/swap', 'Swap privately', (() => { const r = D.rows.find((x) => (x.depthUsd ?? 0) >= DUST_USD); return r?.per ? `${r.other} pool: 1 cBTC = ${sig(r.per, 4)} ${r.other}, ${compact(r.depthUsd)} deep.` : 'In the private pools.'; })()],
     ['#farm', 'Earn TAC', 'Join a farm with cBTC alone.', 'scroll'],
     ['/#lock', 'Take a bond back', 'Before minting, or after you redeem. Spending the BTC any other way forfeits it.']];

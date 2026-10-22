@@ -32,11 +32,11 @@ export const ROUTES = {
     out: { href: '/#private/bitcoin/out', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
-  // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow sheet's own (Lock, Bond, Mint, Borrow), and the sheet
-  // follows them, so it is a route here, not a tracked row.
+  // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow page's (Lock, Bond, Mint, Borrow), and its Bitcoin side lists
+  // the key's locks and follows them, so it is a route here, not a tracked row.
   cbtc: {
     ticker: 'cBTC', icon: 'tk-cbtc', dp: 8,
-    in: { href: '/#lock', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
+    in: { href: '/vault/#btc', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
   },
 };
 

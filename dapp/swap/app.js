@@ -408,7 +408,7 @@ function paintQuote() {
   rc.innerHTML = lines.map(([k, v, c]) => `<div><dt>${esc(k)}</dt><dd class="${c || ''}">${esc(v)}</dd></div>`).join('');
   const gate = r && !q.busy && m != null && m <= GATE && !r.priv;
   if (busy) { } else if (gate) {
-    const alt = S.get === lc(R.CUSD) ? ' <a href="/#borrow">Borrow cUSD at $1</a>, then make it public.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>, then make it public.' : '';
+    const alt = S.get === lc(R.CUSD) ? ' <a href="/vault/#btc">Borrow cUSD at $1</a>, then make it public.' : S.get === lc(R.CBTC) ? ' <a href="/vault/#btc">Mint cBTC 1:1</a>, then make it public.' : '';
     if (!ackbox.querySelector('input') || ackbox.dataset.k !== `${S.pay}>${S.get}`) {
       ackbox.dataset.k = `${S.pay}>${S.get}`;
       const tac = S.pay === lc(R.TAC) || S.get === lc(R.TAC);

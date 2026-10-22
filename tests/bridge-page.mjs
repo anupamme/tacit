@@ -149,10 +149,10 @@ try {
     await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
-    ok(await page.getAttribute('.lost a', 'href') === '/#lock', 'a cBTC lock that cannot be seen is looked for on the Borrow sheet');
+    ok(await page.getAttribute('.lost a', 'href') === '/vault/#btc', 'a cBTC lock that cannot be seen is looked for on the Borrow page, which lists the key\'s locks');
     ok(await page.isHidden('#bt-limit') && await page.isHidden('#bt-cost'), 'cBTC has no per-bridge limit line and no cost line');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#lock' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
-    ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow sheet’s own: lock, bond, mint, borrow');
+    ok(await page.getAttribute('#bt-go', 'href') === '/vault/#btc' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
+    ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow page’s: lock, bond, mint, borrow');
     await page.click('[data-asset="tac"]');
     await shot(page, 'desktop-top');
 

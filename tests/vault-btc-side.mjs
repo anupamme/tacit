@@ -131,7 +131,7 @@ if (!chromium) {
       ok((await page.textContent('[data-bf="out"]')) === '4,420.12 cUSD' && (await page.textContent('[data-bf="ratio"]')) === '150%' && (await page.textContent('[data-bf="liq"]')) === '130%', 'the board shows the engine’s figures');
       ok((await h1(page)) === 'Borrow against Bitcoin' && (await current(page)) === 'btc', 'h1 and aria-current are on Bitcoin');
       ok(await shown(page, '.s-btc.sub') && !(await shown(page, '#app')) && !(await shown(page, '#how')) && !(await shown(page, '#wallet-chip')), 'the TAC side, its how-to and the wallet chip are hidden');
-      ok((await page.getAttribute('#btc a.btn:not(.ghost)', 'href')) === '/#borrow' && (await page.getAttribute('#btc a.btn.ghost', 'href')) === '/#card=borrow:cbtc:mint', 'Borrow cUSD → /#borrow, Mint cBTC only → /#card=borrow:cbtc:mint');
+      ok(!!(await page.$('#btc-mine [data-mine="open"]')) && (await page.getAttribute('#btc a[href="/cbtc/"]', 'href')) === '/cbtc/' && !(await page.$('#btc a[href^="/#"]')), 'the side\'s own panel does the borrowing (Show mine), with the cBTC market a link and none back to the front page');
       await page.waitForTimeout(1500);
       ok(log.vault === 0 && log.engine === 1, `the Bitcoin side reads the engine once and no vault (engine ${log.engine}, vault ${log.vault}, other ${log.other})`);
       ok(log.files.some((p) => p === '/vault/btc.js'), 'btc.js is fetched for the Bitcoin side');

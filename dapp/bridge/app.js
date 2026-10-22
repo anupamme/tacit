@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=0c8b8a37';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=1507d11c';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';

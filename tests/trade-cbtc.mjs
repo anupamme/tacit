@@ -268,15 +268,11 @@ try {
   const route = await text(p, '#route');
   const needEth = 0.01 * BTC_USD / ETH_USD * 1.5;
   ok(/You get\s*0\.01 cBTC/.test(route) && route.includes(needEth.toFixed(4).slice(0, 5)) && /Borrow up to\s*about 543 cUSD at the 150% floor/.test(route), `an amount sized: the cBTC, the bond of 1.5× at least (${needEth.toFixed(3)} ETH) and what can be borrowed (${route.slice(0, 160)})`);
-  ok((await p.$eval('#go', (a) => a.getAttribute('href'))) === '/#card=borrow:cbtc:mint&amt=0.01' && /Lock BTC/.test(await text(p, '#go')), 'the button opens the front page\'s card on minting cBTC, with the BTC typed here');
-  await p.fill('#amt', '');
-  await until(p, () => document.querySelector('#go').getAttribute('href') === '/#lock');
-  ok((await p.$eval('#go', (a) => a.getAttribute('href'))) === '/#lock', 'with no amount it opens the lock step');
-  await p.fill('#amt', '0.01');
+  ok((await p.$eval('#go', (a) => a.getAttribute('href'))) === '/vault/#btc' && /Lock BTC/.test(await text(p, '#go')), 'the button opens the Borrow page\'s Bitcoin side, where BTC is locked, bonded and minted');
   await until(p, () => /ETH bond, at least/.test(document.querySelector('#route').textContent));
   await p.click('#mode-seg [data-mode="use"]');
   const uses = await p.$$eval('#uses a.use', (a) => a.map((x) => [x.querySelector('b').textContent, x.getAttribute('href')]));
-  ok(uses.map((u) => u[1]).join() === '/#borrow,/#private/swap,#farm,/#lock' && /Borrow cUSD/.test(uses[0][0]) && /bond back/.test(uses[3][0]), `use cBTC: borrow, swap, farm and take a bond back, each a link (${uses.map((u) => u[1]).join(' ')})`);
+  ok(uses.map((u) => u[1]).join() === '/vault/#btc,/#private/swap,#farm,/#lock' && /Borrow cUSD/.test(uses[0][0]) && /bond back/.test(uses[3][0]), `use cBTC: borrow on the Borrow page; swap, farm and take a bond back on the front page (${uses.map((u) => u[1]).join(' ')})`);
   ok(/Sign in/.test(await text(p, '#held')), 'its private balance waits for a key');
   await r.browser.close();
 
