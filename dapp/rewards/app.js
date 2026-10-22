@@ -464,7 +464,7 @@ async function paintDays(d) {
   if (!el.isConnected) return;
   if (!r || !Array.isArray(r.days)) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const list = r.days.slice(0, 14);
-  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? `${tac(BigInt(x.tacWei || 0), 4)} TAC` : 'in progress'}</span></li>`).join('')}</ul>${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
+  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? (x.tacWei == null ? '—' : `${tac(BigInt(x.tacWei), 4)} TAC`) : 'in progress'}</span></li>`).join('')}</ul>${list.some((x) => x.settled && x.tacWei == null) ? '<p class="st mute">A dash means that day\'s TAC is in the total above but not shown by day.</p>' : ''}${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
   el.dataset.done = a;
 }
 async function paintBoard() {

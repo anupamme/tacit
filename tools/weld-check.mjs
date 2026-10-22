@@ -5092,7 +5092,7 @@ await step('rewardsfolds', async () => {
     if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }], rates: { holding: 1000, wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cbtchold: 500, cusdmint: 2, pmbet: 1000 }, budgets: [{ fromDay: 20747, groups: [{ name: 'stay', activities: ['holding', 'cbtchold'], share: 0.25, maxWeiPerPoint: '20000000000000000' }, { name: 'use', activities: ['zswapeth', 'cusdmint'], share: 0.15, maxWeiPerPoint: '10000000000000000' }] }], weights: [{ fromDay: 20730, weights: { zswapeth: 2, cusdmint: 0 } }], addressDayCaps: [{ fromDay: 20741, caps: { wrap: '5' } }], categoryShareCaps: [{ fromDay: 20741, caps: { evmpooldeposit: 0.5 } }], holder: { tiers: [{ tac: 100, multiplier: 1.25 }, { tac: 1000, multiplier: 1.5 }] }, earlyBonus: { max: 5 } } });
     if (/leaderboard/.test(u)) return json(route, board);
     if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
-    if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }] }); }
+    if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }, { day: 20741, points: 20, settled: true, tacWei: null }] }); }
     const a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase();
     return json(route, { address: a, points: a === ME ? 5000 : 0, deposit_count: 3, today: { points: 1000, totalPoints: 2000000, dayBudgetWei: '1000000000000000000000', tacWei: '3000000000000000000' }, deposits: [] });
   });
@@ -5107,7 +5107,7 @@ await step('rewardsfolds', async () => {
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
     const days = await read('#c-pts .rows');
-    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days) && /Thu 15 Oct\s*\+20\.0\s*—/.test(days) && /A dash means that day's TAC is in the total above/.test(await read('#c-pts .fold-b > p')), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
