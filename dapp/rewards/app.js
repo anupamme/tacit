@@ -377,11 +377,21 @@ function paintPrivate(list) {
 // The holder's own private positions (rewards/farms.js): loaded on the first press, so the page reads nothing more until then
 const pickProvider = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
 let farmsP = null;
+const openFarms = () => (farmsP ||= import('/rewards/farms.js?cb=71d3fc64').then((m) => { const f = m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])), program: () => PROG, wallet, W, connect: () => connect.connect() }); $('#pf-mine [data-pf="open"]')?.click(); return f; })
+  .catch((err) => { farmsP = null; console.warn('your positions:', err?.message || err); }));
 $('#pf-mine').addEventListener('click', (e) => {
   if (farmsP || !e.target.closest('[data-pf="open"]')) return;
   e.stopImmediatePropagation();
-  farmsP = import('/rewards/farms.js?cb=5617a97e').then((m) => { m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])), program: () => PROG, wallet, W, connect: () => connect.connect() }); $('#pf-mine [data-pf="open"]')?.click(); })
-    .catch((err) => { farmsP = null; console.warn('your positions:', err?.message || err); });
+  openFarms();
+});
+// a private farm's row opens the panel here with that farm in the join form (a new tab still goes to the front page's)
+$('#farms').addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-priv]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+  e.preventDefault();
+  const pid = /private-(\d+)/.exec(a.getAttribute('href'))?.[1], row = $('#pf-row');
+  row.open = true; row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openFarms().then((f) => f?.choose(pid));
 });
 function notePoints(c) {
   if (!c?.program) return;

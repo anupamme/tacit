@@ -1,17 +1,20 @@
 // The holder's own positions in the private farms (/rewards/): what each holds and has earned, and from here a harvest (paid as a wTAC note),
-// an unbond, an exit (harvest, unbond and the liquidity taken out), and the rewards turned into TAC (the relay unwraps each note to the
-// connected wallet, which turns the wTAC into TAC). Joining, and what only an unwrap sent yourself can do, are the front page's: they link there.
+// an unbond, an exit (harvest, unbond and the liquidity taken out), the rewards turned into TAC (the relay unwraps each note to the connected
+// wallet, which turns the wTAC into TAC), and a join with both sides (each cut to size by the relay if no note fits, then bonded at the pool's
+// ratio). Joining with one side (a swap first) and what only an unwrap sent yourself can do are the front page's: they link there.
 // Nothing here is loaded until the holder asks: this module, the key and the pool all come in on that press.
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=e792b253';
 import { makeRunner } from '/activity.js?cb=532a162f';
-import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, rewardNotes, relayable, redeem, wtacWithdrawCall, wtacBalanceCall, worthHarvesting, lpNotes, takeOut, HARVEST_WORTH } from '/farm-ops.js?cb=3d2c0c30';
-import { esc, wordAt } from '/trade/util.js?cb=509d6618';
+import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, rewardNotes, relayable, redeem, wtacWithdrawCall, wtacBalanceCall, worthHarvesting, lpNotes, takeOut, HARVEST_WORTH, bFor, joinTerms, notesOf, exactOf, cutPick, cut, bond } from '/farm-ops.js?cb=4470442d';
+import { esc, wordAt, parseUnits } from '/trade/util.js?cb=509d6618';
 
 const API = 'https://api.tacit.finance';
 const day = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const tacTxt = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumFractionDigits: 4 });
 const noteTxt = (units) => (Number(units) / 1e8).toLocaleString('en-US', { maximumFractionDigits: 4 });
+const tkName = (tk) => (tk === 'cETH' ? 'tETH' : tk);
+const units8 = (v) => (Number(v) / 1e8).toLocaleString('en-US', { maximumFractionDigits: 8 });
 const noteKey = (n) => String(n.leaf || n.nullifier || `${n.cx}:${n.cy}`).toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const refused = (e) => e?.code === 'relay_held' || e?.code === 'relay_paused' || e?.httpStatus === 429 || /relay (4\d\d|held|paused)|can’t take this one/i.test(String(e?.message || ''));
@@ -30,7 +33,7 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     try {
       const ux = await getUx(), [list, bal, wt] = await Promise.all([ux.farmPositions({ walletPriv: priv }), ux.balance(priv).catch(() => null), walletWtac(ux)]);
       if (my !== seq || key.key?.pubHex !== pub) return;
-      D = { pub, list: Array.isArray(list) ? list : [], notes: bal?.notes || [], wtac: wt, said: was?.said || null };
+      D = { pub, list: Array.isArray(list) ? list : [], notes: bal?.notes || [], wtac: wt, said: was?.said || null, form: was?.form || wanted || {}, terms: was?.terms || {} };
     } catch (e) { if (my === seq) D = { pub, err: String(e?.message || e).slice(0, 160) }; }
     paint();
   }
@@ -121,6 +124,58 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     return `Out. Your liquidity is back as private ${name(pos)} notes.`;
   }
 
+  // the farms open to join, and the terms of the one picked (read again at most every 30 s while the form is in use)
+  const openFarms = () => (program()?.pools || []).filter((p) => p.reserves?.assetA && Number(p.tacPerDayForPool) > 0);
+  async function terms(pool, fresh = false) {
+    const t = await getUx(), k = String(pool.pid), j = D.terms?.[k];
+    if (!fresh && j && Date.now() - j.at < 30e3) return j;
+    const v = { ...(await joinTerms(t, pool)), at: Date.now(), tkA: tkName(t.poolTickerOf(String(pool.reserves.assetA).toLowerCase())), tkB: tkName(t.poolTickerOf(String(pool.reserves.assetB).toLowerCase())) };
+    (D.terms ||= {})[k] = v;
+    return v;
+  }
+  // a note of exactly `amount` of `asset`, once the cut that makes it shows in the balance
+  async function noteShows(t, priv, asset, amount) {
+    for (let i = 0; i < 8; i++) { const n = exactOf(notesOf((await t.balance(priv)).notes, asset), amount); if (n) return n; await sleep(5000); }
+    throw new Error('The note cut for this is not showing yet. It is in your private balance: press again in a minute.');
+  }
+  // Into a farm with both sides: `a` of the first and the second at the pool's ratio, each a note of exactly that (the relay cuts one to size
+  // when none fits), then both added to the pool and the share bonded in the farm in one proof. If the pool moves while the notes are cut,
+  // nothing is added: the notes are ready for the next press.
+  async function join() {
+    const prog = program(), pool = openFarms().find((p) => String(p.pid) === String(D.form.pool ?? openFarms()[0]?.pid)), a = parseUnits(D.form.a || '', 8);
+    if (!pool) throw new Error('Choose a farm.');
+    if (!a) throw new Error('Enter how much to put in.');
+    const t = await getUx(), priv = key.priv(), tm = await terms(pool, true), b = bFor(a, tm.res), { assetA, assetB } = pool.reserves;
+    const bal = await t.balance(priv), nsA = notesOf(bal.notes, assetA), nsB = notesOf(bal.notes, assetB);
+    let nA = exactOf(nsA, a), nB = exactOf(nsB, b);
+    const pA = nA ? null : cutPick(nsA, a, tm.feeA), pB = nB ? null : cutPick(nsB, b, tm.feeB);
+    if (!nA && !pA) throw new Error(`Your private ${tm.tkA} does not cover ${units8(a)} and the relay’s fee to cut it to size.`);
+    if (!nB && !pB) throw new Error(`This needs ${units8(b)} ${tm.tkB} at the pool’s ratio, and your private ${tm.tkB} does not cover it and the relay’s fee to cut it.`);
+    const n = 1 + (nA ? 0 : 1) + (nB ? 0 : 1);
+    let k = 0;
+    if (!nA) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(a)} ${tm.tkA}…`); settled(await cut(t, priv, pA, a, tm.feeA, run().wait(`Split a note to ${units8(a)} ${tm.tkA}`, 15 * 60e3))); nA = await noteShows(t, priv, assetA, a); }
+    if (!nB) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(b)} ${tm.tkB}…`); settled(await cut(t, priv, pB, b, tm.feeB, run().wait(`Split a note to ${units8(b)} ${tm.tkB}`, 15 * 60e3))); nB = await noteShows(t, priv, assetB, b); }
+    const now = await terms(pool, true);
+    if (bFor(a, now.res) !== b) throw new Error('The pool’s price moved while your notes were cut to size. Press again: the notes are ready and nothing was added.');
+    say(`Step ${n} of ${n} · the relay is proving your farm entry…`);
+    settled(await bond(t, priv, { manager: prog.manager, aNote: nA, bNote: nB, feeBps: now.res.feeBps ?? pool.feeBps, waitOpts: run().wait(`Add ${name(pool)} liquidity and farm it`, 20 * 60e3) }));
+    D.form = {};
+    return prog?.epoch?.active ? 'In the farm: TAC is streaming to your private position.' : 'In the farm. It earns once the next reward period starts.';
+  }
+  function joinForm() {
+    const fs = openFarms();
+    if (!fs.length) return '';
+    const f = D.form, pid = String(f.pool ?? fs[0].pid), pool = fs.find((p) => String(p.pid) === pid) || fs[0], tm = D.terms?.[String(pool.pid)];
+    const a = parseUnits(f.a || '', 8), b = a && tm ? bFor(a, tm.res) : null;
+    if (!tm && !D.termsAsked?.[pid]) { (D.termsAsked ||= {})[pid] = true; terms(pool).then(() => paint(), () => {}); }
+    return `<details class="pf-join"${f.open || f.a ? ' open' : ''}><summary>Join a private farm</summary>
+      <dl class="kv"><div><dt>Farm</dt><dd><select id="pf-pool" aria-label="Farm to join"${D.busy ? ' disabled' : ''}>${fs.map((p) => `<option value="${esc(String(p.pid))}"${String(p.pid) === pid ? ' selected' : ''}>${esc(name(p))}</option>`).join('')}</select></dd></div>
+      <div><dt>${esc(tm?.tkA || 'First side')}</dt><dd><input id="pf-a" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(tm?.tkA || 'First side')} to put in" value="${esc(f.a || '')}"${D.busy ? ' disabled' : ''}></dd></div>
+      ${tm ? `<div><dt>${esc(tm.tkB)}, at the pool’s ratio</dt><dd class="num" id="pf-b">${b != null ? esc(units8(b)) : '–'}</dd></div>` : ''}</dl>
+      <div class="acts"><button type="button" data-pf="join"${D.busy ? ' disabled' : ''}>${D.busy === 'join' ? 'Adding…' : 'Add and farm'}</button><a href="/#farm/private-${esc(pid)}">With one side only</a></div>
+    </details>`;
+  }
+
   function paint() {
     let h;
     if (!key.unlocked) h = '<p class="more">Your positions in the private farms.</p><button class="act" type="button" data-pf="open">Show mine</button>';
@@ -140,11 +195,20 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
       const rn = rewardNotes(D.notes, program()?.rewardAsset), rsum = rn.reduce((a, x) => a + BigInt(x.value), 0n);
       const rewards = rn.length || D.wtac > 0n ? `<dl class="kv"><div><dt>Rewards to turn into TAC</dt><dd class="num">${rn.length ? `${esc(noteTxt(rsum))} wTAC private` : ''}${rn.length && D.wtac > 0n ? ' · ' : ''}${D.wtac > 0n ? `${esc(tacTxt(D.wtac))} wTAC in your wallet` : ''}</dd></div></dl>
         <div class="acts"><button type="button" data-pf="totac"${D.busy ? ' disabled' : ''}>${D.busy === 'totac' ? 'Turning…' : 'Turn into TAC'}</button></div>` : '';
-      h = `${rows || '<p class="more">No private farm positions yet.</p>'}${rewards}${said}<div class="acts"><button type="button" data-pf="again"${D.busy ? ' disabled' : ''}>Read again</button><button type="button" data-pf="lock"${D.busy ? ' disabled' : ''}>Lock your key</button></div>`;
+      h = `${rows || '<p class="more">No private farm positions yet.</p>'}${rewards}${joinForm()}${said}<div class="acts"><button type="button" data-pf="again"${D.busy ? ' disabled' : ''}>Read again</button><button type="button" data-pf="lock"${D.busy ? ' disabled' : ''}>Lock your key</button></div>`;
     }
     if (root.__h !== h) { root.__h = h; root.innerHTML = h; }
   }
 
+  root.addEventListener('toggle', (e) => { if (D?.form && e.target.classList?.contains('pf-join')) D.form.open = e.target.open; }, true);
+  // typing updates the ratio's figure in place (a repaint would take the field's focus)
+  root.addEventListener('input', (e) => {
+    if (!D?.form || e.target.id !== 'pf-a') return;
+    D.form.a = e.target.value.trim();
+    const tm = D.terms?.[String(D.form.pool ?? openFarms()[0]?.pid)], a = parseUnits(D.form.a, 8), el = root.querySelector('#pf-b');
+    if (el && tm) el.textContent = a ? units8(bFor(a, tm.res)) : '–';
+  });
+  root.addEventListener('change', (e) => { if (D?.form && e.target.id === 'pf-pool') { D.form.pool = e.target.value; paint(); } });
   root.addEventListener('click', (e) => {
     const b = e.target.closest('[data-pf]');
     if (!b || b.disabled) return;
@@ -155,9 +219,17 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     if (what === 'unbond') return act(`unbond:${i}`, () => doUnbond(i));
     if (what === 'exit') return act(`exit:${i}`, () => exit(i));
     if (what === 'totac') return act('totac', toTac);
+    if (what === 'join') return act('join', join);
     signInSheet(key, { pick, why: 'Open your Tacit wallet to see your private farm positions. Nothing is stored or sent.' }).then(() => read(), () => {});
   });
   key.onChange(() => { if (key.unlocked && D?.pub !== key.key.pubHex) read(); else paint(); });
   paint();
-  return { read, forget };
+  // a farm picked elsewhere on the page: the join form opened on it, now or once the positions are read
+  let wanted = null;
+  function choose(pid) {
+    wanted = { pool: String(pid), open: true };
+    if (D?.form) { D.form = { ...wanted, a: D.form.pool === wanted.pool ? D.form.a : undefined }; paint(); }
+  }
+
+  return { read, forget, choose };
 }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-yGOna0SbGjDBpODNmNE+yiNLJi0IXd1Bldoz/LyF2VA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hlsWP1hv0wQQqCJLptaCpCBk9mwkpG8q7kRCEyg2xqo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1592,7 +1592,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { UNBOND_DUST, HARVEST_WORTH, unharvested } from '/farm-ops.js?cb=3d2c0c30';
+import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor } from '/farm-ops.js?cb=4470442d';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
 if (window.__tacitAway) await new Promise(() => {});
@@ -9636,8 +9636,6 @@ function farmJoin(el, p, status, has) {
   $$('[data-join-one]', el).forEach((b) => b.onclick = () => { if (running('farm')) return; FARM.jm[pid] = b.dataset.joinOne; keep($('#sheet-farm'), render.farm); });
   if (!(single || both)) return;
   const aIn = $(`#sj-a-${pid}`), bIn = $(`#sj-b-${pid}`), sIn = mode === 'b' ? bIn : aIn, go = $(`#sj-go-${pid}`), rc = $(`#sj-rcpt-${pid}`), ackBox = $(`#sj-ack-${pid}`);
-  const bFor = (a, res) => (a * res.reserveB + res.reserveA - 1n) / res.reserveA;
-  const aFor = (b, res) => (b * res.reserveA) / res.reserveB;
   const exact = (k, v) => freeNotes(P.scan?.[k]?.notes).some((n) => BigInt(n.value) === v);
   const feeOf = (j, k) => (k === kA ? j.feeA : j.feeB), swapFeeOf = (j, k) => (k === kA ? j.swapA : j.swapB);
   const freshOne = (Zin, fr, rIn, rOut, feeBps, fee) => {

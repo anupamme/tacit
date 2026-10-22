@@ -2,7 +2,7 @@
 // reward sent again giving it up only when that reward is dust.
 //   node tests/farm-ops.test.mjs
 import assert from 'node:assert/strict';
-import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, UNBOND_DUST, HARVEST_WORTH, WTAC, wtacWithdrawCall, wtacBalanceCall, rewardNotes, relayable, worthHarvesting, redeem, lpNotes, takeOut } from '../dapp/farm-ops.js';
+import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, UNBOND_DUST, HARVEST_WORTH, WTAC, wtacWithdrawCall, wtacBalanceCall, rewardNotes, relayable, worthHarvesting, redeem, lpNotes, takeOut, bFor, aFor, joinTerms, notesOf, exactOf, cutPick, cut, bond } from '../dapp/farm-ops.js';
 
 const now = 1_800_000_000;
 assert.equal(canHarvest({ pendingUnits: '1' }), true); assert.equal(canHarvest({ pendingUnits: '0' }), false, 'nothing pending: nothing to harvest');
@@ -41,4 +41,22 @@ await redeem(rt, 'PRIV', { id: 'n' }, to, 'W'); assert.deepEqual(rc.at(-1), { wa
 const pool = { lpAsset: '0xLP', feeBps: 25, reserves: { assetA: '0xA', assetB: '0xB' } };
 assert.deepEqual(lpNotes([{ asset: '0xlp', id: 1 }, { asset: '0xA', id: 2 }], pool).map((n) => n.id), [1], 'the pool\'s share notes');
 await takeOut(rt, 'PRIV', pool, { id: 'lp' }, 'W'); assert.deepEqual(rc.at(-1), { walletPriv: 'PRIV', assetA: '0xA', assetB: '0xB', feeBps: 25, shareNote: { id: 'lp' }, waitOpts: 'W' }, 'taken out as the pool\'s two assets at its fee');
+// ── joining ──
+const res = { reserveA: 3n, reserveB: 10n, totalShares: 1n, assetA: '0xa', feeBps: 30 };
+assert.equal(bFor(3n, res), 10n); assert.equal(bFor(1n, res), 4n, 'rounded up: the pool never takes less than its ratio'); assert.equal(aFor(10n, res), 3n); assert.equal(aFor(4n, res), 1n);
+const jt = { poolTickerOf: (id) => `tk(${id})`, poolReserves: async (pid) => (pid === 'P' ? jt.res : null), quoteOpFee: async (tk) => (tk === 'tk(0xa)' ? 7 : 9), res };
+assert.deepEqual(await joinTerms(jt, { poolId: 'P', reserves: { assetA: '0xA', assetB: '0xB' } }), { res, feeA: 7n, feeB: 9n });
+await assert.rejects(joinTerms(jt, { poolId: 'Q', reserves: { assetA: '0xA', assetB: '0xB' } }), /not open/);
+jt.res = { ...res, totalShares: 0n }; await assert.rejects(joinTerms(jt, { poolId: 'P', reserves: { assetA: '0xA', assetB: '0xB' } }), /not open/, 'no shares yet: not open');
+jt.res = res; await assert.rejects(joinTerms(jt, { poolId: 'P', reserves: { assetA: '0xC', assetB: '0xB' } }), /reads differently/);
+const ns = [{ asset: '0xA', value: '50' }, { asset: '0xa', value: '20' }, { asset: '0xB', value: '20' }, { asset: '0xA', value: '5' }];
+assert.deepEqual(notesOf(ns, '0xa').map((n) => n.value), ['50', '20', '5']); assert.equal(exactOf(notesOf(ns, '0xA'), 20n).value, '20'); assert.equal(exactOf(notesOf(ns, '0xA'), 21n), null);
+const as = notesOf(ns, '0xA');
+assert.deepEqual(cutPick(as, 20n, 3n).map((n) => n.value), ['50'], 'the smallest one note that covers it and the fee');
+assert.deepEqual(cutPick(as, 60n, 5n).map((n) => n.value), ['50', '20'], 'else the largest first until they do');
+assert.equal(cutPick(as, 70n, 6n), null, 'not enough: none');
+assert.equal(cutPick(Array.from({ length: 20 }, () => ({ value: '1' })), 17n, 0n), null, 'never more than 16 notes');
+const jc = [], jx = { identity: (p) => ({ pubHex: `pub(${p})` }), transfer: async (a) => jc.push(a), lpBond: async (a) => jc.push(a) };
+await cut(jx, 'PRIV', [{ value: '50' }], 20, 3, 'W'); assert.deepEqual(jc.at(-1), { walletPriv: 'PRIV', notes: [{ value: '50' }], recipientPubHex: 'pub(PRIV)', amount: 20n, fee: 3n, waitOpts: 'W' }, 'a cut is sent to the key itself');
+await bond(jx, 'PRIV', { manager: '0xM', aNote: 'a', bNote: 'b', waitOpts: 'W' }); assert.deepEqual(jc.at(-1), { walletPriv: 'PRIV', controller: '0xM', aNote: 'a', bNote: 'b', feeBps: 30, waitOpts: 'W' }, 'bonded under the farm manager at the pool\'s fee (30 when unread)');
 console.log('farm-ops: all checks passed');

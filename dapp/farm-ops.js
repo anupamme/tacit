@@ -52,3 +52,34 @@ export const redeem = (t, priv, note, to, waitOpts) => t.farmRedeem({ walletPriv
 // the pool's share notes, which an unbond gives back, and taking one out of the pool as its two assets
 export const lpNotes = (notes, pool) => (notes || []).filter((n) => pool?.lpAsset && String(n.asset).toLowerCase() === String(pool.lpAsset).toLowerCase());
 export const takeOut = (t, priv, pool, note, waitOpts) => t.lpRemove({ walletPriv: priv, assetA: pool.reserves.assetA, assetB: pool.reserves.assetB, feeBps: Number(pool.feeBps ?? 30), shareNote: note, waitOpts });
+
+// ── joining: both sides at the pool's ratio, bonded in one ──
+// the second side for `a` of the first, rounded up so the pool never takes less than its ratio; the first side for `b` of the second
+export const bFor = (a, res) => (BigInt(a) * BigInt(res.reserveB) + BigInt(res.reserveA) - 1n) / BigInt(res.reserveA);
+export const aFor = (b, res) => (BigInt(b) * BigInt(res.reserveA)) / BigInt(res.reserveB);
+// The pool as it stands and what the relay charges to cut a note of each side to size; refused if the pool is not open or reads differently
+// from the farm program.
+export async function joinTerms(t, pool) {
+  const tk = (id) => t.poolTickerOf(String(id).toLowerCase());
+  const [res, feeA, feeB] = await Promise.all([t.poolReserves(pool.poolId), t.quoteOpFee(tk(pool.reserves.assetA), 'transfer').then(BigInt), t.quoteOpFee(tk(pool.reserves.assetB), 'transfer').then(BigInt)]);
+  if (!res || !(BigInt(res.totalShares || 0) > 0n)) throw new Error('This pool is not open for liquidity yet.');
+  if (String(res.assetA).toLowerCase() !== String(pool.reserves.assetA).toLowerCase()) throw new Error('This pool reads differently from the farm program. Try again in a minute.');
+  return { res, feeA, feeB };
+}
+const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.value) > BigInt(b.value) ? 1 : 0);
+export const notesOf = (notes, asset) => (notes || []).filter((n) => String(n.asset).toLowerCase() === String(asset).toLowerCase());
+export const exactOf = (notes, amount) => [...notes].sort(byValue).find((n) => BigInt(n.value) === BigInt(amount)) || null;
+// The notes a cut to `amount` spends, as the front page picks them: the smallest one that covers it and the relay's fee, else the largest
+// (up to 16) until they do; null when they cannot.
+export function cutPick(notes, amount, fee) {
+  const need = BigInt(amount) + BigInt(fee), up = [...notes].sort(byValue);
+  const one = up.find((x) => BigInt(x.value) >= need);
+  if (one) return [one];
+  const picked = []; let sum = 0n;
+  for (const x of [...up].reverse()) { if (sum >= need || picked.length === 16) break; picked.push(x); sum += BigInt(x.value); }
+  return sum >= need ? picked : null;
+}
+// a cut: the notes picked sent to the key itself, `amount` in one note and the rest in another, the relay's fee taken from them
+export const cut = (t, priv, notes, amount, fee, waitOpts) => t.transfer({ walletPriv: priv, notes, recipientPubHex: t.identity(priv).pubHex, amount: BigInt(amount), fee: BigInt(fee), waitOpts });
+// the two notes added to the pool and the share note bonded in the farm, in one proof
+export const bond = (t, priv, { manager, aNote, bNote, feeBps, waitOpts }) => t.lpBond({ walletPriv: priv, controller: manager, aNote, bNote, feeBps: Number(feeBps ?? 30), waitOpts });

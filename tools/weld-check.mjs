@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8617,6 +8617,72 @@ await step('rewardsout', async () => {
     const j = await r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
     ok(j.some((x) => /^Unwrap 50 wTAC of farm rewards:settled/.test(x)) && j.some((x) => /^Turn 3 wTAC into TAC:confirmed/.test(x)) && j.includes('Unbond from a farm:settled') && j.some((x) => /liquidity:settled$/.test(x)), `rewardsout: each step is in the shared journal (${j.slice(0, 5).join(' | ')})`);
     if (r.errors.length) { fails++; console.log('FAIL rewardsout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Into a farm from the rewards page with both sides: the second side shown at the pool's ratio, the first cut to size by the relay (no note
+// of it fits) and the second spent as it is, a pool that moved while the note was cut adding nothing, and the press after bonding both
+// under the farm manager. The farm program is the live one; the pool's reserves and the relay's cut and bond are answered here.
+await step('rewardsjoin', async () => {
+  const prog = await fetch('https://api.tacit.finance/farm/program?network=mainnet').then((x) => x.json());
+  const pool = prog.pools.find((p) => p.reserves?.assetA && Number(p.tacPerDayForPool) > 0), A = String(pool.reserves.assetA).toLowerCase(), B = String(pool.reserves.assetB).toLowerCase();
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      const note = (asset, value, i) => ({ asset, value: String(value), leaf: h(0xd0d000 + i), leafIndex: 710000 + i, cx: h(0x300 + i), cy: h(2), owner: h(3), secret: h(0x6200 + i), blinding: h(0x8900 + i), root: h(1), path: [] });
+      const S = window.__pj = { calls: [], cut: false, bonded: false, move: false, reads: 0 };
+      const res = (b) => ({ assetA: '${A}', assetB: '${B}', reserveA: 100000000n, reserveB: b, totalShares: 1000n, feeBps: ${Number(pool.feeBps ?? 30)} });
+      ux.farmPositions = async () => [];
+      ux.poolReserves = async () => { S.reads++; return res(S.move && S.cut ? 500000000n : 400000000n); };
+      ux.quoteOpFee = async () => 1000n;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const extra = S.bonded ? [] : S.cut ? [note('${A}', 100000000n, 1), note('${A}', 199999000n, 2), note('${B}', 400000000n, 3)] : [note('${A}', 300000000n, 4), note('${B}', 400000000n, 3)];
+        b.notes = [...(b.notes || []), ...extra];
+        return b;
+      };
+      ux.transfer = async (a) => { S.calls.push(['cut', a.notes.map((n) => n.value).join('+'), String(a.amount), String(a.fee), a.recipientPubHex === ux.identity(a.walletPriv).pubHex]); a.waitOpts?.onJob?.('pj-c', 'transfer'); S.cut = true; return { jobId: 'pj-c', txHash: h(0xc1) }; };
+      ux.lpBond = async (a) => { S.calls.push(['bond', a.controller, a.aNote.value, a.aNote.asset, a.bNote.value, a.bNote.asset, a.feeBps]); a.waitOpts?.onJob?.('pj-b', 'lpbond'); S.bonded = true; return { jobId: 'pj-b', txHash: h(0xc2) }; };
+      return ux;
+    }` }));
+  const pj = () => r.page.evaluate(() => window.__pj);
+  const said = () => text(r.page, '#pf-said').then((t) => t.replace(/\s+/g, ' ').trim());
+  try {
+    await r.page.goto(r.url + 'rewards/');
+    // the farm's row on this page opens the panel here, on that farm
+    const rowSel = `#farms a[data-priv][href="/#farm/private-${Number(pool.pid)}"]`;
+    await r.page.waitForSelector(rowSel, { timeout: 90000 });
+    await r.page.click(rowSel);
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    ok(new URL(r.page.url()).pathname === '/rewards/' && await r.page.evaluate(() => document.querySelector('#pf-row')?.open), 'rewardsjoin: a private farm\'s row opens the panel on this page');
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#pf-mine .pf-join[open] #pf-b', { timeout: 300000 });
+    ok(await r.page.$eval('#pf-pool', (x) => x.value) === String(pool.pid), 'rewardsjoin: with that farm in the join form, which stays open while the pool is read');
+    await r.page.fill('#pf-a', '1');
+    await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4', null, 10000);
+    ok(await r.page.evaluate(() => document.activeElement?.id === 'pf-a'), 'rewardsjoin: the second side is shown at the pool\'s ratio as it is typed, the field keeping its focus');
+    // the pool moves while the first side is cut: nothing is added
+    await r.page.evaluate(() => { window.__pj.move = true; });
+    await r.page.click('#pf-mine [data-pf="join"]');
+    await until(r.page, () => /price moved/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
+    const c1 = (await pj()).calls;
+    ok(c1.length === 1 && c1[0].join() === 'cut,300000000,100000000,1000,true', `rewardsjoin: the first side is cut to size by the relay, to the key itself, and with the pool moved nothing is bonded (${JSON.stringify(c1)})`);
+    // pressed again: the cut note is ready, both bonded
+    await r.page.evaluate(() => { window.__pj.move = false; });
+    await r.page.click('#pf-mine [data-pf="join"]');
+    await until(r.page, () => /In the farm/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
+    const c2 = (await pj()).calls.slice(1);
+    ok(c2.length === 1 && c2[0][0] === 'bond' && String(c2[0][1]).toLowerCase() === String(prog.manager).toLowerCase() && c2[0].slice(2).join() === `100000000,${A},400000000,${B},${Number(pool.feeBps ?? 30)}`,
+      `rewardsjoin: pressed again, no second cut: both exact notes bonded under the farm manager at the pool's fee (${JSON.stringify(c2)})`);
+    const j = await r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+    ok(j.some((x) => /^Split a note to 1 .*:settled$/.test(x)) && j.some((x) => /liquidity and farm it:settled$/.test(x)), `rewardsjoin: the cut and the bond are in the shared journal (${j.slice(0, 4).join(' | ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL rewardsjoin page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
