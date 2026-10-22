@@ -2085,20 +2085,8 @@ await step('selfmore', async () => {
     await r.page.fill('#ts-to', '0x000000000000000000000000000000000000dEaD');
     await r.page.fill('#ts-amt', '15');
     await until(r.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT);
-    // the first send's notes are held until it has gone through: the page says so, and the send is pressed again once they are free
-    let offered2 = false;
-    for (let i = 0; i < 20 && !offered2; i++) {
-      if (await r.page.isDisabled('#ts-go')) { await sleep(5000); continue; }
-      await r.page.click('#ts-go');
-      offered2 = await until(r.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]') || /still going through/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, QUOTE_WAIT)
-        .then(() => r.page.evaluate(() => !!document.querySelector('#tac-bal-status [data-selfdo]')), () => false);
-      if (!offered2) {                                               // quoted again (the refusal leaves the button off until the form is), then pressed
-        await sleep(15000);
-        await r.page.fill('#ts-amt', ''); await r.page.fill('#ts-amt', '15');
-        await until(r.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT).catch(() => {});
-        if (await r.page.isDisabled('#ts-go')) continue;
-      }
-    }
+    await r.page.click('#ts-go');
+    const offered2 = await until(r.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
     ok(offered2, `selfmore: a send-out the relay refuses offers the same (balance line: ${(await text(r.page, '#tac-bal-status')).replace(/\s+/g, ' ').slice(0, 140)} | send: ${(await text(r.page, '#ts-status').catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)} | refusals left ${refuseSubmits})`);
     if (offered2) {
       proveStub = true;
@@ -2759,7 +2747,8 @@ await step('bridge', async () => {
   const dueText = (await text(r.page, '#dash-due')).replace(/\s+/g, ' ');
   ok(/Your bridge of [\d,.]+ TAC is ready to mint\. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now\./.test(dueText), `bridge: a mint held by the day's allowance is said with when it goes on and what the holder can do (${dueText.slice(0, 300)})`);
   // It is announced once (a toast and, with notices on, a system notice), and remembered so the next look does not say it again.
-  await until(r.page, ([k]) => /:held:/.test(localStorage.getItem(k) || ''), ['tacit-lite-bridge-told-v1'], 60000);
+  // said by the bridge's tick, which runs at most every 75 s: if its first run came before the journal above was seeded, the next one says it
+  await until(r.page, ([k]) => /:held:/.test(localStorage.getItem(k) || ''), ['tacit-lite-bridge-told-v1'], 180000);
   const toldKeys = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []), ['tacit-lite-bridge-told-v1', pub]);
   ok(toldKeys.length === 1 && toldKeys[0] === `${'d2'.repeat(32)}:0:held:${new Date().toISOString().slice(0, 10)}`, `bridge: the held mint is announced once and remembered (${JSON.stringify(toldKeys)})`);
   // The landing card's Bitcoin tab is a handoff: it says in one line what the one-step bridge costs and how long it takes, and its
