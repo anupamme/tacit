@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-grvkLli1DMheyLuNW+jcfSb14O3qbsIYqhe7QT7/lnw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Vq4Q4Bl+Szxb0nJiD4RWUNrXpcNyU0umOpS2OvVVBe0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1581,6 +1581,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
+import { makeLoans } from '/btc-borrow.js?cb=c360593f';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=20546c5d';
 if (window.__tacitAway) await new Promise(() => {});
 
@@ -10172,14 +10173,11 @@ function bondFunds() {
   }
   return BF.for === who ? BF : null;
 }
+// a loan's arguments and bookkeeping are /btc-borrow.js's, the same for the borrow page
+const LN = makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex: () => S.key?.pubHex });
 async function freshPosition(t, priv, c, where) {
-  const { derivePositionOwnerPriv } = await import('/confidential-recovery.js');
-  const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
-  const ps = makeCdpPositionStore({ sha256, hmac, secp, curveOrder: secp.CURVE.n });
   say(where(), 'Finding your next position key…');
-  const ownerOf = (i) => '0x' + bytesToHex(secp.getPublicKey(hexToBytes(strip(derivePositionOwnerPriv({ hmac, sha256, curveOrder: secp.CURVE.n }, priv, c, i))), true).slice(1));
-  const keyNonce = await nextKeyNonce(t, priv, c, ps, ownerOf);
-  return { ps, keyNonce, positionOwner: ownerOf(keyNonce) };
+  return LN.fresh(t, priv, c);
 }
 const BWX = {
   async fund(where, sats) {
@@ -10339,7 +10337,7 @@ const BWX = {
         tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
         await waitTx(hash);
         t.relay?.landed?.(p.jobId, hash)?.catch?.(() => {});
-        await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: positionOwner, basket: [{ asset, value: String(sats) }], openedAt: hash }).catch(() => {});
+        await LN.opened(ps, priv, { controller: c, debtValue, keyNonce, positionOwner, rate, anchor: positionOwner, basket: [{ asset, value: String(sats) }], txHash: hash });
         return { txHash: hash };
       };
       const tell = (v) => say(where(), v);
@@ -10358,10 +10356,8 @@ const BWX = {
       const rec = LOCK.state?.rec;
       const t = await getUx(), priv = walletPriv(), key = lockKey(), c = t.cfg.collateralEngine;
       const { ps, keyNonce, positionOwner } = await freshPosition(t, priv, c, where);
-      const leg = { asset: n.asset, cx: n.cx, cy: n.cy, value: n.value, blinding: n.blinding, leafIndex: n.leafIndex, path: n.path, owner: n.owner, nk: n.secret };
-      const anchor = t.pool.nativeNu(leg.owner, leg.nk, t.pool.leaf(leg.asset, leg.cx, leg.cy, leg.owner));
-      const d = t.deriveOutput(priv, anchor, 'cdpDebt', 0);
       const rate = String(await t.ethCall(c, '0x' + SEL.rate)).toLowerCase();
+      const { leg, anchor, args } = LN.openArgs(t, priv, { note: n, debtValue, controller: c, rate, positionOwner });
       let sentSelf = false;
       const selfSettle = async (x) => {
         sentSelf = true;
@@ -10371,9 +10367,9 @@ const BWX = {
         return { txHash: hash };
       };
       say(where(), 'The relay is proving your loan…');
-      const label = `Borrow ${fmt(debtValue, 8, 2)} cUSD`, args = { controller: c, debtValue, rateSnapshot: rate, fee: 0n, collateral: [leg], spendRoot: n.root, debtBlinding: d.blindingHex, positionOwner, debtNk: d.nk };
+      const label = `Borrow ${fmt(debtValue, 8, 2)} cUSD`;
       const kept = async (r) => {
-        await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: anchor, basket: [{ asset: leg.asset, value: String(BigInt(leg.value)) }], openedAt: r?.txHash || null }).catch(() => {});
+        await LN.opened(ps, priv, { controller: c, debtValue, keyNonce, positionOwner, rate, anchor, basket: [{ asset: leg.asset, value: String(BigInt(leg.value)) }], txHash: r?.txHash || null });
         if (rec && BigInt(rec.vBtc) === BigInt(leg.value)) store.set(key, { ...rec, borrowed: debtValue.toString(), borrowedAt: Date.now() });
       };
       const loan = { run, types: ['cdpmint'], held: true, label, sheet: 'borrow', status: where, then: `Borrowed ${fmt(debtValue, 8, 2)} cUSD.`, after: async () => { await kept(null); await settleBorrow(); },
@@ -10391,14 +10387,11 @@ const BWX = {
     try {
       const p = pos || st.pos;
       if (!p) throw new Error('The loan is not visible on chain yet. Try again in a minute.');
-      const t = await getUx(), priv = walletPriv(), key = lockKey(), cdp = t.cdp, debtValue = BigInt(p.debtValue);
-      const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
-      const ps = makeCdpPositionStore({ sha256, hmac, secp, curveOrder: secp.CURVE.n });
+      const t = await getUx(), priv = walletPriv(), key = lockKey(), debtValue = BigInt(p.debtValue);
+      const ps = await LN.positions();
       const ownerPriv = await ps.ownerPrivFor(priv, p);
       if (!ownerPriv) throw new Error("This loan’s key could not be re-derived here. Close it on the classic app’s CDP tab.");
-      const debtAsset = String(cdp.debtAssetId(p.controller)).toLowerCase();
-      const basket = [...p.basket].sort((a, b) => (BigInt(a.asset) < BigInt(b.asset) ? -1 : 1));
-      const leaf = cdp.positionLeaf(p.controller, debtAsset, cdp.basketRoot(basket.map((l) => cdp.basketLeg(l.asset, l.value))), debtValue, p.rateSnapshot, p.positionOwner, p.nonce || '0x' + '0'.repeat(64));
+      const { leaf, basket, debtAsset } = LN.positionLeaf(t, p);
       say(where(), 'Finding your loan and your cUSD…');
       const [tree, bal] = await Promise.all([t.cdpPositionTree(), t.balance(priv)]);
       const index = tree.indexOf(leaf);
@@ -10421,19 +10414,12 @@ const BWX = {
         LOCK.repayOver = String(sum); if (btn) btn.textContent = 'Repay anyway';
         throw new Error(`The cUSD notes that cover the loan hold ${fmt(sum, 8, 2)}, and the extra ${fmt(sum - debtValue, 8, 2)} is not returned${split != null ? `: cutting a note of exactly the loan would cost the relay ${fmt(split, 8, 2)} cUSD` : ''}. Press Repay anyway to go ahead.`);
       }
-      const nu = cdp.positionNullifier(leaf);
-      const keys = basket.map((_l, i) => t.deriveOutput(priv, nu, 'cdpRelease', i));
       run.take(...picked.map(kNote));
       say(where(), 'The relay is proving your repayment…');
-      const label = `Repay ${fmt(debtValue, 8, 2)} cUSD`, args = {
-        controller: p.controller, debtValue, rateSnapshot: p.rateSnapshot, positionOwner: p.positionOwner, positionOwnerPriv: ownerPriv,
-        basket, positionIndex: index, positionPath: tree.pathFor(index).path, spendRoot: picked[0].root, cdpPositionRoot: tree.root, fee: 0n,
-        releaseBlindings: keys.map((k) => k.blindingHex), releaseNks: keys.map((k) => k.nk),
-        debtNotes: picked.map((n) => ({ cx: n.cx, cy: n.cy, value: n.value, blinding: n.blinding, leafIndex: n.leafIndex, path: n.path, owner: n.owner, nk: n.secret })),
-      };
+      const label = `Repay ${fmt(debtValue, 8, 2)} cUSD`, args = LN.repayArgs(t, priv, { p, ownerPriv, basket, tree, index, picked });
       const closed = () => {
         LOCK.repayOver = null;
-        ps.remove((x) => x.controller === p.controller && (x.positionOwner || '') === (p.positionOwner || '') && x.debtValue === p.debtValue);
+        LN.repaid(ps, p);
         const cur = store.get(key), own = (p.basket || []).some((l) => cur && BigInt(l.value) === BigInt(cur.vBtc));
         if (cur && own) { const { borrowed, borrowedAt, ...rest } = cur; store.set(key, rest); }
       };
@@ -10874,21 +10860,6 @@ function tacSend(el, status) {
     { id: 'pub-tac', k: 'tac', a: TAC_ASSET, pub: true, held: CSEND.pubFor === who ? CSEND.pub?.tac ?? 0n : 0n, unit: TAC_ASSET.out, dec: 18, dp: 6, label: 'Public' },
   ].filter((x) => x.held > 0n);
   assetSendForm(el, status, { prefix: 'ts', sheet: 'tac', statusId: 'tac-bal-status', sources, pick: TACSEND });
-}
-async function nextKeyNonce(t, priv, controller, ps, ownerOf) {
-  const c = String(controller).toLowerCase(), K = `tacit-cdp-next-key-nonce:${c}:${S.key.pubHex}`;
-  let local = 0;
-  try { local = Math.max(0, parseInt(localStorage.getItem(K), 10) || 0); } catch {}
-  for (const p of ps.list()) if (String(p.controller).toLowerCase() === c && Number.isInteger(p.keyNonce) && String(p.positionOwner).toLowerCase() === ownerOf(p.keyNonce)) local = Math.max(local, p.keyNonce + 1);
-  let chain = null, partial = null;
-  try {
-    const r = await t.recoverCdpPositions({ walletPriv: priv });
-    if (Number.isInteger(r?.nextKeyNonce)) { if ((r.skipped || []).length) partial = r.nextKeyNonce; else chain = r.nextKeyNonce; }
-  } catch {}
-  if (chain == null && partial == null && local === 0) throw new Error('Could not read your existing loans to pick a fresh key. Try again in a moment.');
-  const n = chain != null ? Math.max(chain, Math.min(local, chain + 10)) : Math.max(local, partial ?? 0);
-  try { localStorage.setItem(K, String(n + 1)); } catch {}
-  return n;
 }
 
 async function paintPrivateFeet() {
