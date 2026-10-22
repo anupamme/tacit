@@ -232,6 +232,7 @@ function showDone() {
       <div class="kv"><span>Transactions</span><b><a href="${MEMPOOL}/tx/${esc(d.commitTxid)}" target="_blank" rel="noopener noreferrer">commit</a> · <a href="${MEMPOOL}/tx/${esc(d.revealTxid)}" target="_blank" rel="noopener noreferrer">reveal</a></b></div>
     </div>
     <a class="btn" href="/#bitcoin/${esc(d.assetIdHex)}">Open it in your wallet</a>
+    <a class="btn ghost" href="${market(d.assetIdHex)}">Trade it</a>
     <button class="btn ghost" type="button" id="again">Etch another</button>
     <p class="q${d.details && d.metadataPinned === false ? ' err' : ''}">${d.details && d.metadataPinned === false ? 'The name and details could not be saved with it. The asset itself is etched.' : 'It shows in Discover within a few minutes.'}</p>`;
   paintMark($('#d-mark'), d.ticker, d.assetIdHex, d.logo);
@@ -428,6 +429,8 @@ function setChain(c) {
 
 // ── Discover ──
 const ageOf = (a) => (a.at ? day(a.at) : '');
+// An asset's order book, in the classic app: the one place Bitcoin assets besides TAC are bought and sold.
+const market = (id) => `/classic.html#tab=market&aid=${id}`;
 function row(a) {
   const sup = a.supply != null ? `${fmtUnits(a.supply, a.decimals, Math.min(a.decimals, 4))}` : null;
   const note = (a.later ? [a.pending ? 'Just etched' : '', 'Ticker used by an earlier asset'] : [a.mintable ? 'Mintable' : '', a.pending ? 'Just etched' : ageOf(a)]).filter(Boolean).join(' · ');
@@ -439,7 +442,7 @@ function row(a) {
 function details(a) {
   return `<div class="kv"><span>Asset ID</span><b><code>${a.id}</code> <button class="link" type="button" data-copy="${a.id}">Copy</button></b></div>
     ${a.at ? `<div class="kv"><span>Etched</span><b>${esc(day(a.at))}</b></div>` : ''}
-    <div class="links"><a href="${SCAN}/assets/${a.id}" target="_blank" rel="noopener noreferrer">tacitscan ↗</a>${a.etchTxid ? `<a href="${MEMPOOL}/tx/${a.etchTxid}" target="_blank" rel="noopener noreferrer">Etch transaction ↗</a>` : ''}</div>`;
+    <div class="links"><a href="${market(a.id)}">Trade</a><a href="${SCAN}/assets/${a.id}" target="_blank" rel="noopener noreferrer">tacitscan ↗</a>${a.etchTxid ? `<a href="${MEMPOOL}/tx/${a.etchTxid}" target="_blank" rel="noopener noreferrer">Etch transaction ↗</a>` : ''}</div>`;
 }
 const skeleton = `<li class="sks" aria-hidden="true"><span class="sk" style="width:62%"></span><span class="sk" style="width:48%"></span><span class="sk" style="width:55%"></span><span class="sk" style="width:40%"></span></li>`;
 function paintList() {
