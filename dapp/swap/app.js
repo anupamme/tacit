@@ -306,8 +306,31 @@ function vsMarket(q = S.q, r = picked(q)) {
 const BAD = -0.03, GATE = -0.1;
 
 function paint() {
-  paintTabs(); paintSides(); paintQuote(); paintRecent();
+  paintTabs(); paintSides(); paintQuote(); paintRecent(); paintNudge();
 }
+// What a key last read as bridged to its Taproot address (the front page and the Bitcoin lane keep it, per key, in the browser): tETH or TAC that
+// waits to be moved to the trading address before it can swap on Bitcoin. The Bitcoin switch carries a dot and says so; the lane has the move.
+const BRIDGED_KEY = 'tacit-bridged-v1';
+function bridgedWaiting() {
+  try {
+    const all = JSON.parse(localStorage.getItem(BRIDGED_KEY) || '{}') || {}, out = [];
+    for (const held of Object.values(all)) {
+      for (const [a, sym] of [['teth', 'tETH'], ['tac', 'TAC']]) {
+        const e = held && held[a];
+        if (e && Number(e.n) > 0 && /^\d+$/.test(String(e.v)) && BigInt(e.v) > 0n && !out.includes(sym)) out.push(sym);
+      }
+    }
+    return out;
+  } catch { return []; }
+}
+function paintNudge() {
+  const b = document.querySelector('.mode [data-mode="bitcoin"]');
+  if (!b) return;
+  const w = S.btc ? [] : bridgedWaiting(), t = w.length ? `On Bitcoin: your bridged ${w.join(' and ')} waits there to be moved, then swapped` : 'On Bitcoin';
+  b.toggleAttribute('data-nudge', w.length > 0);
+  b.title = t; b.setAttribute('aria-label', t);
+}
+addEventListener('storage', (e) => { if (e.key === BRIDGED_KEY || e.key === null) paintNudge(); });
 function paintTabs() {
   for (const [t, el] of [['swap', $('#tab-swap')], ['earn', $('#tab-earn')]]) el.setAttribute('aria-selected', String(S.tab === t));
   $('.sw-h').style.setProperty('--i', S.tab === 'swap' ? 0 : 1);
@@ -739,7 +762,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=a31e7d70')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet });
+    lane ||= (await import('/swap/bitcoin.js?cb=56416f97')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
 }

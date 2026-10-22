@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=e9ddcb68">
+<link rel="modulepreload" href="/swap/app.js?cb=2e5b1410">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -137,6 +137,8 @@ img.tk { object-fit: contain; }
 .mode .lock { width: 9px; height: 10px; border: 1.5px dashed currentColor; border-radius: 2px; }
 .mode button[data-mode="bitcoin"] { padding: 2px 10px; } .mode button[data-mode="bitcoin"] .tk { width: 16px; height: 16px; opacity: .55; transition: opacity .15s; }
 .mode button[data-mode="bitcoin"][aria-checked="true"] .tk, .mode button[data-mode="bitcoin"]:hover .tk { opacity: 1; }
+.mode button[data-mode="bitcoin"] { position: relative; } .mode button[data-mode="bitcoin"][data-nudge] .tk { opacity: 1; }
+.mode button[data-mode="bitcoin"][data-nudge]::after { content: ''; position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--card); }
 #p-swap.btc > :not(.mode):not(#btc) { display: none; }
 #btc .coin { cursor: default; } #btc .ack label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--mute); }
 .brd { display: grid; gap: 6px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); } .brd em { font-style: normal; color: var(--warn); }
@@ -674,6 +676,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=e9ddcb68"></script>
+<script type="module" src="/swap/app.js?cb=2e5b1410"></script>
 </body>
 </html>

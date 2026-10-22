@@ -46,7 +46,7 @@ const T = {
   getUtxos: async () => [{ txid: 'ee'.repeat(32), vout: 0, value: W.sats }],
   scanHoldings: async () => new Map([[TETH, { balance: W.bal[TETH], utxos: [] }], [TAC, { balance: W.bal[TAC], utxos: [] }]]),
   bridgedAtTaproot: async () => ({ count: W.bridged ? 1 : 0, address: 'bc1ptest' }),
-  bridgedNotes: async (aid) => ({ notes: W.bridged && aid === TETH ? [{ txid: 'bb'.repeat(32), vout: 0, sats: 546, amount: 10000000n, confirmed: true, openErr: null }] : [], unread: 0 }),
+  bridgedNotes: async (aid) => ({ notes: W.bridged && aid === TETH ? [{ txid: 'bb'.repeat(32), vout: 0, sats: 546, amount: 10000000n, confirmed: !W.unconfirmed, openErr: null }] : [], unread: 0 }),
   moveBridgedNote: async (o) => { rec('move', { txid: o.txid, assetIdHex: o.assetIdHex }); o.onProgress?.('commit-start'); o.onProgress?.('reveal-start'); if (W.fail.move) throw new Error(W.fail.move); W.bridged = false; return { reveal_txid: 'dd'.repeat(32) }; },
   bitcoinSwap: async (o) => { rec('swap', { fromAid: o.fromAid, toAid: o.toAid, amountIn: String(o.amountIn), minOut: String(o.minOut) }); for (const s of ['check', 'prepare', 'send']) { o.onProgress?.(s); await new Promise((r) => setTimeout(r, 30)); } if (W.fail.swap) throw new Error(W.fail.swap); return { revealTxid: 'cc'.repeat(32), quoted: 1n, floor: o.minOut }; },
   bitcoinSwapOutcome: async () => (W.outcome === 'filled' ? { state: 'filled', got: 16500000n } : W.outcome === 'refunded' ? { state: 'refunded', reason: 'floor miss', refund: 2000n } : { state: 'waiting' }),
@@ -61,8 +61,9 @@ const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const b = await chromium.launch();
 
-async function fresh(path = '/swap/', viewport = { width: 1100, height: 1000 }) {
+async function fresh(path = '/swap/', viewport = { width: 1100, height: 1000 }, seed = null) {
   const page = await b.newPage({ viewport });
+  if (seed) await page.addInitScript((kv) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v); } }, seed);
   const errs = [], csp = [];
   page.on('pageerror', (e) => errs.push(e.message));
   page.on('console', (m) => { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) csp.push(t.slice(0, 160)); });
@@ -128,7 +129,7 @@ console.log('a quote, a price warning, the key, the balances');
   await page.check('#b-ackbox');
   ok(!(await page.$eval('#b-go', (e) => e.disabled)), 'accepting enables the swap');
   await type(page, '0.5');
-  ok(/Not enough tETH on Bitcoin/.test(await text(page, '#b-go')) && await page.$eval('#b-go', (e) => e.disabled), 'more than the key holds is refused');
+  ok(/Move your bridged tETH first/.test(await text(page, '#b-go')) && !(await page.$eval('#b-go', (e) => e.disabled)), 'more than the trading address holds, with a bridged note waiting, leads to the move and not to a dead end (TAC the key does not hold is still refused, below)');
   await page.click('[data-quick="0.0125"]');
   await page.waitForFunction(() => !document.querySelector('#b-out').classList.contains('ph'), null, { timeout: 8000 });
   ok(await page.inputValue('#b-amt') === '0.0125', 'a quick amount fills the box (25% of the balance) and quotes');
@@ -170,6 +171,83 @@ console.log('the bridged note');
   await page.waitForTimeout(300);
   ok((await calls(page, 'move')).length === 0 && /Add sats, then try again/.test(await text(page, '#b-q')) && (await calls(page, 'fund')).length === 1, 'with too few sats the move is not made, and the fund dialog opens');
   await page.close();
+}
+
+console.log('the nudge to move a bridged note');
+{
+  const PUB_A = '02' + 'cd'.repeat(32), PUB_STUB = '02' + 'ab'.repeat(32);
+  const held = (extra = {}, pub = PUB_A) => ({ 'tacit-bridged-v1': JSON.stringify({ [pub]: extra }) });
+  const dot = (page) => page.$eval('[data-mode=bitcoin]', (e) => ({ on: e.hasAttribute('data-nudge'), title: e.title, label: e.getAttribute('aria-label') }));
+  let r = await fresh('/swap/', undefined, held({ teth: { v: '10000000', n: 1, ready: 1, at: Date.now() } }));
+  let d = await dot(r.page);
+  ok(d.on && /bridged tETH waits there to be moved/.test(d.title) && d.title === d.label, `a key that last read tETH bridged to its Taproot address puts a dot on the Bitcoin switch, and says why (${d.title})`);
+  ok(await r.page.$eval('[data-mode=bitcoin]', (e) => getComputedStyle(e, '::after').content !== 'none'), 'the dot is drawn');
+  await r.page.click('[data-mode=bitcoin]'); await laneReady(r.page);
+  ok(!(await dot(r.page)).on && (await dot(r.page)).title === 'On Bitcoin', 'with the lane open the dot goes: the lane has the move');
+  await r.page.click('[data-mode=wallet]');
+  ok((await dot(r.page)).on, 'back on the wallet lane it returns while the note is still there');
+  ok(r.errs.length === 0 && r.csp.length === 0, `no page errors or CSP violations (${r.errs.concat(r.csp).join(' | ')})`);
+  await r.page.close();
+
+  r = await fresh('/swap/', undefined, held({ tac: { v: '500000000', n: 2, ready: 2, at: Date.now() } }));
+  ok(/bridged TAC waits/.test((await dot(r.page)).title), 'bridged TAC is named the same way');
+  await r.page.close();
+  for (const [what, seed] of [['a note count of zero', held({ teth: { v: '0', n: 0, ready: 0, at: Date.now() } })], ['nothing kept', {}], ['a damaged record', { 'tacit-bridged-v1': '{not json' }], ['a sum that is not a number', held({ teth: { v: 'lots', n: 1 } })]]) {
+    r = await fresh('/swap/', undefined, seed);
+    const x = await dot(r.page);
+    ok(!x.on && x.title === 'On Bitcoin' && r.errs.length === 0, `${what} puts no dot on the switch`);
+    await r.page.close();
+  }
+
+  // The lane: nothing to pay with at the trading address and the tETH bridged: the button leads to the move, which is asked first.
+  r = await fresh('/swap/#bitcoin', undefined, held({ teth: { v: '10000000', n: 1, ready: 1, at: Date.now() } }, PUB_STUB));
+  await laneReady(r.page);
+  await r.page.evaluate((t) => { window.__stub.bal[t] = 0n; }, TETH);
+  await r.page.click('#b-go');
+  await r.page.waitForFunction(() => /Balance 0 tETH/.test(document.querySelector('#b-bal').textContent), null, { timeout: 8000 });
+  await r.page.waitForFunction(() => /Move your bridged tETH first/.test(document.querySelector('#b-go').textContent), null, { timeout: 8000 });
+  ok(!(await r.page.$eval('#b-go', (e) => e.disabled)), 'with 0 tETH at the trading address and a bridged note, the button reads "Move your bridged tETH first" and is live');
+  const kept = await r.page.evaluate((pub) => JSON.parse(localStorage.getItem('tacit-bridged-v1'))[pub]?.teth, PUB_STUB);
+  ok(kept && kept.n === 1 && kept.v === '10000000' && kept.ready === 1, `reading the Taproot address keeps a count and a sum for the key, no note (${JSON.stringify(kept)})`);
+  ok(!JSON.stringify(await r.page.evaluate(() => localStorage.getItem('tacit-bridged-v1'))).includes('bbbbbbbb'), 'and no transaction id');
+  await r.page.click('#b-go');
+  ok(/Move 0\.1 tETH to your trading address\? One Bitcoin transaction, about 5,000 sats/.test(await text(r.page, '#b-brd')) && (await calls(r.page, 'move')).length === 0, 'pressing it asks first, naming the fee, and moves nothing');
+  await r.page.click('[data-move-no]');
+  ok((await calls(r.page, 'move')).length === 0 && /Move your bridged tETH first/.test(await text(r.page, '#b-go')), 'Cancel leaves the button as it was');
+  await r.page.click('#b-go'); await r.page.click('[data-move-yes]');
+  await r.page.waitForFunction(() => /Moved 0\.1 tETH/.test(document.querySelector('#b-q').textContent), null, { timeout: 8000 });
+  const mv = await calls(r.page, 'move');
+  ok(mv.length === 1 && mv[0].txid === 'bb'.repeat(32) && mv[0].assetIdHex === TETH, 'confirming moves that note, as tETH');
+  const after = await r.page.evaluate((pub) => JSON.parse(localStorage.getItem('tacit-bridged-v1'))[pub]?.teth, PUB_STUB);
+  ok(after && after.n === 0 && after.v === '0', `the moment it is moved the kept count is zero (${JSON.stringify(after)})`);
+  ok(!/Move your bridged/.test(await text(r.page, '#b-go')), 'and the button no longer asks for it');
+  await r.page.click('[data-mode=wallet]');
+  ok(!(await dot(r.page)).on, 'back on the wallet lane the Bitcoin switch has no dot: nothing is left to move');
+  await r.page.close();
+
+  // With tETH at the trading address the lane is as before, however much is bridged.
+  r = await fresh('/swap/#bitcoin', undefined, held({ teth: { v: '10000000', n: 1, ready: 1, at: Date.now() } }));
+  await laneReady(r.page);
+  await r.page.click('#b-go');
+  await r.page.waitForFunction(() => /Balance 0\.05 tETH/.test(document.querySelector('#b-bal').textContent), null, { timeout: 8000 });
+  ok(/^Enter an amount$/.test(await text(r.page, '#b-go')), 'holding tETH to pay with, the button is the ordinary one');
+  await type(r.page, '0.00002');
+  ok(/^Swap$/.test(await text(r.page, '#b-go')), 'and it swaps');
+  await r.page.fill('#b-amt', '0.5');
+  await r.page.waitForFunction(() => /Move your bridged tETH first/.test(document.querySelector('#b-go').textContent), null, { timeout: 8000 });
+  ok(true, 'asking for more than the trading address holds, with a bridged note waiting, leads to the move');
+  await r.page.close();
+
+  // A bridged note that is not ready (waiting for its block) is no call to move yet: it is listed, with what it waits for.
+  r = await fresh('/swap/#bitcoin', undefined, held({ teth: { v: '10000000', n: 1, ready: 0, at: Date.now() } }, PUB_STUB));
+  await laneReady(r.page);
+  await r.page.evaluate((t) => { window.__stub.bal[t] = 0n; window.__stub.unconfirmed = true; }, TETH);
+  await r.page.click('#b-go');
+  await r.page.waitForFunction(() => /Balance 0 tETH/.test(document.querySelector('#b-bal').textContent), null, { timeout: 8000 });
+  await r.page.waitForFunction(() => /Waiting for its Bitcoin confirmation/.test(document.querySelector('#b-brd').textContent), null, { timeout: 8000 });
+  ok(/^Enter an amount$/.test(await text(r.page, '#b-go')) && !/Move your bridged/.test(await text(r.page, '#b-go')), 'a note still waiting for its block does not turn the button into a move');
+  ok(/Waiting for its Bitcoin confirmation/.test(await text(r.page, '#b-brd')) && !(await r.page.$('[data-move]')), 'it is listed with what it waits for, and offers no move yet');
+  await r.page.close();
 }
 
 console.log('the swap');

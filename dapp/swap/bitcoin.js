@@ -10,11 +10,12 @@ const MOVE_SATS = 5000, DUST = 546, IMPACT_WARN = 0.05, IMPACT_ACK = 0.1;
 const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount (one Bitcoin transaction pair)…', send: 'Sending the swap…' };
 const MEMPOOL = 'https://mempool.space';
 const SLIP_KEY = 'tacit-swap-btc-slip-v1';
+const BRIDGED_KEY = 'tacit-bridged-v1';                                           // what each key last read at its Taproot address, as the front page keeps it
 
 const tidy = (s) => s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 const fmt = (v, aid, max = 8) => fmtUnits(v, TOKENS[aid].dec, max);
 
-export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }) {
+export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, onBridged = () => {} }) {
   let slip = 100;
   try { const s = Number(localStorage.getItem(SLIP_KEY)); if (SLIPS.includes(s)) slip = s; } catch { /* storage is a convenience */ }
   const L = { pay: TETH, get: TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: null, asking: null, line: '', cls: '', open: false };
@@ -90,18 +91,40 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }
     return reading;
   }
   // Tokens bridged to Bitcoin sit at the key's Taproot address, which a swap does not spend from: they are listed here with the move.
+  // What was read is kept for the key as the front page keeps it (a count and a sum, no note), so the page's Bitcoin switch can say a move is waiting
+  // and stops saying it once there is none.
+  function keepBridged(pub, name, r) {
+    if (!pub || r.unread) return;
+    try {
+      const all = JSON.parse(localStorage.getItem(BRIDGED_KEY) || '{}') || {}, mine = (all[pub] ||= {}), ok = r.notes.filter((n) => n.amount != null);
+      mine[name] = { v: String(ok.reduce((t, n) => t + BigInt(n.amount), 0n)), n: ok.length, ready: ok.filter((n) => n.confirmed).length, at: Date.now() };
+      localStorage.setItem(BRIDGED_KEY, JSON.stringify(all));
+    } catch { /* storage is a convenience */ }
+  }
   async function readBridged() {
     if (!unlocked() || Date.now() - L.bridgedAt < 60e3) return;
     L.bridgedAt = Date.now();
+    const pub = bitcoin.session.key?.pubHex;
     try {
       const { count } = await T.bridgedAtTaproot({ force: true });
-      if (!count) { L.notes = []; L.unread = 0; paint(); return; }
+      if (!count) {
+        L.notes = []; L.unread = 0;
+        keepBridged(pub, 'teth', { notes: [], unread: 0 }); keepBridged(pub, 'tac', { notes: [], unread: 0 });
+        paint(); onBridged(); return;
+      }
       const [a, b] = await Promise.all([T.bridgedNotes(TETH), T.bridgedNotes(TAC)]);
       L.notes = [...a.notes.map((n) => ({ ...n, aid: TETH })), ...b.notes.map((n) => ({ ...n, aid: TAC }))];
       L.unread = a.unread + b.unread;
+      keepBridged(pub, 'teth', a); keepBridged(pub, 'tac', b);
     } catch { L.bridgedAt = 0; }
-    paint();
+    paint(); onBridged();
   }
+  // The bridged note of a token that is ready to move (its amount read, its block confirmed), the largest first, or -1.
+  const readyNote = (aid) => {
+    let best = -1;
+    L.notes.forEach((n, i) => { if (n.aid === aid && n.amount != null && n.confirmed && (best < 0 || n.amount > L.notes[best].amount)) best = i; });
+    return best;
+  };
 
   // ── the quote ──
   const amountBase = () => { const v = parseUnits(L.amt, TOKENS[L.pay].dec); return v && v > 0n ? v : null; };
@@ -138,6 +161,9 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }
     if (!T) return { label: 'Loading…', off: true };
     if (L.noPool) return { label: 'No pool yet', off: true };
     if (!unlocked()) return { label: 'Open your Tacit wallet', act: 'unlock' };
+    // The token to pay is held, bridged, at the Taproot address and the trading address has none (or too little): the way on is the move.
+    const mv = bal != null && (bal === 0n || (din && din > bal)) ? readyNote(L.pay) : -1;
+    if (mv >= 0) return { label: `Move your bridged ${TOKENS[L.pay].sym} first`, act: 'move', mv };
     if (!L.amt) return { label: 'Enter an amount', off: true };
     if (!din) return { label: 'Enter a valid amount', off: true };
     if (bal != null && din > bal) return { label: `Not enough ${TOKENS[L.pay].sym} on Bitcoin`, off: true };
@@ -184,7 +210,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }
     }
     paintBridged();
     const g = gate(), go = $('b-go');
-    go.textContent = g.label; go.disabled = !!g.off; go.dataset.act = g.act || '';
+    go.textContent = g.label; go.disabled = !!g.off; go.dataset.act = g.act || ''; go.dataset.mv = g.mv ?? '';
     if (!L.busy && !L.sent && !L.asking && !L.line && L.noPool) say('There is no pool for tETH and TAC on Bitcoin yet.');
   }
   function paintBridged() {
@@ -241,6 +267,8 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }
       await T.moveBridgedNote({ txid: n.txid, assetIdHex: n.aid, onProgress: (s) => say(s === 'reveal-start' ? 'Sending the second transaction…' : 'Sending the first transaction…') });
       say(`Moved ${esc(tidy(fmt(n.amount, n.aid)))} ${TOKENS[n.aid].sym}. It confirms with the next Bitcoin block, and then it shows in your balance here, ready to swap.`, 'ok');
       L.notes = L.notes.filter((_, j) => j !== i);
+      keepBridged(bitcoin.session.key?.pubHex, n.aid === TETH ? 'teth' : 'tac', { notes: L.notes.filter((x) => x.aid === n.aid), unread: L.unread });
+      onBridged();
     } catch (e) { say(esc(/insufficient sats/i.test(e?.message || '') ? `You need about ${MOVE_SATS.toLocaleString('en-US')} sats at your trading address for the fee. Add sats, then try again.` : (e?.message || e)), 'err'); }
     finally { L.busy = false; L.bridgedAt = 0; paint(); }
   }
@@ -258,7 +286,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null }
     const mv = t.closest('[data-move]'); if (mv) { L.asking = Number(mv.dataset.move); paint(); return; }
     const yes = t.closest('[data-move-yes]'); if (yes) { move(Number(yes.dataset.moveYes)); return; }
     if (t.closest('[data-move-no]')) { L.asking = null; paint(); return; }
-    if (t.closest('#b-go')) { const a = $('b-go').dataset.act; if (a === 'unlock') unlock(); else if (a === 'fund') fund(); else if (a === 'swap') swap(); }
+    if (t.closest('#b-go')) { const a = $('b-go').dataset.act; if (a === 'unlock') unlock(); else if (a === 'fund') fund(); else if (a === 'swap') swap(); else if (a === 'move') { L.asking = Number($('b-go').dataset.mv); paint(); } }
   });
 
   return {
