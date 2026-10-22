@@ -2,7 +2,6 @@
 const TACIT_URL = '/tacit.js?cb=961f3dfd';
 const SECRET_URL = '/sats/secret.js?cb=a8c52b0f';
 const SATS_URL = '/tac/sats.js?cb=cbc4ba41';
-const MARKET_URL = '/tac/market.js?cb=c06d841d';
 const CLAIM_URL = '/tac/claim.js?cb=1523631a';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';
@@ -862,7 +861,7 @@ async function scanEverything(statusId = 'st-recv') {
   say(statusId, `${n} shielded note${n === 1 ? '' : 's'}. ${found ? `${found} stealth payment${found === 1 ? '' : 's'} added to your wallet balance.` : 'No new stealth payments.'}`);
 }
 
-const TABS = ['shield', 'send', 'withdraw', 'receive', 'market'];
+const TABS = ['shield', 'send', 'withdraw', 'receive'];
 let wTab = 0;
 const tabHash = (i) => TABS[i] + (i === 2 && wTab === 1 ? '/sats' : '');
 function writeTab(i) {
@@ -1043,17 +1042,6 @@ function errSayInto(host, e) {
   host.append(span);
 }
 
-let marketMounted = false;
-function renderMarket() {
-  if (marketMounted) return;
-  marketMounted = true;
-  import(MARKET_URL)
-    .then((m) => m.mount($('market-body'), {
-      markSats, get T() { return T; }, unlocked, ensureKey, turn, busy, say, errSay, errText, said, txLink, refresh: () => loadPublic(),
-    }))
-    .catch((e) => { marketMounted = false; $('market-body').replaceChildren(); errSay('st-recv', e); });
-}
-
 function renderSats() {
   const host = $('sats-body');
   if (host.dataset.ready) return;
@@ -1072,7 +1060,6 @@ function renderSats() {
       mainTab = i;
       if (i === 1) renderClaimLinks();
       if (i === 3) paintReceive();
-      if (i === 4) renderMarket();
       if (user) writeTab(i);
     });
   const pickW = tabs(['wtab-self', 'wtab-sats'], ['wpane-self', 'wpane-sats'], (i, user) => {
@@ -1125,7 +1112,9 @@ function renderSats() {
     const frag = location.hash || '';
     if (/tacclaim=/.test(frag)) { showClaim(frag).catch((e) => console.warn('[tac] claim link', e)); return; }
     const [area, view] = lc(frag.replace(/^#/, '')).split(/[/&]/);
-    const i = TABS.indexOf(area === 'buy' ? 'market' : area);
+    // TAC's market, the Bitcoin order book with it, is TAC's own page: an old #buy or #market link opens it there
+    if (area === 'buy' || area === 'market') { location.replace('/trade/tac/#btc=buy'); return; }
+    const i = TABS.indexOf(area);
     if (i < 0) return;
     if (i === 2) pickW(view === 'sats' ? 1 : 0);
     pickMain(i);

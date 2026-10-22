@@ -175,7 +175,7 @@ const WELD_CB_FILES = ['walletconnect.js', 'evm-pool-sync-worker.js', 'holding-p
 const PAY_CB_FILES = ['pay/index.html', 'pay/eth/index.html'];
 // dapp/tac/ is the shielded-TAC page: app.js lazy-imports sats.js, so sats.js is hashed first and the page
 // that loads app.js last, same importer-last order as the sats page above.
-const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
+const TAC_CB_FILES = ['tac/sats.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html',

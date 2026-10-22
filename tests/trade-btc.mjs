@@ -286,6 +286,15 @@ try {
   await p.click('.bsheet .x');
   ok(!(await p.$('.bsheet')), 'the close button closes it');
   await r.browser.close();
+  // a link from another page (/tac/#buy, the front page's "Paying in sats?") opens the sheet on its side with no press: #btc=buy, #btc=sell
+  for (const side of ['buy', 'sell']) {
+    r = await openPage({ width: 1280, height: 900 }, { hash: `#btc=${side}` });
+    p = r.page;
+    await until(p, (want) => document.querySelector('.bsheet.wide .bm [data-act="side"][aria-selected="true"]')?.dataset.v === want, side, 180000).catch(() => {});
+    const on = await p.$eval('.bsheet.wide .bm [data-act="side"][aria-selected="true"]', (b) => b.dataset.v).catch(() => 'none');
+    ok(on === side, `#btc=${side} opens the Bitcoin market on its ${side} side by itself (${on})`);
+    await r.browser.close();
+  }
 } catch (e) {
   fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 4).join(' / '));
   if (r) console.log('     errors:', r.errors.slice(0, 4), 'blocked:', r.blocked.slice(0, 3), 'unmatched:', [...r.seen.unmatched].slice(0, 8), 'api:', [...r.seen.api].slice(0, 12), 'explorer:', [...r.seen.explorer].slice(0, 8));

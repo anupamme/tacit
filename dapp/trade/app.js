@@ -861,7 +861,7 @@ function renderBook() {
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
   const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${count(b.bids.length, 'bid')} (${grp(Number(want) / 1e8, 0)} TAC) ${b.bids.length === 1 ? 'settles' : 'settle'} when the bidder is online.` : 'No bids.';
   const nMine = orders.filter((o) => o.lane === 'btc').length, yours = nMine ? `<button type="button" class="linkbtn" data-goto="mine">You have ${nMine} open order${nMine === 1 ? '' : 's'} here</button>. ` : '';
-  note.innerHTML = b.asks.length ? `${yours}${count(b.asks.length, 'listing')} (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
+  note.innerHTML = b.asks.length ? `${yours}${count(b.asks.length, 'listing')} (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
 function renderPin() {
   const el = $('#pin'), o = pinnedOrder();
@@ -1227,13 +1227,20 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();
   S.ready = true; retrySoon();
+  openBitcoinFor(params.get('btc'));
   if (W.account) ensureTrades();
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
+// #btc=buy, #btc=sell or #btc=list (a link from another page) opens the Bitcoin market on that side
+function openBitcoinFor(how) {
+  if (!['buy', 'sell', 'list'].includes(how) || !btcOn()) return;
+  openBitcoin(how === 'list' ? { side: 'sell', type: 'limit' } : { side: how, type: 'market' });
+}
 addEventListener('hashchange', () => {
   if (!S.ready || S.busy) return;
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+  openBitcoinFor(params.get('btc'));
   if (!params.has('side') && !params.has('amount')) return;
   const side = params.has('side') ? (params.get('side') === 'sell' ? 'sell' : 'buy') : S.side;
   if (side !== S.side) $(`#side-seg [data-side="${side}"]`).click();

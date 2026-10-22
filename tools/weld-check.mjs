@@ -7603,8 +7603,8 @@ await step('hxsats', async () => {
     await p.fill('#hx-amt', '200000');
     await until(p, () => /listing/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
     await p.click('#hx-go');
-    await p.waitForURL(/\/tac\/#buy/, { timeout: 30000 });
-    ok(true, 'hxsats: Buy TAC on Bitcoin goes to /tac, where the listings are taken');
+    await p.waitForURL(/\/trade\/tac\/#btc=buy/, { timeout: 30000 });
+    ok(true, 'hxsats: Buy TAC on Bitcoin goes to TAC\'s page with its Bitcoin market open, where the listings are taken');
     if (r.errors.length) { fails++; console.log('FAIL hxsats page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
   // with no bid on the book

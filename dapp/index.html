@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-maSbDKp+jZ93qTfqBL8QYjNMYZxruAv7n0SGHP/Go6A=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3a/6QMZmEtApZyN7yUp84qQRgCP01FdiaJ/22kiQVnU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8312,8 +8312,8 @@ async function tacRoute(dir, wei, account) {
 const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.legs[0].amountIn + sp.legs[1].amountIn)) / 10);
 const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare(sp)}% Tacit public pool`;
 const splitGain = (sp) => `${(sp.gainBps / 100).toFixed(sp.gainBps < 100 ? 2 : 1)}%`;
-const TAC_BOOK = `/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc`;
-const bookLine = (sell) => html`<p class="note">${sell ? 'Want sats instead?' : 'Paying in sats?'} <a href="${sell ? TAC_BOOK : '/tac/#buy'}">${sell ? 'Sell TAC held on Bitcoin in its order book' : 'Buy TAC on the Bitcoin order book'} →</a></p>`;
+const TAC_BOOK = '/trade/tac/#btc=sell';
+const bookLine = (sell) => html`<p class="note">${sell ? 'Want sats instead?' : 'Paying in sats?'} <a href="${sell ? TAC_BOOK : '/trade/tac/#btc=buy'}">${sell ? 'Sell TAC held on Bitcoin in its order book' : 'Buy TAC on the Bitcoin order book'} →</a></p>`;
 function renderBuy(el) {
   if (!S.address) { mount(el, html`${gate('Buy TAC with ETH at the best price across pools. Buying through the Precision pool earns points.', 'Connect wallet', 'buy-connect')}${bookLine(false)}`); return wireConnect('buy-connect', () => rerender('tac')); }
   mount(el, html`
@@ -12415,7 +12415,7 @@ function hxGo() {
   }
   if (m === 'swap') {
     if (HX.from === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'buy', amt }); return openLink('buy'); }
-    if (HX.from === 'sats') { location.href = '/tac/#buy'; return; }
+    if (HX.from === 'sats') { location.href = '/trade/tac/#btc=buy'; return; }
     if (HX.to === 'sats') { location.href = TAC_BOOK; return; }
     if (HX.to === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'sell', amt }); return openLink('sell'); }
     const sf = HX.from === 'ether' ? 'eth' : HX.from, st = HX.to === 'ether' ? 'eth' : HX.to;
