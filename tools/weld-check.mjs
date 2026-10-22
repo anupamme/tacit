@@ -809,6 +809,7 @@ await step('v1', async () => {
 // The relay refuses a wrap's settle outright once its deposit has landed (its free settles for the day are used up):
 // the form empties, and the line says why and that the deposit waits for Finish, rather than asking for it again.
 await step('v1refuse', async () => {
+  const r0 = refused.length;                                       // this step's own refusals: an earlier step (v1) leaves its deposit refused too
   const r = await openPage({ account: A0, key: K0 });
   try {
     await r.page.goto(r.url + '#private');
@@ -829,14 +830,15 @@ await step('v1refuse', async () => {
     // Or from the wallet: the relay is asked for the proof only, and settle() is tried against the pool before the wallet is asked to send it. The
     // proof is a stand-in here, so the pool refuses it: nothing is sent, the page says so, and the deposit is still offered after.
     ok(/Or finish from your wallet/.test(await text(r.page, '#v1-finish-self')), 'v1refuse: it can also be finished from the wallet');
-    const wrapSub = refused.findLast((x) => x.type === 'wrap');
+    const wrapSub = refused.slice(r0).findLast((x) => x.type === 'wrap');
     proveStub = true;
     const n1 = submits.length, t1 = walletTxs.length, before = await r.page.$eval('#v1-status', (e) => e.innerHTML);
     await r.page.click('#v1-finish-self');
     await until(r.page, (b) => { const h = document.querySelector('#v1-status')?.innerHTML || ''; return h !== b && /class="err"/.test(h); }, before, 600000);
-    const prove = submits.slice(n1).find((x) => x.type === 'wrap' && x.op.cx === wrapSub?.op.cx);   // every waiting deposit is finished, this one among them
+    // every deposit waiting on this key is finished (an earlier step's may be the one listed); each is asked for its proof only, nothing to settle
+    const asked = submits.slice(n1).filter((x) => x.type === 'wrap');
     const settle = walletTxs.slice(t1).find((x) => String(x.to).toLowerCase() === '0x000000000ed1eabd231be41d93b719056f7febfc');
-    ok(prove?.mode === 'prove' && prove.op.cx === wrapSub?.op.cx && prove.op.owner === wrapSub?.op.owner, 'v1refuse: finishing from the wallet asks the relay for this deposit\'s proof only');
+    ok(asked.length > 0 && asked.every((x) => x.mode === 'prove'), `v1refuse: finishing from the wallet asks the relay for each waiting deposit's proof only (asked: ${asked.map((x) => `${x.mode}/${String(x.op?.cx).slice(0, 10)}`).join(' ') || 'nothing'})`);
     ok(!settle && /Nothing was sent: the pool refuses this as it stands/.test(await text(r.page, '#v1-status')),
       `v1refuse: and the settle is tried against the pool before the wallet is asked: a refusal sends nothing and says so (${(await text(r.page, '#v1-status')).slice(0, 90)})`);
     // The same from its receipt, once it has waited in line: a receipt as another tab of this page would write it (the
@@ -942,8 +944,8 @@ await step('devsend', async () => {
   if (await page.$('#eth-dev [data-in="eth"]')) await page.click('#eth-dev [data-in="eth"]');
   await page.waitForSelector('[data-dev="send"]', { timeout: 60000 });
   await page.click('[data-dev="receive"]');
-  // The form waits for the pool's replay (in a worker); when it does not come, the line it is stuck on says so.
-  await page.waitForSelector('#d-form [data-copy]', { timeout: 120000 }).catch(async (e) => { console.log('     d-form says: ' + (await page.evaluate(() => (document.querySelector('#d-form')?.textContent || 'no #d-form').replace(/\s+/g, ' ').slice(0, 300)))); throw e; });
+  // The form waits for the pool's replay (in a worker), every pool event read from a cold fork; when it does not come, the line it is stuck on says so.
+  await page.waitForSelector('#d-form [data-copy]', { timeout: 300000 }).catch(async (e) => { console.log('     d-form says: ' + (await page.evaluate(() => (document.querySelector('#d-form')?.textContent || 'no #d-form').replace(/\s+/g, ' ').slice(0, 300)))); throw e; });
   const recv = await page.evaluate(() => ({ bp1: document.querySelector('#d-form [data-copy^="bp1"]')?.dataset.copy, tacit: document.querySelector('#d-form [data-copy^="tacit1"]')?.dataset.copy, ask: document.querySelector('#d-form a[href^="/pay/eth/#receive"]')?.getAttribute('href') }));
   ok(/^bp1/.test(recv.bp1 || '') && /^\/pay\/eth\/#receive&chain=\d+$/.test(recv.ask || ''), `devsend: Receive keeps the pool and deposit addresses here, and asks for an amount in tacit pay (${recv.ask}; pool address ${String(recv.bp1).slice(0, 8)}, Tacit address ${String(recv.tacit).slice(0, 8)})`);
   // Paying from this balance is tacit pay's (tools/pay-check.mjs covers it): the tab opens it on the same chain.
@@ -1884,7 +1886,8 @@ await step('farmjoin', async () => {
     if (/Earns about/.test(rc)) ok(/APR on this deposit\s*(about [\d,]+%|over 100,000%)/.test(rc) && /Swap fees come on top/.test(rc), 'farmjoin: and the APR for this deposit');
     // An amount finer than a note's eight decimals is said, not left as a button that stays disabled with no reason.
     await r.page.fill('#sj-a-0', '0.123456789');
-    await until(r.page, () => /Up to 8 decimals/.test(document.querySelector('#sj-rcpt-0')?.textContent || ''), null, 120000);
+    await until(r.page, () => /Up to 8 decimals/.test(document.querySelector('#sj-rcpt-0')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#sj-rcpt-0')).replace(/\s+/g, ' ').slice(0, 200)} | a: ${await r.page.inputValue('#sj-a-0')}`); });
     ok(await r.page.$eval('#sj-go-0', (b) => b.disabled), 'farmjoin: an amount finer than 8 decimals is said, and nothing can be added');
     await r.page.click('#sj-max-0');
     await until(r.page, () => /Adds/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 240000);
@@ -2081,9 +2084,21 @@ await step('selfmore', async () => {
     await r.page.fill('#ts-to', '0x000000000000000000000000000000000000dEaD');
     await r.page.fill('#ts-amt', '15');
     await until(r.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT);
-    await r.page.click('#ts-go');
-    const offered2 = await until(r.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
-    ok(offered2, 'selfmore: a send-out the relay refuses offers the same');
+    // the first send's notes are held until it has gone through: the page says so, and the send is pressed again once they are free
+    let offered2 = false;
+    for (let i = 0; i < 20 && !offered2; i++) {
+      if (await r.page.isDisabled('#ts-go')) { await sleep(5000); continue; }
+      await r.page.click('#ts-go');
+      offered2 = await until(r.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]') || /still going through/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, QUOTE_WAIT)
+        .then(() => r.page.evaluate(() => !!document.querySelector('#tac-bal-status [data-selfdo]')), () => false);
+      if (!offered2) {                                               // quoted again (the refusal leaves the button off until the form is), then pressed
+        await sleep(15000);
+        await r.page.fill('#ts-amt', ''); await r.page.fill('#ts-amt', '15');
+        await until(r.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT).catch(() => {});
+        if (await r.page.isDisabled('#ts-go')) continue;
+      }
+    }
+    ok(offered2, `selfmore: a send-out the relay refuses offers the same (balance line: ${(await text(r.page, '#tac-bal-status')).replace(/\s+/g, ' ').slice(0, 140)} | send: ${(await text(r.page, '#ts-status').catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)} | refusals left ${refuseSubmits})`);
     if (offered2) {
       proveStub = true;
       const n2 = submits.length;
