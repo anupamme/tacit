@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8496,6 +8496,60 @@ await step('vaultborrow', async () => {
     const j = await journal();
     ok(j.includes('Borrow 5 cUSD:settled') && j.includes('Repay 5 cUSD:settled'), `vaultborrow: both are in the shared journal under their names, settled (${j.slice(0, 4).join(' | ')})`);
     if (r.errors.length) { fails++; console.log('FAIL vaultborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The rewards page's own private positions: what each holds and has earned, a harvest and an unbond relayed from there, the same rules as the
+// front page (farm-ops.js), both in the shared journal. The pool module is the real one; the positions and the relay's harvest and unbond are
+// answered here.
+await step('rewardspriv', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o);
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      const S = window.__pf = { calls: [], pending: '5000000', refuse: false, gone: false };
+      ux.farmPositions = async () => (S.gone ? [] : [{ pid: 0, shares: '1000', pendingUnits: S.pending, pendingTac: (Number(S.pending) / 1e8).toString(), unlockAt: 0, receiptLeaf: h(0xfa) }]);
+      const refuse = () => Object.assign(new Error('relay 429: the relay can’t take this one right now; send it from your own wallet, or try again later'), { code: 'relay_held', httpStatus: 429 });
+      ux.farmHarvest = async (a) => { S.calls.push(['harvest', a.position.pid, typeof a.waitOpts?.onJob]); if (S.refuse) throw refuse(); a.waitOpts?.onJob?.('pf-h', 'farmharvest'); S.pending = '0'; return { jobId: 'pf-h', txHash: h(0xa1) }; };
+      ux.farmUnbond = async (a) => { S.calls.push(['unbond', a.position.pid, a.forfeitPending]); a.waitOpts?.onJob?.('pf-u', 'farmunbond'); S.gone = true; return { jobId: 'pf-u', txHash: h(0xa2) }; };
+      return ux;
+    }` }));
+  const pf = () => r.page.evaluate(() => window.__pf);
+  const said = () => text(r.page, '#pf-said').then((t) => t.replace(/\s+/g, ' ').trim());
+  const journal = () => r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+  try {
+    await r.page.goto(r.url + 'rewards/');
+    await r.page.click('#pf-row > summary');
+    await sleep(1000);
+    ok(await r.page.evaluate(() => !window.__pf), 'rewardspriv: nothing of a key or the pool is loaded until asked');
+    await r.page.click('#pf-mine [data-pf="open"]');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#pf-mine [data-pf="harvest"]', { timeout: 300000 });
+    const row = (await text(r.page, '#pf-mine')).replace(/\s+/g, ' ');
+    ok(/0\.05 TAC earned/.test(row) && !(await r.page.isDisabled('#pf-mine [data-pf="harvest"]')) && await r.page.isDisabled('#pf-mine [data-pf="unbond"]') && (await r.page.getAttribute('#pf-mine a[href^="/#farm/private-"]', 'href')) === '/#farm/private-0',
+      `rewardspriv: a position with a reward worth having can be harvested and not unbonded, and links to the front page for the rest (${row.slice(0, 160)})`);
+    // refused by the relay: said, with the way to the front page
+    await r.page.evaluate(() => { window.__pf.refuse = true; });
+    await r.page.click('#pf-mine [data-pf="harvest"]');
+    await until(r.page, () => /can’t take this one/.test(document.querySelector('#pf-said')?.textContent || ''), null, 120000);
+    ok((await r.page.getAttribute('#pf-said a', 'href')) === '/#farm', `rewardspriv: a harvest the relay refuses says so and points to the front page (${await said()})`);
+    await r.page.evaluate(() => { window.__pf.refuse = false; });
+    await r.page.click('#pf-mine [data-pf="harvest"]');
+    await until(r.page, () => /Harvested to a wTAC note/.test(document.querySelector('#pf-said')?.textContent || ''), null, 120000);
+    await until(r.page, () => !document.querySelector('#pf-mine [data-pf="unbond"]')?.disabled, null, 60000);
+    ok(true, 'rewardspriv: harvested, and with nothing left to give up the position can be unbonded');
+    await r.page.click('#pf-mine [data-pf="unbond"]');
+    await until(r.page, () => /Unbonded/.test(document.querySelector('#pf-said')?.textContent || ''), null, 120000);
+    const calls = (await pf()).calls.map((c) => c.join(':'));
+    ok(calls.join() === 'harvest:0:function,harvest:0:function,unbond:0:false', `rewardspriv: each is relayed once for the position, the unbond giving nothing up (${calls.join()})`);
+    await until(r.page, () => /No private farm positions yet/.test(document.querySelector('#pf-mine')?.textContent || ''), null, 60000);
+    const j = await journal();
+    ok(j.includes('Harvest farm rewards:settled') && j.includes('Unbond from a farm:settled'), `rewardspriv: both are in the shared journal, settled (${j.slice(0, 4).join(' | ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL rewardspriv page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

@@ -363,13 +363,24 @@ function noteFarm(f) {
   $('#farm-apr').textContent = f?.live ? aprText(f.apr) : f ? '—' : '';
   $('#farm-d').textContent = f?.live ? `Public · ${tac(f.perDay, 0)} TAC a day` : f ? 'Public · between reward periods' : 'Public';
 }
+let PRIV = [];
 function paintPrivate(list) {
+  PRIV = list;
   const host = $('#farms'), h = list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join('');
   if (host.__priv === h) return;
   host.__priv = h;
   $$('#farms [data-priv]').forEach((e) => e.remove());
   host.insertAdjacentHTML('beforeend', h);
 }
+// The holder's own private positions (rewards/farms.js): loaded on the first press, so the page reads nothing more until then
+const pickProvider = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
+let farmsP = null;
+$('#pf-mine').addEventListener('click', (e) => {
+  if (farmsP || !e.target.closest('[data-pf="open"]')) return;
+  e.stopImmediatePropagation();
+  farmsP = import('/rewards/farms.js?cb=3f4e5955').then((m) => { m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])) }); $('#pf-mine [data-pf="open"]')?.click(); })
+    .catch((err) => { farmsP = null; console.warn('your positions:', err?.message || err); });
+});
 function notePoints(c) {
   if (!c?.program) return;
   const over = c.programDay > c.programDays;

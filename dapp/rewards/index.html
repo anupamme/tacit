@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit rewards</title>
 <meta name="description" content="Farm TAC with ETH, claim the airdrop and points, and see every way Tacit pays TAC.">
@@ -31,7 +31,7 @@
 <link rel="preconnect" href="https://1rpc.io" crossorigin>
 <!-- preload-roots: /rewards/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/rewards/app.js?cb=f2ffd380">
+<link rel="modulepreload" href="/rewards/app.js?cb=e7f8ac81">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-names.js?cb=9efdff52">
 <link rel="modulepreload" href="/tacit-address.js">
@@ -543,6 +543,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </details>
         <span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span>
       </div>
+      <div class="lst" id="pf-lst">
+        <details class="ern" id="pf-row">
+          <summary><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/></svg></span><span class="rt"><b>Your private positions</b><small>Harvest and unbond</small></span></summary>
+          <div class="fm-in"><div id="pf-mine"><p class="more">Your positions in the private farms.</p><button class="act" type="button" data-pf="open">Show mine</button></div></div>
+        </details>
+      </div>
       <h2 class="sec">More ways to earn</h2>
       <div class="lst" id="more">
         <details class="ern" id="earn">
@@ -574,6 +580,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/rewards/app.js?cb=f2ffd380"></script>
+<script type="module" src="/rewards/app.js?cb=e7f8ac81"></script>
 </body>
 </html>
