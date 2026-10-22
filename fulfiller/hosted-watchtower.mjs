@@ -16,6 +16,7 @@
 // Env: WATCHTOWER_SERVICE_SK (hex64, required), WATCHTOWER_NETWORK,
 // WATCHTOWER_API_BASE, WATCHTOWER_TICK_SEC, WATCHTOWER_MIN_BID_SATS,
 // WATCHTOWER_CLAIM_TIMEOUT_SEC, WATCHTOWER_MAX_BID_PRICE_SATS (pilot cap, 0=off),
+// WATCHTOWER_RETURN_TO_OWNER (0 turns off the return of a finished bid's wallet to its owner),
 // DATABASE_URL (Postgres; in-memory if unset), PORT (health endpoint).
 
 import { createServer } from 'node:http';
@@ -27,7 +28,7 @@ import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 import { bech32 } from '@scure/base';
 import { createKVNamespace } from '../server/kv-store.mjs';
 import { createMemDriver } from '../server/driver-mem.mjs';
-import { runTick } from './watchtower-core.mjs';
+import { runTick, recordExpiration, returnDue, giveBack } from './watchtower-core.mjs';
 import { decryptBidKeyWithService, pubkeyFor, servicePubFromSk } from './watchtower-crypto.mjs';
 
 const NETWORK = process.env.WATCHTOWER_NETWORK || 'signet';
@@ -37,6 +38,8 @@ const TICK_SEC = Number(process.env.WATCHTOWER_TICK_SEC || 60);
 const MIN_BID_WALLET_SATS = Number(process.env.WATCHTOWER_MIN_BID_SATS || 1000);
 const CLAIM_FULFIL_TIMEOUT_SEC = Number(process.env.WATCHTOWER_CLAIM_TIMEOUT_SEC || 360);
 const MAX_BID_PRICE_SATS = Number(process.env.WATCHTOWER_MAX_BID_PRICE_SATS || 0); // pilot cap; 0 = off
+const RETURN_TO_OWNER = process.env.WATCHTOWER_RETURN_TO_OWNER !== '0';
+const MAX_RETURNS_PER_CYCLE = 1;
 const PORT = Number(process.env.PORT || 8788);
 
 function log(level, msg, extra = {}) {
@@ -113,6 +116,7 @@ function ctxForBid(rec) {
     decimals: rec.decimals | 0,
     priv: bidPriv,
     pub: bidPub,
+    ownerPub: hexToBytes(rec.owner_pubkey),
     pubHex: rec.bid_pubkey,
     h160: bytesToHex(ripemd160(sha256(bidPub))),
     address: addressFor(bidPub),
@@ -142,13 +146,20 @@ createServer((req, res) => {
 // ---- one cycle over all registered bids ----
 async function cycle() {
   const now = Math.floor(Date.now() / 1000);
-  let active = 0;
+  let active = 0, returns = 0;
   let cursor = null;
   do {
     const page = await kv.list({ prefix: KEY_PREFIX, cursor });
     cursor = page.list_complete ? null : page.cursor;
     for (const k of page.keys) {
       const rec = await kv.get(k.name, 'json');
+      if (RETURN_TO_OWNER && returnDue(rec, m, now)) {
+        if (returns < MAX_RETURNS_PER_CYCLE) {
+          returns++;
+          await giveBack(rec, now, { ctxFor: ctxForBid, put: (r) => kv.put(k.name, JSON.stringify(r), { expiration: recordExpiration(r.expiry) }) });
+        }
+        continue;
+      }
       if (!rec || rec.status !== 'active') continue;
       if (Number(rec.expiry || 0) <= now) continue;
       if (MAX_BID_PRICE_SATS > 0 && Number(rec.bid_price_sats) > MAX_BID_PRICE_SATS) {
@@ -166,7 +177,7 @@ async function cycle() {
         rec.filled_base = st.filledBase.toString();
         rec.processed_intents = st.processed;
         if (ctx.maxTotalFillBase > 0n && st.filledBase >= ctx.maxTotalFillBase) rec.status = 'filled';
-        await kv.put(k.name, JSON.stringify(rec), { expiration: rec.expiry });
+        await kv.put(k.name, JSON.stringify(rec), { expiration: recordExpiration(rec.expiry) });
       };
       try {
         const r = await runTick(ctx, coreState, { persist });

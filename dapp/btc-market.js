@@ -1205,7 +1205,7 @@ function createMarket(host, ctx) {
         ${now ? row('Fills now', `${fmtAmount(now.amount, dec, 6)} ${T} for ${fmtSats(now.sats)} sats`) : ''}
         ${bidBase > 0n ? row('Bid', `${fmtAmount(bidBase, dec, 6)} ${T} for up to ${fmtSats(bidSats)} sats <em>(lasts ${exp})</em>`) : ''}
         ${bidBase > 0n && wt.on ? row('Watchtower', `moves ${fmtSats(bidSats + 10000)} sats into a bid wallet only you can reclaim <em>(includes 10,000 for fees)</em>`) : ''}
-        <p class="bm-q bm-muted">${bidBase > 0n ? (wt.on ? 'Sellers can fill your bid while you\'re away; cancel any time from Your orders and reclaim what\'s left.' : 'Fills complete while this page is open. Cancel any time from Your orders.') : ''}</p>`);
+        <p class="bm-q bm-muted">${bidBase > 0n ? (wt.on ? 'Sellers can fill your bid while you\'re away. What\'s left comes back to your wallet when you next sign in after it ends, or when you cancel it from Your orders.' : 'Fills complete while this page is open. Cancel any time from Your orders.') : ''}</p>`);
       md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Place order', primary: true, onClick: () => { clearTimeout(prepTimer); runLimitBuy(md, { order: o, now, bidBase, bidSats, watchtower: wt.on && bidBase > 0n }); } }]);
       if (now) prepareAfterDwell(now.fills.map((f) => f.ask.raw));
       return;

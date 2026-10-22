@@ -1438,6 +1438,7 @@ async function ensurePrivkey() {
         try { refreshWallet().catch(() => {}); } catch {}
       }
       try { startMakerClaimPoller(); } catch {}
+      try { scheduleBidWalletReturn(); } catch {}
     } catch (e) {
       if (isUnlockCancelled(e)) throw _newUnlockCancelledError();
       throw e;
@@ -15604,6 +15605,7 @@ function invalidateHoldingsCache(opts) {
 }
 
 function _onIdentityChanged(prevPubHex) {
+  try { scheduleBidWalletReturn(); } catch {}
   if (prevPubHex !== undefined && prevPubHex === _openPubHex()) return;
   try { invalidateHoldingsCache(); } catch {}
   try { _satsSendCache = null; } catch {}
@@ -28328,18 +28330,28 @@ async function cancelWatchtowerBid(bidIdHex) {
   return { ok: true };
 }
 
-async function sweepWatchtowerBidWallet(bidPriv, assetIds) {
+// A sweep signs as the bid wallet by swapping the wallet's key in place, so two cannot overlap: each runs after the one before.
+// It pays the connected wallet, or the public key given as `to`.
+let _wtKeyBorrowed = false;
+let _wtSweepTail = Promise.resolve();
+function sweepWatchtowerBidWallet(bidPriv, assetIds, opts = {}) {
+  const run = _wtSweepTail.then(() => _sweepWatchtowerBidWalletNow(bidPriv, assetIds, opts));
+  _wtSweepTail = run.catch(() => {});
+  return run;
+}
+async function _sweepWatchtowerBidWalletNow(bidPriv, assetIds, { to = null } = {}) {
   await ensurePrivkey();
   const bidPub = secp.getPublicKey(bidPriv, true);
   const bidAddr = p2wpkhAddress(bidPub);
-  const mainPubHex = bytesToHex(wallet.pub);
-  const mainPub = wallet.pub;
-  const mainAddr = wallet.address();
+  const mainPub = to || wallet.pub;
+  const mainPubHex = bytesToHex(mainPub);
+  const mainAddr = to ? p2wpkhAddress(to) : wallet.address();
   const savedPriv = wallet.priv, savedPub = wallet.pub;
   const assets = [];
   let satsSwept = 0, satsTxid = null;
   try {
     wallet.priv = bidPriv; wallet.pub = bidPub;
+    _wtKeyBorrowed = true;
     invalidateHoldingsCache();
     let held = new Map();
     try { const h = await scanHoldings(true); if (h instanceof Map) held = h; } catch {}
@@ -28367,6 +28379,7 @@ async function sweepWatchtowerBidWallet(bidPriv, assetIds) {
     }
   } finally {
     wallet.priv = savedPriv; wallet.pub = savedPub;
+    _wtKeyBorrowed = false;
     invalidateHoldingsCache();
   }
   if (!assets.length && satsSwept === 0) {
@@ -28375,55 +28388,210 @@ async function sweepWatchtowerBidWallet(bidPriv, assetIds) {
   return { swept: satsSwept, asset_swept: assets[0]?.amount || '0', asset_txid: assets[0]?.txid || null, assets, txid: satsTxid, dest: mainAddr };
 }
 
-async function _wtRegisteredBids() {
+// The wallet's own key and public key, read when no sweep has them swapped out.
+async function _wtMainKey() {
   await ensurePrivkey();
+  while (_wtKeyBorrowed) await _wtSweepTail;
+  return { priv: wallet.priv, pub: wallet.pub };
+}
+
+async function _wtRegisteredBids(ownerPubHex = '') {
   if (!WORKER_BASE) throw new Error('worker disabled');
-  const resp = await fetch(withNet(`${WORKER_BASE}/watchtower/bids`, `owner=${bytesToHex(wallet.pub)}`));
+  const owner = ownerPubHex || bytesToHex((await _wtMainKey()).pub);
+  const resp = await fetch(withNet(`${WORKER_BASE}/watchtower/bids`, `owner=${owner}`));
   const j = await resp.json().catch(() => ({}));
   if (!resp.ok || !Array.isArray(j.bids)) throw new Error(j.error || `could not read registered bids (${resp.status})`);
   return j.bids;
 }
 
-async function reclaimWatchtowerBid(assetIdHex, bidIdHex, bidPubHex = '') {
-  await ensurePrivkey();
-  if (!bidPubHex) { try { bidPubHex = (await _wtRegisteredBids()).find((b) => b.bid_id === bidIdHex)?.bid_pubkey || ''; } catch {} }
-  let bidPriv = deriveWatchtowerBidKey(wallet.priv, assetIdHex, bidIdHex);
-  if (bidPubHex && bytesToHex(secp.getPublicKey(bidPriv, true)) !== bidPubHex.toLowerCase()) {
-    const i = watchtowerBidWalletIndexOf(wallet.priv, bidPubHex);
-    if (i < 0) throw new Error('this bid wallet is not derived from the connected wallet');
-    bidPriv = deriveWatchtowerBidWalletKey(wallet.priv, i);
-  }
-  return sweepWatchtowerBidWallet(bidPriv, [assetIdHex]);
+// A bid is finished once it is no longer active (filled) or its expiry has passed with time for a claim in flight to settle.
+const _WT_SETTLE_MARGIN_SEC = 3600;
+function watchtowerBidFinished(rec, nowSec = Math.floor(Date.now() / 1000)) {
+  if (!rec) return false;
+  if (rec.status && rec.status !== 'active') return true;
+  const expiry = Number(rec.expiry);
+  return Number.isFinite(expiry) && expiry > 0 && expiry + _WT_SETTLE_MARGIN_SEC <= nowSec;
 }
 
-async function recoverWatchtowerBidWallets({ onProgress = null, sweep = sweepWatchtowerBidWallet } = {}) {
-  await ensurePrivkey();
-  let live;
-  try { live = new Set((await _wtRegisteredBids()).map((b) => String(b.bid_pubkey || '').toLowerCase())); }
+function _wtBidWalletPriv(mainPriv, assetIdHex, bidIdHex, bidPubHex = '') {
+  let bidPriv = deriveWatchtowerBidKey(mainPriv, assetIdHex, bidIdHex);
+  if (bidPubHex && bytesToHex(secp.getPublicKey(bidPriv, true)) !== bidPubHex.toLowerCase()) {
+    const i = watchtowerBidWalletIndexOf(mainPriv, bidPubHex);
+    if (i < 0) throw new Error('this bid wallet is not derived from the connected wallet');
+    bidPriv = deriveWatchtowerBidWalletKey(mainPriv, i);
+  }
+  return bidPriv;
+}
+
+async function reclaimWatchtowerBid(assetIdHex, bidIdHex, bidPubHex = '') {
+  const main = await _wtMainKey();
+  if (!bidPubHex) { try { bidPubHex = (await _wtRegisteredBids(bytesToHex(main.pub))).find((b) => b.bid_id === bidIdHex)?.bid_pubkey || ''; } catch {} }
+  return sweepWatchtowerBidWallet(_wtBidWalletPriv(main.priv, assetIdHex, bidIdHex, bidPubHex), [assetIdHex]);
+}
+
+async function recoverWatchtowerBidWallets({ onProgress = null, sweep = sweepWatchtowerBidWallet, registered = null } = {}) {
+  const main = await _wtMainKey();
+  const ownerHex = bytesToHex(main.pub);
+  let bids;
+  try { bids = registered || await _wtRegisteredBids(ownerHex); }
   catch (e) { throw new Error(`could not read your registered bids, so the live ones cannot be told apart (${e?.message || e}) — try again in a moment`); }
+  const now = Math.floor(Date.now() / 1000);
+  const pubOf = (b) => String(b.bid_pubkey || '').toLowerCase();
+  const known = new Set(bids.map(pubOf));
+  const open = new Set(bids.filter((b) => !watchtowerBidFinished(b, now)).map(pubOf));
   const wallets = [], failed = [];
   let scanned = 0, unusedRun = 0;
   for (let i = 0; i < _WT_WALLET_MAX && unusedRun < _WT_WALLET_GAP; i++) {
-    const priv = deriveWatchtowerBidWalletKey(wallet.priv, i);
+    const priv = deriveWatchtowerBidWalletKey(main.priv, i);
     const pub = secp.getPublicKey(priv, true);
     const addr = p2wpkhAddress(pub);
     scanned++;
     try { onProgress && onProgress(`checking bid wallet ${i + 1}`); } catch {}
     if (!(await _wtWalletUsed(addr))) { unusedRun++; continue; }
     unusedRun = 0;
-    if (live.has(bytesToHex(pub))) continue;
-    if (!(await getUtxos(addr))?.length) continue;
+    const pubHex = bytesToHex(pub);
+    if (open.has(pubHex)) continue;
+    const utxos = await getUtxos(addr);
+    if (!utxos?.length) continue;
+    // A funding still unconfirmed, or a wallet this tab funded whose registration is not listed yet, belongs to a bid being placed.
+    if (utxos.every((u) => u.status?.confirmed === false)) continue;
+    if (!known.has(pubHex) && _wtWalletClaimed.has(`${ownerHex}:${i}`)) continue;
     try { wallets.push({ index: i, address: addr, ...(await sweep(priv, null)) }); }
     catch (e) { failed.push({ index: i, address: addr, error: e?.message || String(e) }); }
   }
   return { scanned, wallets, failed, swept: wallets.reduce((s, w) => s + (w.swept || 0), 0), assets: wallets.flatMap((w) => w.assets || []) };
 }
 
+function _wtReturnedText(r) {
+  const parts = [];
+  if (r.swept > 0) parts.push(`${Number(r.swept).toLocaleString()} sats`);
+  for (const a of (r.assets || [])) {
+    const meta = (typeof getAssetMeta === 'function' && getAssetMeta(a.asset_id)) || {};
+    try { parts.push(`${fmtAssetAmount(BigInt(a.amount), Number.isInteger(meta.decimals) ? meta.decimals : 0)} ${meta.ticker || 'tokens'}`); } catch {}
+  }
+  return parts.join(' + ');
+}
+
+// Finished walk-away bids give their bid wallet back to the main wallet without a button. Once the wallet is unlocked, bids
+// the registry lists as finished are swept, and the numbered wallets are walked from the key alone, for any whose
+// registration has gone, at most once a day. The walk starts only if wallet 0 has ever been used; a key that has not is
+// looked at again after a week.
+const _WT_RETURN_EVERY_MS = 24 * 3600 * 1000;
+const _WT_RETURN_IDLE_EVERY_MS = 7 * 24 * 3600 * 1000;
+const _WT_RECHECK_MS = 30 * 60 * 1000;
+const _WT_RETURN_QUIET_MS = 30000;
+let _wtReturnTimer = null;
+let _wtReturnRunning = false;
+const _wtReturnKey = (what, ownerHex) => `tacit-wt-${what}-v1:${NET.name}:${ownerHex}`;
+function _wtReturnedLoad(ownerHex) {
+  try { const a = JSON.parse(localStorage.getItem(_wtReturnKey('returned', ownerHex)) || '[]'); return new Set(Array.isArray(a) ? a : []); }
+  catch { return new Set(); }
+}
+function _wtReturnedSave(ownerHex, set) {
+  try { localStorage.setItem(_wtReturnKey('returned', ownerHex), JSON.stringify([...set].slice(-200))); } catch {}
+}
+async function _wtTabLock(name, fn) {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+  if (!locks?.request) return fn();
+  return locks.request(name, { ifAvailable: true }, (lock) => (lock ? fn() : null));
+}
+async function _wtWaitQuiet(maxMs) {
+  const until = Date.now() + maxMs;
+  while ((_holdingsInFlight || _ensurePrivkeyInFlight) && Date.now() < until) await new Promise((r) => setTimeout(r, 500));
+  if (_holdingsInFlight || _ensurePrivkeyInFlight) throw new Error('the wallet is busy');
+}
+function _wtShowReturning() {
+  if (typeof document === 'undefined' || !document.body) return { close() {} };
+  const el = document.createElement('div');
+  el.setAttribute('data-wt-returning', '1');
+  el.setAttribute('role', 'status');
+  el.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.4);';
+  el.innerHTML = '<div style="max-width:320px;padding:14px 18px;border:1px solid var(--ink);background:var(--bg-warm, var(--card, #fff));color:var(--ink);font-size:13px;text-align:center;">Returning the funds from a finished bid to your wallet…</div>';
+  document.body.appendChild(el);
+  return { close() { el.remove(); } };
+}
+
+async function returnWatchtowerBidFunds({ sweep = sweepWatchtowerBidWallet, quietMs = _WT_RETURN_QUIET_MS, every = _WT_RETURN_EVERY_MS, idleEvery = _WT_RETURN_IDLE_EVERY_MS } = {}) {
+  if (_wtReturnRunning || !wallet.priv || !wallet.pub || !WORKER_BASE) return null;
+  _wtReturnRunning = true;
+  let shade = null;
+  try {
+    return await _wtTabLock('tacit-wt-return', async () => {
+      const main = await _wtMainKey();
+      const ownerHex = bytesToHex(main.pub);
+      let bids;
+      try { bids = await _wtRegisteredBids(ownerHex); } catch { return null; }
+      const guarded = async (priv, assets) => {
+        if (!shade) { await _wtWaitQuiet(quietMs); shade = _wtShowReturning(); }
+        return sweep(priv, assets);
+      };
+      const out = { swept: 0, assets: [], failed: [] };
+      const add = (r) => { out.swept += r.swept || 0; out.assets.push(...(r.assets || [])); };
+      const now = Math.floor(Date.now() / 1000);
+      const returned = _wtReturnedLoad(ownerHex);
+      for (const b of bids) {
+        const pub = String(b.bid_pubkey || '').toLowerCase();
+        if (!/^0[23][0-9a-f]{64}$/.test(pub) || !watchtowerBidFinished(b, now) || returned.has(pub)) continue;
+        try {
+          if ((await getUtxos(p2wpkhAddress(hexToBytes(pub))))?.length) add(await guarded(_wtBidWalletPriv(main.priv, b.asset_id, b.bid_id, pub), [b.asset_id]));
+          returned.add(pub);
+        } catch (e) { out.failed.push({ bid_id: b.bid_id, error: e?.message || String(e) }); }
+      }
+      _wtReturnedSave(ownerHex, returned);
+      const scanKey = _wtReturnKey('scan', ownerHex);
+      let last = { at: 0, idle: false };
+      try { last = JSON.parse(localStorage.getItem(scanKey)) || last; } catch {}
+      if (Date.now() - last.at >= (last.idle ? idleEvery : every)) {
+        try {
+          const used = await _wtWalletUsed(p2wpkhAddress(_wtWalletPub(main.priv, 0)));
+          if (used) {
+            const r = await recoverWatchtowerBidWallets({ sweep: guarded, registered: bids });
+            add(r);
+            out.failed.push(...r.failed);
+          }
+          if (!out.failed.length) { try { localStorage.setItem(scanKey, JSON.stringify({ at: Date.now(), idle: !used })); } catch {} }
+        } catch (e) { out.failed.push({ error: e?.message || String(e) }); }
+      }
+      return out;
+    });
+  } finally {
+    if (shade) shade.close();
+    _wtReturnRunning = false;
+  }
+}
+
+function _wtReportReturn(r) {
+  if (!r) return;
+  const text = _wtReturnedText(r);
+  if (text) {
+    toast(`Finished walk-away bid: ${text} back in your wallet`, 'success', 9000);
+    try { refreshWallet().catch(() => {}); } catch {}
+  }
+  if (r.failed.length) toast('Some funds in a finished bid wallet could not be returned yet. Holdings → Recover bid wallets tries again.', 'warn', 12000);
+}
+
+let _wtReturnDue = 0;
+function scheduleBidWalletReturn(delayMs = 8000) {
+  if (_wtReturnRunning || !wallet.priv || !wallet.pub || !WORKER_BASE || !WATCHTOWER_SERVICE_PUB) return;
+  const due = Date.now() + delayMs;
+  if (_wtReturnTimer) {
+    if (due >= _wtReturnDue) return;
+    clearTimeout(_wtReturnTimer);
+  }
+  _wtReturnDue = due;
+  _wtReturnTimer = setTimeout(() => {
+    _wtReturnTimer = null;
+    returnWatchtowerBidFunds().then(_wtReportReturn)
+      .catch((e) => console.warn('[bid wallets] return failed:', e?.message || e))
+      .finally(() => scheduleBidWalletReturn(_WT_RECHECK_MS));
+  }, delayMs);
+}
+
 
 function _wtRecoverFormHtml() {
   return `<details data-wt-recover style="margin-bottom:14px;">
     <summary class="muted" style="font-size:10px;cursor:pointer;">Recover bid wallets</summary>
-    <div class="muted" style="font-size:10px;margin-top:6px;">A cancelled or expired walk-away bid no longer lists above, but its bid wallet is found again from your key. Scan sweeps every bid wallet that is not behind a live bid back to your main wallet.</div>
+    <div class="muted" style="font-size:10px;margin-top:6px;">A cancelled or expired walk-away bid is returned to your main wallet when you sign in, and its bid wallet is found again from your key. Scan sweeps every bid wallet that is not behind a live bid back to your main wallet now.</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;">
       <button data-wt-scan type="button" style="font-size:10px;padding:3px 10px;">Scan</button>
       <span class="muted" data-wt-scan-status style="font-size:10px;word-break:break-all;"></span>
@@ -28448,15 +28616,10 @@ function _wireWtRecoverForm(host) {
     scan.disabled = true; scan.textContent = 'scanning…'; scanStatus.textContent = '';
     try {
       const r = await recoverWatchtowerBidWallets({ onProgress: (m) => { scanStatus.textContent = m; } });
-      const parts = [];
-      if (r.swept > 0) parts.push(`${Number(r.swept).toLocaleString()} sats`);
-      for (const a of r.assets) {
-        const meta = (typeof getAssetMeta === 'function' && getAssetMeta(a.asset_id)) || {};
-        try { parts.push(`${fmtAssetAmount(BigInt(a.amount), Number.isInteger(meta.decimals) ? meta.decimals : 0)} ${meta.ticker || 'tokens'}`); } catch {}
-      }
+      const got = _wtReturnedText(r);
       const left = r.failed.length ? ` ${r.failed.length} bid wallet${r.failed.length > 1 ? 's' : ''} could not be swept (${r.failed[0].error}); press Scan to retry.` : '';
-      scanStatus.textContent = (parts.length ? `Recovered ${parts.join(' + ')} to your main wallet.` : `Checked ${r.scanned} bid wallets, nothing to recover.`) + left;
-      if (parts.length) toast(`Recovered ${parts.join(' + ')} to your main wallet`, 'success', 8000);
+      scanStatus.textContent = (got ? `Recovered ${got} to your main wallet.` : `Checked ${r.scanned} bid wallets, nothing to recover.`) + left;
+      if (got) toast(`Recovered ${got} to your main wallet`, 'success', 8000);
     } catch (e) { scanStatus.textContent = `Scan failed: ${e?.message || String(e)}`; }
     scan.disabled = false; scan.textContent = 'Scan';
   };
@@ -28495,7 +28658,7 @@ async function renderWatchtowerBidsInto(host) {
     const filled = (() => { try { return fmtAssetAmount(BigInt(b.filled_base || '0'), dec); } catch { return '0'; } })();
     const meta = (typeof getAssetMeta === 'function' && getAssetMeta(b.asset_id)) || {};
     const ticker = escapeHtml(meta.ticker || (String(b.asset_id || '').slice(0, 8) + '…'));
-    const status = escapeHtml(b.status || 'active');
+    const status = escapeHtml(b.status && b.status !== 'active' ? b.status : watchtowerBidFinished(b) ? 'expired' : 'active');
     const price = Number(b.bid_price_sats || 0).toLocaleString();
     return `<div data-wt-row data-bid="${escapeHtml(b.bid_id)}" data-asset="${escapeHtml(b.asset_id)}" data-pub="${escapeHtml(b.bid_pubkey || '')}" data-dec="${dec}" data-ticker="${ticker}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--ink-faint);font-size:11px;flex-wrap:wrap;">
       <span><strong>${ticker}</strong> · ${escapeHtml(filled)}/${escapeHtml(amt)} filled · ≤ ${price} sats · <span class="muted">${status}</span></span>
@@ -31501,7 +31664,7 @@ function stopMakerClaimPoller() {
   }
 }
 async function _pollMakerListings() {
-  if (!wallet.pub || !WORKER_BASE) return;
+  if (!wallet.pub || !WORKER_BASE || _wtKeyBorrowed) return;
   const cachedHoldings = _holdingsCache?.holdings;
   if (!cachedHoldings || cachedHoldings.size === 0) return;
   const assetIds = [...cachedHoldings.keys()];
@@ -55149,7 +55312,7 @@ function stopAutoFulfilDaemon() {
   _renderAxintentAutoFulfilStatus();
 }
 async function _autoFulfilPollOnce() {
-  if (_autoFulfilPolling || !_autoFulfilEnabled || !WORKER_BASE) return;
+  if (_autoFulfilPolling || !_autoFulfilEnabled || !WORKER_BASE || _wtKeyBorrowed) return;
   if (typeof document !== 'undefined' && document.hidden) {
     _autoFulfilStatus.lastPollAt = Date.now();
     _renderAxintentAutoFulfilStatus();
@@ -61441,6 +61604,7 @@ async function init() {
     }
   }
   if (wallet.pub) startMakerClaimPoller();
+  scheduleBidWalletReturn();
   startCountdownTicker();
 }
 if (!globalThis.__TACIT_NO_INIT__) {
@@ -61706,6 +61870,7 @@ export {
   publishBidIntent, fulfilBidIntent, fulfilBidIntentBatch, cancelBidIntent, browseBidIntents,
   registerWatchtowerBid, listWatchtowerBids, cancelWatchtowerBid, reclaimWatchtowerBid, watchtowerBidAddress,
   deriveWatchtowerBidWalletKey, watchtowerBidWalletIndexOf, nextWatchtowerBidWalletIndex, sweepWatchtowerBidWallet, recoverWatchtowerBidWallets,
+  watchtowerBidFinished, returnWatchtowerBidFunds, scheduleBidWalletReturn,
   deriveWatchtowerBidKey, encryptWatchtowerBidKey, watchtowerRegisterMsg, watchtowerCancelMsg,
   _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testSetTrackedNotes, openTransferOutput,
   _preauthSaleAuthMsg as preauthSaleAuthMsg,

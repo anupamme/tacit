@@ -7,7 +7,10 @@
 //
 // Run: `node tests/watchtower-core.test.mjs`
 
-import { runTick } from '../fulfiller/watchtower-core.mjs';
+import {
+  runTick, recordExpiration, RECORD_GRACE_SEC,
+  returnDue, returnToOwner, noteReturn, giveBack, RETURN_RETRY_SEC, RETURN_RETRY_MAX_SEC, RETURN_MAX_ATTEMPTS,
+} from '../fulfiller/watchtower-core.mjs';
 
 let pass = 0, fail = 0;
 async function test(label, fn) {
@@ -149,6 +152,92 @@ await test('binds the dapp wallet to the bid key before acting', async () => {
   await runTick(ctx, { filledBase: 0n, processed: {} });
   restoreFetch();
   return dapp.wallet.priv === ctx.priv && dapp.wallet.pub === ctx.pub;
+});
+
+await test('a rewritten registration is kept a week past its expiry, never to the expiry itself', () => {
+  const expiry = 2_000_000_000;
+  return recordExpiration(expiry) === expiry + 7 * 24 * 3600 && RECORD_GRACE_SEC === 604800 && recordExpiration(String(expiry)) === recordExpiration(expiry);
+});
+
+// ---- giving a finished bid's wallet back to its owner ----
+const OWNER = new Uint8Array(33).fill(3);
+const finishedRule = (rec, now) => (rec.status && rec.status !== 'active') || rec.expiry + 3600 <= now;
+function returnDapp({ before = [], after = [], result = { swept: 49000, assets: [] }, throws = null } = {}) {
+  const calls = { sweeps: [], reads: 0 };
+  const dapp = {
+    wallet: { priv: null, pub: null },
+    watchtowerBidFinished: finishedRule,
+    async getUtxos() { return calls.reads++ === 0 ? before : after; },
+    async sweepWatchtowerBidWallet(priv, assets, opts) { calls.sweeps.push({ priv, assets, to: opts.to }); if (throws) throw throws; return result; },
+  };
+  return { dapp, calls };
+}
+const confirmed = (n) => ({ txid: 'aa'.repeat(32), vout: n, value: 50000, status: { confirmed: true } });
+
+await test('a bid is due for return once finished, never twice, and not before its retry time or past the attempt limit', () => {
+  const { dapp } = returnDapp();
+  const now = 2_000_000_000;
+  const rec = (x) => ({ status: 'active', expiry: now - 7200, ...x });
+  return returnDue(rec(), dapp, now) && returnDue(rec({ status: 'filled', expiry: now + 600 }), dapp, now)
+    && !returnDue(rec({ expiry: now + 600 }), dapp, now) && !returnDue(rec({ expiry: now - 600 }), dapp, now)
+    && !returnDue(rec({ returned_at: now - 1 }), dapp, now) && !returnDue(rec({ return_next: now + 5 }), dapp, now)
+    && !returnDue(rec({ return_attempts: RETURN_MAX_ATTEMPTS }), dapp, now) && !returnDue(null, dapp, now);
+});
+
+await test('returning pays the owner: the wallet is bound to the bid key, the sweep is for the bid asset to the owner key, and an emptied wallet is done', async () => {
+  const { dapp, calls } = returnDapp({ before: [confirmed(0)], after: [], result: { swept: 49000, assets: [{ asset_id: 'ab'.repeat(32), amount: '5' }], txid: 'ee'.repeat(32) } });
+  const ctx = baseCtx(dapp, { address: 'tb1qbid', ownerPub: OWNER });
+  const r = await returnToOwner(ctx);
+  return r.done === true && r.swept === 49000 && r.assets.length === 1 && calls.sweeps.length === 1
+    && calls.sweeps[0].priv === ctx.priv && calls.sweeps[0].assets.join() === ctx.assetId && calls.sweeps[0].to === OWNER
+    && dapp.wallet.priv === ctx.priv;
+});
+
+await test('an empty wallet is done without a sweep, and one with an unconfirmed output waits', async () => {
+  const empty = returnDapp({ before: [] });
+  const pending = returnDapp({ before: [confirmed(0), { ...confirmed(1), status: { confirmed: false } }] });
+  const a = await returnToOwner(baseCtx(empty.dapp, { ownerPub: OWNER }));
+  const b = await returnToOwner(baseCtx(pending.dapp, { ownerPub: OWNER }));
+  return a.done === true && empty.calls.sweeps.length === 0 && b.done === false && b.pending === true && pending.calls.sweeps.length === 0;
+});
+
+await test('a wallet that is not emptied is not done, and a sweep that throws reaches the caller', async () => {
+  const left = returnDapp({ before: [confirmed(0)], after: [confirmed(1)] });
+  const r = await returnToOwner(baseCtx(left.dapp, { ownerPub: OWNER }));
+  const bad = returnDapp({ before: [confirmed(0)], throws: new Error('broadcast rejected') });
+  let msg = '';
+  try { await returnToOwner(baseCtx(bad.dapp, { ownerPub: OWNER })); } catch (e) { msg = e.message; }
+  return r.done === false && !r.pending && msg === 'broadcast rejected';
+});
+
+await test('the record is marked returned when done, waits a fixed time when pending, and backs off up to a cap when not emptied', () => {
+  const now = 2_000_000_000;
+  const done = noteReturn({ status: 'filled', return_next: 5 }, { done: true }, now);
+  const wait = noteReturn({ status: 'active' }, { pending: true }, now);
+  const rec = { status: 'active' };
+  const gaps = [];
+  for (let i = 0; i < 8; i++) { noteReturn(rec, { done: false }, now); gaps.push(rec.return_next - now); }
+  return done.status === 'returned' && done.returned_at === now && done.return_next === undefined
+    && wait.return_next === now + RETURN_RETRY_SEC && wait.return_attempts === undefined
+    && gaps[0] === RETURN_RETRY_SEC && gaps[1] === 2 * RETURN_RETRY_SEC && gaps[2] === 4 * RETURN_RETRY_SEC
+    && gaps[7] === RETURN_RETRY_MAX_SEC && rec.return_attempts === 8;
+});
+
+await test('giving back stores the record every time: returned when done, an attempt counted when the wallet fails, the key cannot be read, or the sweep throws', async () => {
+  const now = 2_000_000_000;
+  const stored = [];
+  const put = async (r) => { stored.push(JSON.parse(JSON.stringify(r))); };
+  const rec = () => ({ status: 'active', expiry: now - 7200, bid_id: 'cd'.repeat(16) });
+  const good = returnDapp({ before: [confirmed(0)], after: [] });
+  const bad = returnDapp({ before: [confirmed(0)], throws: new Error('broadcast rejected') });
+  const logs = [];
+  const ctxOf = (dapp) => baseCtx(dapp, { address: 'tb1qbid', ownerPub: OWNER, log: (l, m) => logs.push(`${l}:${m}`) });
+  const a = await giveBack(rec(), now, { ctxFor: () => ctxOf(good.dapp), put });
+  const b = await giveBack(rec(), now, { ctxFor: () => ctxOf(bad.dapp), put });
+  const c = await giveBack(rec(), now, { ctxFor: () => null, put });
+  return a.done === true && stored[0].status === 'returned' && stored[0].returned_at === now
+    && b.done === false && stored[1].return_attempts === 1 && stored[1].status === 'active' && logs.includes('warn:return to owner failed')
+    && c.done === false && stored[2].return_attempts === 1 && stored.length === 3;
 });
 
 console.log(`\n${pass + fail} tests, ${pass} pass, ${fail} fail`);

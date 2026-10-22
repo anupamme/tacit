@@ -22,6 +22,7 @@ import { createMemDriver } from '../server/driver-mem.mjs';
 import { createCacheStorage } from '../server/cache-mem.mjs';
 import { buildEnv } from '../server/harness.mjs';
 import * as wtc from '../fulfiller/watchtower-crypto.mjs';
+import { recordExpiration } from '../fulfiller/watchtower-core.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
@@ -123,6 +124,12 @@ await test('GET returns the stored registration (slimmed of the ciphertext key)'
   const r = await call('GET', `/watchtower/bids?network=signet&owner=${bytesToHex(MAIN_PUB)}`);
   return r.status === 200 && r.json.bids.length === 1
     && r.json.bids[0].bid_id === BID && r.json.bids[0].enc_bid_privkey === undefined;
+});
+
+await test('the registry keeps a registration as long past expiry as the orchestrator does when it rewrites one', async () => {
+  const list = await env.REGISTRY_KV.list({ prefix: 'wtbid:signet:' });
+  const k = list.keys.find((x) => x.name.endsWith(BID));
+  return !!k && Math.abs(k.expiration - recordExpiration(expiry)) <= 2;
 });
 
 await test('worker ACCEPTS a cancel signed with the dapp cancel message', async () => {

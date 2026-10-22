@@ -27,23 +27,39 @@ const funded = new Map();                // address -> utxos
 let registered = [];                     // watchtower registrations for the owner
 let registrationStatus = 200;
 let registrationBody = null;             // overrides the body when set
+const utxoReads = [];                    // the wallet key in place at each UTXO read
+let utxoDelayMs = 0;
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
-globalThis.fetch = async (url) => {
+const broadcasts = [];                   // raw transactions posted to the explorer
+let spendOnBroadcast = false;            // a broadcast spends every funded output
+globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u.startsWith('https://worker.test/watchtower/bids')) {
     return json(registrationBody ?? { bids: registered }, registrationStatus);
   }
+  if (u.includes('/scripthash/')) return json([]);
+  if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
+  if (init?.method === 'POST' && u.endsWith('/tx')) {
+    if (!broadcasts.includes(init.body)) broadcasts.push(init.body);
+    if (spendOnBroadcast) funded.clear();
+    return new Response('00'.repeat(32), { status: 200, headers: { 'content-type': 'text/plain' } });
+  }
   const m = u.match(/\/address\/([0-9a-z]+)(\/utxo)?(?:\?|$)/);
   if (m) {
     const addr = m[1];
-    if (m[2]) return json(funded.get(addr) || []);
+    if (m[2]) {
+      utxoReads.push(bytesToHex(dapp.wallet.pub));
+      if (utxoDelayMs) await new Promise((r) => setTimeout(r, utxoDelayMs));
+      return json(funded.get(addr) || []);
+    }
     return json({ chain_stats: { tx_count: used.has(addr) ? 1 : 0 }, mempool_stats: { tx_count: 0 } });
   }
   return json({ error: 'not mocked' }, 404);
 };
 
 const dapp = await import('../dapp/tacit.js');
+const { returnToOwner } = await import('../fulfiller/watchtower-core.mjs');
 
 let pass = 0, fail = 0;
 async function test(label, fn) {
@@ -124,6 +140,170 @@ await test('the scan refuses to run when the registration list cannot be read (n
     catch (e) { msgs.push(/cannot be told apart/.test(e.message) ? 'refused' : e.message); }
   }
   return swept === 0 && msgs.join() === 'refused,refused';
+});
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+const ASSET = 'ef'.repeat(32);
+const reg = (priv, extra = {}) => ({ bid_id: 'cd'.repeat(16), asset_id: ASSET, bid_pubkey: pubHex(priv), status: 'active', expiry: nowSec() + 86400, ...extra });
+const sweepLog = [];
+const sweepOk = (swept = 49000) => async (priv, assets) => {
+  sweepLog.push([bytesToHex(priv), assets, !!document.querySelector('[data-wt-returning]')]);
+  return { swept, assets: assets ? [{ asset_id: assets[0], amount: '5' }] : [] };
+};
+
+await test('a bid is finished once filled, or an hour past its expiry; unknown expiry is not finished', () => {
+  const t = nowSec();
+  const f = dapp.watchtowerBidFinished;
+  return !f({ status: 'active', expiry: t + 600 }) && f({ status: 'filled', expiry: t + 600 })
+    && !f({ status: 'active', expiry: t - 600 }) && f({ status: 'active', expiry: t - 7200 })
+    && !f({ bid_id: 'x' }) && !f(null);
+});
+
+await test('the scan sweeps the wallet of an expired registration and leaves a live one alone', async () => {
+  reset(); setMain(keyOf('46'));
+  const sk = dapp.wallet.priv;
+  const A = (i) => addrOf(walletPriv(sk, i));
+  used.add(A(0)); funded.set(A(0), utxo(0)); used.add(A(1)); funded.set(A(1), utxo(1));
+  registered = [reg(walletPriv(sk, 0), { expiry: nowSec() - 7200 }), reg(walletPriv(sk, 1), { bid_id: 'ee'.repeat(16) })];
+  const swept = [];
+  await dapp.recoverWatchtowerBidWallets({ sweep: async (priv) => { swept.push(bytesToHex(priv)); return { swept: 1, assets: [] }; } });
+  return swept.join() === bytesToHex(walletPriv(sk, 0));
+});
+
+await test('the scan leaves a funding still unconfirmed, and a wallet this tab funded that is not yet registered', async () => {
+  reset(); setMain(keyOf('47'));
+  const sk = dapp.wallet.priv;
+  const A = (i) => addrOf(walletPriv(sk, i));
+  const mine = await dapp.nextWatchtowerBidWalletIndex(sk);
+  used.add(A(mine)); funded.set(A(mine), utxo(0));
+  used.add(A(mine + 1)); funded.set(A(mine + 1), [{ ...utxo(1)[0], status: { confirmed: false } }]);
+  used.add(A(mine + 2)); funded.set(A(mine + 2), utxo(2));
+  const swept = [];
+  await dapp.recoverWatchtowerBidWallets({ sweep: async (priv) => { swept.push(bytesToHex(priv)); return { swept: 1, assets: [] }; } });
+  return swept.join() === bytesToHex(walletPriv(sk, mine + 2));
+});
+
+await test('two sweeps started together run one after the other and leave the wallet key as it was', async () => {
+  reset(); setMain(keyOf('48'));
+  const sk = dapp.wallet.priv, pub0 = pubHex(sk);
+  dapp._testSetScanHoldingsOverride(() => new Map());
+  const [a, b] = [walletPriv(sk, 0), walletPriv(sk, 1)];
+  utxoReads.length = 0; utxoDelayMs = 15;
+  const results = await Promise.all([dapp.sweepWatchtowerBidWallet(a, [ASSET]), dapp.sweepWatchtowerBidWallet(b, [ASSET])]);
+  utxoDelayMs = 0; dapp._testSetScanHoldingsOverride(null);
+  const seen = utxoReads.filter((p) => p !== pub0);
+  return results.every((r) => r.swept === 0) && seen.join() === [pubHex(a), pubHex(b)].join() && pubHex(dapp.wallet.priv) === pub0;
+});
+
+await test('returning funds: nothing happens while the wallet is locked or the registration list cannot be read', async () => {
+  reset(); setMain(keyOf('49'));
+  const sk = dapp.wallet.priv;
+  sweepLog.length = 0;
+  registered = [reg(walletPriv(sk, 0), { expiry: nowSec() - 7200 })];
+  used.add(addrOf(walletPriv(sk, 0))); funded.set(addrOf(walletPriv(sk, 0)), utxo(0));
+  dapp.wallet.priv = null;
+  const locked = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0 });
+  dapp.wallet.priv = sk;
+  registrationStatus = 500; registrationBody = { error: 'down' };
+  const unread = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0 });
+  return locked === null && unread === null && sweepLog.length === 0;
+});
+
+await test('returning funds: a finished bid is swept once, a live one is not, and the notice is up only during the sweep', async () => {
+  reset(); setMain(keyOf('50'));
+  const sk = dapp.wallet.priv;
+  sweepLog.length = 0;
+  const A = (i) => addrOf(walletPriv(sk, i));
+  used.add(A(0)); funded.set(A(0), utxo(0)); used.add(A(1)); funded.set(A(1), utxo(1));
+  registered = [reg(walletPriv(sk, 0), { expiry: nowSec() - 7200 }), reg(walletPriv(sk, 1), { bid_id: 'ee'.repeat(16) })];
+  const r1 = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0, every: Infinity });
+  const r2 = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0, every: Infinity });
+  return r1.swept === 49000 && r1.assets.length === 1 && r1.failed.length === 0
+    && sweepLog.length === 1 && sweepLog[0][0] === bytesToHex(walletPriv(sk, 0)) && sweepLog[0][1].join() === ASSET && sweepLog[0][2] === true
+    && r2.swept === 0 && !document.querySelector('[data-wt-returning]');
+});
+
+await test('returning funds: a sweep that fails is reported and tried again next time', async () => {
+  reset(); setMain(keyOf('51'));
+  const sk = dapp.wallet.priv;
+  sweepLog.length = 0;
+  used.add(addrOf(walletPriv(sk, 0))); funded.set(addrOf(walletPriv(sk, 0)), utxo(0));
+  registered = [reg(walletPriv(sk, 0), { status: 'filled' })];
+  const r1 = await dapp.returnWatchtowerBidFunds({ sweep: async () => { throw new Error('broadcast rejected'); }, quietMs: 0, every: Infinity });
+  const r2 = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0, every: Infinity });
+  return r1.failed.length === 1 && /rejected/.test(r1.failed[0].error) && r2.swept === 49000 && !document.querySelector('[data-wt-returning]');
+});
+
+await test('returning funds, end to end: a finished bid is swept in one transaction to the main wallet and the key is restored', async () => {
+  reset(); setMain(keyOf('54'));
+  const sk = dapp.wallet.priv, pub0 = pubHex(sk);
+  const bid = walletPriv(sk, 0);
+  dapp._testSetScanHoldingsOverride(() => new Map());
+  used.add(addrOf(bid)); funded.set(addrOf(bid), utxo(0));
+  registered = [reg(bid, { expiry: nowSec() - 7200 })];
+  broadcasts.length = 0;
+  const r = await dapp.returnWatchtowerBidFunds({ quietMs: 0, every: Infinity });
+  dapp._testSetScanHoldingsOverride(null);
+  const mainScript = '0014' + bytesToHex(ripemd160(sha256(secp.getPublicKey(sk, true))));
+  return r.failed.length === 0 && r.swept > 40000 && broadcasts.length === 1 && broadcasts[0].includes(mainScript)
+    && pubHex(dapp.wallet.priv) === pub0 && !document.querySelector('[data-wt-returning]');
+});
+
+await test('scheduling the return twice runs it once, and only for an unlocked wallet', async () => {
+  reset(); setMain(keyOf('55'));
+  const sk = dapp.wallet.priv;
+  const bid = walletPriv(sk, 0);
+  dapp._testSetScanHoldingsOverride(() => new Map());
+  used.add(addrOf(bid)); funded.set(addrOf(bid), utxo(0));
+  registered = [reg(bid, { status: 'filled' })];
+  broadcasts.length = 0;
+  dapp.wallet.priv = null; dapp.scheduleBidWalletReturn(5); dapp.wallet.priv = sk;
+  await new Promise((r) => setTimeout(r, 100));
+  const whileLocked = broadcasts.length;
+  dapp.scheduleBidWalletReturn(5); dapp.scheduleBidWalletReturn(5);
+  await new Promise((r) => setTimeout(r, 1500));
+  dapp._testSetScanHoldingsOverride(null);
+  return whileLocked === 0 && broadcasts.length === 1;
+});
+
+await test('the service returns a finished bid wallet to the owner key it holds, signed as the bid key, and the wallet stays bound to the bid', async () => {
+  reset();
+  const owner = keyOf('56'), ownerPub = secp.getPublicKey(owner, true);
+  const bid = walletPriv(owner, 0), bidPub = secp.getPublicKey(bid, true);
+  dapp.wallet.priv = bid; dapp.wallet.pub = bidPub;   // as the orchestrator binds it for this bid
+  dapp._testSetScanHoldingsOverride(() => new Map());
+  funded.set(addrOf(bid), utxo(0));
+  broadcasts.length = 0; spendOnBroadcast = true;
+  const ctx = { dapp, priv: bid, pub: bidPub, address: addrOf(bid), assetId: ASSET, ownerPub };
+  const r = await returnToOwner(ctx);
+  spendOnBroadcast = false; dapp._testSetScanHoldingsOverride(null);
+  const ownerScript = '0014' + bytesToHex(ripemd160(sha256(ownerPub)));
+  const bidScript = '0014' + bytesToHex(ripemd160(sha256(bidPub)));
+  return r.done === true && r.swept > 40000 && broadcasts.length === 1 && broadcasts[0].includes(ownerScript) && !broadcasts[0].includes(bidScript)
+    && pubHex(dapp.wallet.priv) === pubHex(bid);
+});
+
+await test('returning funds: a key that never had a bid wallet is not walked', async () => {
+  reset(); setMain(keyOf('52'));
+  const sk = dapp.wallet.priv;
+  sweepLog.length = 0;
+  funded.set(addrOf(walletPriv(sk, 3)), utxo(3));     // funds at wallet 3, but wallet 0 was never used
+  const r = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0 });
+  const stamp = JSON.parse(localStorage.getItem(`tacit-wt-scan-v1:signet:${pubHex(sk)}`));
+  return r.swept === 0 && sweepLog.length === 0 && stamp.idle === true;
+});
+
+await test('returning funds: a wallet whose registration has gone is found from the key, and the walk runs once in the interval', async () => {
+  reset(); setMain(keyOf('53'));
+  const sk = dapp.wallet.priv;
+  const A = (i) => addrOf(walletPriv(sk, i));
+  sweepLog.length = 0;
+  for (const i of [0, 1, 2, 3]) used.add(A(i));
+  funded.set(A(2), utxo(2));
+  const first = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0 });
+  const again = await dapp.returnWatchtowerBidFunds({ sweep: sweepOk(), quietMs: 0 });
+  return first.swept === 49000 && sweepLog.length === 1 && sweepLog[0][0] === bytesToHex(walletPriv(sk, 2)) && sweepLog[0][1] === null
+    && again.swept === 0;
 });
 
 console.log(`\n${pass + fail} tests, ${pass} pass, ${fail} fail`);

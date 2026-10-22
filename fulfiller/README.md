@@ -8,7 +8,9 @@ Headless Node daemons that run the dapp's Bitcoin-side flows without a browser. 
   bid wallet. Usage: `node buyer-watchtower.mjs --config ./watchtower-config.json [--once] [--dry-run]`.
   See the file header for its trust boundary.
 - `hosted-watchtower.mjs`: the multi-bid version, run as a service against the bids buyers register via
-  `POST /watchtower/bids`. Its env is listed in the file header.
+  `POST /watchtower/bids`. Its env is listed in the file header. When a bid is filled, or an hour past its
+  expiry, it sends the bid wallet's tokens and unspent sats to the owner key in the registration
+  (`WATCHTOWER_RETURN_TO_OWNER=0` turns this off); the dapp does the same when its owner next signs in.
 - `watchtower-core.mjs` / `bid-policy.mjs`: the shared per-bid engine and policy gate.
 
 ## Airdrop auto-fulfiller

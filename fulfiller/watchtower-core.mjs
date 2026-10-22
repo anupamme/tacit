@@ -27,6 +27,11 @@
 
 import { evalBidPolicy } from './bid-policy.mjs';
 
+// A registration is kept for a week past its bid's expiry, as the registry stores it, so the owner's list shows a finished
+// bid for as long as its bid wallet may still hold funds.
+export const RECORD_GRACE_SEC = 7 * 24 * 3600;
+export const recordExpiration = (expiry) => Number(expiry) + RECORD_GRACE_SEC;
+
 // The dapp keeps a single global wallet; set it to THIS bid's key before any
 // operation. Callers that drive many bids must run them serially (the
 // orchestrator does), so there is no race on the shared global.
@@ -168,4 +173,60 @@ export async function runTick(ctx, state, { persist = () => {} } = {}) {
     }
   }
   return { fills, scanned: intents.length };
+}
+
+// ---- giving a finished bid's wallet back to its owner ----
+//
+// Once a bid is filled, or an hour past its expiry, whatever its wallet holds (bought tokens, unspent sats) goes to the
+// owner's key from the registration. That key is bound to the bid key by the registration's ciphertext, so the bid is
+// not serviced if it was changed. A wallet with an unconfirmed output waits; one that is not emptied is tried again
+// after a growing pause, up to a limit.
+export const RETURN_RETRY_SEC = 600;
+export const RETURN_RETRY_MAX_SEC = 6 * 3600;
+export const RETURN_MAX_ATTEMPTS = 30;
+
+export function returnDue(rec, dapp, now) {
+  if (!rec || rec.returned_at || (rec.return_attempts || 0) >= RETURN_MAX_ATTEMPTS) return false;
+  return dapp.watchtowerBidFinished(rec, now) && now >= (rec.return_next || 0);
+}
+
+export async function returnToOwner(ctx) {
+  bindWallet(ctx);
+  const dapp = ctx.dapp;
+  const before = await dapp.getUtxos(ctx.address);
+  if (!before.length) return { done: true, swept: 0, assets: [] };
+  if (before.some((u) => u.status && u.status.confirmed === false)) return { done: false, pending: true, swept: 0, assets: [] };
+  const r = await dapp.sweepWatchtowerBidWallet(ctx.priv, [ctx.assetId], { to: ctx.ownerPub });
+  const after = await dapp.getUtxos(ctx.address);
+  return { done: after.length === 0, swept: r.swept || 0, assets: r.assets || [], txid: r.txid || r.asset_txid || null };
+}
+
+// One return for a registration: build its context, give the wallet back, record the outcome, and store the record.
+export async function giveBack(rec, now, { ctxFor, put }) {
+  const ctx = ctxFor(rec);
+  let r = { done: false };
+  if (ctx) {
+    try {
+      r = await returnToOwner(ctx);
+      if (r.done) ctx.log('info', 'bid wallet returned to owner', { swept_sats: r.swept, assets: r.assets.length, txid: r.txid });
+      else if (r.pending) ctx.log('info', 'bid wallet has an unconfirmed output — return waits');
+    } catch (e) { ctx.log('warn', 'return to owner failed', { err: e.message }); }
+  }
+  noteReturn(rec, r, now);
+  await put(rec);
+  return r;
+}
+
+export function noteReturn(rec, r, now) {
+  if (r && r.done) {
+    rec.status = 'returned';
+    rec.returned_at = now;
+    delete rec.return_next;
+  } else if (r && r.pending) {
+    rec.return_next = now + RETURN_RETRY_SEC;
+  } else {
+    rec.return_attempts = (rec.return_attempts || 0) + 1;
+    rec.return_next = now + Math.min(RETURN_RETRY_MAX_SEC, RETURN_RETRY_SEC * 2 ** (rec.return_attempts - 1));
+  }
+  return rec;
 }
