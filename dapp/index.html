@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1ckacjMFlkZfcJXuCNxTT/98h6yYYOSz52J9bYzV+RM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Qd+YC0auaO5WIeFmaKye6ThAwrPJ62yfy94YiV4mzzQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -224,6 +224,11 @@ a.di { color: inherit; text-decoration: none; }
 .actr-f a { color: var(--ink); }
 .actr-f.err { color: var(--err); }
 .actr-f.err a { color: inherit; }
+.selfopt .go { display: inline-flex; align-items: center; min-height: 40px; margin: 6px 0 2px; padding: 6px 16px; border: 1px solid var(--ink); border-radius: 8px; color: var(--ink); font-size: 13px; font-weight: 500; text-decoration: none; }
+@media (hover: hover) { .selfopt .go:hover:not(:disabled) { color: var(--card); background: var(--ink); } }
+.selfopt .go[aria-busy="true"] { cursor: progress; opacity: .6; }
+.selfopt .why, .selfopt .alts { display: block; margin-top: 4px; }
+.selfopt .alts { margin-top: 8px; }
 .brs { margin: 0 0 18px; }
 .brr .actr-h a { flex: none; font-size: 12px; color: var(--mute); }
 .brr-a { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -2534,8 +2539,8 @@ function openLine(it) {
   OPEN_OFFERED.add(it.id);
   if (SELF.has(it.id)) return html`<div class="actr-f">${SELF.get(it.id)}</div>`;
   const err = it.selfErr ? html`<div class="actr-f err">${it.selfErr}</div>` : '';
-  return html`${err}<div class="actr-f">Proved and ready. <button class="link" type="button" data-sendopen="${it.id}">Send it now from ${your()}</button>:
-    ${j.status === 'proven' ? `${your()} pays the network fee, and its address shows as the sender.` : `${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.`}${otherSelf('open', it.id)}</div>`;
+  return html`${err}<div class="actr-f selfopt"><span class="why">Proved and ready.</span><button class="link go" type="button" data-sendopen="${it.id}">Send it now from ${your()}</button>
+    <span class="why">${j.status === 'proven' ? `${your()} pays the network fee, and its address shows as the sender.` : `${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.`}</span>${alts(otherSelf('open', it.id))}</div>`;
 }
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-sendopen]'); if (b) sendOpenFrom(b.dataset.sendopen); });
 document.addEventListener('click', async (e) => {
@@ -2659,11 +2664,10 @@ async function selfGasCheck() {
   if (have != null && have < need) throw Object.assign(new Error(`Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()} (${short(S.address, 6)}). It holds ${fmt(have, 18, 4)}. Add a little ETH there, then press the button again.`), { said: true });
 }
 const selfOffer = (spec, cost = true) => (spec.open
-  ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it now from ${your()}</button>:
-    ${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`
-  : spec.held ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button>: the relay proves it, and ${your()} pays the network fee, and its address shows as the sender${keepLink(spec.keep)}.${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`
-  : html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
-    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`);
+  ? html`<div class="actr-f selfopt"><button class="link go" type="button" data-selfdo="${spec.id}">Send it now from ${your()}</button><span class="why">${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.${cost ? costNote() : ''}</span>${alts(otherSelf('selfdo', spec.id))}</div>`
+  : spec.held ? html`<div class="actr-f selfopt"><button class="link go" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button><span class="why">The relay proves it, and ${your()} pays the network fee, and its address shows as the sender.${cost ? costNote() : ''}</span>${alts(keepLink(spec.keep), otherSelf('selfdo', spec.id))}</div>`
+  : html`<div class="actr-f selfopt"><button class="link go" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
+    <span class="why">${spec.exit ? `No relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}${cost ? costNote() : ''}</span>${alts(otherSelf('selfdo', spec.id))}</div>`);
 function offerSelf(spec, e) {
   noteOpen(e);
   if (proved(e)) spec.open = e.open;
@@ -2882,14 +2886,15 @@ function keepFor(spec) {
   KEEP[id] = spec;
   return id;
 }
-const keepLink = (id) => (id ? html` · <button class="link" type="button" data-keepline="${id}">Keep it in line</button>: it goes through once the relay can take it` : '');
+const keepLink = (id) => (id ? html`<button class="link" type="button" data-keepline="${id}">Keep it in line</button>: it goes through once the relay can take it` : '');
+const alts = (a, b) => (a && b ? html`<span class="alts">${a} · ${b}</span>` : a || b ? html`<span class="alts">${a || b}</span>` : '');
 // A key's Tacit account and the wallet connected beside it can each send a settle, so an offer to send one names the other as well.
 // Pressed, it connects a wallet if none is, makes the other the one that pays (as the wallet menu does) and sends from it.
 const otherPay = () => (S.key ? (payer() === 'tacit' ? 'wallet' : 'tacit') : null);
 const otherSelf = (kind, id) => {
   const o = otherPay(), who = o === 'wallet' ? 'your wallet' : 'your Tacit account';
   if (!o) return '';
-  return kind === 'open' ? html` <button class="link" type="button" data-sendopen-as="${id}">Send it from ${who} instead</button>` : html` <button class="link" type="button" data-selfdo-as="${id}">Send it from ${who} instead</button>`;
+  return kind === 'open' ? html`<button class="link" type="button" data-sendopen-as="${id}">Send it from ${who} instead</button>` : html`<button class="link" type="button" data-selfdo-as="${id}">Send it from ${who} instead</button>`;
 };
 async function payOther() {
   const o = otherPay();

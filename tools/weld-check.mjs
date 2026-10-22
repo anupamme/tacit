@@ -8151,7 +8151,7 @@ await step('heldoff', async () => {
     await openActivity(r.page);
     const offered = await until(r.page, () => [...document.querySelectorAll('#act-body .actr')].some((li) => /Withdraw 0\.1 ETH/.test(li.textContent) && li.querySelector('[data-selfdo]')), null, 60000).then(() => true, () => false);
     const rc = await receipt();
-    ok(offered && rc.id.startsWith('op:') && /can’t take this one right now/.test(rc.text) && /Send it from your Tacit account instead/.test(rc.text) && /no relay fee/.test(rc.text) && !/gas|credit|low on/i.test(rc.text),
+    ok(offered && rc.id.startsWith('op:') && /can’t take this one right now/.test(rc.text) && /Send it from your Tacit account instead/.test(rc.text) && /[Nn]o relay fee/.test(rc.text) && !/gas|credit|low on/i.test(rc.text),
       `heldoff: the exit refused after the combine went to Activity is offered on its receipt there (${rc.text.slice(0, 220)})`);
     restore = await stubPoolSettle('ok');
     if (offered) await r.page.click(`[data-act="${rc.id}"] [data-selfdo]`);
@@ -8236,7 +8236,7 @@ await step('selfwallet', async () => {
 // A relayed harvest that stays in the relay's line (the relay up and sending, but busy or waiting out a spike): a minute on, the sheet says it
 // is in line and that the paying account can send it; three minutes on, it is offered to the paying account with what that costs.
 await step('slowline', async () => {
-  const r = await openFarmKey('51a3'.padEnd(64, '8'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, held: true });
+  const r = await openFarmKey('51a3'.padEnd(64, '8'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, held: true }, { width: 390, height: 900 });
   const p = r.page;
   try {
     await go(p, '#farm');
@@ -8255,6 +8255,7 @@ await step('slowline', async () => {
     await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 60000 });
     await until(p, () => /costs about [\d.]+ ETH/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 30000).catch(() => {});
     const late = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    if (SHOTS) await p.locator('#sf-act-0').screenshot({ path: join(SHOTS, 'weld-offer.png') });
     ok(/It is taking longer than usual\. It keeps its place in line/.test(late) && /Send it from your Tacit account/.test(late) && /costs about [\d.]+ ETH/.test(late) && /Send it from your wallet instead/.test(late) && !/low on|out of/i.test(late),
       `slowline: three minutes on, it is offered to the paying account with the cost (${late})`);
     if (r.errors.length) { fails++; console.log('FAIL slowline page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -8965,7 +8966,7 @@ await step('relaystate', async () => {
     await withdraw('0.5');
     await until(r.page, () => /can’t send this one right now/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
     const held = await said();
-    ok(/The relay can’t send this one right now\./.test(held) && /Send it from your Tacit account: the relay proves it, and your Tacit account pays the network fee/.test(held) && !/Keep it in line/.test(held),
+    ok(/The relay can’t send this one right now\./.test(held) && /Send it from your Tacit account\s*The relay proves it, and your Tacit account pays the network fee/.test(held) && !/Keep it in line/.test(held),
       `relaystate: held at the press, the withdrawal is offered from the paying account, the relay proving it (${held})`);
     proveStub = true; restore = await stubPoolSettle('ok');
     const s1 = submits.length;
