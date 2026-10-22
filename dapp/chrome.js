@@ -60,6 +60,29 @@
   setInterval(paint, 30e3);
 })();
 
+// What this browser has under way shows on every page that does not draw its own Activity chip (the front page does): a link to the front
+// page's Activity, with how many entries are still going. It reads the shared journal (/activity.js) and follows another tab's writes.
+(() => {
+  const nav = document.querySelector('.sn');
+  if (!nav || document.getElementById('act')) return;
+  import('/activity.js').then(({ activityCount, onActivity }) => {
+    const a = document.createElement('a'), n = document.createElement('b');
+    a.className = 'sa'; a.href = '/#activity'; a.hidden = true;
+    a.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>';
+    n.className = 'n'; n.hidden = true; a.append(n);
+    nav.insertBefore(a, nav.querySelector('.sm'));
+    const paint = () => {
+      const { total, live } = activityCount();
+      a.hidden = !total; n.hidden = !live; n.textContent = live ? String(live) : '';
+      a.title = live ? `Activity, ${live} in progress` : 'Activity'; a.setAttribute('aria-label', a.title);
+    };
+    paint();
+    onActivity(paint);
+    addEventListener('focus', paint);
+    setInterval(paint, 30e3);
+  }).catch(() => {});
+})();
+
 // The pages share one service worker (dapp/sw.js). It keeps a versioned file (a ?cb= URL whose token matches its bytes) and answers for it from disk, so a
 // repeat visit asks the network for the page and little else. It is registered once the page has loaded, and a page works the same without it.
 (() => {

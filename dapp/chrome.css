@@ -35,6 +35,9 @@ header.top .sm > summary::before, header.top .sm > summary::after { content: non
 .sn .bd { position: absolute; top: 5px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); pointer-events: none; }
 .sn > a > .bd { top: 8px; right: auto; left: 26px; width: 7px; height: 7px; }
 @container top (min-width: 540px) { .sn .sm > summary > .bd { display: none; } }
+/* the Activity link chrome.js adds on a page without its own chip: at every width, once there is something in it, with the count still going */
+.sn > a.sa:not([hidden]) { display: inline-flex; }
+.sn > a.sa .n { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--orange); color: #fff; font: 600 10px/16px var(--mono); text-align: center; }
 @container top (min-width: 900px) {
   .sn > a { padding: 0 13px 0 11px; }
   .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }

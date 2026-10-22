@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zMFRYrcP+Gx9VysL1KmV5I0nTIM2FwB2OwkEy4UyBRU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-N2LuEHuW0Iqv3biI3vzsr1KIOe0hZzS3q6v1qN88Kko=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1099,6 +1099,9 @@ header.top .sm > summary::before, header.top .sm > summary::after { content: non
 .sn .bd { position: absolute; top: 5px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); pointer-events: none; }
 .sn > a > .bd { top: 8px; right: auto; left: 26px; width: 7px; height: 7px; }
 @container top (min-width: 540px) { .sn .sm > summary > .bd { display: none; } }
+/* the Activity link chrome.js adds on a page without its own chip: at every width, once there is something in it, with the count still going */
+.sn > a.sa:not([hidden]) { display: inline-flex; }
+.sn > a.sa .n { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--orange); color: #fff; font: 600 10px/16px var(--mono); text-align: center; }
 @container top (min-width: 900px) {
   .sn > a { padding: 0 13px 0 11px; }
   .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
@@ -1170,7 +1173,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 @font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
 @font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
 </style>
-<script src="/chrome.js?cb=8f43f330" defer></script>
+<script src="/chrome.js?cb=3b060430" defer></script>
 <!-- chrome:head:end -->
 </head>
 <body>
@@ -1578,6 +1581,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
+import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone } from '/activity.js?cb=ea1cef9e';
 if (window.__tacitAway) await new Promise(() => {});
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
@@ -2033,22 +2037,11 @@ function receipt(hash, chainId = 1) {
   return RECEIPTS.get(k);
 }
 
-const ACT_KEY = 'tacit-lite-activity-v1', ACT_MAX = 20, NOTIFY_KEY = 'tacit-lite-notify-v1';
-const JOB_LABEL = {
-  wrap: 'Make private', wraptransfer: 'Make private and send', wrapswap: 'Make private and swap', wraplp: 'Make private and add liquidity', wrapcdpmint: 'Make private and borrow',
-  transfer: 'Private transfer', batchtransfer: 'Private transfers', unwrap: 'Withdraw', sendunwrap: 'Withdraw', swap: 'Private swap', route: 'Private swap',
-  lp: 'Add liquidity', lpremove: 'Take out liquidity', lpbond: 'Bond liquidity', farmbond: 'Join a private farm', farmharvest: 'Harvest farm rewards',
-  farmunbond: 'Unbond from a farm', otc: 'Private trade', bid: 'Private bid', cbtcmint: 'Mint cBTC', cdpmint: 'Borrow cUSD', cdpclose: 'Repay a loan',
-  cdptopup: 'Top up a loan', cdpliquidate: 'Liquidate a loan', stealthlock: 'Send privately', stealthlockbatch: 'Send privately',
-  stealthclaim: 'Claim a private payment', stealthrefund: 'Take back a private send', bridgemint: 'Bridge in', bridgestealthmint: 'Bridge in',
-  bridgeburn: 'Bridge out', fastlane: 'Cross-chain move', adaptorlock: 'Atomic swap', adaptorclaim: 'Atomic swap claim', adaptorrefund: 'Atomic swap refund',
-};
-const ENDS = { job: ['settled', 'proven', 'failed', 'unknown'], tx: ['confirmed', 'failed', 'stale'], btc: ['confirmed', 'stale'], op: ['settled', 'failed', 'unknown'] };
-const ended = (it) => ENDS[it.kind]?.includes(it.status) ?? true;
+const NOTIFY_KEY = 'tacit-lite-notify-v1';
 const ACT = { items: [].concat(store.get(ACT_KEY)?.items || []).filter((x) => x?.id && ENDS[x.kind]), cleared: Number(store.get(ACT_KEY)?.cleared) || 0 };
 const clearedBy = (x, at) => ended(x) && (x.end || x.at) <= at;
 const actGet = (id) => ACT.items.find((x) => x.id === id);
-const listed = () => ACT.items.filter((x) => !x.in);
+const listed = () => listedOf(ACT.items);
 const SESS = new Set(), OWN = new Map(), FOLLOW = new Map();
 const busySheet = () => Object.keys(INFLIGHT).find(running) ?? null;
 function midAction() {
@@ -2989,19 +2982,6 @@ document.addEventListener('click', (e) => {
 const otherKey = (it) => !!(it.pub && S.key && it.pub !== S.key.pubHex);
 // The relay's job for a bridge to Bitcoin ends when the burn lands on Ethereum, hours before the bridge does. Its row goes on with the bridge's own
 // record (read from the journal, so with no key open too) until the note arrives: Burned, Proven for Bitcoin, Sent to Bitcoin, Arrived.
-const ACT_BR = { raw: new Map() };
-function actBridge(it) {
-  if (it.kind !== 'op' || it.status !== 'settled' || !it.hash || !it.pub) return null;
-  try {
-    const key = `tacit-crossout-bridge-v1:mainnet:${it.pub}`, raw = localStorage.getItem(key) || '';
-    let list = ACT_BR.raw.get(key);
-    if (!list || list.raw !== raw) { let v = null; try { v = JSON.parse(raw || '[]'); } catch {} list = { raw, v: Array.isArray(v) ? v : [] }; ACT_BR.raw.set(key, list); }
-    const h = String(it.hash).replace(/^0x/, '').toLowerCase();
-    return list.v.find((r) => String(r?.settle?.txHash || '').replace(/^0x/, '').toLowerCase() === h) || null;
-  } catch { return null; }
-}
-const actOpen = (it) => { const b = actBridge(it); return !!b && b.stage !== 'minted'; };
-const actDone = (it) => ended(it) && !actOpen(it);
 function actBridgeBody(it, b) {
   const fund = b.stage === 'covered' && !!b.lastError?.fundWait, failing = !!b.lastError && !fund, rejected = b.stage === 'mint-rejected';
   const at = b.stage === 'minted' ? 4 : XO_AT[b.stage] ?? 1;
