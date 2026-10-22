@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
-// Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
-// (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=1507d11c';
+// Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
+// reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=cb34691b';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -205,6 +205,9 @@ function wireTile() {
 
 // ── your bridges: every bridge this browser has under way, from the front page's journals ───────────────────────────────
 let ROWS = [];
+// Moving them on from this page (mover.js, loaded when asked): the presses it can make itself
+let MV = null, MVP = null;
+const HERE = { 'Burn it': 'burn', 'Mint now': 'mint' };
 
 function rowHtml(r) {
   const a = ROUTES[r.asset] || ROUTES.tac;
@@ -213,7 +216,9 @@ function rowHtml(r) {
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
   const where = r.done ? (r.paid ? 'Sent' : 'Arrived') : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
-  const act = nx.due
+  const here = MV?.open && r.dir === 'in' && r.pub === MV.pub && HERE[nx.due];
+  const act = here ? `<button type="button" class="mb-due" data-mv-act="${here}" data-id="${esc(r.id)}">${esc(nx.due)}</button>`
+    : nx.due
     ? `<a class="mb-due" href="${r.href}">${esc(nx.due)} <span aria-hidden="true">→</span></a>`
     : r.done || r.back ? '' : nx.self ? '<span class="mb-self">Goes on by itself</span>'
     : `<a class="mb-open" href="${r.href}">Open to move it on <span aria-hidden="true">→</span></a>`;
@@ -241,6 +246,8 @@ function paintMine() {
   // what needs its holder first (the chains' word counts as well as the journal's), then what is on its way, newest first; arrivals last
   const rank = (r) => (nextOf(r, LIVE).due ? 0 : r.done || r.back ? 2 : 1);
   ROWS.sort((a, b) => rank(a) - rank(b) || (b.since || 0) - (a.since || 0));
+  const mv = $('#mine-mv');
+  if (mv) mv.hidden = !ROWS.some((r) => !r.done && !r.back);
   $('#mine-n').textContent = due ? `${due} need${due === 1 ? 's' : ''} you` : `${ROWS.filter((r) => !r.done && !r.back).length || 'none'} under way`;
   $('#mine-l').innerHTML = ROWS.map(rowHtml).join('');
   notifyChanges();
@@ -297,6 +304,29 @@ function wireBell() {
 function paintAge() {
   const t = $('#mine-t');
   if (t && LIVE.at) t.textContent = `checked ${ago(LIVE.at)}`;
+}
+
+function mineSay(text, front = false) {
+  const el = $('#mine-s');
+  if (!el) return;
+  el.hidden = !text;
+  el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
+}
+function wireMove() {
+  const b = $('#mine-mv');
+  if (!b) return;
+  const load = () => (MVP ||= import('/bridge/mover.js?cb=25be3a55').then((m) => {
+    MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay, onState: (on) => { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } });
+    return MV;
+  }).catch((e) => { MVP = null; mineSay(String(e?.message || e).slice(0, 160)); throw e; }));
+  b.addEventListener('click', async () => {
+    try { await (await load()).toggle(); } catch { return; }
+    readMine.sig = null; readMine();
+  });
+  $('#mine-l').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-mv-act]');
+    if (a && MV) MV.press(a.dataset.mvAct, ROWS.find((r) => r.id === a.dataset.id));
+  });
 }
 
 function readMine() {
@@ -453,6 +483,7 @@ async function tick() {
   paintAge();
 }
 wireBell();
+wireMove();
 tick();
 readSupply();
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);

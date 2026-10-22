@@ -1,7 +1,8 @@
 // What this browser's bridges are and where each one stands, read from the journals the front page's bridge keeps.
 //
-// The front page moves every bridge (dapp/burndep-ux.js on the way in from Bitcoin, dapp/crossout-ux.js on the way out to it);
-// this page only reads what they journal, so a bridge is never moved from two pages at once. A journal is one list per key:
+// The front page starts every bridge and moves it on (dapp/burndep-ux.js on the way in from Bitcoin, dapp/crossout-ux.js on the way out
+// to it); this page reads what they journal, and moves one on itself only once its holder opens the key here (mover.js). The engines lease
+// each bridge while they move it, so it is never moved from two pages at once. A journal is one list per key:
 //   tacit-burndep-bridge-v1:mainnet:<pub>    TAC (and tETH coming back) from Bitcoin to the pool on Ethereum
 //   tacit-crossout-bridge-v1:mainnet:<pub>   TAC and tETH from the pool to Bitcoin
 // Records also carry signing material for the steps still to come, so only the public fields named below are ever read out of
@@ -176,6 +177,7 @@ export function readBridges(storage, now = Date.now()) {
       if (dir === 'in' && r.stage === 'reclaimed' && now - Number(r.updatedAt || r.createdAt || 0) > KEEP_DONE_MS) continue;
       const row = dir === 'in' ? inRow(r, now, plans[k.slice(IN_PREFIX.length)]?.[r.id] || null) : outRow(r);
       if (row.done && now - Number(row.doneAt || 0) > KEEP_DONE_MS) continue;
+      row.pub = k.slice((dir === 'in' ? IN_PREFIX : OUT_PREFIX).length);        // the key it belongs to (public: it names the journal)
       rows.push(row);
     }
   }
