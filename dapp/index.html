@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-7xgnYFjadTc0xI3ApMt3FuPZX+bTHBxnbWgAQmHASI8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-T/v7tzX0Jl2Jqhiojb6o5+AVF0+qAOl1mwcwhGTXTpU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -583,6 +583,8 @@ a.di { color: inherit; text-decoration: none; }
 .fm-way p { grid-column: 1 / -1; max-width: 40ch; margin: 0; color: var(--mute); }
 .fm-way .fm-go { grid-column: 1 / -1; margin-top: 12px; font-weight: 500; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
+.fm-y + .fm-y { margin-top: 12px; }
+.fm-apr.s { font-size: clamp(44px, 6vw, 72px); }
 .ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 16px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink); }
 .ptsline .tk { width: 28px; height: 28px; box-shadow: none; transition: transform .4s var(--spring); }
 .ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; }
@@ -1337,6 +1339,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="fm-y">
       <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction: about half your ETH becomes TAC, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
       <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
+    </div>
+    <div class="fm-y">
+      <a class="fm-way" href="/vault/#v=usd"><span class="fm-apr s num" id="tacd-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg></span><h3>TACD pools</h3><p>Where borrowed dollars trade for USDC. More depth, better borrowing against TAC.</p><span class="fm-go">Supply liquidity <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" href="/vault/#v=eth"><span class="fm-apr s num" id="tace-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><h3>TACE pools</h3><p>Where borrowed ether trades for ETH. More depth, better borrowing against TAC.</p><span class="fm-go">Supply liquidity <span class="go" aria-hidden="true">→</span></span></a>
     </div>
     <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
   </section>
@@ -8420,6 +8426,12 @@ function paintEarn() {
   const f = FARM.top;
   if (f?.apr != null) { mount($('#pub-apr'), apr(f.apr)); countUp($('#pub-apr')); $('#pub-day').textContent = `${per(f.pubDay)} TAC a day.`; }
   else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'Between reward periods.' : 'Not read yet.') : ''; }
+  const tacUsd = (fpx().ethUsd || 0) * (FARM.precision?.tacEth || 0);
+  for (const [key, id] of [['usd', 'tacd'], ['eth', 'tace']]) {
+    const a = LP.m && LP.c ? LP.m.bestApr(LP.c, key, tacUsd) : null;
+    if (a != null) { mount($(`#${id}-apr`), apr(a)); countUp($(`#${id}-apr`)); }
+    else if (LP.done && !LP.c?.weights[key]?.length) $(`#${id}-apr`).textContent = '—';
+  }
   const on = now() < ptsEnd();
   mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
   mount($('#ern-pts'), on ? html`TAC in today’s points pot · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
@@ -8783,6 +8795,16 @@ function weiForm(f, status) {
 
 const PROGRAM_KEY = 'tacit-lite-farm-program-v1';
 const FARM = { precision: null, program: store.get(PROGRAM_KEY), open: 'precision', mode: null, positions: null, outPct: '100', outAs: 'both', fill: null, wtac: null, paid: null, reinvest: null, auto: {} };
+// The liquidity campaign for TACD's and TACE's pools: its module comes in when the farms are first read, so the page's start does not wait for it
+const LP = { m: null, c: null, at: 0, done: false };
+async function loadCampaign() {
+  if (LP.done && Date.now() - LP.at < 120e3) return;
+  try {
+    LP.m ||= await import('/trade/lp-campaign.js?cb=9d89e80f');
+    LP.c = await LP.m.readCampaign({ ethCall, synths: { usd: ADDR.tacd, eth: ADDR.tace } });
+  } catch { LP.c = null; }
+  LP.at = Date.now(); LP.done = true;
+}
 const WTAC = '0x2018139a8fdd3666855be3315c7683b4d6ab7aef';
 const FARM_FIRST_BLOCK = 26033952;
 const REWARD_PAID = '0xe2403640ba68fed3a2f88b7557551d1993f84b99bb10ff833f0cf8db0c5e0486';
@@ -8854,7 +8876,7 @@ const loadFarms = (force = false, o = {}) => once(FARM, `${S.address}|${S.key?.p
 async function readFarms(current, force = false, o = {}) {
   const [pr, pg] = await Promise.allSettled([loadPrecision(), loadProgram(), S.key ? loadPositions() : null, S.key ? scanPrivate() : null,
     S.address ? ((who) => ethCall(WTAC, SEL.balanceOf + addrWord(who)).then((r) => { FARM.wtac = { who, v: wordAt(r, 0) }; }))(S.address) : null,
-    loadTacPrice()]);
+    loadTacPrice(), loadCampaign()]);
   if (!current()) return;
   if (S.address && $('#sheet-farm')?.open) loadPaid(S.address, force && !o.private).then(() => { if (current()) rerender('farm'); }).catch(() => {});
   FARM.errs = { precision: pr.status === 'rejected' && FARM.precision?.who !== S.address ? pr.reason : null, program: pg.status === 'rejected' && !FARM.program ? pg.reason : null };

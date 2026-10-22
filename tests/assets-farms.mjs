@@ -11,6 +11,7 @@ import http from 'node:http';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { privateFarms, aprText } from '../dapp/trade/farm-read.js';
+import { campaignRate, campaignApr, bestApr } from '../dapp/trade/lp-campaign.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname, SHOTS = process.env.SHOTS || null, WEB = 23000 + Math.floor(Math.random() * 1000);
@@ -152,23 +153,17 @@ try {
   }
   // 3. The campaign's rule, as the points service applies it (allocateLpDay): the cap, and under it the pot over the weighted dollars; nothing when it is off.
   {
-    const { browser, page } = await openPage();
-    const rule = (lp, now) => page.evaluate(async ([l, t]) => {
-      const src = [...document.querySelectorAll('link[rel="modulepreload"]')].map((x) => x.getAttribute('href')).find((h) => h.startsWith('/assets/farms.js'));
-      const m = await import(src), r = m.campaignRate(l, t);
-      return r && { perUsd: r.perUsd, pools: r.pools.length, apr: m.campaignApr(r.perUsd, 10000, 0.24), half: m.campaignApr(r.perUsd, 5000, 0.24), none: m.campaignApr(r.perUsd, 10000, 0) };
-    }, [lp, now]);
-    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    const near = (x, y) => Math.abs(x - y) < 1e-9, now = Date.now() / 1000;
     const deep = campaign({ pools: [{ pool: POOLS.tacdPeg, weightBps: '10000', valueUsdWei: String(5000n * E18) }, { pool: POOLS.tacdBack, weightBps: '5000', valueUsdWei: String(10000n * E18) }] });
-    const r1 = await rule(deep, Date.now() / 1000);
-    ok(r1 && near(r1.perUsd, 25 / 10000) && near(r1.apr, 25 / 10000 * 0.24 * 365 * 100) && near(r1.half, r1.apr / 2) && r1.none === null, `deep pools ($10,000 weighted): the pot is shared, ${(r1?.perUsd * 1000).toFixed(2)} TAC a day for $1,000, a half-weight pool earns half, and with no TAC price there is no figure`);
-    const empty = await rule(campaign({ pools: [] }), Date.now() / 1000);
-    ok(empty && near(empty.perUsd, 0.05), 'no liquidity yet: the first dollar earns the cap');
-    ok((await rule(campaign({ enabled: false }), Date.now() / 1000)) === null, 'off: no rate');
-    ok((await rule(campaign({ terms: { dailyWei: null, capWeiPerUsdDay: null } }), Date.now() / 1000)) === null, 'not started (only the next terms): no rate');
-    ok((await rule(campaign({ endSec: 1000 }), 2000)) === null, 'ended: no rate');
-    ok((await rule(null, Date.now() / 1000)) === null, 'unread: no rate');
-    await browser.close();
+    const r1 = campaignRate(deep, now), apr = campaignApr(r1.perUsd, 10000n, 0.24);
+    ok(near(r1.perUsd, 25 / 10000) && near(apr, 25 / 10000 * 0.24 * 365 * 100) && near(campaignApr(r1.perUsd, 5000n, 0.24), apr / 2) && campaignApr(r1.perUsd, 10000n, 0) === null, `deep pools ($10,000 weighted): the pot is shared, ${(r1.perUsd * 1000).toFixed(2)} TAC a day for $1,000, a half-weight pool earns half, and with no TAC price there is no figure`);
+    ok(near(campaignRate(campaign({ pools: [] }), now).perUsd, 0.05), 'no liquidity yet: the first dollar earns the cap');
+    ok(campaignRate(campaign({ enabled: false }), now) === null, 'off: no rate');
+    ok(campaignRate(campaign({ terms: { dailyWei: null, capWeiPerUsdDay: null } }), now) === null, 'not started (only the next terms): no rate');
+    ok(campaignRate(campaign({ endSec: 1000 }), 2000) === null, 'ended: no rate');
+    ok(campaignRate(null, now) === null, 'unread: no rate');
+    const c = { perUsd: 0.05, weights: { usd: [10000n, 5000n], eth: [] } };
+    ok(near(bestApr(c, 'usd', 0.24), 0.05 * 0.24 * 365 * 100) && bestApr(c, 'eth', 0.24) === null && bestApr(null, 'usd', 0.24) === null && bestApr(c, 'usd', 0) === null, 'the best of a vault\'s pools is the full-weight one; none for a token no pool trades, an unread campaign or no price');
   }
 } catch (e) { fails++; console.log('FAIL   ' + (e?.stack || e)); }
 server.close();
