@@ -724,6 +724,22 @@ let rec;
   next = { spent: true, txid: 'ab'.repeat(32), status: { confirmed: true } };
   const back = await makeUx({ ...world, fetchImpl }, makeMemStorage()).discover({ walletPriv: WALLET_PRIV, txs: [moveTx] });
   ok(back.found.length === 0 && back.tried.includes(id), 'a move whose burn address was spent by something other than a burn (moved back) has nothing to rebuild');
+
+  // The move's own transaction id, typed into "A bridge you started is not listed", finds the same bridge.
+  next = { spent: false };
+  const byId = async (url, opts) => (new URL(url).pathname === `/chain/tx/${id}` ? { ok: true, status: 200, json: async () => moveTx } : fetchImpl(url, opts));
+  const typed = makeUx({ ...world, fetchImpl: byId }, makeMemStorage());
+  const viaId = await typed.recoverFromTxid(id, WALLET_PRIV);
+  ok(viaId.id === made.id && viaId.stage === 'migrate-confirmed' && viaId.source.amount === NOTE_AMOUNT && viaId.burnHome.spk === made.burnHome.spk,
+    'a move\'s transaction id rebuilds its bridge from the key alone, with no amount asked for');
+  ok((await typed.recoverFromTxid(id, WALLET_PRIV)).id === made.id && typed.list(viaId.walletPub).length === 1, 'and typed again it gives the bridge it already has');
+  let strangerErr = null;
+  try { await makeUx({ ...world, fetchImpl: byId }, makeMemStorage()).recoverFromTxid(id, new Uint8Array(32).fill(0x55)); } catch (e) { strangerErr = String(e.message); }
+  ok(/needs \{ amount \}|does not classify/.test(String(strangerErr)), 'another key does not take the move for its own: it is asked for what a burn needs');
+  next = { spent: true, txid: 'ab'.repeat(32), status: { confirmed: true } };
+  let backErr = null;
+  try { await makeUx({ ...world, fetchImpl: byId }, makeMemStorage()).recoverFromTxid(id, WALLET_PRIV); } catch (e) { backErr = String(e.message); }
+  ok(/nothing is left to finish for that move/.test(String(backErr)), 'a move that was moved back says there is nothing left to finish');
 }
 // ==== hop-limit refusal (post-migrate: the burn-home is always one hop deeper than its source) ====
 {

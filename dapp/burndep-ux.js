@@ -1113,9 +1113,25 @@ export function makeBurnDepositUx(deps) {
     return { found, tried, left };
   }
 
+  // A move's own transaction id finds its bridge too: the move alone says what it holds, and this key alone opens it (`discover` does the
+  // same over an address's history). null when the transaction is no move of this key's.
+  async function recoverMoveFromTxid(txidDisplay, walletPriv) {
+    const tx = await fetchChainJson(`/tx/${stripHex(txidDisplay).toLowerCase()}`).catch(() => null);
+    if (!tx || !Array.isArray(tx.vin) || !looksLikeTransfer(tx)) return null;
+    const P = freshPrims(walletPriv), source = moveSourceOf(tx, P, walletPriv);
+    if (!source) return null;
+    if (!tx.status || !tx.status.confirmed) throw new Error('burndep-ux: that move has not confirmed on Bitcoin yet; try again once it has');
+    const kept = getRecord(secp.getPublicKey(walletPriv, true), recordId(source.txid, source.vout));
+    const rec = kept || await recoverMove(tx, source, P, walletPriv);
+    if (!rec) throw new Error('burndep-ux: nothing is left to finish for that move: its burn address was spent by something other than a burn, or its amount does not open with this key');
+    return rec;
+  }
+
   async function recoverFromTxid(burnTxidDisplay, walletPriv, { amount } = {}) {
     const reflectedBridge = await recoverReflectedBurn(burnTxidDisplay, walletPriv);
     if (reflectedBridge) return reflectedBridge;
+    const moved = await recoverMoveFromTxid(burnTxidDisplay, walletPriv);
+    if (moved) return moved;
     if (amount == null) throw new Error('burndep-ux: recoverFromTxid needs { amount } — the confidential value the original note carried (not recoverable from chain data alone)');
     const walletPub = secp.getPublicKey(walletPriv, true);
     const status = await checkTxidStatus(burnTxidDisplay);
