@@ -187,8 +187,8 @@ const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js
 const TASKS_CB_FILES = ['tasks/open.js', 'tasks/verify.js', 'tasks/app.js', 'tasks/index.html'];
 // dapp/build/ is the page for builders: its one script, then the page.
 const BUILD_CB_FILES = ['build/app.js', 'build/index.html'];
-// dapp/assets/ lists Tacit's own assets: its one script, then the page.
-const ASSETS_CB_FILES = ['assets/app.js', 'assets/index.html'];
+// dapp/assets/ lists Tacit's own assets and the farms under them: the farms' reading first, then app.js, then the page.
+const ASSETS_CB_FILES = ['assets/farms.js', 'assets/app.js', 'assets/index.html'];
 // dapp/etch/ makes an asset on Bitcoin and searches the ones that exist: its search first, then app.js, then the page (it loads /trade/btc.js, hashed with the trade page's).
 const ETCH_CB_FILES = ['etch/minter.js', 'etch/eth.js', 'etch/find.js', 'etch/app.js', 'etch/index.html'];
 // dapp/rewards/ looks up the airdrop and the points of an address or name: its one script, then the page.

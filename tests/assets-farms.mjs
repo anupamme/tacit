@@ -1,0 +1,176 @@
+#!/usr/bin/env node
+// dapp/assets/: the farms under the assets, in a real browser under the page's own CSP. Ethereum, the farm program and the points service's liquidity campaign are
+// stubbed with fixed answers, so every figure on the row is checked against arithmetic done here: the TAC/ETH farm's APR, the best of the private farms, and what the
+// campaign pays a dollar held in a TACD or a TACE pool (the day's pot over the weighted dollars, no more than the cap, at TAC's price). Also: the row when the
+// campaign is off, when the points service is down and when the private farms are between reward periods; the campaign's rule at the cap and under it, and when it
+// has not started or has ended; and the layout, four tiles in a row on a desktop and two by two on a phone.
+//
+//   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/assets-farms.mjs        (SHOTS=dir saves screenshots)
+import { createRequire } from 'node:module';
+import http from 'node:http';
+import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { privateFarms, aprText } from '../dapp/trade/farm-read.js';
+
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
+const DAPP = new URL('../dapp/', import.meta.url).pathname, SHOTS = process.env.SHOTS || null, WEB = 23000 + Math.floor(Math.random() * 1000);
+if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+const server = http.createServer((req, res) => {
+  const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let f = join(DAPP, p);
+  if (existsSync(f) && statSync(f).isDirectory()) f = join(f, 'index.html');
+  if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, { 'content-type': TYPES[extname(f)] || 'application/octet-stream' });
+  res.end(readFileSync(f));
+}).listen(WEB);
+
+let n = 0, fails = 0;
+const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
+const text = (page, sel) => page.evaluate((s) => (document.querySelector(s)?.textContent || '').replace(/\s+/g, ' ').trim(), sel);
+
+const W = (v) => BigInt(v).toString(16).padStart(64, '0'), E18 = 10n ** 18n;
+const PRECISION_POOL = '0x0155358241411db868ba714ae7c83a27087e3d6e', PRECISION_FARM = '0x0000003bf4ba0b21f5e0d35119b337f4d4cf82e0';
+const CHAINLINK_ETH = '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419', CHAINLINK_BTC = '0xf4030086522a5beea4988f8ca5b36dbc97bee88c';
+const TACD = '0xa0f6b02561c8ef08335b69ad25e022c0b342147c', TACE = '0x9de27883c5dc9db47be12e595d59b8f1abec8570', USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', ZERO = '0x' + '0'.repeat(40);
+const POOLS = { tacdPeg: '0xdfee03499f65e56d54aceeedc6f41a09fbeb94b3', tacdBack: '0x867918fd7b6d4f13a20048485147867b9a597534', tacePeg: '0x386627b60cd2a11365e653f0382d92421fddf7a1', taceBack: '0xe1e317700589f3eafca20ac9408c97fe700fc1c1' };
+const TOKENS = { [POOLS.tacdPeg]: [TACD, USDC], [POOLS.tacdBack]: [USDC, TACD], [POOLS.tacePeg]: [TACE, ZERO], [POOLS.taceBack]: [ZERO, TACE] };
+
+// Prices: ETH $2,400 and BTC $60,000 (Chainlink, 8 decimals); the TAC/ETH pool's sqrt price is 100, so one TAC is 1/100² ETH = 0.0001 ETH = $0.24.
+const ETH_USD = 2400, BTC_USD = 60000, SQRT = 100n, TAC_ETH = 1 / (100 * 100), TAC_USD = ETH_USD * TAC_ETH;
+// The public farm: 6 ETH-worth of pool (3 ETH and 30,000 TAC), half of it staked, 100 TAC a day over a year-long period.
+const STAKED_ETH = 3, RATE_PER_SEC = 1157407407407407n, PER_DAY = Number(RATE_PER_SEC * 86400n) / 1e18;
+const PUBLIC_APR = PER_DAY * 365 * TAC_ETH / STAKED_ETH * 100;
+
+const answers = () => {
+  const t = BigInt(Math.floor(Date.now() / 1000)), round = (price) => '0x' + W(1) + W(BigInt(price) * 10n ** 8n) + W(t) + W(t) + W(1);
+  return {
+    [`${PRECISION_POOL}:0x443cb4bc`]: '0x' + W(3n * E18), [`${PRECISION_POOL}:0x5a76f25e`]: '0x' + W(30000n * E18), [`${PRECISION_POOL}:0x18160ddd`]: '0x' + W(1000n * E18), [`${PRECISION_POOL}:0x2af1f249`]: '0x' + W(SQRT * E18),
+    [`${PRECISION_FARM}:0x817b1cd2`]: '0x' + W(500n * E18), [`${PRECISION_FARM}:0x7b0a47ee`]: '0x' + W(RATE_PER_SEC), [`${PRECISION_FARM}:0xebe2b12b`]: '0x' + W(t + 365n * 86400n),
+    [`${CHAINLINK_ETH}:0xfeaf968c`]: round(ETH_USD), [`${CHAINLINK_BTC}:0xfeaf968c`]: round(BTC_USD),
+    ...Object.fromEntries(Object.entries(TOKENS).flatMap(([pool, [a, b]]) => [[`${pool}:0x0dfe1681`, '0x' + W(BigInt(a))], [`${pool}:0xd21220a7`, '0x' + W(BigInt(b))]])),
+  };
+};
+
+const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+const program = (active = true) => ({
+  network: 'mainnet', epoch: { active },
+  pools: [
+    { pid: 0, pair: 'TAC/cETH', tacPerDayForPool: '553.8888', totalShares: '41570521890', reserves: { assetA: CETH, reserveA: '381294656', reserveB: '4714516976342', lpTotalShares: '41577165540' } },
+    { pid: 1, pair: 'cETH/cUSD', tacPerDayForPool: '332.33328', totalShares: '6028127243', reserves: { assetA: CETH, reserveA: '140465504', reserveB: '261567636242', lpTotalShares: '6028128243' } },
+    { pid: 2, pair: 'cETH/cBTC', tacPerDayForPool: '221.55552', totalShares: '10418589', reserves: { assetA: CETH, reserveA: '78667932', reserveB: '1402997', lpTotalShares: '10476485' } },
+  ],
+});
+// The campaign: 25 TAC a day, 0.05 TAC at most for a dollar, four pools of about $30 (a full weight and a half weight for each token).
+const campaign = (over = {}) => ({
+  enabled: true, endSec: Math.floor(Date.now() / 1000) + 30 * 86400,
+  terms: { fromDay: 20745, dailyWei: String(25n * E18), createWei: String(150n * E18), capWeiPerUsdDay: String(E18 / 20n) }, next: { fromDay: 20775, dailyWei: null, createWei: null, capWeiPerUsdDay: null },
+  pools: [[POOLS.tacdPeg, 10000, 31], [POOLS.tacdBack, 5000, 31], [POOLS.tacePeg, 10000, 25], [POOLS.taceBack, 5000, 31]].map(([pool, w, usd]) => ({ pool, weightBps: String(w), valueUsdWei: String(BigInt(usd) * E18), opened: true, openPaid: true })),
+  ...over,
+});
+const weighted = (c) => c.pools.reduce((s, p) => s + Number(p.valueUsdWei) / 1e18 * Number(p.weightBps) / 1e4, 0);
+
+const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'];
+const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+
+async function openPage({ prog = program(), lp = campaign(), viewport = { width: 1100, height: 900 } } = {}) {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
+  const seen = { rpc: 0, lp: 0, program: 0 }, table = answers();
+  for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, (route) => {
+    seen.rpc++;
+    const { id, params } = JSON.parse(route.request().postData() || '{}'), c = params?.[0] || {}, hit = table[`${String(c.to).toLowerCase()}:${String(c.data).slice(0, 10)}`];
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(hit ? { jsonrpc: '2.0', id, result: hit } : { jsonrpc: '2.0', id, error: { code: 3, message: 'execution reverted' } }) });
+  });
+  await ctx.route('https://api.tacit.finance/**', (route) => { seen.program++; return /farm\/program/.test(route.request().url()) && prog ? json(route, prog) : json(route, null, 404); });
+  await ctx.route('https://tacit-points.onrender.com/**', (route) => { seen.lp++; return lp ? json(route, lp) : json(route, { error: 'down' }, 503); });
+  const page = await ctx.newPage(), errors = [], blocked = [];
+  page.on('pageerror', (e) => errors.push(String(e.message || e)));
+  page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Failed to load resource/.test(t)) return; (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
+  await page.goto(`http://127.0.0.1:${WEB}/assets/`, { waitUntil: 'load' });
+  return { browser, page, errors, blocked, seen };
+}
+const tileOf = (page, id) => page.evaluate((i) => { const a = document.querySelector(`#fr-${i}`); return a && { href: a.getAttribute('href'), name: a.querySelector('.n b').textContent, sub: a.querySelector('.sub').textContent, apr: a.querySelector('.apr').textContent, label: getComputedStyle(a.querySelector('.apr + small')).display }; }, id);
+const settle = (page, id, want) => page.waitForFunction(([i, w]) => document.querySelector(`#fr-${i} .apr`)?.textContent === w, [id, want], { timeout: 15000 }).then(() => true, () => false);
+
+try {
+  // 1. Everything reads: the figures are the arithmetic's.
+  {
+    const c = campaign(), total = weighted(c), perUsd = Math.min(25 / total, 0.05), full = perUsd * TAC_USD * 365 * 100;
+    const priv = privateFarms(program(), TAC_ETH, { ethUsd: ETH_USD, btcUsd: BTC_USD }), best = priv.reduce((m, x) => (x.apr > m.apr ? x : m));
+    const { browser, page, errors, blocked, seen } = await openPage({ lp: c });
+    ok(await settle(page, 'tace', aprText(full)), `the TACE tile settles on ${aprText(full)}`);
+    const [pub, prv, tacd, tace] = await Promise.all(['pub', 'prv', 'tacd', 'tace'].map((i) => tileOf(page, i)));
+    ok(perUsd === 0.05, 'the cap binds at these depths (25 TAC a day over about $87 of weighted liquidity is far over 0.05 a dollar)');
+    ok(pub.apr === aprText(PUBLIC_APR) && pub.href === '/#farm/public' && pub.name === 'TAC / ETH' && pub.sub === 'Public farm', `the public farm: ${pub.name}, ${pub.sub}, ${pub.apr} APR (${PUBLIC_APR.toFixed(1)}%), to the front page's farm`);
+    ok(prv.apr === aprText(best.apr) && prv.href === `/#farm/private-${best.pid}` && prv.sub === '3 pools', `the private farms: the best of three, ${prv.apr} (${best.name}), to that farm`);
+    ok(best.pid === 2, 'the best private farm is the tETH / cBTC one at these prices');
+    ok(tacd.apr === aprText(full) && tacd.href === '/vault/#v=usd' && tacd.name === 'TACD / USDC' && tacd.sub === 'Borrow market', `TACD / USDC: ${tacd.apr} APR, the full-weight pool's (0.05 TAC a day for a dollar at $${TAC_USD.toFixed(2)} for 365 days), to the dollar vault`);
+    ok(tace.apr === aprText(full) && tace.href === '/vault/#v=eth' && tace.name === 'TACE / ETH', `TACE / ETH: ${tace.apr} APR, to the ETH vault`);
+    ok(full > 0 && Math.abs(full - 0.05 * 0.24 * 365 * 100) < 1e-9, `the figure is 0.05 TAC × $0.24 × 365 = ${full.toFixed(1)}%`);
+    ok(pub.label !== 'none' && prv.label !== 'none', 'each tile says what its figure is');
+    ok(/\$0\.240/.test(await text(page, '#px-tac')) && /\$2,?400/.test(await text(page, '#px-teth')), 'the prices above still show');
+    ok(errors.length === 0 && blocked.length === 0, `no page errors or blocked requests (${[...errors, ...blocked].join(' | ').slice(0, 160)})`);
+    ok(seen.lp === 1 && seen.program === 1, 'the program and the campaign are each read once');
+    const lay = await page.evaluate(() => { const r = [...document.querySelectorAll('.fl a')].map((a) => a.getBoundingClientRect()); return { tops: r.map((x) => Math.round(x.top)), widths: r.map((x) => Math.round(x.width)), over: document.documentElement.scrollWidth > innerWidth, under: document.querySelector('.al').getBoundingClientRect().bottom <= document.querySelector('.fr').getBoundingClientRect().top }; });
+    ok(new Set(lay.tops).size === 1 && lay.widths.length === 4, `desktop: four tiles in one row (${lay.widths.join(', ')} px wide)`);
+    ok(lay.under && !lay.over, 'the row sits under the assets, and the page does not scroll sideways');
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'assets-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const ph = await page.evaluate(() => { const r = [...document.querySelectorAll('.fl a')].map((a) => a.getBoundingClientRect()), nm = [...document.querySelectorAll('.fl .n b')].map((b) => Math.round(b.getBoundingClientRect().top)); return { names: nm, tops: r.map((x) => Math.round(x.top)), right: Math.max(...r.map((x) => x.right)), over: document.documentElement.scrollWidth > innerWidth, clip: [...document.querySelectorAll('.fl .n b')].some((b) => b.scrollWidth > b.clientWidth + 1) }; });
+    ok(ph.tops[0] === ph.tops[1] && ph.tops[2] === ph.tops[3] && ph.tops[2] > ph.tops[0], 'phone: two by two');
+    ok(!ph.over && ph.right <= 390 && !ph.clip, 'phone: nothing sideways, no name cut off');
+    ok(ph.names[0] === ph.names[1] && ph.names[2] === ph.names[3], `phone: the names line up across each row (${ph.names.join(', ')})`);
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'assets-phone.png'), fullPage: true });
+    await browser.close();
+  }
+  // 2. A tile that has nothing to say stays a link: the campaign off, the points service down, the private farms between reward periods.
+  for (const [what, opts] of [['the campaign is off', { lp: campaign({ enabled: false }) }], ['the points service is down', { lp: null }], ['the campaign has not started', { lp: campaign({ terms: { dailyWei: null } }) }], ['the campaign has ended', { lp: campaign({ endSec: 1 }) }]]) {
+    const { browser, page, errors } = await openPage(opts);
+    ok(await settle(page, 'pub', aprText(PUBLIC_APR)), `${what}: the farms still read`);
+    await page.waitForTimeout(800);
+    const [tacd, tace] = await Promise.all([tileOf(page, 'tacd'), tileOf(page, 'tace')]);
+    ok(tacd.apr === '' && tace.apr === '' && tacd.label === 'none' && tace.label === 'none' && tacd.href === '/vault/#v=usd' && tace.href === '/vault/#v=eth', `${what}: TACD and TACE show no figure and no label, and still lead to their vaults`);
+    ok(errors.length === 0, `${what}: no page errors`);
+    await browser.close();
+  }
+  {
+    const { browser, page } = await openPage({ prog: program(false) });
+    ok(await settle(page, 'pub', aprText(PUBLIC_APR)), 'between private reward periods: the public farm reads');
+    await page.waitForFunction(() => document.querySelector('#fr-prv .sub')?.textContent === 'Between reward periods', null, { timeout: 15000 }).then(() => ok(true, 'the private tile says it is between reward periods, with no figure'), () => ok(false, 'the private tile says it is between reward periods'));
+    ok((await tileOf(page, 'prv')).apr === '', 'the private tile shows no figure');
+    await browser.close();
+  }
+  {
+    const { browser, page } = await openPage({ prog: null });
+    await page.waitForTimeout(1500);
+    const [prv, pub] = await Promise.all([tileOf(page, 'prv'), tileOf(page, 'pub')]);
+    ok(prv.apr === '' && prv.sub === 'Hidden pools' && prv.href === '/#farm', 'the farm program unread: the private tile is what the page wrote, a link to the farms');
+    ok(pub.apr === aprText(PUBLIC_APR), 'the public farm reads on its own');
+    await browser.close();
+  }
+  // 3. The campaign's rule, as the points service applies it (allocateLpDay): the cap, and under it the pot over the weighted dollars; nothing when it is off.
+  {
+    const { browser, page } = await openPage();
+    const rule = (lp, now) => page.evaluate(async ([l, t]) => {
+      const src = [...document.querySelectorAll('link[rel="modulepreload"]')].map((x) => x.getAttribute('href')).find((h) => h.startsWith('/assets/farms.js'));
+      const m = await import(src), r = m.campaignRate(l, t);
+      return r && { perUsd: r.perUsd, pools: r.pools.length, apr: m.campaignApr(r.perUsd, 10000, 0.24), half: m.campaignApr(r.perUsd, 5000, 0.24), none: m.campaignApr(r.perUsd, 10000, 0) };
+    }, [lp, now]);
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    const deep = campaign({ pools: [{ pool: POOLS.tacdPeg, weightBps: '10000', valueUsdWei: String(5000n * E18) }, { pool: POOLS.tacdBack, weightBps: '5000', valueUsdWei: String(10000n * E18) }] });
+    const r1 = await rule(deep, Date.now() / 1000);
+    ok(r1 && near(r1.perUsd, 25 / 10000) && near(r1.apr, 25 / 10000 * 0.24 * 365 * 100) && near(r1.half, r1.apr / 2) && r1.none === null, `deep pools ($10,000 weighted): the pot is shared, ${(r1?.perUsd * 1000).toFixed(2)} TAC a day for $1,000, a half-weight pool earns half, and with no TAC price there is no figure`);
+    const empty = await rule(campaign({ pools: [] }), Date.now() / 1000);
+    ok(empty && near(empty.perUsd, 0.05), 'no liquidity yet: the first dollar earns the cap');
+    ok((await rule(campaign({ enabled: false }), Date.now() / 1000)) === null, 'off: no rate');
+    ok((await rule(campaign({ terms: { dailyWei: null, capWeiPerUsdDay: null } }), Date.now() / 1000)) === null, 'not started (only the next terms): no rate');
+    ok((await rule(campaign({ endSec: 1000 }), 2000)) === null, 'ended: no rate');
+    ok((await rule(null, Date.now() / 1000)) === null, 'unread: no rate');
+    await browser.close();
+  }
+} catch (e) { fails++; console.log('FAIL   ' + (e?.stack || e)); }
+server.close();
+console.log(fails ? `\n${fails} failed, ${n} passed` : `\n${n} passed`);
+process.exit(fails ? 1 : 0);
