@@ -37993,6 +37993,58 @@ export async function bitcoinSwapOutcome(revealTxid) {
   } catch { return { state: 'waiting' }; }
 }
 
+// Etching for a page that draws its own form (the etch page). The classic app's form takes the same steps inside its click handler; these take and give plain values.
+// What an etch costs at today's rate (`fee`: the commit and the reveal) and the sats the key needs at its address to send it, with room. `pin`: a name, a link
+// or a published supply goes into a metadata blob whose CID the envelope carries in place of the image's, which makes the reveal longer.
+export async function etchQuote({ tickerLen = 8, imageUri = null, pin = false } = {}) {
+  const rate = await getFeeRate();
+  const rawImg = imageUri ? new TextEncoder().encode(imageUri).length : 0;
+  const revealFee = feeFor(estCEtchRevealVb({ tickerLen, imageUriLen: pin ? Math.max(rawImg, 70) : rawImg }), rate);
+  const fee = revealFee + feeFor(estCommitVb(2), rate);
+  return { rate, fee, need: Math.ceil((fee + DUST + 1000) / 500) * 500 };
+}
+// Etches an asset with a fixed supply, or one its key can mint more of: the proof, the optional metadata pinned to IPFS (name, description, link, and the
+// supply's opening when it is published), then the commit and the reveal. `supply` is in base units. The asset is the key's own the moment the reveal is sent.
+export async function etchAsset({ ticker, supply, decimals, name = '', description = '', externalUrl = '', imageUri = null, mintable = false, publishSupply = true, onProgress = null }) {
+  const tk = String(ticker || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,8}$/.test(tk)) throw new Error('the ticker is 1 to 8 letters or digits');
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 8) throw new Error('decimals are 0 to 8');
+  const supplyBase = BigInt(supply);
+  if (supplyBase <= 0n) throw new Error('the supply must be more than zero');
+  if (supplyBase >= (1n << BigInt(N_BITS))) throw new Error('the supply is more than 2⁶⁴ base units');
+  const img = validateImageUriForEtch(imageUri);
+  const label = String(name || '').replace(/[\x00-\x1f\x7f]/g, '').trim();
+  if (label.length > 64) throw new Error('the name is 64 characters at most');
+  const about = String(description || '').trim(), link = String(externalUrl || '').trim();
+  if (about.length > 500) throw new Error('the description is 500 characters at most');
+  if (link && !/^https:\/\//i.test(link)) throw new Error('the link must start with https://');
+  if (mintable && NET.name === 'mainnet' && !MAINNET_ALLOW_MINTABLE) throw new Error('mintable assets are not offered on mainnet yet');
+  const pin = !!(PIN_JSON_URL && (label || about || link || publishSupply));
+  const metadataBuilder = !pin ? null : async ({ supply: s, blinding, commitment }) => {
+    const md = { name: label || tk, decimals };
+    if (img) md.image = img;
+    if (about) md.description = about;
+    if (link) md.external_url = link;
+    if (publishSupply) md.tacit_attest = { supply: s.toString(), blinding: bytesToHex(bigintToBytes32(blinding)), commitment: bytesToHex(commitment) };
+    return `ipfs://${await uploadMetadataToPin(md)}`;
+  };
+  const r = await buildAndBroadcastCEtch({ ticker: tk, supplyBase, decimals, imageUri: img, mintable, metadataBuilder, onProgress });
+  try { invalidateHoldingsCache(); } catch { }
+  postHint(r.revealTxid, 0);
+  let published = publishSupply && r.metadataPinned === true;
+  const opening = publishSupply && WORKER_BASE ? getOpening(r.revealTxid, 0) : null;
+  if (opening) {
+    try {
+      const resp = await fetch(withNet(ATTEST_URL(r.assetIdHex)), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(6000),
+        body: JSON.stringify({ supply: opening.amount.toString(), blinding: bytesToHex(bigintToBytes32(opening.blinding)), reveal_txid: r.revealTxid, reveal_vout: 0 }),
+      });
+      published = published || resp.ok;
+    } catch { }
+  }
+  return { commitTxid: r.commitTxid, revealTxid: r.revealTxid, assetIdHex: r.assetIdHex, metadataPinned: r.metadataPinned, supplyPublished: published };
+}
+
 function _wirePoolSwapForm() {
   const fromSel  = document.getElementById('pool-swap-from');
   const toSel    = document.getElementById('pool-swap-to');

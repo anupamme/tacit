@@ -189,6 +189,8 @@ const TASKS_CB_FILES = ['tasks/open.js', 'tasks/verify.js', 'tasks/app.js', 'tas
 const BUILD_CB_FILES = ['build/app.js', 'build/index.html'];
 // dapp/assets/ lists Tacit's own assets: its one script, then the page.
 const ASSETS_CB_FILES = ['assets/app.js', 'assets/index.html'];
+// dapp/etch/ makes an asset on Bitcoin and searches the ones that exist: its search first, then app.js, then the page (it loads /trade/btc.js, hashed with the trade page's).
+const ETCH_CB_FILES = ['etch/find.js', 'etch/app.js', 'etch/index.html'];
 // dapp/rewards/ looks up the airdrop and the points of an address or name: its one script, then the page.
 const REWARDS_CB_FILES = ['rewards/app.js', 'rewards/index.html'];
 // dapp/bridge/ follows this browser's bridges and shows how each way is proven: its reading of the journals first, then app.js, then the page.
@@ -291,7 +293,7 @@ function pageCacheBust(files, write) {
 // A page whose script is a file (a CSP without inline script) has a `<!-- warm:begin --><!-- warm:end -->` block instead: the same links inside an inert
 // <template>, which the script clones into the head. The root of this group may be named by the page's own modules rather than by the page.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'etch/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const WARM_BLOCK = /<!-- warm:begin -->[\s\S]*?<!-- warm:end -->/;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/, INTENT_BLOCK = /\/\/ preload-intent:begin\n[\s\S]*?\/\/ preload-intent:end/;
@@ -530,7 +532,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...siteChrome(false), ...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(REWARDS_CB_FILES, false), ...pageCacheBust(BRIDGE_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(ASSETS_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...siteChrome(false), ...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(REWARDS_CB_FILES, false), ...pageCacheBust(BRIDGE_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(ETCH_CB_FILES, false), ...pageCacheBust(ASSETS_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pageImportMaps(false), ...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -578,6 +580,7 @@ async function main() {
     const buildDrift = pageCacheBust(BUILD_CB_FILES, true);
     console.log(`• build page cache-bust: ${buildDrift.length ? `${buildDrift.length} token(s) updated` : 'unchanged'}`);
     const swapDrift = pageCacheBust(SWAP_CB_FILES, true);
+    const etchDrift = pageCacheBust(ETCH_CB_FILES, true);
     const assetsDrift = pageCacheBust(ASSETS_CB_FILES, true);
     const rewardsDrift = pageCacheBust(REWARDS_CB_FILES, true);
     console.log(`• rewards page cache-bust: ${rewardsDrift.length ? `${rewardsDrift.length} token(s) updated` : 'unchanged'}`);
@@ -585,6 +588,7 @@ async function main() {
     console.log(`• bridge page cache-bust: ${bridgeDrift.length ? `${bridgeDrift.length} token(s) updated` : 'unchanged'}`);
     console.log(`• assets page cache-bust: ${assetsDrift.length ? `${assetsDrift.length} token(s) updated` : 'unchanged'}`);
     console.log(`• swap page cache-bust: ${swapDrift.length ? `${swapDrift.length} token(s) updated` : 'unchanged'}`);
+    console.log(`• etch page cache-bust: ${etchDrift.length ? `${etchDrift.length} token(s) updated` : 'unchanged'}`);
     const relayDrift = pageCacheBust(RELAY_CB_FILES, true);
     console.log(`• relay page cache-bust: ${relayDrift.length ? `${relayDrift.length} token(s) updated` : 'unchanged'}`);
     const splitterDrift = pageCacheBust(SPLITTER_CB_FILES, true);

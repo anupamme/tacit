@@ -18,7 +18,7 @@ import { join } from 'node:path';
 export const CHROME_PAGES = {
   'index.html': '', 'swap/index.html': 'swap', 'assets/index.html': 'assets', 'rewards/index.html': 'rewards', 'trade/index.html': 'assets', 'teth/index.html': 'assets', 'cbtc/index.html': 'assets',
   'vault/index.html': 'borrow', 'pay/index.html': 'pay', 'pay/eth/index.html': 'pay', 'tac/index.html': 'tac', 'tasks/index.html': 'tasks',
-  'build/index.html': 'build', 'weld/stats/index.html': 'stats', 'weld/keeper/index.html': 'community', 'relay/index.html': '',
+  'build/index.html': 'build', 'etch/index.html': 'etch', 'weld/stats/index.html': 'stats', 'weld/keeper/index.html': 'community', 'relay/index.html': '',
   'splitter/index.html': '', 'sats/index.html': '', 'bridge/index.html': 'bridge',
 };
 
@@ -33,6 +33,7 @@ const G = {
   tac: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
   bridge: '<path d="M3 17h18"/><path d="M5 17v-3a7 7 0 0 1 14 0v3"/><path d="M9 17v-4.5M15 17v-4.5M12 17v-6"/>',
   rewards: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 1 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 1 1 0 5"/>',
+  etch: '<path d="M4 20l4.2-1 10.6-10.6a2.1 2.1 0 0 0-3-3L5.2 16z"/><path d="M13.6 7.4l3 3"/>',
   tasks: '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>',
   build: '<path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/><path d="M14 4l-4 16"/>',
   stats: '<path d="M5 20v-6"/><path d="M12 20V5"/><path d="M19 20v-10"/>',
@@ -52,7 +53,7 @@ const svg = (k) => `<svg viewBox="0 0 24 24"${FILLED.has(k) ? ' class="fill"' : 
 // borrow), then what they pay (rewards: farms, points, the airdrop). The menu holds the rest in two groups: more for a holder, then the network's own pages
 const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/swap/', 'Swap'], ['pay', '/pay/', 'Pay'], ['bridge', '/bridge/', 'Bridge'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
 const MORE = [
-  [['tac', '/tac/', 'Shielded TAC'], ['tasks', '/tasks/', 'Tasks']],
+  [['tac', '/tac/', 'Shielded TAC'], ['etch', '/etch/', 'Etch'], ['tasks', '/tasks/', 'Tasks']],
   [['stats', '/weld/stats/', 'Stats'], ['build', '/build/', 'Build'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']],
 ];
 
