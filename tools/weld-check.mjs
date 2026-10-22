@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8410,6 +8410,95 @@ await step('heldborrow', async () => {
 // The Borrow sheet for cBTC the key holds that no lock of its own made (sent, bridged, bought): it leads with a borrow form on the private notes it
 // finds, sized by ratio presets, with what the loan is liquidated at; the lock steps fold under it. The pool module is stubbed with two cBTC notes,
 // the loan calls (recording what they were handed), the position the loan makes, and the self-send that cuts a note to size.
+// The borrow page's Bitcoin side borrows against a whole cBTC note and repays the loan, relayed, with the front page's loan code (btc-borrow.js):
+// the pool module and the position store are the real ones, the relay's open and close are answered here. The loan is remembered once it is
+// in and forgotten once it is repaid, both go into the shared journal under their names, and a relay that will not take it sends the holder on.
+await step('vaultborrow', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const CB = String(ux.pool.CBTC_ZK_ASSET_ID).toLowerCase(), USD = String(ux.cdp.debtAssetId(ux.cfg.collateralEngine)).toLowerCase();
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      let seq = 0;
+      const note = (asset, value) => { const i = ++seq; return { asset, value: String(value), leaf: h(0xb0b000 + i), leafIndex: 600000 + i, cx: h(0x100 + i), cy: h(2), owner: h(3), secret: h(0x5100 + i), blinding: h(0x7700 + i), root: h(1), path: [] }; };
+      const S = window.__vb = { notes: [note(CB, 20000n)], calls: [], loan: null, refuse: false, used: 0, nonce: null };
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        b.notes = [...b.notes, ...S.notes];
+        for (const n of S.notes) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
+        return b;
+      };
+      // the chain reports the key nonce the loan was opened under (a refused try used one up, as it does on chain)
+      ux.recoverCdpPositions = async () => ({ nextKeyNonce: S.used, positions: S.loan ? [{ controller: S.loan.controller, keyNonce: S.nonce, debtValue: String(S.loan.debtValue), rateSnapshot: S.loan.rateSnapshot,
+        positionOwner: S.loan.positionOwner, nonce: h(0), basket: [{ asset: CB, value: '20000' }], live: true }] : [] });
+      ux.cdpPositionTree = async () => ({ indexOf: () => 0, pathFor: () => ({ path: [] }), root: h(9) });
+      const refuse = () => Object.assign(new Error('relay 429: the relay can’t take this one right now; send it from your own wallet, or try again later'), { code: 'relay_held', httpStatus: 429 });
+      const defi = ux.defiActions;
+      ux.defiActions = (priv) => ({ ...defi(priv),
+        openCdp: async (a) => {
+          S.calls.push({ kind: 'open', self: typeof a.selfSettle, controller: a.controller, debt: String(a.debtValue), coll: a.collateral.map((l) => String(l.value)).join(), owner: a.positionOwner });
+          const nonce = S.calls.filter((c) => c.kind === 'open').length - 1;
+          if (S.refuse) throw refuse();
+          S.nonce = nonce; S.used = nonce + 1;
+          a.waitOpts?.onJob?.('vb-open', 'cdpmint');
+          S.loan = a; S.notes = [note(USD, BigInt(a.debtValue))];
+          return { jobId: 'vb-open', txHash: h(0xee) };
+        },
+        closeCdp: async (a) => {
+          S.calls.push({ kind: 'close', self: typeof a.selfSettle, debt: String(a.debtValue), notes: a.debtNotes.map((n) => n.value).join(), index: a.positionIndex });
+          a.waitOpts?.onJob?.('vb-close', 'cdpclose');
+          S.loan = null; S.notes = [note(CB, 20000n)];
+          return { jobId: 'vb-close', txHash: h(0xef) };
+        },
+      });
+      return ux;
+    }` }));
+  const vb = () => r.page.evaluate(() => window.__vb);
+  const said = () => text(r.page, '#bm-status').then((t) => t.replace(/\s+/g, ' ').trim());
+  const store = () => r.page.evaluate(() => localStorage.getItem('tacit-cdp-positions-v1') || '');
+  const journal = () => r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+  try {
+    await r.page.goto(r.url + 'vault/#btc');
+    await r.page.click('#btc-mine [data-mine="open"]');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#bm-note', { timeout: 300000 });
+    ok((await r.page.$$eval('#bm-note option', (o) => o.map((x) => x.textContent))).join() === '0.0002 cBTC' && /Up to about [\d.,]+ cUSD at the \d+% floor/.test(await text(r.page, '#btc-mine')),
+      `vaultborrow: a key holding a cBTC note is offered a loan against it, with the most the floor allows (${(await text(r.page, '#btc-mine .bm-form')).replace(/\s+/g, ' ').slice(0, 120)})`);
+    // refused by the relay: nothing is remembered, and the holder is sent to the front page, which can send it from the Tacit account
+    await r.page.evaluate(() => { window.__vb.refuse = true; });
+    const s0 = await store();
+    await r.page.fill('#bm-amt', '5');
+    await r.page.click('#btc-mine [data-mine="borrow"]');
+    await until(r.page, () => /can’t take this one/.test(document.querySelector('#bm-status')?.textContent || ''), null, 240000);
+    ok((await r.page.getAttribute('#bm-status a', 'href')) === '/#borrow' && (await store()) === s0, `vaultborrow: a loan the relay refuses says so, remembers nothing, and points to the front page (${await said()})`);
+    await r.page.evaluate(() => { window.__vb.refuse = false; });
+    // borrowed
+    await r.page.fill('#bm-amt', '5');
+    await r.page.click('#btc-mine [data-mine="borrow"]');
+    await until(r.page, () => /Borrowed 5 cUSD/.test(document.querySelector('#bm-status')?.textContent || ''), null, 240000);
+    const open = (await vb()).calls.filter((c) => c.kind === 'open').at(-1);
+    ok(open && open.self === 'undefined' && open.debt === '500000000' && open.coll === '20000' && /^0x[0-9a-f]{64}$/.test(open.owner), `vaultborrow: the loan is relayed against the whole note (${JSON.stringify(open)})`);
+    ok((await store()).length > s0.length, 'vaultborrow: and remembered once it is in, as the front page remembers it');
+    await until(r.page, () => !!document.querySelector('#btc-mine [data-mine="repay"]'), null, 120000);
+    ok(/Loan5 cUSD/.test(await text(r.page, '#btc-mine')), 'vaultborrow: the loan is listed, with Repay');
+    // repaid with the cUSD note the loan made
+    const s1 = await store();
+    await r.page.click('#btc-mine [data-mine="repay"]');
+    await until(r.page, () => /Repaid/.test(document.querySelector('#bm-status')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${await said()} | calls: ${JSON.stringify((await vb()).calls.slice(-2))}`); });
+    const close = (await vb()).calls.filter((c) => c.kind === 'close').at(-1);
+    ok(close && close.self === 'undefined' && close.debt === '500000000' && close.notes === '500000000' && close.index === 0, `vaultborrow: the repayment is relayed with the cUSD note of exactly the loan (${JSON.stringify(close)})`);
+    ok((await store()).length < s1.length, 'vaultborrow: and the loan is forgotten once repaid');
+    const j = await journal();
+    ok(j.includes('Borrow 5 cUSD:settled') && j.includes('Repay 5 cUSD:settled'), `vaultborrow: both are in the shared journal under their names, settled (${j.slice(0, 4).join(' | ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL vaultborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('holdborrow', async () => {
   const hex = 'b0d1'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
   const r = await openPage({ account: A0, key: K0 });

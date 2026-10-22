@@ -122,11 +122,11 @@ export async function readLocks({ ux, priv, hist }) {
 export async function readLoans({ ux, priv }) {
   const cdp = await ux.recoverCdpPositions({ walletPriv: priv });
   const id = CBTC_ID.toLowerCase();
-  return (cdp?.positions || []).filter((p) => p.live !== false).map((p) => ({ debt: BigInt(p.debtValue || 0), cbtc: (p.basket || []).filter((l) => String(l.asset).toLowerCase() === id).reduce((a, l) => a + BigInt(l.value), 0n) }));
+  return (cdp?.positions || []).filter((p) => p.live !== false).map((p) => ({ debt: BigInt(p.debtValue || 0), cbtc: (p.basket || []).filter((l) => String(l.asset).toLowerCase() === id).reduce((a, l) => a + BigInt(l.value), 0n), pos: p }));
 }
 export async function readHeld({ ux, priv }) {
   const r = await ux.balance(priv, { cbtc: true, bridge: false, positions: true });
-  const of = (id) => { const g = r.byAsset?.[String(id).toLowerCase()]; return { value: g ? BigInt(g.value) : 0n, notes: g?.notes?.length || 0 }; };
+  const of = (id) => { const g = r.byAsset?.[String(id).toLowerCase()]; return { value: g ? BigInt(g.value) : 0n, notes: g?.notes?.length || 0, list: g?.notes || [] }; };
   return { cbtc: of(CBTC_ID), cusd: of(CUSD_ID), positions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, partial: Object.keys(r.diag?.errors || {}).length > 0 };
 }
 export function positionsIn(rows, positions) {

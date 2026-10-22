@@ -312,7 +312,7 @@ try {
   ok(/cBTC, private0\.042/.test(vm) && /cUSD, private1,234/.test(vm) && /Loan900 cUSD/.test(vm) && /0\.05 BTC/.test(vm) && /0\.01 BTC/.test(vm) && !/0\.002 BTC/.test(vm),
     `vault: the key's private cBTC and cUSD, its loan and its two live locks (${vm.slice(0, 220)})`);
   const vlinks = await p.$$eval('#btc-mine a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
-  ok(vlinks.includes('Mint cBTC:/#lock') && vlinks.includes('Repay:/#borrow') && !vlinks.some((x) => /Post the bond/.test(x)), `vault: what is next for each lock and loan links to where it is done (${vlinks.join(' ')})`);
+  ok(vlinks.includes('Mint cBTC:/#lock') && !vlinks.some((x) => /Post the bond/.test(x)) && !!(await p.$('#btc-mine [data-mine="repay"]')), `vault: a lock's next step links to where it is done, and the loan is repaid here (${vlinks.join(' ')})`);
   await p.click('#btc-mine [data-mine="lock"]');
   await until(p, () => !!document.querySelector('#btc-mine [data-mine="open"]'), null, 10000);
   ok(true, 'vault: Lock your key puts the panel back to asking');

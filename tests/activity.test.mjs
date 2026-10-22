@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
-globalThis.addEventListener = () => {}; globalThis.removeEventListener = () => {};
+const ET = new EventTarget();
+globalThis.addEventListener = ET.addEventListener.bind(ET); globalThis.removeEventListener = ET.removeEventListener.bind(ET); globalThis.dispatchEvent = ET.dispatchEvent.bind(ET);
 const A = await import('../dapp/activity.js');
 
 const put = (items) => mem.set(A.ACT_KEY, JSON.stringify({ items, cleared: 0 }));
@@ -87,6 +88,33 @@ let moved = 0;
 const R = A.makeRelayState({ api: 'https://api.example', onChange: () => moved++ });
 assert.equal(await R.now(), 'paused'); assert.equal(R.why(), 'paused', 'kept for 15 s'); assert.equal(moved, 1);
 assert.deepEqual(await R.jobStatus('x'), { status: 'unknown' }, 'a job the relay has not heard of is unknown');
+globalThis.fetch = realFetch;
+
+// ── a page other than the front one: no list of its own, so another tab's entries are never written over ──
+mem.clear();
+const SJ = A.makeJournal({ shared: true });
+SJ.put('job:v1', { kind: 'job', label: 'Borrow 10 cUSD', status: 'pending' });
+const front = JSON.parse(mem.get(A.ACT_KEY)); front.items.unshift({ id: 'tx:1:0xfront', kind: 'tx', status: 'pending', at: Date.now() + 1 }); mem.set(A.ACT_KEY, JSON.stringify(front));   // the front tab writes meanwhile
+SJ.put('job:v1', { status: 'settled' });
+const both = JSON.parse(mem.get(A.ACT_KEY)).items.map((x) => `${x.id}:${x.status}`).sort();
+assert.deepEqual(both, ['job:v1:settled', 'tx:1:0xfront:pending'], 'the shared journal keeps what another tab wrote between its puts, and writes at once');
+
+// ── the runner ──
+mem.clear();
+globalThis.fetch = async (u) => ({ ok: true, status: 200, json: async () => (/status\?id=j9/.test(u) ? { status: 'settled', txHash: '0xab' } : { status: 'proving' }) });
+const RN = A.makeRunner({ api: 'https://api.example', pub: () => 'PK' });
+const w = RN.wait('Repay 900 cUSD');
+assert.equal(w.timeoutMs, 20 * 60e3); assert.equal(typeof w.sleep, 'function');
+w.onJob('j9');
+let e9 = A.readActivity().items.find((x) => x.id === 'job:j9');
+assert.equal(e9.label, 'Repay 900 cUSD'); assert.equal(e9.pub, 'PK', 'a job the page sets going is in the shared journal under its name, with the key');
+dispatchEvent(new CustomEvent('tacit:job', { detail: { jobId: 'j9', type: 'cdpclose', status: 'proving' } }));
+assert.equal(A.readActivity().items.find((x) => x.id === 'job:j9').status, 'proving', 'and moves on as the relay client announces it');
+dispatchEvent(new CustomEvent('tacit:job', { detail: { jobId: 'j10', type: 'cdpmint', status: 'pending' } }));
+assert.equal(A.readActivity().items.find((x) => x.id === 'job:j10').label, 'Borrow cUSD', 'a job announced without a name takes the relay type\'s');
+await new Promise((r) => setTimeout(r, 30));
+e9 = A.readActivity().items.find((x) => x.id === 'job:j9');
+assert.equal(e9.status, 'settled'); assert.equal(e9.hash, '0xab', 'and is followed to its end');
 globalThis.fetch = realFetch;
 
 console.log('activity: all checks passed');

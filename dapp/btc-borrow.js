@@ -7,6 +7,24 @@
 //          await L.opened(ps, priv, { controller, debtValue, keyNonce, positionOwner, rate, anchor, basket: [{ asset, value }], txHash });
 //   repay: const ps = await L.positions(); const { leaf, basket, debtAsset } = L.positionLeaf(t, p); … find it in the tree, pick the cUSD …
 //          const args = L.repayArgs(t, priv, { p, ownerPriv, basket, tree, index, picked }); … prove and send closeCdp …; L.repaid(ps, p);
+// The cUSD notes that pay a loan exactly, fewest first (up to four of the twelve largest): a repayment spends whole notes, and what is over
+// would not come back, so an amount needing a cut is left to the front page, which cuts one to size first.
+export function exactNotes(notes, debt) {
+  const one = notes.find((n) => BigInt(n.value) === debt);
+  if (one) return [one];
+  const xs = [...notes].sort((a, b) => (BigInt(b.value) > BigInt(a.value) ? 1 : -1)).slice(0, 12);
+  for (let k = 2; k <= 4; k++) {
+    const pick = (from, left, sum) => {
+      if (left === 0) return sum === debt ? [] : null;
+      for (let i = from; i < xs.length; i++) { const v = sum + BigInt(xs[i].value); if (v > debt) continue; const r = pick(i + 1, left - 1, v); if (r) return [xs[i], ...r]; }
+      return null;
+    };
+    const r = pick(0, k, 0n);
+    if (r) return r;
+  }
+  return null;
+}
+
 const strip = (h) => String(h).replace(/^0x/, '');
 const ZERO = '0x' + '0'.repeat(64);
 

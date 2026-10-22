@@ -3,7 +3,7 @@
 // The pool module is a stand-in that records what it is asked: its own maths is tested elsewhere.
 //   node tests/btc-borrow.test.mjs
 import assert from 'node:assert/strict';
-import { makeLoans } from '../dapp/btc-borrow.js';
+import { makeLoans, exactNotes } from '../dapp/btc-borrow.js';
 
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
@@ -66,4 +66,12 @@ t.recovered = { nextKeyNonce: 2, skipped: ['x'] };
 assert.equal(await L.nextKeyNonce(t, 'PRIV', '0xC', ps, ownerOf), 21, 'with a partial recovery, the most of it and the loans kept here');
 ps.kept = []; mem.delete(K); t.recovered = null;
 await assert.rejects(L.nextKeyNonce(t, 'PRIV', '0xC', ps, ownerOf), /Could not read your existing loans/, 'nothing read and nothing kept: refused');
+// ── the cUSD notes that repay a loan exactly ──
+const nv = (...vs) => vs.map((v, i) => ({ id: i, value: String(v) }));
+assert.deepEqual(exactNotes(nv(300, 500, 900), 500n).map((x) => x.value), ['500'], 'a note of exactly the loan');
+assert.deepEqual(exactNotes(nv(100, 400, 250, 700), 500n).map((x) => x.value).sort(), ['100', '400'], 'else the fewest notes that add up to it');
+assert.deepEqual(exactNotes(nv(100, 150, 200, 50), 500n)?.map((x) => x.value).sort(), ['100', '150', '200', '50'], 'up to four');
+assert.equal(exactNotes(nv(100, 100, 100, 100, 100), 500n), null, 'never more than four');
+assert.equal(exactNotes(nv(300, 400), 500n), null, 'no exact sum: left for a cut');
+assert.equal(exactNotes(nv(200), 500n), null, 'too little');
 console.log('btc-borrow: all checks passed');

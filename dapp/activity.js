@@ -68,12 +68,15 @@ export const ahead = (next, cur) => next !== cur && (cur == null || cur === 'unk
 //   onTrim()            before old entries are let go
 //   onStatus(it, prev)  an entry's status changed (after `end` and the rest are set)
 //   onChange(it)        after every put
-export function makeJournal({ pub = () => null, onTrim = () => {}, onStatus = () => {}, onChange = () => {} } = {}) {
+// `shared`: a page other than the front one, which keeps no list of its own: each read and each put starts from what is stored, and a put is
+// written at once, so it never writes back a list another tab has moved on since (the front page merges what such a page writes).
+export function makeJournal({ pub = () => null, onTrim = () => {}, onStatus = () => {}, onChange = () => {}, shared = false } = {}) {
   const state = readActivity();
-  const get = (id) => state.items.find((x) => x.id === id);
+  const fresh = () => { if (shared) Object.assign(state, readActivity()); };
+  const get = (id) => { fresh(); return state.items.find((x) => x.id === id); };
   let saving = 0;
   const write = () => { clearTimeout(saving); saving = 0; try { localStorage.setItem(ACT_KEY, JSON.stringify({ items: state.items, cleared: state.cleared })); } catch {} };
-  const save = () => { clearTimeout(saving); saving = setTimeout(write, 150); };
+  const save = () => { if (shared) return write(); clearTimeout(saving); saving = setTimeout(write, 150); };
   addEventListener('pagehide', () => { if (saving) write(); });
   function trim() {
     onTrim();
@@ -214,4 +217,25 @@ export function makeRelayState({ api, base = async () => api, uxState = async ()
     return state.why;
   }
   return { state, jobStatus, now, why };
+}
+
+// A page other than the front one that sets relay jobs going (the borrow page): each job goes into the shared journal under the name the page
+// gives it, moves on as the relay client announces it, and is followed to its end while the page is open; the front page follows it from the
+// same journal whenever it is opened. `wait(label)` is what a pool call takes as its waitOpts.
+export function makeRunner({ api, base, pub = () => null }) {
+  const journal = makeJournal({ pub, shared: true });
+  const relay = makeRelayState({ api, base });
+  const follow = makeFollow({ journal, jobStatus: (j) => relay.jobStatus(j), receipt: async () => null, receiptOnce: async () => null, btcConfirmed: async () => false });
+  const named = new Map();
+  addEventListener('tacit:job', ({ detail: d }) => {
+    if (!d?.jobId || !d.status) return;
+    const id = 'job:' + d.jobId;
+    journal.put(id, { kind: 'job', type: d.type || null, label: named.get(d.jobId) || JOB_LABEL[d.type] || 'Relayed action', status: d.status, hash: d.txHash || undefined, err: d.error || undefined });
+    follow.job(id);
+  });
+  const wait = (label, timeoutMs = 20 * 60e3) => ({
+    timeoutMs, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    onJob: (jobId) => { named.set(jobId, label); journal.put('job:' + jobId, { kind: 'job', label, status: 'pending' }); follow.job('job:' + jobId); },
+  });
+  return { journal, relay, follow, wait };
 }
