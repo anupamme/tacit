@@ -2,7 +2,7 @@
 // comes with it through the trade page's Bitcoin module, which also holds the key's sign-in. Nothing here builds or signs a transaction: tacit.js does.
 import { esc, fmtUnits, parseUnits, plain } from '/trade/util.js?cb=509d6618';
 
-const BTC_MODULE = '/trade/btc.js?cb=32bedf68';
+const BTC_MODULE = '/trade/btc.js?cb=12f6037a';
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TOKENS = { [TETH]: { sym: 'tETH', icon: 'teth', dec: 8 }, [TAC]: { sym: 'TAC', icon: 'tac', dec: 8 } };
 const SLIPS = [50, 100, 300];
