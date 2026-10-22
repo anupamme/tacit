@@ -2669,6 +2669,10 @@ await step('btc', async () => {
   await r.page.click(`#dash-g [data-btc-asset="${ORANGE}"]`);
   await until(r.page, () => /Send ORANGE/.test(document.querySelector('#bt-go')?.textContent || ''), null, 60000);
   ok(true, 'btc: the row opens the Bitcoin sheet on Send, with that asset chosen');
+  await r.page.keyboard.press('Escape');
+  await r.page.evaluate((id) => { location.hash = `#bitcoin/${id}`; }, ORANGE);
+  await until(r.page, () => /Send ORANGE/.test(document.querySelector('#bt-go')?.textContent || ''), null, 60000);
+  ok(true, 'btc: a link #bitcoin/<asset id> opens Send on that asset');
   if (r.errors.length) { fails++; console.log('FAIL btc page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });

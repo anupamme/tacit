@@ -3191,7 +3191,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=bb97cbe9';
+const TACIT_URL = '/tacit.js?cb=cf03f73b';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -3985,7 +3985,8 @@ const SUBLINK = {
       DEV.mode = viewOf(VIEW.dev, c || p ? parts[1] : parts[0]) || 'deposit';
     },
   },
-  btc: { get: () => [VIEW.btc[BTC.mode]], set: (_, [p]) => { BTC.mode = viewOf(VIEW.btc, p) || 'send'; } },
+  // #bitcoin/<asset id> opens Send on that asset (the page that etched it links here)
+  btc: { get: () => [VIEW.btc[BTC.mode]], set: (_, [p]) => { if (/^[0-9a-f]{64}$/.test(p || '')) { BTC.mode = 'send'; BTC.asset = p; } else BTC.mode = viewOf(VIEW.btc, p) || 'send'; } },
   pts: { get: () => [VIEW.pts[PTS.view]], set: (_, [p]) => { PTS.view = viewOf(VIEW.pts, p) || 'all'; } },
   wallet: { get: () => [VIEW.wallet[WAL.mode]], set: (_, [p]) => { WAL.mode = viewOf(VIEW.wallet, p) || 'add'; } },
   tac: { get: () => (TAB.tac === 'bridge' && BRM.mode === 'out' ? ['out'] : []), set: (tab, [p]) => { if (tab === 'bridge') BRM.mode = p === 'out' ? 'out' : 'in'; } },
@@ -6730,7 +6731,7 @@ async function btcRoute(raw, token) {
       : { kind: 'sp', to: t.encodeSilentPaymentAddress({ scanPub, spendPub, network: 'mainnet' }), name, shown, address };
   }
   if (token) {
-    if (t.decodeSilentPaymentAddress(lo) || t.decodeP2wpkhAddress(lo) || t.decodeP2trAddress(lo)) throw new Error('TAC goes to a Tacit address (tacit1…) or a shielded tcs1… address. Silent and plain addresses take BTC.');
+    if (t.decodeSilentPaymentAddress(lo) || t.decodeP2wpkhAddress(lo) || t.decodeP2trAddress(lo)) throw new Error(`${token.ticker || 'TAC'} goes to a Tacit address (tacit1…) or a shielded tcs1… address. Silent and plain addresses take BTC.`);
     const r = t.parseRecipientInput(lo);
     if (r.kind === 'error') throw new Error(r.message.charAt(0).toUpperCase() + r.message.slice(1) + '.');
     if (r.kind === 'stealth') return { kind: 'stealth', stealthAddress: r.stealthAddress, name, shown, address };
@@ -6747,7 +6748,7 @@ async function btcRoute(raw, token) {
 const btcRouteM = memoRoute(btcRoute);
 function btcSendForm(f, status, b) {
   const held = (b?.held || []).filter((a) => a.known);
-  if (BTC.asset !== 'btc' && !held.some((a) => a.id === BTC.asset)) BTC.asset = 'btc';
+  if (BTC.asset !== 'btc' && b?.got >= 2 && !held.some((a) => a.id === BTC.asset)) BTC.asset = 'btc';     // a choice waits for the read of what the key holds
   const token = held.find((a) => a.id === BTC.asset) || null, dec = token ? token.decimals : 8, unit = token ? token.ticker : 'BTC';
   mount(f, html`
     ${held.length ? segSub('btca', BTC.asset, [['btc', 'BTC'], ...held.map((a) => [a.id, a.ticker])]) : ''}
