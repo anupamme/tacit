@@ -38044,6 +38044,27 @@ export async function etchAsset({ ticker, supply, decimals, name = '', descripti
   }
   return { commitTxid: r.commitTxid, revealTxid: r.revealTxid, assetIdHex: r.assetIdHex, metadataPinned: r.metadataPinned, supplyPublished: published };
 }
+// The silent payments sent to the key that it has not spent: sats the front page counts in its balance, which an etch cannot spend until they are at the
+// key's own address.
+export async function silentSats() {
+  try { return (await loadUnspentSpCredits()).reduce((a, u) => a + (u.value || 0), 0); } catch { return 0; }
+}
+// Moves silent payments to the key's own address, in one transaction, until the address holds `target` sats (the classic app's funding step, with no dialog),
+// and resolves with that transaction's id once the address shows them. Resolves null, sending nothing, when it already holds that much.
+export async function gatherSats(target) {
+  await ensurePrivkey();
+  const held = async () => (await getUtxos(wallet.address(), null, { forSpend: true })).reduce((a, u) => a + u.value, 0);
+  const have = await held();
+  if (have >= target) return null;
+  const silent = await silentSats();
+  if (have + silent < target + 1000) throw new Error(`not enough sats: ${have} at the address and ${silent} in silent payments`);
+  const r = await buildAndBroadcastSatsSend({ recipientAddr: wallet.address(), amountSats: target });
+  for (let i = 0; i < 24; i++) {
+    if (await held() >= target) return r.txid;
+    await new Promise((res) => setTimeout(res, 2500));
+  }
+  throw new Error('the silent payments were moved but the address does not show them yet: try again in a moment');
+}
 
 function _wirePoolSwapForm() {
   const fromSel  = document.getElementById('pool-swap-from');

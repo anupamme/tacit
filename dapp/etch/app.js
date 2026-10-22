@@ -5,14 +5,16 @@ import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618'
 import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search } from '/etch/find.js?cb=32a2e96a';
 
-const BTC_MODULE = '/trade/btc.js?cb=14765f1e';
+const BTC_MODULE = '/trade/btc.js?cb=5c6f5047';
 const API = 'https://api.tacit.finance', MEMPOOL = 'https://mempool.space', SCAN = 'https://www.tacitscan.io';
 const MAX_BASE = (1n << 64n) - 1n, DECIMALS = [0, 2, 6, 8];
 const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']), LOGO_MAX = 2 * 1024 * 1024;
 const PAGE = 30;
 const sats = (n) => Math.round(n).toLocaleString('en-US');
+// The registry's assets, and what this visit etched that it does not list yet (it is read every few minutes), first.
+const known = () => (S.assets ? [...S.mine.filter((m) => !S.assets.some((a) => a.id === m.id)), ...S.assets] : null);
 
-const S = { tab: 'create', dec: 8, logo: null, quote: null, busy: false, done: null, soft: '', assets: null, failed: false, named: false, shown: PAGE, open: null };
+const S = { tab: 'create', dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
 let bitcoin = null, T = null, laneP = null, quoteKey = '', quoteTimer = 0, warmed = false;
 const ui = { tk: $('#tk'), sup: $('#sup'), dec: $('#dec'), nm: $('#nm'), ds: $('#ds'), ln: $('#ln'), pub: $('#pub'), mint: $('#mint'), lg: $('#lg'), find: $('#find'), list: $('#list') };
 
@@ -41,7 +43,7 @@ const markHtml = (a) => (a.logo
 function lane() {
   return (laneP ||= (async () => {
     const m = await import(BTC_MODULE);
-    bitcoin = m.makeBitcoin({ notify, onChange: () => { paint(); needQuote(); } });
+    bitcoin = m.makeBitcoin({ notify, onChange: () => { paint(); needQuote(); readSilent(); } });
     T = await bitcoin.session.load();
     return bitcoin;
   })().catch((e) => { laneP = null; throw e; }));
@@ -86,14 +88,28 @@ function needQuote() {
   }, 150);
 }
 
+// What the key can spend: the sats at its address, and silent payments sent to it, which are moved to the address first when the address falls short.
+// 'ok': the address holds what the etch needs. 'gather': it does not, and the silent payments cover it. 'short': neither. null: not read yet.
+function funding() {
+  const mine = bitcoin?.session.unlocked ? bitcoin.me?.sats : null, need = S.quote?.need;
+  if (mine == null || need == null || S.silentKey !== bitcoin.session.key?.pubHex) return null;
+  return mine >= need ? 'ok' : mine + S.silent >= need + 1000 ? 'gather' : 'short';
+}
+function readSilent() {
+  const key = bitcoin?.session.key?.pubHex;
+  if (!key || !bitcoin.session.unlocked) { S.silentKey = ''; if (S.silent) { S.silent = 0; paint(); } return Promise.resolve(); }
+  if (typeof T?.silentSats !== 'function') { S.silentKey = key; return Promise.resolve(); }
+  return T.silentSats().then((v) => { if (bitcoin.session.key?.pubHex === key) { S.silentKey = key; S.silent = v; paint(); } }, () => {});
+}
+
 function goState(r) {
-  const unlocked = !!bitcoin?.session.unlocked, mine = bitcoin?.me?.sats;
+  const unlocked = !!bitcoin?.session.unlocked;
   if (S.busy) return ['Etching…', true];
   if (!unlocked) return ['Open your Tacit wallet', false];
   if (!r.tickerOk) return ['Enter a ticker', true];
   if (!r.supplyOk) return ['Enter a supply', true];
   if (!r.linkOk) return ['The link starts with https://', true];
-  if (S.quote && mine != null && mine < S.quote.need) return ['Add sats', false];
+  if (funding() === 'short') return ['Add sats', false];
   return [`Etch ${r.ticker}`, false];
 }
 
@@ -105,19 +121,20 @@ function paint() {
   $('#unit').textContent = r.tickerOk ? r.ticker : '';
   $('#sup-note').textContent = r.err;
   for (const b of ui.dec.querySelectorAll('[data-d]')) b.setAttribute('aria-pressed', String(Number(b.dataset.d) === S.dec));
-  const used = r.tickerOk && S.assets ? S.assets.filter((a) => a.ticker.toLowerCase() === r.ticker.toLowerCase()).length : 0;
+  const used = r.tickerOk && S.assets ? known().filter((a) => a.ticker.toLowerCase() === r.ticker.toLowerCase()).length : 0;
   $('#tk-note').innerHTML = used ? `<button class="link" type="button" data-find="${esc(r.ticker)}">${used === 1 ? '1 asset uses' : `${used} assets use`} ${esc(r.ticker)}</button>` : '';
   const rc = $('#rcpt');
   rc.hidden = !(r.tickerOk && r.supplyOk);
   if (!rc.hidden) {
     const rows = [['Supply', `${fmtUnits(r.base, S.dec, S.dec)} ${esc(r.ticker)}`], ['Network fee', S.quote ? `about ${sats(S.quote.fee)} sats` : '…']];
-    if (unlocked && mine != null) rows.push(['In your wallet', `${sats(mine)} sats`, S.quote && mine < S.quote.need ? 'warn' : '']);
+    if (unlocked && mine != null) rows.push(['In your wallet', `${sats(mine)} sats${S.silent ? ` + ${sats(S.silent)} silent` : ''}`, funding() === 'short' ? 'warn' : '']);
     rc.innerHTML = rows.map(([k, v, c]) => `<div><dt>${k}</dt><dd${c ? ` class="${c}"` : ''}>${v}</dd></div>`).join('');
   }
   const [label, off] = goState(r), go = $('#go');
   go.textContent = label; go.disabled = off;
-  const needMore = !S.busy && S.quote && unlocked && mine != null && mine < S.quote.need && r.tickerOk && r.supplyOk;
-  const soft = needMore ? `Needs about ${sats(S.quote.need)} sats at your wallet’s address. It holds ${sats(mine)}.` : '';
+  const f = !S.busy && r.tickerOk && r.supplyOk ? funding() : null;
+  const soft = f === 'short' ? `Needs about ${sats(S.quote.need)} sats at your wallet’s address. It holds ${sats(mine)}.`
+    : f === 'gather' ? 'Your sats are silent payments: etching first moves them to your wallet’s address, in one more transaction.' : '';
   if (soft !== S.soft) { if (soft || S.soft) put(soft); S.soft = soft; }
 }
 
@@ -129,11 +146,13 @@ async function act() {
     if (!b.session.unlocked) { say(''); await b.signIn(); paint(); return; }
     const r = read();
     if (!r.tickerOk || !r.supplyOk || !r.linkOk) return;
+    // The balance is read again at the press: an etch is not sent on one read minutes ago. A press on Add sats that finds the sats has arrived only
+    // changes the button, and sends nothing.
+    const wasShort = funding() === 'short';
+    await Promise.all([b.refresh(), readSilent()]);
     S.quote = await T.etchQuote({ tickerLen: r.ticker.length, imageUri: S.logo?.uri || null, pin: wantsPin() });
-    if (b.me?.sats != null && b.me.sats < S.quote.need) {
-      await b.refresh();
-      if (b.me?.sats != null && b.me.sats < S.quote.need) { paint(); b.fund(); return; }
-    }
+    if (funding() === 'short') { paint(); b.fund({ sats: S.quote.need - (b.me?.sats || 0) }); return; }
+    if (wasShort) { paint(); return; }
     await etch(r);
   } catch (e) {
     if (e?.unlockCancelled) return;
@@ -144,14 +163,20 @@ async function act() {
 async function etch(r) {
   let reached = '';
   S.busy = true; paint();
-  say('Proving the supply…');
   try {
+    if (funding() === 'gather') {
+      say('Moving your silent-payment sats to your address…');
+      await T.gatherSats(S.quote.need);
+      await bitcoin.refresh();
+    }
+    say('Proving the supply…');
     const out = await T.etchAsset({
       ticker: r.ticker, supply: r.base, decimals: S.dec, name: ui.nm.value, description: ui.ds.value, externalUrl: ui.ln.value,
       imageUri: S.logo?.uri || null, mintable: ui.mint.checked, publishSupply: ui.pub.checked,
       onProgress: (st) => { reached = st; say(st === 'commit-start' ? 'Sending the first transaction…' : st === 'reveal-start' ? 'Sending the second…' : 'Proving the supply…'); },
     });
     S.done = { ...out, ticker: r.ticker, base: r.base, dec: S.dec, logo: S.logo?.url || null };
+    rememberMine(out, r);
     bitcoin.refresh().catch(() => {});
     showDone();
   } catch (e) {
@@ -160,6 +185,14 @@ async function etch(r) {
   } finally { S.busy = false; paint(); }
 }
 
+// The asset this visit etched, kept for Discover until the registry lists it.
+function rememberMine(out, r) {
+  const t = r.ticker.toLowerCase(), earlier = (S.assets || []).filter((a) => a.ticker.toLowerCase() === t).length, name = ui.nm.value.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
+  S.mine.unshift({
+    id: out.assetIdHex, ticker: r.ticker, decimals: S.dec, etchTxid: out.revealTxid, at: Math.floor(Date.now() / 1000), height: Infinity, mintable: ui.mint.checked, verified: false,
+    supply: out.supplyPublished ? r.base : null, holders: 1, cid: null, name: name.toLowerCase() === t ? '' : name, logo: S.logo?.url || null, later: earlier > 0, same: earlier, pending: true,
+  });
+}
 function showDone() {
   const d = S.done, done = $('#done');
   done.innerHTML = `<span class="tk letter" id="d-mark"></span>
@@ -169,9 +202,9 @@ function showDone() {
       <div class="kv"><span>Supply</span><b>${esc(fmtUnits(d.base, d.dec, d.dec))} ${esc(d.ticker)}${d.supplyPublished ? '' : ' · private'}</b></div>
       <div class="kv"><span>Transactions</span><b><a href="${MEMPOOL}/tx/${esc(d.commitTxid)}" target="_blank" rel="noopener noreferrer">commit</a> · <a href="${MEMPOOL}/tx/${esc(d.revealTxid)}" target="_blank" rel="noopener noreferrer">reveal</a></b></div>
     </div>
-    <a class="btn" href="/#bitcoin">See it in your wallet</a>
+    <a class="btn" href="/#bitcoin/${esc(d.assetIdHex)}">Open it in your wallet</a>
     <button class="btn ghost" type="button" id="again">Etch another</button>
-    <p class="q">Discover lists it once Bitcoin confirms it.</p>`;
+    <p class="q">It shows in Discover within a few minutes.</p>`;
   paintMark($('#d-mark'), d.ticker, d.assetIdHex, d.logo);
   $('#edit').hidden = true; $('.act').hidden = true; done.hidden = false;
   $('#again').onclick = reset;
@@ -221,7 +254,7 @@ $('#lg-x').addEventListener('click', () => {
 const ageOf = (a) => (a.at ? day(a.at) : '');
 function row(a) {
   const sup = a.supply != null ? `${fmtUnits(a.supply, a.decimals, Math.min(a.decimals, 4))}` : null;
-  const note = a.later ? 'Ticker used by an earlier asset' : [a.mintable ? 'Mintable' : '', ageOf(a)].filter(Boolean).join(' · ');
+  const note = (a.later ? [a.pending ? 'Just etched' : '', 'Ticker used by an earlier asset'] : [a.mintable ? 'Mintable' : '', a.pending ? 'Just etched' : ageOf(a)]).filter(Boolean).join(' · ');
   return `<li class="as" data-id="${a.id}"><button class="as-b" type="button" aria-expanded="${S.open === a.id}">${markHtml(a)}
     <span class="as-t"><span class="as-n"><b>${esc(a.ticker)}</b>${a.verified ? '<i class="vf" title="On Tacit’s list of official assets">✓</i>' : ''}${a.name ? `<small>${esc(a.name)}</small>` : ''}</span><small>${esc(note)}</small></span>
     <span class="as-v num">${sup != null ? esc(sup) : '<small>Supply private</small>'}<small>${a.holders ? `${a.holders} holder${a.holders === 1 ? '' : 's'}` : ''}</small></span></button>
@@ -242,7 +275,7 @@ function paintList() {
     else ui.list.innerHTML = skeleton;
     return;
   }
-  const term = ui.find.value.trim(), hits = search(S.assets, term), shown = hits.slice(0, S.shown);
+  const term = ui.find.value.trim(), all = known(), hits = search(all, term), shown = hits.slice(0, S.shown);
   cnt.textContent = term ? `${hits.length} found` : `${hits.length} asset${hits.length === 1 ? '' : 's'}`;
   ui.list.innerHTML = shown.length ? shown.map(row).join('') : `<li class="empty">Nothing matches “${esc(term)}”.</li>`;
   more.hidden = hits.length <= shown.length;
@@ -324,6 +357,11 @@ document.addEventListener('click', (e) => {
   if (c) navigator.clipboard?.writeText(c.dataset.copy).then(() => { c.textContent = 'Copied'; setTimeout(() => { c.textContent = 'Copy'; }, 1500); }, () => { c.textContent = 'Could not copy'; });
 });
 addEventListener('beforeunload', (e) => { if (S.busy) { e.preventDefault(); e.returnValue = ''; } });
+// a visitor short of sats goes to their wallet and comes back: the balance is read again, on return and every half minute while the page is in view
+const recheck = () => { if (S.busy || funding() !== 'short') return; bitcoin.refresh().catch(() => {}); readSilent(); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) recheck(); });
+addEventListener('focus', recheck);
+setInterval(() => { if (!document.hidden) recheck(); }, 30e3);
 
 // the registry is read at once so a ticker already in use is said while it is typed
 ensureAssets().then(paint);

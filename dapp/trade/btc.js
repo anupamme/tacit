@@ -2,7 +2,7 @@
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
-import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=062c4699';
+import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=5a41bf05';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=9ea56f6d', CSS_URL = '/trade/btc-market.css?cb=359753e6';
@@ -101,12 +101,36 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       o.body.querySelector('[data-no]')?.addEventListener('click', () => { done(false); o.close(); });
     });
   }
-  function fundDialog() {
-    const addr = session.address;
+  // `sats`: how many the caller is short of. A key opened with a Bitcoin wallet is then offered that wallet's own transfer to the address, which the wallet
+  // asks to confirm; any key can copy the address and send from anywhere.
+  function fundDialog(opts) {
+    const addr = session.address, sats = Number(opts?.sats) || 0;
+    const ext = addr && sats > 0 && session.key?.mode === 'btc' && session.T?.extWallet?.state ? session.T.extWallet : null;
+    const send = ext ? Math.max(Math.ceil((sats + 1000) / 500) * 500, 5000) : 0;
     const o = overlay({ title: 'Add sats', top: true });
-    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to your Tacit wallet, and buying spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><div class="bsheet-actions"><button class="btn" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your Tacit wallet first. The address belongs to the wallet you open.</p>';
+    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to your Tacit wallet, and what you do here spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><p class="note" data-st role="status"></p><div class="bsheet-actions">${send ? `<button class="btn" type="button" data-send>Send ${send.toLocaleString('en-US')} sats from ${ext.state.provider === 'unisat' ? 'UniSat' : 'your wallet'}</button>` : ''}<button class="btn${send ? ' ghost' : ''}" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your Tacit wallet first. The address belongs to the wallet you open.</p>';
     const c = o.body.querySelector('[data-copy]');
     if (c) c.onclick = () => navigator.clipboard?.writeText(addr).then(() => { c.textContent = 'Copied'; }, () => { c.textContent = 'Could not copy'; });
+    const b = o.body.querySelector('[data-send]'), st = o.body.querySelector('[data-st]');
+    if (!b) return;
+    b.onclick = async () => {
+      b.disabled = true; st.textContent = 'Confirm it in your wallet…';
+      const before = meState?.sats ?? 0;
+      try {
+        await ext.sendSats(addr, send);
+        st.textContent = 'Sent. Waiting for Bitcoin to show it…';
+        for (let i = 0; i < 24 && !o.closed; i++) {
+          await sleep(2500);
+          await refreshMe();
+          if ((meState?.sats ?? 0) >= before + send) { o.close(); return; }
+        }
+        if (!o.closed) st.textContent = 'Sent. It shows here once Bitcoin has it.';
+      } catch (e) {
+        const m = e?.message || String(e);
+        st.textContent = /reject|cancel|denied|declin/i.test(m) ? 'Nothing was sent.' : `Could not send: ${m}`;
+        b.disabled = false;
+      }
+    };
   }
   // A purchase that stopped after its commit went out holds sats until they are swept back; the record that sweeps them is in this browser.
   async function recovery(err) {

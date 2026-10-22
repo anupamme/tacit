@@ -35,14 +35,15 @@ useKey(0x0d);
 dapp._testSetScanHoldingsOverride(() => new Map());                         // the key holds no assets, so every coin it has is sats to spend
 const CID = 'bafkreiabcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst';
 
-let broadcasts = [], pinned = [], hints = [], attests = [], pinFails = false, fundSats = 5_000_000;
+let broadcasts = [], pinned = [], hints = [], attests = [], pinFails = false, fundSats = 5_000_000, utxoFn = null;
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url), method = (opts.method || 'GET').toUpperCase();
   if (method === 'POST' && typeof opts.body === 'string' && opts.body.includes('"jsonrpc"')) return json({ jsonrpc: '2.0', id: JSON.parse(opts.body).id, result: '0x' + '00'.repeat(32) });
   if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
   if (u.includes('/scripthash/')) return json([]);
-  if (u.includes(`/address/${ADDR}/utxo`)) return json([{ txid: 'ee'.repeat(32), vout: 0, value: fundSats, status: { confirmed: true } }]);
+  if (u.includes(`/address/${ADDR}/utxo`)) return json(utxoFn ? utxoFn() : fundSats ? [{ txid: 'ee'.repeat(32), vout: 0, value: fundSats, status: { confirmed: true } }] : []);
+  if (/\/tx\/[0-9a-f]{64}\/status$/.test(u)) return json({ confirmed: true });
   if (method === 'POST' && u.includes('/pin-json')) { if (pinFails) return json({ error: 'pin down' }, 502); pinned.push(JSON.parse(opts.body)); return json({ cid: CID }); }
   if (method === 'POST' && u.includes('/assets/hint')) { hints.push(JSON.parse(opts.body)); return json({ ok: true }); }
   if (method === 'POST' && /\/assets\/[0-9a-f]{64}\/attest/.test(u)) { attests.push(JSON.parse(opts.body)); return json({ ok: true }); }
@@ -122,6 +123,22 @@ console.log('\nWhen the pin is down:');
   ok('the asset is etched all the same, and says its metadata was not pinned', broadcasts.length === 2 && r.metadataPinned === false);
   ok('the supply is still given to the worker, so it is published through it', attests.length === 1 && r.supplyPublished === true);
   pinFails = false;
+}
+
+console.log('\nSilent payments:');
+{
+  useKey(0x14); fundSats = 0; broadcasts = [];
+  const C = { txidHex: 'c3'.repeat(32), vout: 1, sats: 40000 };
+  ok('a key with none has none', (await dapp.silentSats()) === 0);
+  dapp.recordSpCredit({ ...C, tweakHex: '07'.repeat(32), blockTime: 1, keyVersion: 0 });
+  ok('a payment sent to the key is counted', (await dapp.silentSats()) === 40000);
+  ok('too little in all refuses before it sends anything', await refuses(() => dapp.gatherSats(39500), /not enough sats/) && broadcasts.length === 0);
+  utxoFn = () => (broadcasts.length ? [{ txid: 'ff'.repeat(32), vout: 0, value: 30000, status: { confirmed: false } }] : []);
+  const txid = await dapp.gatherSats(4000);
+  ok('enough: one transaction moves them to the key’s own address', /^[0-9a-f]{64}$/.test(txid) && broadcasts.length === 1, `${txid} ${broadcasts.length}`);
+  ok('and the payment is marked spent by it', dapp.loadSpCredits()[`${C.txidHex}:${C.vout}`]?.spendingTxid === txid);
+  ok('an address that already holds the target sends nothing', (await dapp.gatherSats(4000)) === null && broadcasts.length === 1);
+  utxoFn = null; fundSats = 5_000_000;
 }
 
 console.log('\nA mintable asset:');
