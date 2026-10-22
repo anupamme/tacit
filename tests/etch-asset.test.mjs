@@ -115,6 +115,14 @@ console.log('\nWhat is left out:');
   ok('a name alone is pinned without the opening', pinned.length === 1 && pinned[0].name === 'Named' && pinned[0].tacit_attest === undefined && n.supplyPublished === false);
 }
 
+console.log('\nA logo and nothing else:');
+{
+  useKey(0x15);
+  broadcasts = []; pinned = []; attests = [];
+  const r = await dapp.etchAsset({ ...BASE, ticker: 'LOGO', publishSupply: false, imageUri: 'ipfs://' + CID });
+  ok('it is named by a metadata JSON that holds the logo, not by the logo itself, so a token made from it on Ethereum has JSON for its contractURI', pinned.length === 1 && pinned[0].image === 'ipfs://' + CID && pinned[0].tacit_attest === undefined && r.metadataPinned === true);
+}
+
 console.log('\nWhen the pin is down:');
 {
   useKey(0x12);

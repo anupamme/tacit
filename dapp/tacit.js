@@ -38027,7 +38027,7 @@ export async function etchAsset({ ticker, supply, decimals, name = '', descripti
   if (about.length > 500) throw new Error('the description is 500 characters at most');
   if (link && !/^https:\/\//i.test(link)) throw new Error('the link must start with https://');
   if (mintable && NET.name === 'mainnet' && !MAINNET_ALLOW_MINTABLE) throw new Error('mintable assets are not offered on mainnet yet');
-  const pin = !!(PIN_JSON_URL && (label || about || link || publishSupply));
+  const pin = !!(PIN_JSON_URL && (label || about || link || publishSupply || img));       // a logo alone is named by a JSON too: a bridged token's contractURI is the etch's image_uri
   const metadataBuilder = !pin ? null : async ({ supply: s, blinding, commitment }) => {
     const md = { name: label || tk, decimals };
     if (img) md.image = img;
