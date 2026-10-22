@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=dfbbaa5a">
+<link rel="modulepreload" href="/swap/app.js?cb=7929b200">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -222,6 +222,7 @@ img.tk { object-fit: contain; }
 .q:empty { min-height: 0; margin: 0; }
 .q.err { color: var(--err); } .q.ok { color: var(--ok); }
 .link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.sw-foot[hidden] { display: none; }
 .sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
 .recent { margin: 8px 2px 0; font-size: 12px; color: var(--mute); }
 .recent summary { width: fit-content; list-style: none; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
@@ -553,7 +554,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="sw-b" id="p-swap" role="tabpanel" aria-labelledby="tab-swap">
         <div class="mode" role="radiogroup" aria-label="Where it arrives">
           <button type="button" role="radio" data-mode="wallet" aria-checked="true">To your wallet</button>
-          <button type="button" role="radio" data-mode="private" aria-checked="false"><i class="lock" aria-hidden="true"></i>Private</button>
+          <button type="button" role="radio" data-mode="private" aria-checked="false" title="Swap inside the pool with no public trail. It is priced here and finished in the Tacit app."><i class="lock" aria-hidden="true"></i>Private</button>
           <button type="button" role="radio" data-mode="bitcoin" aria-checked="false" aria-label="On Bitcoin" title="On Bitcoin"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg></button>
         </div>
         <div id="btc" hidden></div>
@@ -576,7 +577,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <button class="go" id="go" type="button" disabled>Enter an amount</button>
           <p class="q" id="q" role="status"></p>
         </div>
-        <div class="sw-foot"><span id="foot-l">Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"><button type="button" data-slip="10" aria-pressed="false">0.1%</button><button type="button" data-slip="50" aria-pressed="true">0.5%</button><button type="button" data-slip="100" aria-pressed="false">1%</button><button type="button" data-slip="300" aria-pressed="false">3%</button></span></div>
+        <div class="sw-foot"><span>Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"><button type="button" data-slip="10" aria-pressed="false">0.1%</button><button type="button" data-slip="50" aria-pressed="true">0.5%</button><button type="button" data-slip="100" aria-pressed="false">1%</button><button type="button" data-slip="300" aria-pressed="false">3%</button></span></div>
         <details class="recent" id="recent" hidden><summary>Recent swaps</summary><ol id="recent-l"></ol></details>
       </div>
 
@@ -677,6 +678,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=dfbbaa5a"></script>
+<script type="module" src="/swap/app.js?cb=7929b200"></script>
 </body>
 </html>

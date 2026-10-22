@@ -253,6 +253,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(t.page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });
   ok((await t.page.textContent('#go')) === 'Amount too small' && /Swap more than/.test(await t.page.textContent('#q')), `an amount under the relay's fee says so, not "No route" (${await t.page.textContent('#go')})`);
   await t.browser.close();
+  // a small private swap: the relay's fee is said as a share of it, and the price impact is the pool's, not the fee's; Private has no slippage to set
+  const u = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private&from=ETH&to=TAC&amt=0.005' });
+  await until(u.page, () => document.querySelector('#pxs')?.classList.contains('on'));
+  await until(u.page, () => { const o = document.querySelector('#out'); return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(document.querySelector('#go').textContent); });
+  { const rc = (await u.page.textContent('#rcpt')).replace(/\s+/g, ' '), impact = Number((/Price impact\s*([\d.]+)%/.exec(rc) || [])[1]);
+    ok(/Relay fee[\d.]+ tETH · \d+% of the swap/.test(rc), `a small private swap says what share of it the relay's fee is (${rc || await u.page.textContent('#go')})`);
+    ok(impact < 10, `and its price impact is the pool's, not the fee's (${impact}%)`); }
+  ok(await u.page.isHidden('.sw-foot'), 'Private has no slippage row: there is nothing to set');
+  await u.page.click('[data-mode="wallet"]');
+  ok(await u.page.isVisible('.sw-foot'), 'and a public swap has it');
+  await u.browser.close();
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
 }
 

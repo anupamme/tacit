@@ -28,7 +28,7 @@ const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blan
 const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon: 'teth', priv: true };
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
-  tab: 'swap', mode: 'wallet', btc: false, pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
+  tab: 'swap', mode: 'wallet', btc: false, pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '', ammRoute: null,
 };
 // The last swaps made from this browser, so a swap does not vanish with the line that said "Done": a short sentence and its transaction.
@@ -210,7 +210,6 @@ async function signTyped(typed, from) {
 }
 
 const GAS = { tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n };
-function rowsFor(q) { return q?.rows || []; }
 const picked = (q = S.q) => (q?.rows || []).find((r) => r.k === S.pick) || q?.rows?.find((r) => r.best) || q?.rows?.[0] || null;
 
 let qTimer = 0;
@@ -301,10 +300,11 @@ function warmPrivate() {
 }
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
-const spentOf = (q, r) => (r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : q.wei);
+// What the swap itself spends: for a private one the payment less the relay's fee, so the price and its impact are the pool's, not the fee's.
+const spentOf = (q, r) => (r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : r?.priv && q.fee != null ? q.wei - q.fee * E10 : q.wei);
 function vsMarket(q = S.q, r = picked(q)) {
   if (!q || !r) return null;
-  const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.val ?? r.out);
+  const vin = usdOf(S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get, r.val ?? r.out);
   return vin && vout ? vout / vin - 1 : null;
 }
 const BAD = -0.03, GATE = -0.1;
@@ -339,7 +339,7 @@ function paintTabs() {
   for (const [t, el] of [['swap', $('#tab-swap')], ['earn', $('#tab-earn')]]) el.setAttribute('aria-selected', String(S.tab === t));
   $('.sw-h').style.setProperty('--i', S.tab === 'swap' ? 0 : 1);
   $('#p-swap').hidden = S.tab !== 'swap'; $('#p-earn').hidden = S.tab !== 'earn';
-  $('#p-swap').classList.toggle('btc', S.btc); $('#btc').hidden = !S.btc;
+  $('#p-swap').classList.toggle('btc', S.btc); $('#btc').hidden = !S.btc; $('.sw-foot').hidden = S.mode === 'private';
   document.querySelectorAll('.mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === 'bitcoin' ? S.btc : !S.btc && b.dataset.mode === S.mode)));
 }
 function paintSides() {
@@ -366,7 +366,7 @@ function paintSides() {
   else side.textContent = '';
   const getBal = !priv && !to && W.account ? S.bal[S.get] : null;
   $('#get-side').textContent = getBal ? `You have ${amtFmt(getBal, get.dec)}` : '';
-  const v = wei ? usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, wei) : null;
+  const v = wei ? usdOf(S.pay, wei) : null;
   $('#pay-usd').textContent = v != null ? `≈ ${usd(v)}` : '';
 }
 const QUICK = { ETH: ['0.1', '0.5', '1'], TAC: ['500', '1000'], USDC: ['100', '500'], USDT: ['100', '500'], DAI: ['100', '500'], cUSD: ['100', '500'], tacUSD: ['100', '500'], cBTC: ['0.001', '0.01'], tacBTC: ['0.001', '0.01'], WBTC: ['0.005', '0.01'], WETH: ['0.1', '0.5'], wstETH: ['0.1', '0.5'], tETH: ['0.1', '0.5'] };
@@ -379,12 +379,12 @@ function paintQuote() {
   if (r && !q.busy) { out.textContent = tidy(amtFmt(r.out, get.dec)); out.classList.remove('ph'); }
   else if (!q?.busy) { out.textContent = '0'; out.classList.add('ph'); }
   fitSize(out);
-  const vo = r && !q.busy ? usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.out) : null;
+  const vo = r && !q.busy ? usdOf(S.get, r.out) : null;
   const m = q && !q.busy ? vsMarket(q, r) : null;
   $('#get-usd').innerHTML = vo != null ? `≈ ${usd(vo)}${m != null && Math.abs(m) >= 0.0005 ? ` <span class="${m <= BAD ? 'warn' : m > 0.02 ? 'ok' : 'mute'}">(${m > 0 ? '+' : '−'}${Math.abs(m * 100).toFixed(Math.abs(m) >= 0.1 ? 0 : 2)}%)</span>` : ''}` : '';
   const busy = !!q?.busy, first = busy && !r;
   rows.classList.toggle('stale', busy); rc.classList.toggle('stale', busy);
-  const list = first && kind === 'tac' ? [{ k: 'precision', name: 'Precision pool' }, { k: 'tacit-amm', name: 'Tacit pool' }, { k: 'split', name: 'Both pools' }] : rowsFor(q);
+  const list = first && kind === 'tac' ? [{ k: 'precision', name: 'Precision pool' }, { k: 'tacit-amm', name: 'Tacit pool' }, { k: 'split', name: 'Both pools' }] : (q?.rows || []);
   rows.hidden = !(list.length > 1);
   if (first && !rows.hidden) rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="false" disabled><span class="rt"><b>${esc(x.name)}</b></span><span class="ra"><span>…</span></span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   else if (!rows.hidden) {
@@ -401,7 +401,7 @@ function paintQuote() {
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
-    if (r.priv && q.fee != null) lines.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' ? 'tETH' : pay.sym}`]);
+    if (r.priv && q.fee != null) { const share = Number(q.fee * E10) / Number(q.wei); lines.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' ? 'tETH' : pay.sym}${share >= 0.02 ? ` · ${(share * 100).toFixed(share >= 0.1 ? 0 : 1)}% of the swap` : ''}`]); }
     if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
   rc.hidden = !lines.length;
@@ -665,7 +665,7 @@ function openPicker(side) {
 }
 const held = (ks) => ks.map((k, i) => ({ k, i, v: S.bal[k] ? (usdOf(k, S.bal[k]) ?? 1e-9) : 0 })).sort((a, b) => b.v - a.v || a.i - b.i).map((x) => x.k);
 const defaultFor = (k) => (isEth(k) ? lc(R.TAC) : tacitKey(k) ? lc(R.ZERO) : lc(R.TAC));
-function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) { S.amt = ''; S.max = false; } S.note = ''; }
+function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) S.amt = ''; S.note = ''; }
 function choose(side, k) {
   keepAmt(() => { if (side === 'pay') { S.pay = k; fit('pay'); } else { S.get = k; fit('get'); } });
   S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
@@ -728,7 +728,7 @@ function readUrl() {
 
 function slipPaint() { $('#slip').innerHTML = [10, 50, 100, 300].map((b) => `<button type="button" data-slip="${b}" aria-pressed="${S.slip === b}">${b / 100}%</button>`).join(''); }
 $('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); try { localStorage.setItem(SLIP_KEY, String(S.slip)); } catch { } slipPaint(); if (S.q) requote(true); else paintQuote(); });
-$('#amt').addEventListener('input', (e) => { S.amt = fitAmt(e.target.value.trim()); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
+$('#amt').addEventListener('input', (e) => { S.amt = fitAmt(e.target.value.trim()); S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#pay-coin').addEventListener('click', () => openPicker('pay'));
 for (const ev of ['pointerenter', 'focus', 'touchstart']) $('#pay-coin').addEventListener(ev, () => { loadList(); }, { once: true, passive: true });
@@ -751,7 +751,7 @@ $('#p-swap').addEventListener('click', (e) => {
     const t = tokenOf(S.pay), bal = S.bal[S.pay];
     if (bal == null) return;
     const keep = isEth(S.pay) ? gasKeep() : 0n, v = bal > keep ? bal - keep : 0n;
-    S.amt = tidy(fitAmt(plain(v, t.dec))); S.max = true; S.note = ''; keepUrl(); paintSides(); requote(true); return;
+    S.amt = tidy(fitAmt(plain(v, t.dec))); S.note = ''; keepUrl(); paintSides(); requote(true); return;
   }
   const m = e.target.closest('[data-mode-go]');
   if (m) { setMode(m.dataset.modeGo); return; }
