@@ -9,6 +9,7 @@
 // (tests/amm-foundation.test.mjs) catches drift.
 
 import { secp, sha256, concatBytes, hexToBytes, bytesToHex } from './vendor/tacit-deps.min.js';
+import { msm, randomScalar } from './bulletproofs-plus.js';
 
 export const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 export const SECP_P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
@@ -125,11 +126,6 @@ function _batchInv(xs) {
 }
 function _vecInner(a, b) { let s = 0n; for (let i = 0; i < a.length; i++) s = modN(s + a[i] * b[i]); return s; }
 function _vecPow(x, n) { const r = new Array(n); let p = 1n; for (let i = 0; i < n; i++) { r[i] = p; p = modN(p * x); } return r; }
-function _msm(scalars, points) {
-  let acc = ZERO;
-  for (let i = 0; i < scalars.length; i++) { const s = modN(scalars[i]); if (s !== 0n) acc = acc.add(points[i].multiply(s)); }
-  return acc;
-}
 function _bpHashToCurveC(domain, idx) {
   const idxLE = new Uint8Array(4); new DataView(idxLE.buffer).setUint32(0, idx >>> 0, true);
   for (let counter = 0; counter < 256; counter++) {
@@ -167,36 +163,39 @@ export function bpClassicProofLen(m, n_bits = N_BITS) {
   const log_nm = Math.log2(n_bits * m); if (!Number.isInteger(log_nm)) return -1;
   return 33 * 4 + 32 * 3 + log_nm * 33 * 2 + 32 * 2;
 }
-// commitmentsCompressed: array of 33-byte compressed points (Uint8Array or hex). proofBytes: Uint8Array.
-export function bpRangeVerify(commitmentsCompressed, proofBytes, n_bits = N_BITS) {
+// What a proof must satisfy, as two sums that must each be the identity: the t-polynomial check and the inner-product check. A sum
+// is scalars on the generators every proof shares (G, H, Q and the first nm of Gvec and Hvec) and on the proof's own points.
+// null for a proof that does not parse or is not shaped as one should be. commitmentsCompressed: array of 33-byte compressed points
+// (Uint8Array or hex). proofBytes: Uint8Array.
+function _bpTerms(commitmentsCompressed, proofBytes, n_bits) {
   const m = commitmentsCompressed.length;
-  if (![1, 2, 4, 8].includes(m)) return false;
+  if (![1, 2, 4, 8].includes(m)) return null;
   const nm = n_bits * m; const log_nm = Math.log2(nm);
-  if (!Number.isInteger(log_nm)) return false;
-  if (!proofBytes || proofBytes.length !== bpClassicProofLen(m, n_bits)) return false;
+  if (!Number.isInteger(log_nm)) return null;
+  if (!proofBytes || proofBytes.length !== bpClassicProofLen(m, n_bits)) return null;
   const toPt = c => (c instanceof Uint8Array) ? secp.ProjectivePoint.fromHex(bytesToHex(c)) : secp.ProjectivePoint.fromHex(String(c).replace(/^0x/, ''));
   let V_pts;
-  try { V_pts = commitmentsCompressed.map(toPt); } catch { return false; }
+  try { V_pts = commitmentsCompressed.map(toPt); } catch { return null; }
   let off = 0; let A, S, T_1, T_2;
   try {
     A = secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33))); off += 33;
     S = secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33))); off += 33;
     T_1 = secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33))); off += 33;
     T_2 = secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33))); off += 33;
-  } catch { return false; }
+  } catch { return null; }
   // Scalars must be canonical (< n), as the guest requires: a reducing parse would accept byte strings the
   // guest rejects and fold a transaction the reflection skips.
   const rdScalar = () => { const v = bytes32ToBigint(proofBytes.slice(off, off + 32)); off += 32; return v < SECP_N ? v : null; };
   const t_hat = rdScalar();
   const tau_x = rdScalar();
   const mu = rdScalar();
-  if (t_hat === null || tau_x === null || mu === null) return false;
+  if (t_hat === null || tau_x === null || mu === null) return null;
   const Lk = [], Rk = [];
-  try { for (let k = 0; k < log_nm; k++) { Lk.push(secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33)))); off += 33; Rk.push(secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33)))); off += 33; } } catch { return false; }
+  try { for (let k = 0; k < log_nm; k++) { Lk.push(secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33)))); off += 33; Rk.push(secp.ProjectivePoint.fromHex(bytesToHex(proofBytes.slice(off, off + 33)))); off += 33; } } catch { return null; }
   const a_final = rdScalar();
   const b_final = rdScalar();
-  if (a_final === null || b_final === null) return false;
-  if (off !== proofBytes.length) return false;
+  if (a_final === null || b_final === null) return null;
+  if (off !== proofBytes.length) return null;
 
   const t = _bpTranscriptC();
   t.append('domain', new TextEncoder().encode('tacit-bp-v1'));
@@ -226,28 +225,59 @@ export function bpRangeVerify(commitmentsCompressed, proofBytes, n_bits = N_BITS
   const y_inv = _modInv(y); const y_inv_pow = _vecPow(y_inv, nm);
   const zpow_2j = new Array(m); { let p = z_sq; for (let j = 0; j < m; j++) { zpow_2j[j] = p; p = modN(p * z); } }
   const two_n = _vecPow(2n, n_bits);
-  const { Gvec: Gfull, Hvec: Hfull, Q } = _bpGensC();
-  const Gvec = Gfull.slice(0, nm), Hvec = Hfull.slice(0, nm);
   const x2 = modN(x * x);
 
   // check A (t-polynomial): h·(t_hat−δ) + G·τx − x·T1 − x²·T2 − Σ z^{2+j}·V_j = 𝟘
-  const aScalars = [modN(t_hat - delta), tau_x, modN(-x), modN(-x2)];
-  const aPoints = [H, G, T_1, T_2];
-  { let zj = z_sq; for (let j = 0; j < m; j++) { aScalars.push(modN(-zj)); aPoints.push(V_pts[j]); zj = modN(zj * z); } }
-  if (!_msm(aScalars, aPoints).equals(ZERO)) return false;
+  const tCheck = { g: tau_x, h: modN(t_hat - delta), q: 0n, gi: [], hi: [], own: [[modN(-x), T_1], [modN(-x2), T_2]] };
+  { let zj = z_sq; for (let j = 0; j < m; j++) { tCheck.own.push([modN(-zj), V_pts[j]]); zj = modN(zj * z); } }
 
   // check B (inner-product): A + x·S − μ·G + w(t_hat−a·b)·Q + Σ(u²L+u⁻²R) + Σ G_i·(−z−a·s_i) + Σ H_i·(…)
-  const bScalars = [1n, x, modN(-mu), modN(w * modN(t_hat - a_final * b_final))];
-  const bPoints = [A, S, G, Q];
-  for (let k = 0; k < log_nm; k++) { bScalars.push(u_sq[k]); bPoints.push(Lk[k]); bScalars.push(u_inv_sq[k]); bPoints.push(Rk[k]); }
+  const ipCheck = { g: modN(-mu), h: 0n, q: modN(w * modN(t_hat - a_final * b_final)), gi: new Array(nm), hi: new Array(nm), own: [[1n, A], [x, S]] };
+  for (let k = 0; k < log_nm; k++) ipCheck.own.push([u_sq[k], Lk[k]], [u_inv_sq[k], Rk[k]]);
   const minus_z = modN(-z);
   for (let i = 0; i < nm; i++) {
     const j = (i / n_bits) | 0, k = i % n_bits;
-    const g_total = modN(minus_z - a_final * s[i]);
+    ipCheck.gi[i] = modN(minus_z - a_final * s[i]);
     const h_coeff = modN(z + modN(zpow_2j[j] * two_n[k]) * y_inv_pow[i]);
-    const h_total = modN(h_coeff - b_final * modN(s_inv[i] * y_inv_pow[i]));
-    bScalars.push(g_total); bPoints.push(Gvec[i]);
-    bScalars.push(h_total); bPoints.push(Hvec[i]);
+    ipCheck.hi[i] = modN(h_coeff - b_final * modN(s_inv[i] * y_inv_pow[i]));
   }
-  return _msm(bScalars, bPoints).equals(ZERO);
+  return [tCheck, ipCheck];
+}
+
+// The sum of the checks, each weighted, as one multi-scalar multiplication over the shared generators and every proof's own points.
+function _bpSum(checks, weights) {
+  const { Gvec, Hvec, Q } = _bpGensC();
+  const width = checks.reduce((w, t) => Math.max(w, t.gi.length), 0);
+  let g = 0n, h = 0n, q = 0n;
+  const gi = new Array(width).fill(0n), hi = new Array(width).fill(0n);
+  const scalars = [], points = [];
+  checks.forEach((t, k) => {
+    const w = weights ? weights[k] : 1n;
+    g = modN(g + w * t.g); h = modN(h + w * t.h); q = modN(q + w * t.q);
+    for (let i = 0; i < t.gi.length; i++) { gi[i] = modN(gi[i] + w * t.gi[i]); hi[i] = modN(hi[i] + w * t.hi[i]); }
+    for (const [sc, P] of t.own) { scalars.push(w === 1n ? sc : modN(w * sc)); points.push(P); }
+  });
+  scalars.push(g, h, q);
+  points.push(G, H, Q);
+  for (let i = 0; i < width; i++) { scalars.push(gi[i], hi[i]); points.push(Gvec[i], Hvec[i]); }
+  return msm(scalars, points);
+}
+
+// Many proofs checked together: every check of every proof is weighted by a random scalar and added, and the sum must be the
+// identity. A check that does not hold leaves a sum that is not, but for a one-in-2^256 chance of the weights, so this accepts what
+// bpRangeVerify accepts of every proof and refuses when any one is refused; it does not say which. The proofs share their
+// generators, so all of them together cost little more than the points of their own, a few dozen each, plus one pass over the shared
+// ones: tens of times less than one by one. `items` is [{ commitments, proof }].
+export function bpRangeVerifyBatch(items, n_bits = N_BITS) {
+  const checks = [];
+  for (const { commitments, proof } of items) {
+    const t = _bpTerms(commitments, proof, n_bits);
+    if (t === null) return false;
+    checks.push(...t);
+  }
+  if (checks.length <= 2) return checks.every((c) => _bpSum([c], null).equals(ZERO));   // one proof: its two checks, as they always were
+  return _bpSum(checks, checks.map(() => randomScalar())).equals(ZERO);
+}
+export function bpRangeVerify(commitmentsCompressed, proofBytes, n_bits = N_BITS) {
+  return bpRangeVerifyBatch([{ commitments: commitmentsCompressed, proof: proofBytes }], n_bits);
 }

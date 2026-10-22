@@ -513,9 +513,12 @@ function _sumOfEvenPowers(x, n) {
   return res;
 }
 
-export function bppRangeVerify(commitments, proofBytes) {
+// What bppRangeVerify checks, as scalars on the generators every proof shares (G, H and the first MN of Gvec and Hvec) and on the
+// proof's own points: the proof holds when their multi-scalar product is the identity. null for a proof that does not parse or is
+// not shaped as one should be.
+function bppVerifyTerms(commitments, proofBytes) {
   const m = commitments.length;
-  if (![1, 2, 4, 8].includes(m)) return false;
+  if (![1, 2, 4, 8].includes(m)) return null;
 
   const logN = 6;
   const N = N_BITS;
@@ -524,7 +527,7 @@ export function bppRangeVerify(commitments, proofBytes) {
   const MN = m * N;
 
   const expectedLen = 99 + 96 + logMN * 66;
-  if (!proofBytes || proofBytes.length !== expectedLen) return false;
+  if (!proofBytes || proofBytes.length !== expectedLen) return null;
 
   let off = 0;
   let A, A1, B;
@@ -532,30 +535,30 @@ export function bppRangeVerify(commitments, proofBytes) {
     A  = bytesToPoint(proofBytes.slice(off, off + 33)); off += 33;
     A1 = bytesToPoint(proofBytes.slice(off, off + 33)); off += 33;
     B  = bytesToPoint(proofBytes.slice(off, off + 33)); off += 33;
-  } catch { return false; }
+  } catch { return null; }
   const r1 = bytes32ToBigint(proofBytes.slice(off, off + 32)); off += 32;
   const s1 = bytes32ToBigint(proofBytes.slice(off, off + 32)); off += 32;
   const d1 = bytes32ToBigint(proofBytes.slice(off, off + 32)); off += 32;
-  if (r1 >= SECP_N || s1 >= SECP_N || d1 >= SECP_N) return false;
+  if (r1 >= SECP_N || s1 >= SECP_N || d1 >= SECP_N) return null;
   const Lvec = new Array(logMN), Rvec = new Array(logMN);
   try {
     for (let k = 0; k < logMN; k++) {
       Lvec[k] = bytesToPoint(proofBytes.slice(off, off + 33)); off += 33;
       Rvec[k] = bytesToPoint(proofBytes.slice(off, off + 33)); off += 33;
     }
-  } catch { return false; }
-  if (off !== proofBytes.length) return false;
+  } catch { return null; }
+  if (off !== proofBytes.length) return null;
 
   const transcript = bppTranscript();
   transcript.append('domain', new TextEncoder().encode(BPP_DOMAIN));
   transcript.append('M', new Uint8Array([m & 0xff]));
   try {
     for (const Vj of commitments) transcript.append('V', pointToBytes(Vj));
-  } catch { return false; }
+  } catch { return null; }
   transcript.append('A', pointToBytes(A));
   const y = transcript.challenge('y');
   const z = transcript.challenge('z');
-  if (y === 0n || z === 0n) return false;
+  if (y === 0n || z === 0n) return null;
   const zSq = modN(z * z);
 
   const challenges = new Array(logMN);
@@ -563,13 +566,13 @@ export function bppRangeVerify(commitments, proofBytes) {
     transcript.append('L', pointToBytes(Lvec[k]));
     transcript.append('R', pointToBytes(Rvec[k]));
     challenges[k] = transcript.challenge('u');
-    if (challenges[k] === 0n) return false;
+    if (challenges[k] === 0n) return null;
   }
 
   transcript.append('A1', pointToBytes(A1));
   transcript.append('B', pointToBytes(B));
   const e = transcript.challenge('e');
-  if (e === 0n) return false;
+  if (e === 0n) return null;
   const eSq = modN(e * e);
 
   const toInvert = [...challenges, y];
@@ -668,25 +671,53 @@ export function bppRangeVerify(commitments, proofBytes) {
     minus_eSq_y_MN_minus_i = modN(minus_eSq_y_MN_minus_i * yInv);
   }
 
-  const msmScalars = [];
-  const msmPoints  = [];
-  msmScalars.push(G_scalar);  msmPoints.push(G);
-  msmScalars.push(H_scalar);  msmPoints.push(H);
-  for (let i = 0; i < MN; i++) {
-    msmScalars.push(Gi_scalars[i]); msmPoints.push(Gvec[i]);
-    msmScalars.push(Hi_scalars[i]); msmPoints.push(Hvec[i]);
-  }
-  for (let j = 0; j < m; j++) {
-    msmScalars.push(V_scalars[j]); msmPoints.push(commitments[j]);
-  }
-  msmScalars.push(A_scalar);  msmPoints.push(A);
-  msmScalars.push(A1_scalar); msmPoints.push(A1);
-  msmScalars.push(B_scalar);  msmPoints.push(B);
-  for (let k = 0; k < logMN; k++) {
-    msmScalars.push(L_scalars[k]); msmPoints.push(Lvec[k]);
-    msmScalars.push(R_scalars[k]); msmPoints.push(Rvec[k]);
-  }
+  const own = [[V_scalars[0], commitments[0]]];
+  for (let j = 1; j < m; j++) own.push([V_scalars[j], commitments[j]]);
+  own.push([A_scalar, A], [A1_scalar, A1], [B_scalar, B]);
+  for (let k = 0; k < logMN; k++) own.push([L_scalars[k], Lvec[k]], [R_scalars[k], Rvec[k]]);
+  return { g: G_scalar, h: H_scalar, gi: Gi_scalars, hi: Hi_scalars, own };
+}
 
-  const acc = msm(msmScalars, msmPoints);
-  return acc.equals(ZERO);
+// The sum of the terms, each weighted, as one multi-scalar multiplication over the shared generators and every proof's own points.
+function bppTermsSum(list, weights) {
+  const { Gvec, Hvec, H } = bppGens();
+  const width = list.reduce((w, t) => Math.max(w, t.gi.length), 0);
+  let g = 0n, h = 0n;
+  const gi = new Array(width).fill(0n), hi = new Array(width).fill(0n);
+  const scalars = [], points = [];
+  list.forEach((t, k) => {
+    const w = weights ? weights[k] : 1n;
+    g = modN(g + w * t.g);
+    h = modN(h + w * t.h);
+    for (let i = 0; i < t.gi.length; i++) {
+      gi[i] = modN(gi[i] + w * t.gi[i]);
+      hi[i] = modN(hi[i] + w * t.hi[i]);
+    }
+    for (const [s, P] of t.own) { scalars.push(w === 1n ? s : modN(w * s)); points.push(P); }
+  });
+  scalars.push(g, h);
+  points.push(G, H);
+  for (let i = 0; i < width; i++) { scalars.push(gi[i], hi[i]); points.push(Gvec[i], Hvec[i]); }
+  return msm(scalars, points);
+}
+
+export function bppRangeVerify(commitments, proofBytes) {
+  const t = bppVerifyTerms(commitments, proofBytes);
+  return t !== null && bppTermsSum([t], null).equals(ZERO);
+}
+
+// Many proofs checked together: each one's terms are weighted by a random scalar and added, and the sum must be the identity. A
+// proof that does not hold leaves a sum that is not the identity except for a one-in-2^256 chance of the weights, so this accepts
+// what bppRangeVerify accepts of every proof and refuses when any one of them is refused; it does not say which. The proofs share
+// the generators Gi and Hi, so all of them together cost little more than the points of their own, a few dozen each, plus one pass
+// over the shared ones: tens of times less than checking them one by one. `items` is [{ commitments, proof }].
+export function bppRangeVerifyBatch(items) {
+  if (!items.length) return true;
+  const list = [];
+  for (const { commitments, proof } of items) {
+    const t = bppVerifyTerms(commitments, proof);
+    if (t === null) return false;
+    list.push(t);
+  }
+  return bppTermsSum(list, list.length === 1 ? null : list.map(() => randomScalar())).equals(ZERO);
 }

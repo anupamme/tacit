@@ -1,7 +1,7 @@
 
 import { makeConfidentialPool, isLegacyBridgeAsset } from './confidential-pool.js';
-import { verifySchnorr, signSchnorr, pedersenCommit, pointToBytes, bigintToBytes32, modN, bpRangeVerify, bpClassicProofLen } from './bulletproofs.js';
-import { bppRangeVerify, bytesToPoint as bppPoint, bppRangeProve } from './bulletproofs-plus.js';
+import { verifySchnorr, signSchnorr, pedersenCommit, pointToBytes, bigintToBytes32, modN, bpRangeVerify, bpRangeVerifyBatch, bpClassicProofLen } from './bulletproofs.js';
+import { bppRangeVerify, bppRangeVerifyBatch, bytesToPoint as bppPoint, bppRangeProve } from './bulletproofs-plus.js';
 import { sha256 as _sha256 } from './vendor/tacit-deps.min.js';
 import { makeBurnDepositProvenance } from './burn-deposit-provenance.js';
 import { makeBurnDepositAssembler } from './burn-deposit-assembler.js';
@@ -928,8 +928,11 @@ export function makeBurnDepositKit({ secp, keccak256, sha256 }) {
     if (!revealTxid) return null;
     return [opKey(revealTxid, 0), chCompressed(c)];
   }
+  // A hop's other checks run as it is read; the range proofs of all the hops are checked together at the end, since checking them one
+  // by one costs seconds each for a deep history. One that fails refuses every hop.
   function verifiedHops(assetHex, prov) {
     const out = [];
+    const rangeSink = { classic: [], plus: [] };
     for (const p of prov) {
       const txid = computeTxidBytes(p.tx);
       if (!txid) return null;
@@ -956,7 +959,7 @@ export function makeBurnDepositKit({ secp, keccak256, sha256 }) {
       try {
         conserves = pool.verifyCxferConservation({
           asset: assetHex, inputOutpoints: ins.map((x) => [x.prevTxid, x.prevVout]), inputPoints,
-          outsCompressed: cx.commitments, rangeProof: cx.rangeProof, kernelSig: cx.kernelSig, burned: p.burnedAmount,
+          outsCompressed: cx.commitments, rangeProof: cx.rangeProof, kernelSig: cx.kernelSig, burned: p.burnedAmount, rangeSink,
         });
       } catch { conserves = false; }
       if (!conserves) return null;
@@ -972,7 +975,7 @@ export function makeBurnDepositKit({ secp, keccak256, sha256 }) {
       }
       out.push({ txid, inputs, outputs });
     }
-    return out;
+    return bpRangeVerifyBatch(rangeSink.classic) && bppRangeVerifyBatch(rangeSink.plus) ? out : null;
   }
   function dagCommitmentHash(leaves, burnedOutpoint, hops) {
     if (!hops.length) return null;

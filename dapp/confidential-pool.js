@@ -1400,14 +1400,18 @@ export function makeConfidentialPool({ secp, keccak256, sha256 }) {
     const k = mod(BigInt(rNetX), N);
     return sum.equals(k === 0n ? Z : secp.ProjectivePoint.BASE.multiply(k));
   }
-  function verifyCxferConservation({ asset, inputOutpoints, inputPoints, outsCompressed, rangeProof, kernelSig, burned = 0 }) {
+  // With a `rangeSink` ({ classic: [], plus: [] }) the range proof is not checked here but set down in it, for the caller to check
+  // with every other proof it has gathered at once (bpRangeVerifyBatch, bppRangeVerifyBatch); what is checked here is the kernel.
+  function verifyCxferConservation({ asset, inputOutpoints, inputPoints, outsCompressed, rangeProof, kernelSig, burned = 0, rangeSink = null }) {
     if (rangeProof == null) throw new Error('cxfer conservation: missing rangeProof');
     if (!cxferKernelVerify({ asset, inputOutpoints, inputPoints, outsCompressed, kernelSig, burned })) return false;
     let rp; try { rp = hexToBytes(rangeProof); } catch { return false; }
     if (rp.length === bpClassicProofLen(outsCompressed.length)) {
+      if (rangeSink) { rangeSink.classic.push({ commitments: outsCompressed, proof: rp }); return true; }
       return bpRangeVerify(outsCompressed, rp);
     }
     let rangePts; try { rangePts = outsCompressed.map((c) => bppPoint(hexToBytes(c))); } catch { return false; }
+    if (rangeSink) { rangeSink.plus.push({ commitments: rangePts, proof: rp }); return true; }
     return bppRangeVerify(rangePts, rp);
   }
 

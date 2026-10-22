@@ -8,11 +8,13 @@
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
 // How long one check may run. A check reads one Bitcoin block per transfer of the history (each kept for good once read, so a
-// check stopped part way leaves what it read for the next) and then verifies every transfer in plain JavaScript; measured on this
-// instance that is about 1.75 s and 1 s a transfer, so a history of a hundred and thirty transfers needs over six minutes the
-// first time, and the deepest the door takes (256) over twelve. A flat limit stopped every such check at the same point and the
-// asker began it again from nothing, for as long as it kept asking, each pass holding the one lane. The limit now grows with the
-// history, and a check that is reading is also stopped when it has read nothing new for a while.
+// check stopped part way leaves what it read for the next) and then verifies every transfer in plain JavaScript. Verifying took 1 to 3
+// s a transfer on this instance, nearly all of it the range proofs checked one at a time, so a history of a hundred and thirty
+// transfers needed over six minutes, and the deepest the door takes (256) over twelve. The proofs are now checked together
+// (verifiedHops in dapp/burn-deposit-bitcoin.js): a hundred and nineteen transfers took 364 s one by one and 4 s together on a
+// laptop, which leaves reading a history for the first time as the longer part. A flat limit stopped every slow check at the same
+// point and the asker began it again from nothing, for as long as it kept asking, each pass holding the one lane. The limit now
+// grows with the history, and a check that is reading is also stopped when it has read nothing new for a while.
 const THREAD_TIMEOUT_MS = Number(process.env.BURNDEP_CHECK_TIMEOUT_MS) || 6 * 60_000;       // the least any check is given
 const BASE_MS = Number(process.env.BURNDEP_CHECK_BASE_MS) || 90_000;
 const PER_HOP_MS = Number(process.env.BURNDEP_CHECK_MS_PER_HOP) || 4_000;

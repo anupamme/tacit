@@ -2510,7 +2510,9 @@ async function handleBurnDepositCheck(req, env, url, cors) {
     // A full queue, a refusal, or a thread that failed or was stopped, is no answer to keep: the next ask starts the check again.
     const drop = () => { if (_burndepChecks.get(key) === e) _burndepChecks.delete(key); };
     e.work.then((out) => { if (out && out.status < 500 && out.status !== 429) { e.out = out; e.at = Date.now(); } else drop(); }, drop);
-    const rl = await proveRateLimit(env, ip, 'burndep-check', Number(env.BURNDEP_CHECK_RL_BURST || 10), Number(env.BURNDEP_CHECK_RL_REFILL_MS || 60000));
+    // A holder bridging a few dozen notes asks about each one's history, and a check is seconds of work now, so a burst that covers
+    // them is no load: the lane's own places (the gate in server/burndep-check-thread.mjs) are what keep one asker from filling it.
+    const rl = await proveRateLimit(env, ip, 'burndep-check', Number(env.BURNDEP_CHECK_RL_BURST || 30), Number(env.BURNDEP_CHECK_RL_REFILL_MS || 20000));
     if (!rl.ok) {
       const body429 = { ok: false, error: `too many check requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter };
       start({ status: 429, body: body429, retryAfter: rl.retryAfter });
