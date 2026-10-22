@@ -190,6 +190,8 @@ main:focus { outline: none; }
 a.di { color: inherit; text-decoration: none; }
 .di-k { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mute); letter-spacing: .02em; }
 .di-k .tk { width: 18px; height: 18px; }
+.tk.letter { display: grid; place-items: center; color: #fff; background: var(--c, #8F8979); font: 500 10px/1 var(--mono); letter-spacing: 0; }
+.di-k .tk.letter { font-size: 8px; }
 .di-k .dot { margin-left: auto; }
 .di-v { display: block; font: 500 19px/1.25 var(--mono); letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .di-m { display: block; font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1225,6 +1227,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
             <a class="pr" href="/rewards/"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 1 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 1 1 0 5"/></svg>Rewards</a>
             <hr class="pr">
             <a href="/tac/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>Shielded TAC</a>
+            <a href="/etch/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4.2-1 10.6-10.6a2.1 2.1 0 0 0-3-3L5.2 16z"/><path d="M13.6 7.4l3 3"/></svg>Etch</a>
             <a href="/tasks/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Tasks</a>
             <hr>
             <a href="/weld/stats/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-6"/><path d="M12 20V5"/><path d="M19 20v-10"/></svg>Stats</a>
@@ -3208,7 +3211,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=961f3dfd';
+const TACIT_URL = '/tacit.js?cb=bb97cbe9';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -11011,6 +11014,8 @@ const lastSeen = (key) => { const id = dashId(); return id ? big(store.get(id)?.
 const sharePct = (f) => (f * 100 < 0.1 ? 'under 0.1%' : pctFmt(f * 100));
 let dashQ = 0, dashSaveT = 0;
 function dashSoon() { if (!dashQ) dashQ = requestAnimationFrame(() => { dashQ = 0; paintDash(); hxSync(); }); }
+// The colour of an asset's mark, taken from its id as /etch/ takes it, so the asset looks the same in both.
+const markColor = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return `hsl(${h % 360} 38% 48%)`; };
 function dashItems() {
   const k = S.key?.pubHex, s = k ? P.scan : null, scanErr = !!(k && !s && P.err), out = [];
   if (k) {
@@ -11042,6 +11047,8 @@ function dashItems() {
     const b = BTC.pub === k ? BTC : null, onBtc = BTC_NOTE_ASSETS.map((x) => [x, b?.held.find((a) => a.id === x.id)]).filter(([, h]) => h), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
     out.push({ key: 'btc', icon: 'tk-btc', label: 'BTC', dec: 8, max: 6, v: b?.got === 3 ? b.sats + b.silent : null, lazy: true, open: 'btc', send: b?.got === 3 && b.sats + b.silent > 0n ? 'btc' : null, show: !!b && (b.sats + b.silent > 0n || onBtc.length > 0),
       meta: onBtc.length ? `and ${onBtc.map(([x, h]) => `${fmt(h.balance, h.decimals, x === CHAIN_ASSETS.tac ? 2 : x.dp)} ${x.ticker}`).join(' and ')} on Bitcoin` : b ? 'at your Bitcoin address' : 'open to read' });
+    // Any other asset the key holds there (one etched on /etch/, or bought), each as a row of its own that opens its send form in the Bitcoin sheet.
+    for (const a of b?.held || []) if (a.known && a.balance > 0n && !assetById(a.id)) out.push({ key: `btc-${a.id.slice(0, 16)}`, mark: a.ticker, markId: a.id, label: a.ticker, dec: a.decimals, max: Math.min(a.decimals, 4), v: a.balance, meta: 'on Bitcoin', open: 'btc', btcAsset: a.id, show: true });
     const sats = HELD.pub === k ? HELD.sats : null;
     for (const a of sats || []) out.push({ key: `sats-${a.ticker.toLowerCase()}`, icon: a.ticker === 'TAC' ? 'tk-tac' : 'tk-cbtc', label: a.ticker, dec: a.decimals, max: a.ticker === 'TAC' ? 2 : 6,
       v: a.value, meta: 'Secret Sats, private on Bitcoin', href: a.ticker === 'TAC' ? '/tac/' : '/sats/', show: a.value > 0n, send: a.ticker === 'TAC' && a.value > 0n ? 'tacb' : null });
@@ -11112,11 +11119,11 @@ function paintDash() {
     if (it.v != null) DASH.cur[it.key] = it.num ? String(Math.round(it.v)) : String(it.v);
     const value = it.v != null ? html`${show(it.v)}${it.unit ? html` <small>${it.unit}</small>` : ''}` : prev != null && !it.err ? html`<span class="stale">${show(prev)}</span>`
       : it.err || it.lazy ? '—' : html`<span class="sk" style="--w:7ch"></span>`;
-    const body = html`<span class="di-k"><svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
+    const body = html`<span class="di-k">${it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
       <span class="di-v num">${value}</span><span class="di-m${it.err || it.wrap ? ' wrap' : ''}">${delta}${it.err ? 'could not read · open to retry' : it.meta || (it.v == null ? html`<span class="sk" style="--w:12ch"></span>` : '')}</span>`;
     const send = it.send ? html`<button class="di-send" type="button" data-hx="send:${it.send}" aria-label="Send ${it.label}">Send</button>` : '';
     return it.href ? html`<li><a class="di" href="${it.href}">${body}</a>${send}</li>`
-      : html`<li><button class="di" type="button" ${it.asset ? html`data-asset="${it.asset}"` : html`data-dash-open="${it.open}"`}>${body}</button>${send}</li>`;
+      : html`<li><button class="di" type="button" ${it.asset ? html`data-asset="${it.asset}"` : html`data-dash-open="${it.open}"${it.btcAsset ? html` data-btc-asset="${it.btcAsset}"` : ''}`}>${body}</button>${send}</li>`;
   };
   const items = dashItems().filter((it) => it.core || it.show || Number(base[it.key]?.v || 0) > 0);
   const worth = k ? dashWorth(items) : null, tot = $('#hold-tot');
@@ -11184,7 +11191,10 @@ function paintDash() {
     const f = document.activeElement?.closest?.('#dash button');
     const was = f && (f.dataset.dashOpen ? `[data-dash-open="${f.dataset.dashOpen}"]` : f.dataset.asset ? `[data-asset="${f.dataset.asset}"]` : f.dataset.hx ? `[data-hx="${f.dataset.hx}"]` : `[data-dash-do="${f.dataset.dashDo}"]`);
     $('#dash-due').innerHTML = dueHtml; $('#dash-g').innerHTML = gridHtml; DASH.view = view;
-    $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => (b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen)));
+    $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => {
+      if (b.dataset.btcAsset) { BTC.mode = 'send'; BTC.asset = b.dataset.btcAsset; }
+      return b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen);
+    });
     $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => { if (b.dataset.dashDo === 'act') return openAct(); if (b.dataset.dashDo === 'key') { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); return; } if (b.dataset.dashDo === 'bridge' || b.dataset.dashDo.includes('/')) return openLink(b.dataset.dashDo); const [link, sheet, btn] = DASH_DO[b.dataset.dashDo], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {}); });
     if (was) $(was, sec)?.focus();
   }

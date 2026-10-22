@@ -2632,13 +2632,15 @@ await step('btc', async () => {
   ok(unread.reads >= 1 && /3 could not be read; refresh to try them again/.test(unread.line), `btc: transfers that could not be read are counted and offered again (${unread.line.slice(0, 120)})`);
   // tETH on Bitcoin is an asset of the sheet like TAC: sent from Send, and its notes split and combined from Notes.
   const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
-  await r.page.evaluate(async ([tac, teth]) => {
+  const ORANGE = 'a7'.repeat(32);                                                              // an asset etched on /etch/: held on Bitcoin like TAC, known only by what the chain says of it
+  await r.page.evaluate(async ([tac, teth, orange]) => {
     const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
     const note = (txid, amount) => ({ utxo: { txid, vout: 0, value: 546, status: { confirmed: true } }, amount, blinding: 7n + amount });
-    const tn = [note('e1'.repeat(32), 50000n), note('e2'.repeat(32), 25000n)], cn = [note('f1'.repeat(32), 2000000000n)];
-    T._testSetScanHoldingsOverride(() => new Map([[teth, { assetIdHex: teth, ticker: '???', balance: 75000n, utxos: tn, ghosts: [], inflated: [], pending: [] }], [tac, { assetIdHex: tac, ticker: 'TAC', decimals: 8, balance: 2000000000n, utxos: cn, ghosts: [], inflated: [], pending: [] }]]));
+    const tn = [note('e1'.repeat(32), 50000n), note('e2'.repeat(32), 25000n)], cn = [note('f1'.repeat(32), 2000000000n)], on = [note('e3'.repeat(32), 150000000n)];
+    T._testSetScanHoldingsOverride(() => new Map([[teth, { assetIdHex: teth, ticker: '???', balance: 75000n, utxos: tn, ghosts: [], inflated: [], pending: [] }], [tac, { assetIdHex: tac, ticker: 'TAC', decimals: 8, balance: 2000000000n, utxos: cn, ghosts: [], inflated: [], pending: [] }],
+      [orange, { assetIdHex: orange, ticker: 'ORANGE', decimals: 8, balance: 150000000n, utxos: on, ghosts: [], inflated: [], pending: [] }]]));
     T.invalidateHoldingsCache?.();
-  }, [TAC, TETH]);
+  }, [TAC, TETH, ORANGE]);
   await r.page.click('[data-btcm="send"]');
   await r.page.click('#btc-re');
   await until(r.page, () => [...document.querySelectorAll('#btc-form [data-btca]')].some((x) => /tETH/.test(x.textContent)), null, 180000)
@@ -2656,6 +2658,17 @@ await step('btc', async () => {
   await r.page.click(`[data-bnsplit="${TETH}"]`);
   await until(r.page, () => /Split off less than the note holds/.test(document.querySelector('#btc-status')?.textContent || ''), null, 30000);
   ok(true, 'btc: a split of more than the picked note holds is refused before anything is built');
+  // The same asset on the dashboard, as TAC is: its own row, which opens the sheet on that asset's Send.
+  ok(/ORANGE on Bitcoin\s*1\.5(?!\d)/.test(await text(r.page, '#btc-body')), 'btc: an etched asset is named and counted on the sheet beside TAC');
+  await r.page.keyboard.press('Escape');
+  await until(r.page, (id) => !!document.querySelector(`#dash-g [data-btc-asset="${id}"]`), ORANGE, 60000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash-g')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+  const orow = (await text(r.page, `#dash-g [data-btc-asset="${ORANGE}"]`)).replace(/\s+/g, ' ').trim();
+  ok(/ORANGE/.test(orow) && /1\.5(?!\d)/.test(orow) && /on Bitcoin/.test(orow), `btc: the dashboard lists it as a row of its own, with its balance (${orow})`);
+  ok(!(await r.page.$(`#dash-g [data-btc-asset="${TAC}"], #dash-g [data-btc-asset="${TETH}"]`)), 'btc: TAC and tETH keep the rows they have, not a second one');
+  await r.page.click(`#dash-g [data-btc-asset="${ORANGE}"]`);
+  await until(r.page, () => /Send ORANGE/.test(document.querySelector('#bt-go')?.textContent || ''), null, 60000);
+  ok(true, 'btc: the row opens the Bitcoin sheet on Send, with that asset chosen');
   if (r.errors.length) { fails++; console.log('FAIL btc page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
@@ -7657,7 +7670,7 @@ await step('tradelinks', async () => {
       ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
       if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/swap/ Pay:/pay/ Bridge:/bridge/ Borrow:/vault/ Rewards:/rewards/', `tradelinks (${name}): and Assets, Swap, Pay, Bridge, Borrow and Rewards beside it (${seen.order})`);
       else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/swap/ Pay:/pay/ Bridge:/bridge/ Borrow:/vault/ Rewards:/rewards/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
-      ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Stats:/weld/stats/ Build:/build/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
+      ok(seen.more === 'Shielded TAC:/tac/ Etch:/etch/ Tasks:/tasks/ Stats:/weld/stats/ Build:/build/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
       await p.click('.sn .sm > summary');
       ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/assets/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Assets only where the header has not`);
       await p.keyboard.press('Escape');
