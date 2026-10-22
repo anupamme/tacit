@@ -16094,6 +16094,39 @@ async function scanHoldingsOrStale(maxAgeMs = Infinity) {
   }
 }
 
+// The amount and blinding of a transfer output made for this key, from the key and the chain alone (each checked against the output's own commitment),
+// or null. `senderPubHex` is the sender's public key where the second input's witness shows one (a P2WPKH input): its channel is read with this key.
+// This key's own change comes by the self channel. A transfer this key made to ITSELF through a Taproot key-path input (a bridged note moved to the
+// trading address) shows no sender key at all, one signature being all that witness holds, and the sender is this key: so its own is tried too. Before
+// that such a note was counted only by the browser that made it, which had kept its opening, and not at all by any other.
+function openTransferOutput({ priv, pub, senderPubHex, anchorBytes, vout, ct, commitment }) {
+  const fits = (amount, blinding) => { try { return pedersenCommit(amount, blinding).equals(bytesToPoint(commitment)); } catch { return false; } };
+  const inRange = (v) => v >= 0n && v < (1n << 64n);
+  if (senderPubHex) {
+    const senderPub = hexToBytes(senderPubHex);
+    const candidate = decryptAmount(ct, deriveAmountKeystreamECDH(priv, senderPub, anchorBytes, vout));
+    if (inRange(candidate)) {
+      const r = deriveBlinding(priv, senderPub, anchorBytes, vout);
+      if (fits(candidate, r)) return { amount: candidate, blinding: r, path: 'ecdh', senderPubHex: null };
+    }
+  }
+  {
+    const candidate = decryptAmount(ct, deriveAmountKeystreamSelf(priv, anchorBytes, vout));
+    if (inRange(candidate)) {
+      const r = deriveChangeBlinding(priv, anchorBytes, vout);
+      if (fits(candidate, r)) return { amount: candidate, blinding: r, path: 'self', senderPubHex: null };
+    }
+  }
+  if (!senderPubHex && pub) {
+    const candidate = decryptAmount(ct, deriveAmountKeystreamECDH(priv, pub, anchorBytes, vout));
+    if (inRange(candidate)) {
+      const r = deriveBlinding(priv, pub, anchorBytes, vout);
+      if (fits(candidate, r)) return { amount: candidate, blinding: r, path: 'ecdh', senderPubHex: bytesToHex(pub) };
+    }
+  }
+  return null;
+}
+
 async function _scanHoldingsImpl() {
   const owner = _holdingsOwner(), gen0 = _holdingsLatestGen;
   try { await refreshPoolsIfStale(); } catch {}
@@ -16823,38 +16856,13 @@ async function _scanHoldingsImpl() {
           reverseBytes(hexToBytes(firstIn.txid)),
           (() => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, firstIn.vout >>> 0, true); return b; })(),
         );
-        const senderPubHex = (firstIn.witness && firstIn.witness.length === 2 && firstIn.witness[1].length === 66)
+        let senderPubHex = (firstIn.witness && firstIn.witness.length === 2 && firstIn.witness[1].length === 66)
           ? firstIn.witness[1] : null;
         const ct = dec.outputs[u.vout].encryptedAmount;
-        let recovered = null;
-        let recoveryPath = null;
-        if (senderPubHex) {
-          const senderPub = hexToBytes(senderPubHex);
-          const ks = deriveAmountKeystreamECDH(wallet.priv, senderPub, anchorBytes, u.vout);
-          const candidate = decryptAmount(ct, ks);
-          if (candidate >= 0n && candidate < (1n << 64n)) {
-            const r = deriveBlinding(wallet.priv, senderPub, anchorBytes, u.vout);
-            try {
-              if (pedersenCommit(candidate, r).equals(bytesToPoint(onChainCommitment))) {
-                recovered = { amount: candidate, blinding: r };
-                recoveryPath = 'ecdh';
-              }
-            } catch {}
-          }
-        }
-        if (!recovered) {
-          const ks = deriveAmountKeystreamSelf(wallet.priv, anchorBytes, u.vout);
-          const candidate = decryptAmount(ct, ks);
-          if (candidate >= 0n && candidate < (1n << 64n)) {
-            const r = deriveChangeBlinding(wallet.priv, anchorBytes, u.vout);
-            try {
-              if (pedersenCommit(candidate, r).equals(bytesToPoint(onChainCommitment))) {
-                recovered = { amount: candidate, blinding: r };
-                recoveryPath = 'self';
-              }
-            } catch {}
-          }
-        }
+        const opened = openTransferOutput({ priv: wallet.priv, pub: wallet.pub, senderPubHex, anchorBytes, vout: u.vout, ct, commitment: onChainCommitment });
+        let recovered = opened ? { amount: opened.amount, blinding: opened.blinding } : null;
+        let recoveryPath = opened ? opened.path : null;
+        if (opened && opened.senderPubHex) senderPubHex = opened.senderPubHex;
         if (!recovered && senderPubHex && env.opcode === T_AXFER) {
           let opReturnCt = null;
           for (const out of tx.vout) {
@@ -61699,7 +61707,7 @@ export {
   registerWatchtowerBid, listWatchtowerBids, cancelWatchtowerBid, reclaimWatchtowerBid, watchtowerBidAddress,
   deriveWatchtowerBidWalletKey, watchtowerBidWalletIndexOf, nextWatchtowerBidWalletIndex, sweepWatchtowerBidWallet, recoverWatchtowerBidWallets,
   deriveWatchtowerBidKey, encryptWatchtowerBidKey, watchtowerRegisterMsg, watchtowerCancelMsg,
-  _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testSetTrackedNotes,
+  _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testSetTrackedNotes, openTransferOutput,
   _preauthSaleAuthMsg as preauthSaleAuthMsg,
   _preauthSaleCancelMsg as preauthSaleCancelMsg,
   _preauthSaleIdHex as preauthSaleIdHex,

@@ -176,6 +176,32 @@ console.log('\nWhich assets move:');
   globalThis.fetch = prior; dapp.wallet.pub = myPub;
 }
 
+console.log('\nA moved note is opened again from the key alone:');
+{
+  // The scan of a browser that never built the move has no kept opening. The reveal's note input is a Taproot key-path spend, whose witness is one
+  // signature: no sender key to read, the sender being this key. Each output is asked for with the second input, as the scan does.
+  broadcasts = [];
+  await dapp.buildAndBroadcastCXferMulti({ assetIdHex: ASSET, recipients: [{ pubHex: PUB_HEX, amount: AMOUNT }], forceUtxos: [noteInput()], useBpp: true });
+  const reveal = parseTx(broadcasts[1]);
+  const env = dapp.decodeEnvelopeScript(reveal.inputs[0].witness[1]);
+  const dec = dapp.decodeCXferBppPayload(env.payload);
+  const note = reveal.inputs[1];
+  const anchor = concatBytes(hexToBytes(note.txid).reverse(), u32(note.vout));
+  const open = (o) => dapp.openTransferOutput({ priv: SK, pub: dapp.wallet.pub, senderPubHex: null, anchorBytes: anchor, vout: 0, ct: dec.outputs[0].encryptedAmount, commitment: dec.outputs[0].commitment, ...o });
+  ok('the note input shows no public key', note.witness.length === 1);
+  const got = open({});
+  ok('the amount and blinding of the note moved to the trading address come back from the key and the chain', !!got && got.amount === AMOUNT && got.path === 'ecdh' && got.blinding === dapp.deriveBlinding(SK, dapp.wallet.pub, anchor, 0), `${got && got.amount} via ${got && got.path}`);
+  ok('and the sender is named as this key, as the browser that built it keeps it', got && got.senderPubHex === PUB_HEX);
+  ok('without the sender being tried as this key the self channel does not open it (what a fresh browser used to see)', open({ pub: null }) === null);
+  const other = hexToBytes('0d'.repeat(32));
+  ok('another key cannot open it', dapp.openTransferOutput({ priv: other, pub: secp.getPublicKey(other, true), senderPubHex: null, anchorBytes: anchor, vout: 0, ct: dec.outputs[0].encryptedAmount, commitment: dec.outputs[0].commitment }) === null);
+  const viaWitness = open({ senderPubHex: PUB_HEX });
+  ok('a sender key that the witness does show is read as before', !!viaWitness && viaWitness.amount === AMOUNT && viaWitness.path === 'ecdh' && viaWitness.senderPubHex === null);
+  const change = dapp.openTransferOutput({ priv: SK, pub: dapp.wallet.pub, senderPubHex: null, anchorBytes: anchor, vout: 1, ct: dec.outputs[1].encryptedAmount, commitment: dec.outputs[1].commitment });
+  ok('the change output still comes by the self channel', !!change && change.path === 'self' && change.amount === 0n, `${change && change.path} ${change && change.amount}`);
+  ok('a commitment that is not the output\'s is never accepted', open({ commitment: dec.outputs[1].commitment }) === null);
+}
+
 console.log('\nAn ordinary P2WPKH note:');
 {
   broadcasts = [];
