@@ -52,6 +52,23 @@ const newCoins = () => {
   FUNDING = [{ txid: id(0xe0 + coinsN), vout: 0, value: 5_000_000, status: { confirmed: true } }, { txid: id(0xd0 + coinsN), vout: 0, value: 3_000_000, status: { confirmed: true } }];
 };
 const spentBy = () => new Set(broadcasts.flatMap(inputsOf));
+// A transaction as the explorer shows it (inputs with their witness, outputs with their scripts), read from the hex that was sent, and the TACIT envelope its
+// first input's tapscript carries.
+const esploraOf = (hex, txid) => {
+  const b = Buffer.from(hex, 'hex'); let o = 4; const seg = b[o] === 0 && b[o + 1] === 1; if (seg) o += 2;
+  const vi = () => { const f = b[o++]; if (f < 0xfd) return f; const n = f === 0xfd ? 2 : 4; const v = b.readUIntLE(o, n); o += n; return v; };
+  const vin = [], vout = [];
+  for (let n = vi(), k = 0; k < n; k++) { const id = Buffer.from(b.subarray(o, o + 32)).reverse().toString('hex'), vo = b.readUInt32LE(o + 32); o += 36; const sl = vi(); o += sl + 4; vin.push({ txid: id, vout: vo, witness: [] }); }
+  for (let n = vi(), k = 0; k < n; k++) { const v = Number(b.readBigUInt64LE(o)); o += 8; const sl = vi(); vout.push({ value: v, scriptpubkey: b.subarray(o, o + sl).toString('hex') }); o += sl; }
+  if (seg) for (const i of vin) for (let n = vi(), k = 0; k < n; k++) { const l = vi(); i.witness.push(b.subarray(o, o + l).toString('hex')); o += l; }
+  return { txid, status: { confirmed: true, block_height: 800001 }, vin, vout };
+};
+const envelopeOf = (tx) => {
+  const sc = Buffer.from(tx.vin[0].witness[1], 'hex'), pushes = []; let i = 0;
+  while (i < sc.length) { const op = sc[i]; if (op > 0 && op <= 0x4b) { pushes.push(sc.subarray(i + 1, i + 1 + op)); i += 1 + op; } else if (op === 0x4c) { pushes.push(sc.subarray(i + 2, i + 2 + sc[i + 1])); i += 2 + sc[i + 1]; } else if (op === 0x4d) { const n = sc.readUInt16LE(i + 1); pushes.push(sc.subarray(i + 3, i + 3 + n)); i += 3 + n; } else i++; }
+  return Buffer.concat(pushes.slice(3));
+};
+let chainTxs = new Map(), receiptUtxos = [];
 
 let head = { projected: { reserve_a: String(RA), reserve_b: String(RB) }, pending_count: 0 }, broadcasts = [], pools = [{ pool_id: POOL_ID, asset_a: TETH, asset_b: TAC, reserve_a: String(RA), reserve_b: String(RB), fee_bps: 30, validation: 'xcurve-verified' }];
 newCoins();
@@ -63,6 +80,8 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.includes(`/amm/pool/${POOL_ID}/head`)) return json(head);
   if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
   if (u.includes('/scripthash/')) return json([]);
+  if (/\/address\/(tb1p|bc1p)[0-9a-z]+\/utxo/.test(u)) return json(receiptUtxos);
+  if (method === 'GET' && chainTxs.has(u.slice(-64)) && /\/tx\/[0-9a-f]{64}$/.test(u)) return json(chainTxs.get(u.slice(-64)));
   if (u.includes(`/address/${ADDR}/utxo`)) { const gone = apiLags ? new Set() : spentBy(); return json(FUNDING.filter((x) => !gone.has(`${x.txid}:${x.vout}`))); }
   if (method === 'POST' && u.endsWith('/tx')) {
     if (broadcasts.includes(opts.body)) return new Response('0'.repeat(64), { status: 200 });
@@ -131,6 +150,35 @@ console.log('\nA swap from a bigger note:');
   const r = await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n, onProgress: (s) => stages.push(s) });
   ok('the exact amount is cut first (a transaction pair), then the swap goes out (another)', broadcasts.length === 4 && /^[0-9a-f]{64}$/.test(r.prepTxid || ''), `${broadcasts.length} broadcasts, prep ${r.prepTxid}`);
   ok('the swap is the one that spends the cut note, and its id is returned', r.revealTxid.length === 64 && r.revealTxid !== r.prepTxid);
+}
+
+console.log('\nWhat a swap paid to the Taproot address:');
+{
+  newCoins();
+  dapp._testSetScanHoldingsOverride(() => new Map([[TETH, { balance: 2000n, utxos: [{ utxo: { txid: NOTE_TXID, vout: 1, value: 546 }, amount: 2000n, blinding: BLINDING }] }]]));
+  const r = await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n });
+  const tx = esploraOf(broadcasts[1], r.revealTxid); chainTxs.set(r.revealTxid, tx);
+  const env = envelopeOf(tx), commitment = env.subarray(202, 235).toString('hex');
+  const at = (vout, value = 546) => ({ txid: r.revealTxid, vout, value, status: { confirmed: true } });
+  const asJson = (n) => JSON.stringify(n, (k, v) => (typeof v === 'bigint' ? String(v) : v));
+  receiptUtxos = [at(1), at(2)];
+  swapAccepted = { accepted: false };
+  dapp.clearValidatorCaches();
+  ok('a swap the pool has not decided is not listed', (await dapp.swapReceiptNotes()).length === 0);
+  swapAccepted = { accepted: true, outcome: 'execute', delta_out_actual: String(r.quoted), receipt: { asset_id: TAC, commitment } };
+  dapp.clearValidatorCaches();
+  const notes = await dapp.swapReceiptNotes();
+  ok('the receipt of an executed swap is listed, with its amount, its token and its output', notes.length === 1 && notes[0].vout === 1 && notes[0].amount === r.quoted && notes[0].assetIdHex === TAC && notes[0].confirmed === true && notes[0].sats === 546 && notes[0].source === 'swap', asJson(notes));
+  ok('the swap\'s second output (nothing to hold) is not', !notes.some((n) => n.vout === 2));
+  swapAccepted = { accepted: true, outcome: 'execute', delta_out_actual: String(r.quoted + 1n), receipt: { asset_id: TAC, commitment } };
+  dapp.clearValidatorCaches();
+  ok('an amount that is not the one the output commits to is not listed', (await dapp.swapReceiptNotes()).length === 0);
+  swapAccepted = { accepted: true, outcome: 'pass_through', delta_out_actual: null, receipt: null, pass_reason: 'floor miss', refund_amount: '2000' };
+  dapp.clearValidatorCaches();
+  ok('a swap that was refunded has no receipt to list', (await dapp.swapReceiptNotes()).length === 0);
+  receiptUtxos = [{ txid: 'ab'.repeat(32), vout: 1, value: 546, status: { confirmed: true } }];
+  ok('an output of some other transaction is not a swap\'s receipt', (await dapp.swapReceiptNotes()).length === 0);
+  receiptUtxos = [];
 }
 
 console.log('\nThe chain API is a moment behind (it still lists what the cut spent):');

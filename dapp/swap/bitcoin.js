@@ -2,23 +2,36 @@
 // comes with it through the trade page's Bitcoin module, which also holds the key's sign-in. Nothing here builds or signs a transaction: tacit.js does.
 import { esc, fmtUnits, parseUnits, plain } from '/trade/util.js?cb=509d6618';
 
-const BTC_MODULE = '/trade/btc.js?cb=1f0efeca';
+const BTC_MODULE = '/trade/btc.js?cb=55f893d9';
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TOKENS = { [TETH]: { sym: 'tETH', icon: 'teth', dec: 8 }, [TAC]: { sym: 'TAC', icon: 'tac', dec: 8 } };
 const SLIPS = [50, 100, 300];
 const MOVE_SATS = 5000, DUST = 546, IMPACT_WARN = 0.05, IMPACT_ACK = 0.1;
-const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount (one Bitcoin transaction pair)…', send: 'Sending the swap…' };
+const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount (one Bitcoin transaction pair)…', 'cut:wait': 'Waiting for the network to show the cut…', send: 'Sending the swap…' };
 const MEMPOOL = 'https://mempool.space';
 const SLIP_KEY = 'tacit-swap-btc-slip-v1';
+const SENT_KEY = 'tacit-swap-btc-sent-v1', SENT_KEEP = 5, SENT_FOR = 24 * 3600e3;               // the swaps sent from this browser, so one is still followed after a reload
 const BRIDGED_KEY = 'tacit-bridged-v1';                                           // what each key last read at its Taproot address, as the front page keeps it
 
 const tidy = (s) => s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 const fmt = (v, aid, max = 8) => fmtUnits(v, TOKENS[aid].dec, max);
+const sym = (aid) => TOKENS[aid].sym;
+const ageText = (t) => { const m = Math.floor((Date.now() - t) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ${m % 60} min ago`; };
+function loadSent() {
+  try {
+    return (JSON.parse(localStorage.getItem(SENT_KEY) || '[]') || [])
+      .filter((s) => /^[0-9a-f]{64}$/.test(s?.txid) && TOKENS[s.from] && TOKENS[s.to] && [s.din, s.quoted, s.floor].every((v) => /^\d+$/.test(String(v))) && Number.isFinite(s.at) && Date.now() - s.at < SENT_FOR)
+      .slice(0, SENT_KEEP)
+      .map((s) => ({ ...s, din: BigInt(s.din), quoted: BigInt(s.quoted), floor: BigInt(s.floor), got: s.got != null ? BigInt(s.got) : null, refund: s.refund != null ? BigInt(s.refund) : null }));
+  } catch { return []; }
+}
+// Where the explorer has a transaction: { block } (null while it is in the mempool), { gone } when it does not know it, undefined when it did not answer.
+const whereIs = (txid) => fetch(`${MEMPOOL}/api/tx/${txid}`, { signal: AbortSignal.timeout(8000) }).then((r) => (r.status === 404 ? { gone: true } : r.ok ? r.json().then((j) => ({ block: j.status?.confirmed ? j.status.block_height ?? null : null })) : undefined)).catch(() => undefined);
 
 export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, onBridged = () => {} }) {
   let slip = 100;
   try { const s = Number(localStorage.getItem(SLIP_KEY)); if (SLIPS.includes(s)) slip = s; } catch { /* storage is a convenience */ }
-  const L = { pay: TETH, get: TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: null, asking: null, line: '', cls: '', open: false };
+  const L = { pay: TETH, get: TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: loadSent(), asking: null, line: '', cls: '', open: false };
   let bitcoin = null, T = null, mounted = false, seq = 0, qTimer = 0, poll = 0, refreshTimer = 0, reading = null;
   const $ = (id) => host.querySelector(`#${id}`);
 
@@ -36,6 +49,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     </div>
     <dl class="rcpt" id="b-rcpt" hidden></dl>
     <div class="brd" id="b-brd" hidden></div>
+    <div class="snt" id="b-sent" hidden></div>
     <div class="act">
       <div class="ack" id="b-ack" hidden><label><input type="checkbox" id="b-ackbox"> <span id="b-acktext"></span></label></div>
       <button class="go" id="b-go" type="button" disabled>Open your Tacit wallet</button>
@@ -107,15 +121,15 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     const pub = bitcoin.session.key?.pubHex;
     try {
       const { count } = await T.bridgedAtTaproot({ force: true });
-      if (!count) {
-        L.notes = []; L.unread = 0;
-        keepBridged(pub, 'teth', { notes: [], unread: 0 }); keepBridged(pub, 'tac', { notes: [], unread: 0 });
-        paint(); onBridged(); return;
+      let notes = [], unread = 0;
+      if (count) {
+        const [a, b] = await Promise.all([T.bridgedNotes(TETH), T.bridgedNotes(TAC)]);
+        notes = [...a.notes.map((n) => ({ ...n, aid: TETH })), ...b.notes.map((n) => ({ ...n, aid: TAC }))]; unread = a.unread + b.unread;
       }
-      const [a, b] = await Promise.all([T.bridgedNotes(TETH), T.bridgedNotes(TAC)]);
-      L.notes = [...a.notes.map((n) => ({ ...n, aid: TETH })), ...b.notes.map((n) => ({ ...n, aid: TAC }))];
-      L.unread = a.unread + b.unread;
-      keepBridged(pub, 'teth', a); keepBridged(pub, 'tac', b);
+      // What a swap paid to the Taproot address (its receipt) waits there like a bridged note: the holdings, which read the trading address, do not count it.
+      const got = await T.swapReceiptNotes().then((r) => r.filter((n) => TOKENS[n.assetIdHex]).map((n) => ({ ...n, aid: n.assetIdHex, swap: true })), () => []);
+      L.notes = [...notes, ...got]; L.unread = unread;
+      for (const [aid, name] of [[TETH, 'teth'], [TAC, 'tac']]) keepBridged(pub, name, { notes: L.notes.filter((n) => n.aid === aid), unread });
     } catch { L.bridgedAt = 0; }
     paint(); onBridged();
   }
@@ -163,7 +177,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     if (!unlocked()) return { label: 'Open your Tacit wallet', act: 'unlock' };
     // The token to pay is held, bridged, at the Taproot address and the trading address has none (or too little): the way on is the move.
     const mv = bal != null && (bal === 0n || (din && din > bal)) ? readyNote(L.pay) : -1;
-    if (mv >= 0) return { label: `Move your bridged ${TOKENS[L.pay].sym} first`, act: 'move', mv };
+    if (mv >= 0) return { label: `Move your ${L.notes[mv].swap ? '' : 'bridged '}${TOKENS[L.pay].sym} first`, act: 'move', mv };
     if (!L.amt) return { label: 'Enter an amount', off: true };
     if (!din) return { label: 'Enter a valid amount', off: true };
     if (bal != null && din > bal) return { label: `Not enough ${TOKENS[L.pay].sym} on Bitcoin`, off: true };
@@ -208,10 +222,10 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
         rc.innerHTML = `<div><dt>Pool holds</dt><dd>${esc(tidy(fmt(L.pool.a === TETH ? L.pool.ra : L.pool.rb, TETH)))} tETH · ${esc(tidy(fmt(L.pool.a === TAC ? L.pool.ra : L.pool.rb, TAC)))} TAC</dd></div><div><dt>Pool fee</dt><dd>${(L.pool.fee / 100).toFixed(2)}%</dd></div>`;
       } else rc.hidden = true;
     }
-    paintBridged();
+    paintBridged(); paintSent();
     const g = gate(), go = $('b-go');
     go.textContent = g.label; go.disabled = !!g.off; go.dataset.act = g.act || ''; go.dataset.mv = g.mv ?? '';
-    if (!L.busy && !L.sent && !L.asking && !L.line && L.noPool) say('There is no pool for tETH and TAC on Bitcoin yet.');
+    if (!L.busy && !L.sent.length && !L.asking && !L.line && L.noPool) say('There is no pool for tETH and TAC on Bitcoin yet.');
   }
   function paintBridged() {
     const box = $('b-brd');
@@ -219,7 +233,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       const what = n.amount != null ? `${tidy(fmt(n.amount, n.aid))} ${TOKENS[n.aid].sym}` : `A note of ${TOKENS[n.aid].sym}`;
       if (L.asking === i) return `<div><span>Move ${esc(what)} to your trading address? One Bitcoin transaction, about ${MOVE_SATS.toLocaleString('en-US')} sats in fees.</span> <button class="link" type="button" data-move-yes="${i}">Move</button> <button class="link" type="button" data-move-no>Cancel</button></div>`;
       const ready = n.amount != null && n.confirmed;
-      return `<div><span>${esc(what)} you bridged sits at your Taproot address, which a swap does not spend from.${ready ? '' : ` <em>${esc(n.amount == null ? 'Its amount is not readable yet.' : 'Waiting for its Bitcoin confirmation.')}</em>`}</span>${ready && !L.busy ? ` <button class="link" type="button" data-move="${i}">Move to trade</button>` : ''}</div>`;
+      return `<div><span>${esc(what)} ${n.swap ? 'from your swap' : 'you bridged'} sits at your Taproot address, which a swap does not spend from.${ready ? '' : ` <em>${esc(n.amount == null ? 'Its amount is not readable yet.' : 'Waiting for its Bitcoin confirmation.')}</em>`}</span>${ready && !L.busy ? ` <button class="link" type="button" data-move="${i}">Move to trade</button>` : ''}</div>`;
     });
     if (L.unread && !L.notes.length) rows.push('<div><span>Part of your Taproot address could not be read just now.</span></div>');
     box.hidden = !rows.length; box.innerHTML = rows.join('');
@@ -233,38 +247,52 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
   function fund() { bitcoin.fund(); }
   async function swap() {
     const q = L.q; if (!q || q.kind !== 'direct' || L.busy) return;
-    L.busy = true; L.sent = null; say(STAGES.check); paint();
+    const from = L.pay, to = L.get;
+    L.busy = true; say(STAGES.check); paint();
     try {
-      const r = await T.bitcoinSwap({ fromAid: L.pay, toAid: L.get, amountIn: q.din, minOut: q.minOut, onProgress: (s) => { if (STAGES[s]) say(STAGES[s]); } });
-      L.sent = { txid: r.revealTxid, from: L.pay, to: L.get, floor: q.minOut, quoted: q.deltaOut, din: q.din };
+      const r = await T.bitcoinSwap({ fromAid: from, toAid: to, amountIn: q.din, minOut: q.minOut, onProgress: (s) => { if (STAGES[s]) say(STAGES[s]); } });
+      L.sent = [{ txid: r.revealTxid, from, to, floor: q.minOut, quoted: q.deltaOut, din: q.din, at: Date.now(), state: 'waiting', block: null }, ...L.sent].slice(0, SENT_KEEP);
+      saveSent();
       L.amt = ''; $('b-amt').value = ''; L.q = null; L.ack = false;
-      follow();
+      say(''); follow();
     } catch (e) { say(esc(e?.message || e), 'err'); }
     finally { L.busy = false; paint(); }
     readMe(true);
   }
-  function follow() {
+  // ── the swaps sent: each says where it is (waiting for a block, in one, filled, returned), and is followed until it is settled ──
+  function saveSent() { try { localStorage.setItem(SENT_KEY, JSON.stringify(L.sent, (k, v) => (typeof v === 'bigint' ? String(v) : v))); } catch { /* storage is a convenience */ } }
+  function paintSent() {
+    const box = $('b-sent'); box.hidden = !L.sent.length;
+    box.innerHTML = L.sent.map((s, i) => {
+      const link = `<a href="${MEMPOOL}/tx/${esc(s.txid)}" target="_blank" rel="noopener noreferrer">${esc(s.txid.slice(0, 10))}…↗</a>`;
+      const waiting = s.state === 'waiting', gone = waiting && s.gone && Date.now() - s.at > 10 * 60e3;
+      const head = s.state === 'filled' ? 'Filled' : s.state === 'refunded' ? 'Returned' : gone ? 'Not showing on mempool.space' : s.block ? `In block ${s.block}` : 'Waiting for a Bitcoin block';
+      const what = s.state === 'refunded' ? `${tidy(fmt(s.refund ?? s.din, s.from))} ${sym(s.from)} back`
+        : `${tidy(fmt(s.din, s.from))} ${sym(s.from)} → ${waiting ? 'about ' : ''}${tidy(fmt(s.state === 'filled' ? s.got ?? s.quoted : s.quoted, s.to))} ${sym(s.to)}`;
+      const note = gone ? 'If it was dropped, nothing was spent. Quote it again to retry.' : waiting ? `${s.block ? 'The pool settles it.' : `Sent ${ageText(s.at)}.`} At least ${tidy(fmt(s.floor, s.to))} ${sym(s.to)}, or your ${sym(s.from)} comes back.` : s.state === 'refunded' ? 'The pool had moved past your floor. Quote it again to retry.' : '';
+      return `<div class="${gone ? 'warn' : waiting ? 'wait' : s.state === 'filled' ? 'ok' : 'warn'}"><span><i class="dot" aria-hidden="true"></i><b>${esc(head)}</b></span><span>${link}${waiting && !gone ? '' : ` <button class="link" type="button" data-dismiss="${i}" aria-label="Dismiss">×</button>`}</span><span class="what">${esc(what)}</span>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
+    }).join('');
+  }
+  async function check(s) {
+    const [o, w] = await Promise.all([T.bitcoinSwapOutcome(s.txid), whereIs(s.txid)]);
+    if (w) { s.gone = !!w.gone; s.block = w.gone ? null : w.block; }
+    if (o.state === 'filled') { Object.assign(s, { state: 'filled', got: o.got }); notify('Swap filled'); L.bridgedAt = 0; readMe(true); }
+    else if (o.state === 'refunded') { Object.assign(s, { state: 'refunded', refund: o.refund }); notify('Swap returned'); readMe(true); }
+  }
+  function follow(wait = 15e3) {
     clearTimeout(poll);
-    const s = L.sent; if (!s) return;
-    const link = `<a href="${MEMPOOL}/tx/${esc(s.txid)}" target="_blank" rel="noopener noreferrer">${esc(s.txid.slice(0, 10))}…↗</a>`;
-    say(`Sent ${link}. It settles in the next Bitcoin block, at the pool’s price then, never below ${tidy(fmt(s.floor, s.to))} ${TOKENS[s.to].sym}; if the pool has moved past that, your ${TOKENS[s.from].sym} comes back.`);
-    const t0 = Date.now();
-    const tick = async () => {
-      if (L.sent !== s || Date.now() - t0 > 45 * 60e3) return;
-      const o = await T.bitcoinSwapOutcome(s.txid);
-      if (L.sent !== s) return;
-      if (o.state === 'filled') { say(`Filled ${link}: ${tidy(fmt(o.got ?? s.quoted, s.to))} ${TOKENS[s.to].sym}. It shows in your balance once Bitcoin has confirmed it.`, 'ok'); L.bridgedAt = 0; readMe(true); return; }
-      if (o.state === 'refunded') { say(`The pool had moved past your floor, so your ${TOKENS[s.from].sym} was returned${o.refund != null ? ` (${tidy(fmt(o.refund, s.from))})` : ''} ${link}. Quote it again to retry.`, 'err'); readMe(true); return; }
-      poll = setTimeout(tick, 20e3);
-    };
-    poll = setTimeout(tick, 20e3);
+    if (!T || !L.sent.some((s) => s.state === 'waiting')) return;
+    poll = setTimeout(async () => {
+      await Promise.all(L.sent.filter((s) => s.state === 'waiting').map((s) => check(s).catch(() => {})));
+      saveSent(); paintSent(); follow();
+    }, wait);
   }
   async function move(i) {
     const n = L.notes[i]; if (!n || L.busy) return;
     if (L.sats != null && L.sats < MOVE_SATS) { L.asking = null; say(`Moving takes about ${MOVE_SATS.toLocaleString('en-US')} sats for the Bitcoin fee, paid from the sats at your trading address. Add sats, then try again.`, 'err'); paint(); fund(); return; }
     L.busy = true; L.asking = null; say('Moving it to your trading address…'); paint();
     try {
-      await T.moveBridgedNote({ txid: n.txid, assetIdHex: n.aid, onProgress: (s) => say(s === 'reveal-start' ? 'Sending the second transaction…' : 'Sending the first transaction…') });
+      await T.moveBridgedNote({ txid: n.txid, vout: n.vout ?? 0, assetIdHex: n.aid, swap: !!n.swap, onProgress: (s) => say(s === 'reveal-start' ? 'Sending the second transaction…' : 'Sending the first transaction…') });
       say(`Moved ${esc(tidy(fmt(n.amount, n.aid)))} ${TOKENS[n.aid].sym}. It confirms with the next Bitcoin block, and then it shows in your balance here, ready to swap.`, 'ok');
       L.notes = L.notes.filter((_, j) => j !== i);
       keepBridged(bitcoin.session.key?.pubHex, n.aid === TETH ? 'teth' : 'tac', { notes: L.notes.filter((x) => x.aid === n.aid), unread: L.unread });
@@ -281,6 +309,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
   host.addEventListener('click', (e) => {
     const t = e.target;
     if (t.closest('#b-flip')) { [L.pay, L.get] = [L.get, L.pay]; L.amt = ''; $('b-amt').value = ''; L.q = null; L.ack = false; if (L.cls === 'err' && !L.busy) say(''); paint(); return; }
+    const dm = t.closest('[data-dismiss]'); if (dm) { L.sent.splice(Number(dm.dataset.dismiss), 1); saveSent(); paintSent(); return; }
     const sl = t.closest('[data-slip]'); if (sl) { slip = Number(sl.dataset.slip); try { localStorage.setItem(SLIP_KEY, String(slip)); } catch { /* storage is a convenience */ } requote(true); return; }
     const qk = t.closest('[data-quick]'); if (qk) { $('b-amt').value = qk.dataset.quick; setAmt(qk.dataset.quick); return; }
     const mv = t.closest('[data-move]'); if (mv) { L.asking = Number(mv.dataset.move); paint(); return; }
@@ -296,7 +325,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       if (!T) say('Loading…');
       try { await ensure(); await readPool(); } catch (e) { say(`Could not load the Bitcoin lane: ${esc(e?.message || e)}`, 'err'); return; }
       if (L.line === 'Loading…') say('');
-      paint(); requote(true); readMe();
+      paint(); requote(true); readMe(); follow(1e3);
       clearInterval(refreshTimer);
       refreshTimer = setInterval(() => { if (!document.hidden && L.open) { readPool().then(() => requote(true)).catch(() => {}); readMe(true); } }, 45e3);
     },

@@ -15948,27 +15948,48 @@ async function _bridgedSwapHint(assetIdHex, ticker) {
   const { count } = await bridgedAtTaproot().catch(() => ({ count: null }));
   return count > 0 ? `\n  ${ticker} you bridged to Bitcoin sits at your Taproot address, which a swap does not spend from. Open the ${ticker} market under Trade and press "Move it here to sell" on its Sell side, then swap once it confirms.` : '';
 }
+// A swap pays its receipt to the key's Taproot address, as a bridged note lands there, so the holdings scan does not read it. The receipt (output 1 of a swap this
+// key sent, which the pool executed) is read from the chain and the pool's record of the swap: the envelope carries its blinding, and the amount the pool says is
+// checked against the output's own commitment. What a page lists before it offers the move.
+async function swapReceiptNotes() {
+  await ensurePrivkey();
+  const address = _crossoutP2trAddress(bytesToHex(wallet.pub).slice(2), NET.hrp);
+  const utxos = await apiJson(`/address/${address}/utxo`);
+  const out = [];
+  for (const u of (Array.isArray(utxos) ? utxos : []).filter((x) => Number(x.vout) === 1 && Number(x.value) <= 2000)) {
+    try {
+      const tx = await getTx(u.txid), env = tx && _txOutputEnvelope(tx);
+      if (!env || env.opcode !== T_SWAP_VAR) continue;
+      const dec = decodeTSwapVarPayload(env.payload), rec = dec && await _fetchSwapAccepted(u.txid);
+      if (!rec || !rec.accepted || rec.outcome !== 'execute' || rec.deltaOutActual == null || !rec.receipt) continue;
+      const r = bytes32ToBigint(dec.rReceipt) % SECP_N;
+      if (!(rec.deltaOutActual > 0n) || !pedersenCommit(rec.deltaOutActual, r).equals(bytesToPoint(hexToBytes(rec.receipt.commitment)))) continue;
+      out.push({ txid: u.txid, vout: 1, sats: Number(u.value), amount: rec.deltaOutActual, blinding: r, assetIdHex: String(rec.receipt.asset_id).toLowerCase(), confirmed: !!u.status?.confirmed, source: 'swap' });
+    } catch { /* a note that cannot be read is not listed */ }
+  }
+  return out;
+}
 // A note bridged to Bitcoin is moved to the key's own trading address: a transfer to itself that the key signs at its Taproot address, after which the token
 // sells (or swaps in a pool) like any other. The note must open from this key, be confirmed and unspent, and pass the same check a purchase makes of a lot.
-async function moveBridgedNote({ txid, vout = 0, assetIdHex = CANONICAL_TAC_ASSET_ID_HEX, onProgress = null } = {}) {
+async function moveBridgedNote({ txid, vout = 0, assetIdHex = CANONICAL_TAC_ASSET_ID_HEX, swap = false, onProgress = null } = {}) {
   const asset = _bridgedMoveAsset(assetIdHex);
   await ensurePrivkey();
   if (NET.name !== 'mainnet') throw new Error('moving a bridged note is for mainnet');
-  const id = String(txid || '').toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(id) || Number(vout) !== 0) throw new Error('a bridged note is output 0 of its mint transaction');
+  const id = String(txid || '').toLowerCase(), at = swap ? 1 : 0;
+  if (!/^[0-9a-f]{64}$/.test(id) || Number(vout) !== at) throw new Error(swap ? 'a swap\'s receipt is output 1 of its swap transaction' : 'a bridged note is output 0 of its mint transaction');
   const pubHex = bytesToHex(wallet.pub);
-  const found = await _bridgedOpen(asset);
-  const n = found.find((x) => x.txid === id && Number(x.vout) === 0);
+  const found = swap ? (await swapReceiptNotes()).filter((x) => x.assetIdHex === asset) : await _bridgedOpen(asset);
+  const n = found.find((x) => x.txid === id && Number(x.vout) === at);
   if (!n) throw new Error('that note is not at this key\'s Taproot address');
   if (n.amount == null || n.blinding == null) throw new Error(n.openErr ? 'its amount could not be read just now: try again in a minute' : 'its amount could not be worked out from this key and the chain');
   if (!n.confirmed) throw new Error('it is waiting for its Bitcoin confirmation');
-  const os = await getOutspend(id, 0);
+  const os = await getOutspend(id, at);
   if (os && os.spent === true) throw new Error('that note is already spent');
-  await requireValidatedLot(id, 0, 'this note');
+  await requireValidatedLot(id, at, 'this note');
   return buildAndBroadcastCXferMulti({
     assetIdHex: asset,
     recipients: [{ pubHex, amount: n.amount }],
-    forceUtxos: [{ utxo: { txid: id, vout: 0, value: n.sats }, amount: n.amount, blinding: n.blinding, scriptpubkey: bytesToHex(p2trScript(wallet.pub.slice(1))), taprootKeyPath: true }],
+    forceUtxos: [{ utxo: { txid: id, vout: at, value: n.sats }, amount: n.amount, blinding: n.blinding, scriptpubkey: bytesToHex(p2trScript(wallet.pub.slice(1))), taprootKeyPath: true }],
     onProgress,
   });
 }
@@ -23986,7 +24007,7 @@ async function buildAndBroadcastCXfer({ assetIdHex, recipientPubHex, stealthAddr
   };
 }
 
-async function carveExactAmount({ assetIdHex, amount, recipientPubHex = null, walletKeyOnly = false }) {
+async function carveExactAmount({ assetIdHex, amount, recipientPubHex = null, walletKeyOnly = false, onProgress = null }) {
   await ensurePrivkey();
   amount = BigInt(amount);
   if (amount <= 0n) throw new Error('amount must be > 0');
@@ -24046,6 +24067,7 @@ async function carveExactAmount({ assetIdHex, amount, recipientPubHex = null, wa
     forceUtxos: coverUtxos,
   });
   const r0 = r.recipients[0];
+  try { onProgress && onProgress('cut:wait'); } catch {}
   try {
     await waitForTxVisible(r.revealTxid);
   } catch (e) {
@@ -38162,7 +38184,7 @@ export async function bitcoinSwap({ fromAid, toAid, amountIn, minOut, onProgress
   say('prepare');
   let carved = null;
   try {
-    carved = await carveExactAmount({ assetIdHex: fromAid, amount: din, walletKeyOnly: true });
+    carved = await carveExactAmount({ assetIdHex: fromAid, amount: din, walletKeyOnly: true, onProgress: say });
     if (!carved?.utxo) throw new Error('there is not enough of this token to swap');
     const live = await bitcoinSwapQuote({ fromAid, toAid, amountIn: din, fresh: true });
     if (!live || live.kind !== 'direct' || live.deltaOut < floor) throw new Error('the pool moved past your floor: quote it again (the amount you cut stays in your wallet)');
@@ -61793,7 +61815,7 @@ export {
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
   validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession, verifyDiscoverAsset, enrichDiscoverMints, getCachedDiscoverMint,
-  bridgedAtTaproot, bridgedAtTaprootCount, bridgedNotes, bridgedTacNotes, moveBridgedNote, _bridgedSwapHint,
+  bridgedAtTaproot, bridgedAtTaprootCount, bridgedNotes, bridgedTacNotes, swapReceiptNotes, moveBridgedNote, _bridgedSwapHint,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,

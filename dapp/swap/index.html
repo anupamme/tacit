@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=7929b200">
+<link rel="modulepreload" href="/swap/app.js?cb=6888843c">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -143,6 +143,14 @@ img.tk { object-fit: contain; }
 #btc .coin { cursor: default; } #btc .ack label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--mute); }
 .brd { display: grid; gap: 6px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); } .brd em { font-style: normal; color: var(--warn); }
 .brd button.link { padding: 0; font: 12px var(--mono); color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.snt { display: grid; gap: 8px; margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.snt > div { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; }
+.snt b { font-weight: 500; color: var(--ink); } .snt .what { grid-column: 1 / -1; color: var(--ink); } .snt small { grid-column: 1 / -1; font-size: 12px; } .snt a { color: var(--ink); }
+.snt .dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--orange); }
+.snt .ok .dot { background: var(--ok); } .snt .warn .dot { background: var(--warn); }
+.snt .wait .dot { animation: snt-pulse 1.8s ease-in-out infinite; } @keyframes snt-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .snt .wait .dot { animation: none; } }
+.snt button.link { padding: 0 2px; font: 14px/1 var(--mono); color: var(--mute); background: none; border: 0; cursor: pointer; }
 @media (pointer: coarse) { .mode button { min-height: 38px; } }
 .f { padding: 12px 14px 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
 .f:focus-within { border-color: var(--ink); }
@@ -678,6 +686,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=7929b200"></script>
+<script type="module" src="/swap/app.js?cb=6888843c"></script>
 </body>
 </html>

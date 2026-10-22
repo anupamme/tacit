@@ -47,7 +47,8 @@ const T = {
   scanHoldings: async () => new Map([[TETH, { balance: W.bal[TETH], utxos: [] }], [TAC, { balance: W.bal[TAC], utxos: [] }]]),
   bridgedAtTaproot: async () => ({ count: W.bridged ? 1 : 0, address: 'bc1ptest' }),
   bridgedNotes: async (aid) => ({ notes: W.bridged && aid === TETH ? [{ txid: 'bb'.repeat(32), vout: 0, sats: 546, amount: 10000000n, confirmed: !W.unconfirmed, openErr: null }] : [], unread: 0 }),
-  moveBridgedNote: async (o) => { rec('move', { txid: o.txid, assetIdHex: o.assetIdHex }); o.onProgress?.('commit-start'); o.onProgress?.('reveal-start'); if (W.fail.move) throw new Error(W.fail.move); W.bridged = false; return { reveal_txid: 'dd'.repeat(32) }; },
+  swapReceiptNotes: async () => W.receipts || [],
+  moveBridgedNote: async (o) => { rec('move', { txid: o.txid, assetIdHex: o.assetIdHex, vout: o.vout, swap: o.swap }); W.receipts = []; o.onProgress?.('commit-start'); o.onProgress?.('reveal-start'); if (W.fail.move) throw new Error(W.fail.move); W.bridged = false; return { reveal_txid: 'dd'.repeat(32) }; },
   bitcoinSwap: async (o) => { rec('swap', { fromAid: o.fromAid, toAid: o.toAid, amountIn: String(o.amountIn), minOut: String(o.minOut) }); for (const s of ['check', 'prepare', 'send']) { o.onProgress?.(s); await new Promise((r) => setTimeout(r, 30)); } if (W.fail.swap) throw new Error(W.fail.swap); return { revealTxid: 'cc'.repeat(32), quoted: 1n, floor: o.minOut }; },
   bitcoinSwapOutcome: async () => (W.outcome === 'filled' ? { state: 'filled', got: 16500000n } : W.outcome === 'refunded' ? { state: 'refunded', reason: 'floor miss', refund: 2000n } : { state: 'waiting' }),
 };
@@ -60,6 +61,7 @@ let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const b = await chromium.launch();
+let MEMPOOL_STATUS = { confirmed: false };   // what the explorer says of a sent swap (null: it has never seen it); the tests move it
 
 async function fresh(path = '/swap/', viewport = { width: 1100, height: 1000 }, seed = null) {
   const page = await b.newPage({ viewport });
@@ -76,6 +78,7 @@ async function fresh(path = '/swap/', viewport = { width: 1100, height: 1000 }, 
     }
     return route.abort();
   });
+  await page.route(/^https:\/\/mempool\.space\/api\/tx\/[0-9a-f]{64}$/, (route) => route.fulfill({ status: MEMPOOL_STATUS ? 200 : 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(MEMPOOL_STATUS ? { status: MEMPOOL_STATUS } : { error: 'not found' }) }));
   await page.route(/\/trade\/btc\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: STUB }));
   await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#sw');
@@ -250,6 +253,25 @@ console.log('the nudge to move a bridged note');
   await r.page.close();
 }
 
+console.log('a swap\'s receipt at the Taproot address');
+{
+  // The TAC a swap bought sits at the key's Taproot address, which the balance (the trading address) does not count: the lane lists it, and the move brings it here.
+  const { page } = await fresh('/swap/#bitcoin');
+  await laneReady(page);
+  await page.evaluate(([txid, tac]) => { window.__stub.receipts = [{ txid, vout: 1, sats: 546, amount: 101366801n, assetIdHex: tac, confirmed: true, source: 'swap' }]; }, ['ee'.repeat(32), TAC]);
+  await page.click('#b-go');
+  await page.waitForFunction(() => /Balance 0\.05 tETH/.test(document.querySelector('#b-bal').textContent), null, { timeout: 8000 });
+  await page.click('#b-flip');
+  await page.waitForFunction(() => /from your swap sits at your Taproot address/.test(document.querySelector('#b-brd').textContent), null, { timeout: 8000 });
+  ok(/1\.01366801 TAC from your swap sits at your Taproot address, which a swap does not spend from/.test(await text(page, '#b-brd')), 'the TAC a swap bought is listed, as from the swap and not as bridged');
+  ok(/Balance 0 TAC/.test(await text(page, '#b-bal')) && /^Move your TAC first$/.test(await text(page, '#b-go')), 'paying TAC, the balance is still the trading address\'s, and the button leads to the move');
+  await page.click('#b-go'); await page.click('[data-move-yes]');
+  await page.waitForFunction(() => /Moved 1\.01366801 TAC/.test(document.querySelector('#b-q').textContent), null, { timeout: 8000 });
+  const mv = (await calls(page, 'move'))[0];
+  ok(mv && mv.txid === 'ee'.repeat(32) && mv.vout === 1 && mv.swap === true && mv.assetIdHex === TAC, `the move is of output 1, as a swap's receipt (${JSON.stringify(mv)})`);
+  await page.close();
+}
+
 console.log('the swap');
 {
   const { page, errs, csp } = await fresh('/swap/#bitcoin');
@@ -258,22 +280,33 @@ console.log('the swap');
   await page.waitForFunction(() => /Balance 0\.05 tETH/.test(document.querySelector('#b-bal').textContent), null, { timeout: 8000 });
   await type(page, '0.00002');
   await page.click('#b-go');
-  await page.waitForFunction(() => /Sent/.test(document.querySelector('#b-q').textContent), null, { timeout: 8000 });
+  await page.waitForFunction(() => /Waiting for a Bitcoin block/.test(document.querySelector('#b-sent').textContent), null, { timeout: 8000 });
   const sw = await calls(page, 'swap');
   ok(sw.length === 1 && sw[0].fromAid === TETH && sw[0].toAid === TAC && sw[0].amountIn === '2000' && sw[0].minOut === '16398524', `the swap is asked for the exact amount with the floor shown (${JSON.stringify(sw[0])})`);
-  const sent = await text(page, '#b-q');
-  ok(/next Bitcoin block/.test(sent) && /never below 0\.16398524 TAC/.test(sent) && /your tETH comes back/.test(sent) && sent.includes('cccccccccc'), 'while it waits it says when it settles, the floor, and that a miss returns the tETH');
-  ok((await page.getAttribute('#b-q a', 'href')) === `https://mempool.space/tx/${'cc'.repeat(32)}`, 'it links the transaction');
-  ok(await page.inputValue('#b-amt') === '', 'the amount is cleared');
+  const sent = await text(page, '#b-sent');
+  ok(/Waiting for a Bitcoin block/.test(sent) && /0\.00002 tETH → about 0\.16564166 TAC/.test(sent), `while it waits it says what is expected (${sent})`);
+  ok(/At least 0\.16398524 TAC, or your tETH comes back/.test(sent) && /Sent just now/.test(sent) && sent.includes('cccccccccc'), 'with the floor, that a miss returns the tETH, and how long ago it was sent');
+  ok((await page.getAttribute('#b-sent a', 'href')) === `https://mempool.space/tx/${'cc'.repeat(32)}`, 'it links the transaction');
+  ok(await page.inputValue('#b-amt') === '' && (await text(page, '#b-q')) === '', 'the amount is cleared, and no progress line is left behind');
+  ok(!(await page.$('#b-sent [data-dismiss]')), 'a swap still waiting cannot be dismissed');
+  // the explorer sees it in a block: the swap says so, still unsettled
+  MEMPOOL_STATUS = { confirmed: true, block_height: 800123 };
+  await page.waitForFunction(() => /In block 800123/.test(document.querySelector('#b-sent').textContent), null, { timeout: 40000 });
+  ok(/The pool settles it/.test(await text(page, '#b-sent')), 'once it is in a block it says the pool settles it');
   await page.evaluate(() => { window.__stub.outcome = 'filled'; });
-  await page.waitForFunction(() => /^Filled/.test(document.querySelector('#b-q').textContent), null, { timeout: 30000 });
-  ok(/Filled .*0\.165 TAC/.test(await text(page, '#b-q')) && await page.$eval('#b-q', (e) => e.classList.contains('ok')), 'when the pool takes it, it says what was got');
-  // a refund
+  await page.waitForFunction(() => /Filled/.test(document.querySelector('#b-sent').textContent), null, { timeout: 40000 });
+  ok(/Filled.*0\.00002 tETH → 0\.165 TAC/.test(await text(page, '#b-sent')) && await page.$eval('#b-sent > div', (e) => e.classList.contains('ok')), 'when the pool takes it, it says what was got');
+  // a refund: a second row above the first
   await type(page, '0.00002');
   await page.evaluate(() => { window.__stub.outcome = 'refunded'; });
   await page.click('#b-go');
-  await page.waitForFunction(() => /returned/.test(document.querySelector('#b-q').textContent), null, { timeout: 30000 });
-  ok(/The pool had moved past your floor, so your tETH was returned/.test(await text(page, '#b-q')) && await page.$eval('#b-q', (e) => e.classList.contains('err')), 'a swap the pool moved past says the tETH came back');
+  await page.waitForFunction(() => /Returned/.test(document.querySelector('#b-sent > div').textContent), null, { timeout: 40000 });
+  ok(/Returned.*0\.00002 tETH back/.test(await text(page, '#b-sent > div')) && /The pool had moved past your floor/.test(await text(page, '#b-sent > div')) && await page.$eval('#b-sent > div', (e) => e.classList.contains('warn')), 'a swap the pool moved past says the tETH came back');
+  ok((await page.$$('#b-sent > div')).length === 2, 'and the filled one is kept below it');
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('tacit-swap-btc-sent-v1')).map((x) => x.state));
+  ok(kept.join() === 'refunded,filled', `both are kept for the next visit (${kept})`);
+  await page.click('#b-sent > div:first-child [data-dismiss]');
+  ok((await page.$$('#b-sent > div')).length === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('tacit-swap-btc-sent-v1')).length)) === 1, 'a settled swap can be dismissed, and stays dismissed');
   // a failure
   await page.evaluate(() => { window.__stub.fail.swap = 'the pool moved past your floor: quote it again'; });
   await type(page, '0.00001');
@@ -282,6 +315,32 @@ console.log('the swap');
   ok(await page.$eval('#b-q', (e) => e.classList.contains('err')) && !(await page.$eval('#b-go', (e) => /Swapping/.test(e.textContent))), 'a swap that fails says why and frees the button');
   ok(errs.length === 0 && csp.length === 0, `no page errors or CSP violations (${errs.concat(csp).join(' | ')})`);
   await page.close();
+}
+
+console.log('a swap sent before a reload');
+{
+  MEMPOOL_STATUS = { confirmed: false };
+  const entry = { txid: 'dd'.repeat(32), from: TETH, to: TAC, din: '2000', quoted: '16564166', floor: '16398524', at: Date.now() - 4 * 60e3, state: 'waiting', block: null };
+  const r = await fresh('/swap/#bitcoin', undefined, { 'tacit-swap-btc-sent-v1': JSON.stringify([entry]) });
+  await laneReady(r.page);
+  await r.page.waitForFunction(() => /Waiting for a Bitcoin block/.test(document.querySelector('#b-sent').textContent), null, { timeout: 8000 });
+  ok(/Sent 4 min ago/.test(await text(r.page, '#b-sent')) && (await calls(r.page, 'swap')).length === 0, 'a swap sent before the page was reloaded is still shown, with its age, and nothing is sent again');
+  await r.page.evaluate(() => { window.__stub.outcome = 'filled'; });
+  await r.page.waitForFunction(() => /Filled/.test(document.querySelector('#b-sent').textContent), null, { timeout: 15000 });
+  ok(/Filled.*0\.00002 tETH → 0\.165 TAC/.test(await text(r.page, '#b-sent')), 'and it is followed to the end: it was filled');
+  await r.page.close();
+  // the explorer does not know it, and it was sent long enough ago for that to mean something: it says so, and that nothing was spent if it was dropped
+  MEMPOOL_STATUS = null;
+  const lost = await fresh('/swap/#bitcoin', undefined, { 'tacit-swap-btc-sent-v1': JSON.stringify([{ ...entry, at: Date.now() - 30 * 60e3 }]) });
+  await laneReady(lost.page);
+  await lost.page.waitForFunction(() => /Not showing on mempool\.space/.test(document.querySelector('#b-sent').textContent), null, { timeout: 8000 });
+  ok(/If it was dropped, nothing was spent/.test(await text(lost.page, '#b-sent')) && !!(await lost.page.$('#b-sent [data-dismiss]')), 'a swap the explorer has never seen says so, that a dropped one spent nothing, and can be dismissed');
+  await lost.page.close();
+  MEMPOOL_STATUS = { confirmed: false };
+  const bad = await fresh('/swap/#bitcoin', undefined, { 'tacit-swap-btc-sent-v1': JSON.stringify([{ ...entry, txid: 'zz', din: 'x' }, { ...entry, at: Date.now() - 3 * 864e5 }]) });
+  await laneReady(bad.page);
+  ok(await bad.page.isHidden('#b-sent'), 'a damaged or day-old record is ignored');
+  await bad.page.close();
 }
 
 console.log('the other direction, and sats');

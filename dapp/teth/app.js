@@ -179,7 +179,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=1f0efeca')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
+    bitcoin ||= (await import('/trade/btc.js?cb=55f893d9')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
       asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH reaches Bitcoin through the bridge: <a href="/#private/bitcoin/out">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
