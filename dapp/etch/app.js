@@ -3,9 +3,9 @@
 // (/trade/btc.js signs them in), not before. The asset is the key's own the moment the reveal is sent, so the front page's wallet lists it as it lists TAC.
 import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618';
 import { day } from '/trade/fmt.js?cb=c07717c4';
-import { loadAssets, readNames, search } from '/etch/find.js?cb=32a2e96a';
+import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
 
-const BTC_MODULE = '/trade/btc.js?cb=5c6f5047';
+const BTC_MODULE = '/trade/btc.js?cb=01d0a051';
 const API = 'https://api.tacit.finance', MEMPOOL = 'https://mempool.space', SCAN = 'https://www.tacitscan.io';
 const MAX_BASE = (1n << 64n) - 1n, DECIMALS = [0, 2, 6, 8];
 const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']), LOGO_MAX = 2 * 1024 * 1024;
@@ -14,7 +14,7 @@ const sats = (n) => Math.round(n).toLocaleString('en-US');
 // The registry's assets, and what this visit etched that it does not list yet (it is read every few minutes), first.
 const known = () => (S.assets ? [...S.mine.filter((m) => !S.assets.some((a) => a.id === m.id)), ...S.assets] : null);
 
-const S = { tab: 'create', dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
+const S = { tab: 'create', dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, working: false, uploading: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
 let bitcoin = null, T = null, laneP = null, quoteKey = '', quoteTimer = 0, warmed = false;
 const ui = { tk: $('#tk'), sup: $('#sup'), dec: $('#dec'), nm: $('#nm'), ds: $('#ds'), ln: $('#ln'), pub: $('#pub'), mint: $('#mint'), lg: $('#lg'), find: $('#find'), list: $('#list') };
 
@@ -64,7 +64,7 @@ function read() {
   let base = null, err = '';
   if (raw) {
     base = parseUnits(raw, S.dec);
-    if (base == null) err = parseUnits(raw, 18) != null ? (S.dec ? `Up to ${S.dec} decimals` : 'Whole numbers only') : 'Enter a number';
+    if (base == null) err = /^\d{1,3},\d{3}$/.test(raw) ? 'Write it without the comma' : parseUnits(raw, 18) != null ? (S.dec ? `Up to ${S.dec} decimals` : 'Whole numbers only') : 'Enter a number';
     else if (base <= 0n) { base = null; err = 'More than zero'; }
     else if (base > MAX_BASE) { base = null; err = `At most ${fmtUnits(MAX_BASE, S.dec, S.dec)}`; }
   }
@@ -72,6 +72,8 @@ function read() {
   return { ticker, tickerOk: /^[A-Z0-9]{1,8}$/.test(ticker), base, supplyOk: base != null, err, linkOk: !link || /^https:\/\//i.test(link) };
 }
 const wantsPin = () => !!(ui.nm.value.trim() || ui.ds.value.trim() || ui.ln.value.trim() || ui.pub.checked);
+// What is etched is what the form held when the button was pressed: its fields can change while the balance is read and the etch is built.
+const snapshot = (r) => ({ ...r, dec: S.dec, name: ui.nm.value, description: ui.ds.value, link: ui.ln.value, logo: S.logo, mint: ui.mint.checked, pub: ui.pub.checked, pin: wantsPin() });
 
 function needQuote() {
   const r = read();
@@ -105,6 +107,8 @@ function readSilent() {
 function goState(r) {
   const unlocked = !!bitcoin?.session.unlocked;
   if (S.busy) return ['Etching…', true];
+  if (S.working) return ['One moment…', true];
+  if (S.uploading) return ['Uploading the logo…', true];
   if (!unlocked) return ['Open your Tacit wallet', false];
   if (!r.tickerOk) return ['Enter a ticker', true];
   if (!r.supplyOk) return ['Enter a supply', true];
@@ -132,6 +136,7 @@ function paint() {
   }
   const [label, off] = goState(r), go = $('#go');
   go.textContent = label; go.disabled = off;
+  $('#edit').inert = S.busy || S.working;
   const f = !S.busy && r.tickerOk && r.supplyOk ? funding() : null;
   const soft = f === 'short' ? `Needs about ${sats(S.quote.need)} sats at your wallet’s address. It holds ${sats(mine)}.`
     : f === 'gather' ? 'Your sats are silent payments: etching first moves them to your wallet’s address, in one more transaction.' : '';
@@ -139,28 +144,30 @@ function paint() {
 }
 
 async function act() {
-  if (S.busy) return;
+  if (S.busy || S.working) return;
+  S.working = true; paint();
   try {
     const b = await lane();
     if (typeof T.etchAsset !== 'function') throw new Error('the wallet library served to this browser is older than the page: reload in a minute');
-    if (!b.session.unlocked) { say(''); await b.signIn(); paint(); return; }
+    if (!b.session.unlocked) { say(''); await b.signIn(); return; }
     const r = read();
     if (!r.tickerOk || !r.supplyOk || !r.linkOk) return;
+    const job = snapshot(r);
     // The balance is read again at the press: an etch is not sent on one read minutes ago. A press on Add sats that finds the sats has arrived only
     // changes the button, and sends nothing.
     const wasShort = funding() === 'short';
     await Promise.all([b.refresh(), readSilent()]);
-    S.quote = await T.etchQuote({ tickerLen: r.ticker.length, imageUri: S.logo?.uri || null, pin: wantsPin() });
+    S.quote = await T.etchQuote({ tickerLen: job.ticker.length, imageUri: job.logo?.uri || null, pin: job.pin });
     if (funding() === 'short') { paint(); b.fund({ sats: S.quote.need - (b.me?.sats || 0) }); return; }
-    if (wasShort) { paint(); return; }
-    await etch(r);
+    if (wasShort) return;
+    await etch(job);
   } catch (e) {
     if (e?.unlockCancelled) return;
     say(esc(e?.message || String(e)), 'err');
-  }
+  } finally { S.working = false; paint(); }
 }
 
-async function etch(r) {
+async function etch(job) {
   let reached = '';
   S.busy = true; paint();
   try {
@@ -171,12 +178,12 @@ async function etch(r) {
     }
     say('Proving the supply…');
     const out = await T.etchAsset({
-      ticker: r.ticker, supply: r.base, decimals: S.dec, name: ui.nm.value, description: ui.ds.value, externalUrl: ui.ln.value,
-      imageUri: S.logo?.uri || null, mintable: ui.mint.checked, publishSupply: ui.pub.checked,
+      ticker: job.ticker, supply: job.base, decimals: job.dec, name: job.name, description: job.description, externalUrl: job.link,
+      imageUri: job.logo?.uri || null, mintable: job.mint, publishSupply: job.pub,
       onProgress: (st) => { reached = st; say(st === 'commit-start' ? 'Sending the first transaction…' : st === 'reveal-start' ? 'Sending the second…' : 'Proving the supply…'); },
     });
-    S.done = { ...out, ticker: r.ticker, base: r.base, dec: S.dec, logo: S.logo?.url || null };
-    rememberMine(out, r);
+    S.done = { ...out, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, details: !!(job.name.trim() || job.description.trim() || job.link.trim()) };
+    rememberMine(out, job);
     bitcoin.refresh().catch(() => {});
     showDone();
   } catch (e) {
@@ -186,11 +193,11 @@ async function etch(r) {
 }
 
 // The asset this visit etched, kept for Discover until the registry lists it.
-function rememberMine(out, r) {
-  const t = r.ticker.toLowerCase(), earlier = (S.assets || []).filter((a) => a.ticker.toLowerCase() === t).length, name = ui.nm.value.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
+function rememberMine(out, job) {
+  const t = job.ticker.toLowerCase(), earlier = (S.assets || []).filter((a) => a.ticker.toLowerCase() === t).length, name = job.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
   S.mine.unshift({
-    id: out.assetIdHex, ticker: r.ticker, decimals: S.dec, etchTxid: out.revealTxid, at: Math.floor(Date.now() / 1000), height: Infinity, mintable: ui.mint.checked, verified: false,
-    supply: out.supplyPublished ? r.base : null, holders: 1, cid: null, name: name.toLowerCase() === t ? '' : name, logo: S.logo?.url || null, later: earlier > 0, same: earlier, pending: true,
+    id: out.assetIdHex, ticker: job.ticker, decimals: job.dec, etchTxid: out.revealTxid, at: Math.floor(Date.now() / 1000), height: Infinity, mintable: job.mint, verified: false,
+    supply: out.supplyPublished ? job.base : null, holders: 1, cid: null, name: name.toLowerCase() === t ? '' : name, logo: job.logo ? ipfs(job.logo.uri.slice(7)) : null, later: earlier > 0, same: earlier, pending: true,
   });
 }
 function showDone() {
@@ -204,7 +211,7 @@ function showDone() {
     </div>
     <a class="btn" href="/#bitcoin/${esc(d.assetIdHex)}">Open it in your wallet</a>
     <button class="btn ghost" type="button" id="again">Etch another</button>
-    <p class="q">It shows in Discover within a few minutes.</p>`;
+    <p class="q${d.details && d.metadataPinned === false ? ' err' : ''}">${d.details && d.metadataPinned === false ? 'The name and details could not be saved with it. The asset itself is etched.' : 'It shows in Discover within a few minutes.'}</p>`;
   paintMark($('#d-mark'), d.ticker, d.assetIdHex, d.logo);
   $('#edit').hidden = true; $('.act').hidden = true; done.hidden = false;
   $('#again').onclick = reset;
@@ -231,6 +238,7 @@ ui.lg.addEventListener('change', async () => {
   if (!LOGO_TYPES.has(f.type)) return lgSay('PNG, JPEG or WebP', true);
   if (f.size > LOGO_MAX) return lgSay('2 MB at most', true);
   lgSay('Uploading…');
+  S.uploading = true; paint();
   const url = URL.createObjectURL(f);
   try {
     const fd = new FormData();
@@ -243,6 +251,7 @@ ui.lg.addEventListener('change', async () => {
     lgSay(''); $('#lg-x').hidden = false; paintMark($('#lg-mark'), '', '', url);
     paint(); needQuote();
   } catch (e) { URL.revokeObjectURL(url); lgSay(e?.message || 'The upload failed', true); }
+  finally { S.uploading = false; paint(); }
 });
 $('#lg-x').addEventListener('click', () => {
   if (S.logo) URL.revokeObjectURL(S.logo.url);

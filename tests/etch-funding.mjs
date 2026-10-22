@@ -36,12 +36,12 @@ const T = {
   wallet: { pub: new Uint8Array(33), address: () => ADDR },
   hash160: () => new Uint8Array(20), bytesToHex: () => 'ab'.repeat(20),
   getUtxos: async () => (W.sats ? [{ txid: 'ee'.repeat(32), vout: 0, value: W.sats }] : []),
-  scanHoldings: async () => new Map(), bridgedAtTaproot: async () => ({ count: 0 }),
+  scanHoldings: async () => new Map(), bridgedAtTaproot: () => { if (W.readFails > 0) { W.readFails--; throw new Error('the read failed'); } return Promise.resolve({ count: 0 }); },
   extWallet: { state: { provider: 'sats-connect', address: 'bc1qext' }, sendSats: async (to, n) => { rec('sendSats', { to, n }); if (W.refuse) throw new Error('User rejected the request'); W.sats += n; return 'ab'.repeat(32); } },
-  etchQuote: async () => ({ rate: 5, fee: 2100, need: W.need }),
+  etchQuote: async () => { if (W.slow) await new Promise((r) => setTimeout(r, W.slow)); return { rate: 5, fee: 2100, need: W.need }; },
   silentSats: async () => W.silent,
   gatherSats: async (n) => { rec('gather', n); W.sats += n; W.silent -= n; return 'dd'.repeat(32); },
-  etchAsset: async (o) => { rec('etch', { ticker: o.ticker }); return { commitTxid: 'c1'.repeat(32), revealTxid: 'e2'.repeat(32), assetIdHex: 'a7'.repeat(32), metadataPinned: true, supplyPublished: true }; },
+  etchAsset: async (o) => { rec('etch', { ticker: o.ticker, supply: String(o.supply), decimals: o.decimals }); return { commitTxid: 'c1'.repeat(32), revealTxid: 'e2'.repeat(32), assetIdHex: 'a7'.repeat(32), metadataPinned: true, supplyPublished: true }; },
 };
 const opener = (mode) => async () => { key = { mode, pubHex: '02' + 'ab'.repeat(32), address: 'bc1qext' }; emit(); };
 export const short = (a) => a;
@@ -179,6 +179,51 @@ console.log('\nSats that arrive after the balance was read:');
   await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch ORANGE', null, { timeout: 8000 });
   ok(true, 'coming back to the page reads the balance again, and the button follows');
   ok((await calls(page, 'etch')).length === 0, 'with nothing sent');
+  await page.close();
+}
+
+
+console.log('\nA button pressed twice:');
+{
+  const { page } = await fresh({ sats: 60000, slow: 600 });
+  await signIn(page, 'eth');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch ORANGE');
+  await page.click('#go');
+  await page.evaluate(() => document.querySelector('#form').requestSubmit());      // Enter in a field, or a second press, while the first is still being prepared
+  await page.evaluate(() => document.querySelector('#go').click());
+  await page.waitForSelector('#done:not([hidden])');
+  await page.waitForTimeout(1200);
+  ok((await calls(page, 'etch')).length === 1, 'is one etch, not two');
+  await page.close();
+}
+
+console.log('\nA form changed while the etch is prepared:');
+{
+  const { page } = await fresh({ sats: 60000, slow: 800 });
+  await signIn(page, 'eth');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch ORANGE');
+  await page.click('#go');
+  await page.waitForFunction(() => document.querySelector('#go').disabled);
+  ok(await page.$eval('#edit', (e) => e.inert), 'the form is put out of reach while it runs');
+  await page.evaluate(() => { document.querySelector('#sup').value = '999'; document.querySelector('[data-d="0"]').click(); });     // changed behind the page's back
+  await page.waitForSelector('#done:not([hidden])');
+  const e = (await calls(page, 'etch'))[0].args;
+  ok(e.supply === '100000000000' && e.decimals === 8, `what is etched is what was on the form at the press (${e.supply}, ${e.decimals} decimals)`);
+  ok(/1,000 ORANGE/.test(await text(page, '#done .kvs')), 'and what is said to be etched');
+  await page.close();
+}
+
+console.log('\nA failed read while sats are on their way:');
+{
+  const { page } = await fresh({ sats: 0 });
+  await signIn(page, 'btc');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Add sats');
+  await page.click('#go');
+  await page.waitForSelector('.bsheet [data-send]');
+  await page.evaluate(() => { window.__w.readFails = 1; });
+  await page.click('.bsheet [data-send]');
+  await page.waitForFunction(() => !document.querySelector('.bsheet'), null, { timeout: 20000 });
+  ok(true, 'the sheet still closes once they show: a read that fails is tried again');
   await page.close();
 }
 

@@ -121,7 +121,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
         st.textContent = 'Sent. Waiting for Bitcoin to show it…';
         for (let i = 0; i < 24 && !o.closed; i++) {
           await sleep(2500);
-          await refreshMe();
+          await refreshMe().catch(() => {});                                        // a read that fails is not a transfer that failed: it is tried again
           if ((meState?.sats ?? 0) >= before + send) { o.close(); return; }
         }
         if (!o.closed) st.textContent = 'Sent. It shows here once Bitcoin has it.';

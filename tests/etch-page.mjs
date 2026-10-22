@@ -49,7 +49,7 @@ const calls = { assets: 0, batch: 0, pin: 0 };
 
 // ── the stand-in for /trade/btc.js ──
 const STUB = `
-const W = window.__stub = { calls: [], unlocked: false, sats: 60000, need: 4000, failAt: null, holdAt: null, signInFails: false };
+const W = window.__stub = { calls: [], unlocked: false, sats: 60000, need: 4000, failAt: null, holdAt: null, signInFails: false, noPin: false };
 const rec = (name, args) => W.calls.push({ name, args });
 const hold = (at) => (W.holdAt === at ? new Promise((r) => { W.release = r; }) : Promise.resolve());
 const T = {
@@ -61,7 +61,7 @@ const T = {
     if (W.failAt === 'commit') throw new Error('broadcast refused');
     o.onProgress?.('reveal-start'); await hold('reveal');
     if (W.failAt === 'reveal') throw new Error('reveal refused');
-    return { commitTxid: 'c1'.repeat(32), revealTxid: 'e2'.repeat(32), assetIdHex: 'a7'.repeat(32), metadataPinned: true, supplyPublished: !!o.publishSupply };
+    return { commitTxid: 'c1'.repeat(32), revealTxid: 'e2'.repeat(32), assetIdHex: 'a7'.repeat(32), metadataPinned: W.noPin ? false : true, supplyPublished: !!o.publishSupply };
   },
 };
 let me = null;
@@ -98,7 +98,7 @@ async function fresh(path = '/etch/', viewport = { width: 1100, height: 1000 }, 
       for (const c of ids) blobs[c] = BLOBS[c] || { error: 'not json' };
       return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ blobs }) });
     }
-    if (u.pathname === '/pin') { calls.pin++; return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ cid: cid(777) }) }); }
+    if (u.pathname === '/pin') { calls.pin++; if (calls.pinDelay) await sleep(calls.pinDelay); return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ cid: cid(777) }) }); }
     if (u.pathname.startsWith('/ipfs/')) return route.fulfill({ status: 200, contentType: 'image/svg+xml', headers: cors, body: LOGO });
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
   });
@@ -328,6 +328,47 @@ console.log('\nThe logo:');
   await page.click('#go');
   await page.waitForSelector('#done:not([hidden])');
   ok((await calls_(page, 'etch'))[0].args.imageUri === `ipfs://${cid(777)}`, 'its CID goes to the etch as ipfs://');
+  await page.close();
+}
+
+
+console.log('\nA logo still uploading, and a name that was not saved:');
+{
+  const { page } = await fresh();
+  await type(page, '#tk', 'late');
+  await type(page, '#sup', '5');
+  await page.waitForFunction(() => window.__stub);
+  await page.click('#go');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch LATE');
+  await page.evaluate(() => { window.__stub.noPin = true; });
+  calls.pinDelay = 1200;
+  await page.click('#more > summary');
+  await type(page, '#nm', 'Late Coin');
+  await page.setInputFiles('#lg', { name: 'x.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') });
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Uploading the logo…');
+  ok(await page.$eval('#go', (g) => g.disabled), 'the button waits while the logo uploads, so it is not etched without it');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch LATE');
+  calls.pinDelay = 0;
+  await page.click('#go');
+  await page.waitForSelector('#done:not([hidden])');
+  ok((await calls_(page, 'etch'))[0].args.imageUri === `ipfs://${cid(777)}`, 'and then it is etched with it');
+  ok(/The name and details could not be saved with it\. The asset itself is etched\./.test(await text(page, '#done .q')) && (await page.$eval('#done .q', (q) => q.classList.contains('err'))), 'a name that the pin lost is said to be lost');
+  await page.click('#again');
+  await page.click('#t-find');
+  await page.waitForSelector('#list .as');
+  ok(await page.$eval('#list .as img.tk', (i) => i.src.startsWith('https://api.tacit.finance/ipfs/')), 'its logo in Discover is the pinned one, not a page-local copy that "Etch another" revoked');
+  await page.close();
+}
+{
+  const { page } = await fresh();
+  await type(page, '#tk', 'keys');
+  await page.click('#more > summary');
+  await page.focus('#lg');
+  ok(await page.evaluate(() => document.activeElement.id === 'lg'), 'the logo’s file field takes the keyboard’s focus');
+  await type(page, '#sup', '1,000');
+  ok((await text(page, '#sup-note')) === 'Write it without the comma', '1,000 is not guessed at, and the line says what to do');
+  await type(page, '#sup', '1,000,000');
+  ok((await text(page, '#sup-note')) === '', 'while 1,000,000 reads');
   await page.close();
 }
 
