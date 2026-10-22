@@ -103,16 +103,21 @@ export function makeBurndepAdmission({ env, api, apiRawBytes, network, kit, deps
   // records: [{ record, field }] where record[field] is the protocol tx (`tx`, or a cmint's `revealTx`). Each comes back
   // with `proof` and the block's own bytes in `field`: a record whose bytes differ from the block's only outside the txid
   // (its witness) is made exact, and one that is not in its block at all throws, as before.
-  async function withInclusion(records) {
+  // `onProgress(done, total)` hears how many of the records have their place in a block (kept before, or read now), once the kept
+  // ones are counted and again after each block read: a caller that waits on a deep history can say how far it is.
+  async function withInclusion(records, onProgress = null) {
     const out = new Array(records.length);
     const misses = [];
+    let done = 0;
+    const tell = () => { if (onProgress) { try { onProgress(done, records.length); } catch { /* a closed view */ } } };
     await mapLimit(records.map((_, i) => i), async (i) => {
       const { record, field } = records[i];
       const txid = kit.computeTxidInternal(record[field]).toLowerCase();
       const kept = await keptInclusion(txid);
-      if (kept) out[i] = { ...record, [field]: kept.tx, proof: kept.proof };
+      if (kept) { out[i] = { ...record, [field]: kept.tx, proof: kept.proof }; done++; }
       else misses.push({ i, txid });
     });
+    tell();
     const byBlock = new Map();
     for (const m of misses) {
       const hash = await blockHashOf(records[m.i].record);
@@ -132,23 +137,25 @@ export function makeBurndepAdmission({ env, api, apiRawBytes, network, kit, deps
         const { record, field } = records[m.i];
         out[m.i] = { ...record, [field]: parsed[index].rawHex, proof };
         if (env.REGISTRY_KV) await env.REGISTRY_KV.put(inclusionKey(m.txid), JSON.stringify({ proof, tx: parsed[index].rawHex })).catch(() => {});
+        done++;
       }
+      tell();
     });
     return out;
   }
 
-  async function enrichBurnDeposit(bundle) {
+  async function enrichBurnDeposit(bundle, onProgress = null) {
     // etch is OPTIONAL (see buildBurnDepositCtx / cxfer-core ProvenanceBlob): a bundle relying solely on
     // pool-membership shortcuts carries no etch at all, so there is nothing to fetch witness data for.
     const cx = bundle.cxfers || [], cm = bundle.cmints || [];
-    const done = await withInclusion([
+    const placed = await withInclusion([
       ...(bundle.etch ? [{ record: bundle.etch, field: 'tx' }] : []),
       ...cx.map((record) => ({ record, field: 'tx' })),
       ...cm.map((record) => ({ record, field: 'revealTx' })),
-    ]);
-    const etch = bundle.etch ? done.shift() : null;
-    const cxfers = done.splice(0, cx.length);
-    const cmints = done;
+    ], onProgress);
+    const etch = bundle.etch ? placed.shift() : null;
+    const cxfers = placed.splice(0, cx.length);
+    const cmints = placed;
     // The burn tx's OWN witness-commitment inclusion proof — a separate BIP141 authentication from the
     // provenance/etch chain above (that proves the BURNED NOTE is real supply; this proves the 0x2B burn
     // ENVELOPE itself is really confirmed in its block). Required unconditionally by write_stdin.

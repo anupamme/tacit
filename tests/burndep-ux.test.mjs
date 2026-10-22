@@ -529,6 +529,38 @@ let rec;
   ok(r.stage === 'traced' && r.checkWait && !r.checkWait.progress && !r.checkWait.busy && !r.lastError, 'a state it does not know says nothing');
 }
 
+// ==== a check that runs says what it is doing: so many transactions read, then checking; a phase it does not know is left out ====
+{
+  const world = makeWorld();
+  const answers = [
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'running', ahead: 0, runningSec: 90, phase: 'reading', done: 88, total: 132, owner: 'x' } }) }),
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'running', ahead: 0, runningSec: 300, phase: 'verifying', done: 'many', total: 132 } }) }),
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'running', ahead: 0, runningSec: 10, phase: 'sideways', done: 1, total: 2 } }) }),
+    () => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, progress: { state: 'queued', ahead: 1, runningSec: 0, phase: 'reading', done: 5, total: 9 } }) }),
+  ];
+  let asked = 0;
+  const fetchImpl = async (url, opts) => (new URL(url).pathname === '/reflection/burndep/check' && asked < answers.length ? answers[asked++]() : world.fetchImpl(url, opts));
+  const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+  let r = await ux.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+  const pr = r.checkWait && r.checkWait.progress;
+  ok(pr && pr.state === 'running' && pr.phase === 'reading' && pr.done === 88 && pr.total === 132 && pr.runningSec === 90 && !('owner' in pr), 'a check that is reading keeps how many transactions it has read of how many, and only the public numbers');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.checkWait.progress.phase === 'verifying' && r.checkWait.progress.done === 0 && r.checkWait.progress.total === 132, 'a nonsense count is kept as zero, the phase and the total as sent');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.checkWait.progress.state === 'running' && !('phase' in r.checkWait.progress), 'a phase it does not know is left out');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.checkWait.progress.state === 'queued' && !('phase' in r.checkWait.progress), 'a check still in line carries no phase');
+}
+
 // ==== the move's change pays its own burn, and is held for it: a busy check is waited out, and the burn asked about again is the
 // same one, so the API joins the check it has rather than starting another ====
 {

@@ -384,11 +384,13 @@ export function makeBurnDepositUx(deps) {
     return putRecord({ ...rec, stage: 'rburn-mined', burnHeight: Number(t.status.block_height), lastError: null, errorCount: 0 });
   }
 
-  // The public part of an API's 202 answer: where the check stands in its line.
+  // The public part of an API's 202 answer: where the check stands in its line, and once it runs what it is doing (reading the
+  // blocks of the history, so many of so many transactions; building the header chain; verifying every transfer).
   function waitProgress(p) {
     if (!p || (p.state !== 'queued' && p.state !== 'running')) return {};
     const n = (x) => (Number.isFinite(Number(x)) && Number(x) >= 0 ? Math.round(Number(x)) : 0);
-    return { progress: { state: p.state, ahead: n(p.ahead), runningSec: n(p.runningSec) } };
+    const doing = p.state === 'running' && (p.phase === 'reading' || p.phase === 'headers' || p.phase === 'verifying') ? { phase: p.phase, done: n(p.done), total: n(p.total) } : {};
+    return { progress: { state: p.state, ahead: n(p.ahead), runningSec: n(p.runningSec), ...doing } };
   }
 
   // A history the reflection guest cannot follow back to the etch: some transfer in it spends an output that no transfer made

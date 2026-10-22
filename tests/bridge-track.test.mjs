@@ -242,6 +242,10 @@ test('a bridge waiting on its history check says where the check stands, and not
   assert.equal(note({ at: NOW, progress: { state: 'queued', ahead: 0, runningSec: 0 } }), 'it is next');
   assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 30 } }), 'checking now');
   assert.equal(note({ at: NOW - 90e3, progress: { state: 'running', ahead: 0, runningSec: 150 } }), 'checking now, 4 min in', 'the time since the answer is added');
+  assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 90, phase: 'reading', done: 88, total: 132 } }), 'reading its history from Bitcoin, 88 of 132 transactions');
+  assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 200, phase: 'verifying', done: 132, total: 132 } }), 'checking its 132 transactions now');
+  assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 200, phase: 'headers', done: 132, total: 132 } }), 'checking its 132 transactions now');
+  assert.equal(note({ at: NOW, progress: { state: 'running', ahead: 0, runningSec: 200, phase: 'reading', done: 0, total: 0 } }), 'checking now, 3 min in', 'with nothing counted it says what it can');
   assert.equal(note({ at: NOW, busy: true }), 'the check is busy with others, so it asks again by itself');
   assert.equal(note({ at: NOW - 4 * 60e3, progress: { state: 'queued', ahead: 2, runningSec: 0 } }), '', 'an answer from minutes ago says nothing');
   assert.equal(note({ at: NOW }), '');
@@ -263,6 +267,8 @@ test('the front page words the same wait, from the same facts', () => {
       { at: NOW, progress: { state: 'queued', ahead: 2, runningSec: 0 } }, { at: NOW, progress: { state: 'queued', ahead: 1, runningSec: 0 } },
       { at: NOW, progress: { state: 'queued', ahead: 0, runningSec: 0 } }, { at: NOW, progress: { state: 'running', ahead: 0, runningSec: 30 } },
       { at: NOW - 90e3, progress: { state: 'running', ahead: 0, runningSec: 150 } }, { at: NOW, busy: true }, { at: NOW - 4 * 60e3, busy: true }, { at: NOW }, null,
+      { at: NOW, progress: { state: 'running', ahead: 0, runningSec: 90, phase: 'reading', done: 88, total: 132 } }, { at: NOW, progress: { state: 'running', ahead: 0, runningSec: 200, phase: 'verifying', done: 132, total: 132 } },
+      { at: NOW, progress: { state: 'running', ahead: 0, runningSec: 200, phase: 'reading', done: 0, total: 0 } },
     ];
     for (const cw of cases) {
       const page = brCheckNote(cw), bridge = checkNote(cw, NOW);

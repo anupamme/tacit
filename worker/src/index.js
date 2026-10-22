@@ -2461,9 +2461,19 @@ async function handleBridgeRecoverMark(req, env, url, cors) {
 // one-at-a-time queue and tens of seconds of CPU). Only new work spends a rate-limit token.
 const _burndepChecks = new Map(); // `${network}:${sha256(body)}` -> { work, out, at, progress }
 const BURNDEP_CHECK_KEEP_MS = 10 * 60_000;
-// The longest an unanswered check can honestly be pending: the whole queue ahead of it, each held to the thread's time limit.
+// The longest an unanswered check can honestly be pending: the whole queue ahead of it (1 running and up to 3 waiting), each held
+// to the thread's longest limit (server/burndep-check-thread.mjs, 25 minutes for the deepest history), and its own run after.
 // One older than that is not waiting for anything, and asking again starts it afresh.
-const BURNDEP_CHECK_STALE_MS = 30 * 60_000;
+const BURNDEP_CHECK_STALE_MS = 105 * 60_000;
+// A history longer than the registration door takes (BURNDEP_MAX_HOPS) can never be registered, so checking it only holds the one
+// lane for as long as the thread allows, every time it is asked: it is refused here, before it takes a place in line or a token.
+function _burndepTooLong(bundle) {
+  for (const field of ['cxfers', 'cmints']) {
+    const val = bundle && bundle[field];
+    if (Array.isArray(val) && val.length > BURNDEP_MAX_HOPS) return `bundle.${field} has ${val.length} hops (max ${BURNDEP_MAX_HOPS})`;
+  }
+  return null;
+}
 function _burndepCheckFor(key) {
   const t = Date.now();
   for (const [k, e] of _burndepChecks) if (t - e.at > (e.out ? BURNDEP_CHECK_KEEP_MS : BURNDEP_CHECK_STALE_MS)) _burndepChecks.delete(k);
@@ -2474,6 +2484,8 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
   let text, body;
   try { text = await req.text(); body = JSON.parse(text); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  const tooLong = _burndepTooLong(body && body.bundle);
+  if (tooLong) return jsonResponse({ ok: false, error: tooLong }, 400, { ...cors, 'Cache-Control': 'no-store' });
   const key = `${network}:${bytesToHex(sha256(new TextEncoder().encode(text)))}`;
   let entry = _burndepCheckFor(key);
   if (!entry) {
@@ -2513,9 +2525,14 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   return jsonResponse(out.body, out.status, headers);
 }
 // The check itself: → { status, body }, with nothing of the request or the response in it, so a worker thread can run it.
-export async function burnDepositCheckOutcome(env, network, body) {
+// `hooks.phase(name, { done, total })` hears where the check is as it goes ('reading' the blocks of its history, building the 'headers',
+// 'verifying' every transfer), for a thread that tells its caller.
+export async function burnDepositCheckOutcome(env, network, body, hooks = null) {
   const bundle = body && body.bundle;
   if (!bundle || typeof bundle !== 'object') return { status: 400, body: { ok: false, error: 'missing bundle object' } };
+  const tooLong = _burndepTooLong(bundle);
+  if (tooLong) return { status: 400, body: { ok: false, error: tooLong } };
+  const phase = (name, info = {}) => { if (hooks && typeof hooks.phase === 'function') { try { hooks.phase(name, info); } catch { /* a closed caller */ } } };
   const burned = bundle.burned;
   const HEX32 = /^(0x)?[0-9a-fA-F]{64}$/;
   if (!burned || !HEX32.test(String(burned.cx || '')) || !HEX32.test(String(burned.cy || ''))) {
@@ -2564,8 +2581,10 @@ export async function burnDepositCheckOutcome(env, network, body) {
   const t0 = Date.now();
   let tEnriched = t0, tHeaders = t0;
   try {
-    enriched = await admission.enrichBurnDeposit(bundle);
+    phase('reading', { done: 0, total: (bundle.etch ? 1 : 0) + (bundle.cxfers || []).length + (bundle.cmints || []).length });
+    enriched = await admission.enrichBurnDeposit(bundle, (done, total) => phase('reading', { done, total }));
     tEnriched = Date.now();
+    phase('headers');
     withHeaders = await admission.buildOrExtendProvHeaders(enriched, anchorHeight);
     tHeaders = Date.now();
   } catch (e) {
@@ -2594,6 +2613,7 @@ export async function burnDepositCheckOutcome(env, network, body) {
 
   let verdict;
   try {
+    phase('verifying', { total: hops });
     verdict = admission.admit({ burnTxHex, envAsset, envNu, blobHex, provHeaders, burnedCx, burnedCy, batchPrevHash });
   } catch (e) {
     return timed({ status: 200, body: { ok: true, network, admitted: false, reason: `admission check threw: ${e && e.message || e}`, hops, headerChainLength: provHeaders.length, anchorHeight } });

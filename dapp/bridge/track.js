@@ -89,7 +89,8 @@ export function inDue(r, now = Date.now(), plan = null) {
 }
 
 // What the API last said about a bridge's history check, as a fragment ('' when it said nothing or has not been heard from for
-// minutes): so many checks ahead of it, or running for so long, or the line full. Only `progress` and `busy` are read out of
+// minutes): so many checks ahead of it, or what it is doing while it runs (reading its history, so many of so many transactions, or
+// checking them), or the line full. Only `progress` and `busy` are read out of
 // the record's `checkWait`. The front page words the same fragment in its own copy (brCheckNote, dapp/index.html).
 const CHECK_NOTE_FRESH_MS = 3 * 60_000;
 export function checkNote(cw, now = Date.now()) {
@@ -98,6 +99,8 @@ export function checkNote(cw, now = Date.now()) {
   const p = cw.progress;
   if (p && p.state === 'queued') return p.ahead < 1 ? 'it is next' : p.ahead === 1 ? 'one check is ahead of it' : `${p.ahead} checks are ahead of it`;
   if (p && p.state === 'running') {
+    if (p.phase === 'reading' && p.total > 0) return `reading its history from Bitcoin, ${p.done} of ${p.total} transactions`;
+    if ((p.phase === 'headers' || p.phase === 'verifying') && p.total > 0) return `checking its ${p.total} transactions now`;
     const m = Math.floor((Number(p.runningSec || 0) + (now - Number(cw.at)) / 1000) / 60);
     return m < 1 ? 'checking now' : `checking now, ${m} min in`;
   }
