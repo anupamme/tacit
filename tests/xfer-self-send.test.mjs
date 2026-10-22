@@ -66,7 +66,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
   if (u.includes('/scripthash/')) return json([]);
-  if (u.includes(`/address/${ADDR}/utxo`)) return json([{ txid: 'ee'.repeat(32), vout: 0, value: 5_000_000, status: { confirmed: true } }]);
+  if (u.includes(`/address/${ADDR}/utxo`)) { dapp._testClearRecentSpends(); return json([{ txid: 'ee'.repeat(32), vout: 0, value: 5_000_000, status: { confirmed: true } }]); }  // this chain never remembers a spend
   if (method === 'POST' && u.endsWith('/tx')) {
     if (!broadcasts.some((b) => b.hex === opts.body)) broadcasts.push({ hex: opts.body });
     return text('0'.repeat(64));

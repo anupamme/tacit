@@ -143,6 +143,10 @@ function amtFmt(v, dec) {
   return fmtUnits(v, dec, Math.min(dp, dec));
 }
 const tidy = (s) => s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+// Private amounts are counted in 8 decimals, the pool's unit: a longer amount (Max on a wallet balance, a pasted figure) is cut there, never refused.
+const fitAmt = (s, mode = S.mode) => (mode === 'private' ? String(s).replace(/([.,]\d{8})\d+$/, '$1') : s);
+// What a swap from the wallet's ETH leaves behind for the network fee, in wei: what Max keeps back, and what an amount is checked against.
+const gasKeep = () => (S.gasPrice || 3n * 10n ** 9n) * 400000n;
 function usdOf(k, wei) {
   const t = tokenOf(k), p = S.px;
   if (!t || wei == null) return null;
@@ -238,7 +242,7 @@ async function quote(my, wei) {
   }
   if (kind === 'amm') {
     const q = await R.quoteAmm({ ethCall, tokenIn: isEth(S.pay) ? R.ZERO : S.pay, tokenOut: isEth(S.get) ? R.ZERO : S.get, amountIn: wei });
-    if (!q) return done({ rows: [], why: wei < R.UNIT ? 'Enter a larger amount.' : 'The Tacit pool has no price for this pair right now.' });
+    if (!q) return done({ rows: [], why: wei < R.UNIT ? 'Enter a larger amount.' : 'The Tacit pool has no price for this pair right now.', tiny: wei < R.UNIT });
     return done({ rows: [{ k: 'amm', name: 'Tacit pool', note: '', out: q.amountOut, amm: q, gas: isEth(S.pay) ? GAS.amm : GAS.ammIn, best: true }], dust: wei - q.amountIn });
   }
   if (kind === 'any') {
@@ -267,7 +271,7 @@ async function quote(my, wei) {
   const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
   const stops = from === 'eth' || to === 'eth' ? [to] : ['eth', to];
   const f0 = BigInt(await t.quoteOpFee(POOL_TK[from], 'route')), fee = stops.length > 1 ? twoDigits((f0 * 14n) / 10n) : f0;
-  if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay’s fee is ${fmtUnits(fee, 8, 6)}.` });
+  if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay’s fee is ${fmtUnits(fee, 8, 6)}.`, tiny: true });
   let cur = id(from), amt = units - fee;
   for (const k of stops) {
     const next = id(k);
@@ -424,8 +428,14 @@ function button(q, r, kind, gate) {
   if (!kind) return ['Choose another pair', false];
   if (!S.amt || !parseUnits(S.amt, pay.dec)) return ['Enter an amount', false];
   if (q?.busy) return ['Finding the best price…', false];
-  if (!r) return [q?.err ? 'Try again' : 'No route', !!q?.err];
-  if (kind === 'private') return [S.get === 'teth' && isEth(S.pay) ? 'Make it private →' : 'Continue privately →', true, 'priv'];
+  if (!r) return [q?.err ? 'Try again' : q?.tiny ? 'Amount too small' : 'No route', !!q?.err];
+  if (kind === 'private') {
+    // The wallet's ETH is the one thing known here (a private balance is only in the console), so that is the one balance an amount is held to.
+    const bal = isEth(S.pay) && W.account ? S.bal[S.pay] : null;
+    if (bal != null && q.wei > bal) return [`Not enough ${pay.sym}`, false];
+    if (bal != null && q.wei + gasKeep() > bal) return ['Leave some ETH for the network fee', false];
+    return [S.get === 'teth' && isEth(S.pay) ? 'Make it private →' : 'Continue privately →', true, 'priv'];
+  }
   if (S.toBad) return ['Check the address', false];
   if (!W.account) return ['Connect wallet', true];
   const bal = S.bal[S.pay], wei = q.wei;
@@ -589,8 +599,9 @@ async function approve(token, spender, amount, from, had) {
   if ((await wallet.receipt(h)).status !== '0x1') throw new Error('The approval did not go through.');
 }
 function privateLink() {
-  const amt = tidy((S.amt || '').replace(/,/g, '').replace(/(\.\d{8})\d+$/, '$1'));
-  const ok = /^\d{0,12}(\.\d{1,18})?$/.test(amt) && amt ? `&amt=${amt}` : '';
+  // from the amount as it was read (a lone comma is a decimal point there), so the console is handed what the quote above priced
+  const units = parseUnits(S.amt, 8), amt = units ? plain(units, 8) : '';
+  const ok = /^\d{1,12}(\.\d{1,8})?$/.test(amt) ? `&amt=${amt}` : '';
   if (isEth(S.pay) && S.get === 'teth') return `/#card=shield:ether:defi${ok}`;
   return `/#card=swap:${KEY[S.pay]}:${KEY[S.get]}:private${ok}`;
 }
@@ -710,14 +721,14 @@ function readUrl() {
   if (f) S.pay = f; if (t) S.get = t;
   if (!kindOf(S.pay, S.get)) fit(t ? 'get' : 'pay');
   const a = p.get('amt');
-  if (a && (f || !p.get('from')) && parseUnits(a, tokenOf(S.pay).dec)) S.amt = a;
+  if (a && (f || !p.get('from')) && parseUnits(a, tokenOf(S.pay).dec)) S.amt = fitAmt(a);
   if (location.hash === '#earn') S.tab = 'earn';
   else if (location.hash === '#bitcoin') S.btc = true;
 }
 
 function slipPaint() { $('#slip').innerHTML = [10, 50, 100, 300].map((b) => `<button type="button" data-slip="${b}" aria-pressed="${S.slip === b}">${b / 100}%</button>`).join(''); }
 $('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); try { localStorage.setItem(SLIP_KEY, String(S.slip)); } catch { } slipPaint(); if (S.q) requote(true); else paintQuote(); });
-$('#amt').addEventListener('input', (e) => { S.amt = e.target.value.trim(); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
+$('#amt').addEventListener('input', (e) => { S.amt = fitAmt(e.target.value.trim()); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#pay-coin').addEventListener('click', () => openPicker('pay'));
 for (const ev of ['pointerenter', 'focus', 'touchstart']) $('#pay-coin').addEventListener(ev, () => { loadList(); }, { once: true, passive: true });
@@ -739,8 +750,8 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('#max')) {
     const t = tokenOf(S.pay), bal = S.bal[S.pay];
     if (bal == null) return;
-    const keep = isEth(S.pay) ? (S.gasPrice || 3n * 10n ** 9n) * 400000n : 0n, v = bal > keep ? bal - keep : 0n;
-    S.amt = tidy(plain(v, t.dec)); S.max = true; S.note = ''; keepUrl(); paintSides(); requote(true); return;
+    const keep = isEth(S.pay) ? gasKeep() : 0n, v = bal > keep ? bal - keep : 0n;
+    S.amt = tidy(fitAmt(plain(v, t.dec))); S.max = true; S.note = ''; keepUrl(); paintSides(); requote(true); return;
   }
   const m = e.target.closest('[data-mode-go]');
   if (m) { setMode(m.dataset.modeGo); return; }
@@ -748,7 +759,7 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('[data-farm-it]')) farmIt();
 });
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
-function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
+function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.amt = fitAmt(S.amt); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
 for (const ev of ['pointerenter', 'focus', 'touchstart']) document.querySelector('.mode [data-mode="private"]').addEventListener(ev, warmPrivate, { once: true, passive: true });
 document.querySelector('.mode').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mode]'); if (!b) return;
@@ -762,7 +773,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=f3b98891')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=05eafe2c')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
 }

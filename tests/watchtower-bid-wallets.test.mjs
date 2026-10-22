@@ -49,6 +49,7 @@ globalThis.fetch = async (url, init) => {
   if (m) {
     const addr = m[1];
     if (m[2]) {
+      dapp._testClearRecentSpends();   // this chain keeps its own record of spends
       utxoReads.push(bytesToHex(dapp.wallet.pub));
       if (utxoDelayMs) await new Promise((r) => setTimeout(r, utxoDelayMs));
       return json(funded.get(addr) || []);

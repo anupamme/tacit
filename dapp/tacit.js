@@ -3078,7 +3078,27 @@ const getOutspend = (txid, vout) => {
   _outspendInFlight.set(key, p);
   return p;
 };
-const broadcast = hex => apiText('/tx', { method: 'POST', body: hex });
+// The outpoints a raw transaction (hex, with or without witness data) spends.
+function _rawTxInputs(hex) {
+  const b = hexToBytes(hex), out = [];
+  let o = 4;
+  if (b[o] === 0 && b[o + 1] === 1) o += 2;
+  const varint = () => { const f = b[o++]; if (f < 0xfd) return f; const n = f === 0xfd ? 2 : f === 0xfe ? 4 : 8; let v = 0; for (let i = n - 1; i >= 0; i--) v = v * 256 + b[o + i]; o += n; return v; };
+  for (let n = varint(), i = 0; i < n; i++) {
+    const txid = bytesToHex(reverseBytes(b.slice(o, o + 32))); o += 32;
+    const vout = (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0; o += 4;
+    const scriptLen = varint(); o += scriptLen + 4;
+    out.push({ txid, vout });
+  }
+  return out;
+}
+// Every transaction goes out here. What it spends is not offered again for a while: the chain API can still list those coins a moment later, and a
+// swap built from that list right after the cut that spent them was a replacement of the cut's transactions, refused for paying less than they did.
+const broadcast = async (hex) => {
+  const id = await apiText('/tx', { method: 'POST', body: hex });
+  try { _markTxInputsSpent({ vin: _rawTxInputs(hex) }); invalidateUtxoCache(); } catch { }
+  return id;
+};
 async function broadcastWithRetry(hex, attempts = 4, baseDelayMs = 1000) {
   let lastErr = null;
   for (let i = 0; i < attempts; i++) {
@@ -15619,6 +15639,7 @@ function _testInjectHoldingsCache(c) { _holdingsCache = c && c.pubHex === undefi
 
 let _scanHoldingsOverride = null;
 function _testSetScanHoldingsOverride(fn) { _scanHoldingsOverride = fn; }
+function _testClearRecentSpends() { _recentlySpentUtxos.clear(); }
 function _testSetTrackedNotes(set) { Object.assign(_tracked, { set, at: Date.now(), net: currentNetworkName(), p: null }); }
 const _persistedValidatedTrue = new Map();
 class _ProvedOutpoints extends Map {
@@ -23983,12 +24004,16 @@ async function carveExactAmount({ assetIdHex, amount, recipientPubHex = null, wa
   if (!h) throw new Error(`no holdings for asset ${assetIdHex}`);
   const listedTags = await fetchListedUtxoTags(assetIdHex).catch(() => new Map());
   const isListed = u => listedTags.has(`${u.utxo.txid}:${u.utxo.vout | 0}`);
-  const available = h.utxos
-    .filter(u => !isListed(u))
+  // A note that a transaction sent a moment ago spends may still be listed (the indexer is behind); spending it again is a replacement that is refused.
+  const settling = u => _isRecentlySpent(u.utxo.txid, u.utxo.vout);
+  const free = h.utxos.filter(u => !isListed(u));
+  const available = free
+    .filter(u => !settling(u))
     .sort((a, b) => a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : 0);
-  if (!available.length) throw new Error('no unlocked UTXOs available for this asset');
+  const stillSettling = available.length < free.length;
+  if (!available.length) throw new Error(stillSettling ? _XFER_SETTLING_MSG : 'no unlocked UTXOs available for this asset');
   const availTotal = available.reduce((s, u) => s + u.amount, 0n);
-  if (amount > availTotal) throw new Error(`amount exceeds free balance (${availTotal} available, ${amount} requested)`);
+  if (amount > availTotal) throw new Error(stillSettling ? _XFER_SETTLING_MSG : `amount exceeds free balance (${availTotal} available, ${amount} requested)`);
   const exact = available.find(u => u.amount === amount);
   if (exact && recipientPubHex == null && !(walletKeyOnly && exact.stealthTweakedSk)) return { ...exact, splitTxid: null };
   const availLargest = available[0].amount;
@@ -38135,22 +38160,31 @@ export async function bitcoinSwap({ fromAid, toAid, amountIn, minOut, onProgress
   const v = await _ammVerifyPoolBeforeAction(q.poolId);
   if (!v.ok) throw new Error(`the pool's reserves differ from a replay of its Bitcoin transactions (${(v.diffs || []).join('; ')}), so nothing was sent`);
   say('prepare');
-  const carved = await carveExactAmount({ assetIdHex: fromAid, amount: din, walletKeyOnly: true });
-  if (!carved?.utxo) throw new Error('there is not enough of this token to swap');
-  const live = await bitcoinSwapQuote({ fromAid, toAid, amountIn: din, fresh: true });
-  if (!live || live.kind !== 'direct' || live.deltaOut < floor) throw new Error('the pool moved past your floor: quote it again (the amount you cut stays in your wallet)');
-  const tip = await getTip();
-  say('send');
-  const r = await buildAndBroadcastSwapVarSelfFulfill({
-    poolReserves: { pool_id_hex: live.poolId, reserve_a: live.reserveA, reserve_b: live.reserveB, fee_bps: live.feeBps },
-    assetInputUtxo: { txid: carved.utxo.txid, vout: carved.utxo.vout, asset_id_hex: fromAid, amount: carved.amount, blinding: carved.blinding },
-    direction: live.direction, deltaIn: din, minOut: floor,
-    expiryHeight: tip > 0 ? tip + 36 : 0xffffffff,
-    receiveAssetIdHex: toAid,
-    onProgress: (stage) => say(stage),
-  });
-  _bitcoinPoolHeads.delete(live.poolId);
-  return { revealTxid: r.revealTxid, quoted: r.deltaOut, floor, prepTxid: carved.splitTxid || null };
+  let carved = null;
+  try {
+    carved = await carveExactAmount({ assetIdHex: fromAid, amount: din, walletKeyOnly: true });
+    if (!carved?.utxo) throw new Error('there is not enough of this token to swap');
+    const live = await bitcoinSwapQuote({ fromAid, toAid, amountIn: din, fresh: true });
+    if (!live || live.kind !== 'direct' || live.deltaOut < floor) throw new Error('the pool moved past your floor: quote it again (the amount you cut stays in your wallet)');
+    const tip = await getTip();
+    say('send');
+    const r = await buildAndBroadcastSwapVarSelfFulfill({
+      poolReserves: { pool_id_hex: live.poolId, reserve_a: live.reserveA, reserve_b: live.reserveB, fee_bps: live.feeBps },
+      assetInputUtxo: { txid: carved.utxo.txid, vout: carved.utxo.vout, asset_id_hex: fromAid, amount: carved.amount, blinding: carved.blinding },
+      direction: live.direction, deltaIn: din, minOut: floor,
+      expiryHeight: tip > 0 ? tip + 36 : 0xffffffff,
+      receiveAssetIdHex: toAid,
+      onProgress: (stage) => say(stage),
+    });
+    _bitcoinPoolHeads.delete(live.poolId);
+    return { revealTxid: r.revealTxid, quoted: r.deltaOut, floor, prepTxid: carved.splitTxid || null };
+  } catch (e) {
+    // A node's refusal of a transaction that spends what an unconfirmed one of the wallet's already spends, in its own words, tells nobody what to do.
+    if (/rejecting replacement|txn-mempool-conflict/i.test(String(e?.message || e))) {
+      throw new Error(`An earlier transaction from this wallet that spends the same coins has not confirmed yet, so this swap was not sent${carved?.splitTxid ? ' (the amount you cut stays in your wallet)' : ''}. Try again in a minute.`);
+    }
+    throw e;
+  }
 }
 // Where a sent swap stands: waiting, filled (with what it got) or refunded back (with why).
 export async function bitcoinSwapOutcome(revealTxid) {
@@ -61872,7 +61906,7 @@ export {
   deriveWatchtowerBidWalletKey, watchtowerBidWalletIndexOf, nextWatchtowerBidWalletIndex, sweepWatchtowerBidWallet, recoverWatchtowerBidWallets,
   watchtowerBidFinished, returnWatchtowerBidFunds, scheduleBidWalletReturn,
   deriveWatchtowerBidKey, encryptWatchtowerBidKey, watchtowerRegisterMsg, watchtowerCancelMsg,
-  _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testSetTrackedNotes, openTransferOutput,
+  _testInjectHoldingsCache, _testSetScanHoldingsOverride, _testClearRecentSpends, _testSetTrackedNotes, openTransferOutput,
   _preauthSaleAuthMsg as preauthSaleAuthMsg,
   _preauthSaleCancelMsg as preauthSaleCancelMsg,
   _preauthSaleIdHex as preauthSaleIdHex,

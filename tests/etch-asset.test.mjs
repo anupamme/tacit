@@ -42,7 +42,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (method === 'POST' && typeof opts.body === 'string' && opts.body.includes('"jsonrpc"')) return json({ jsonrpc: '2.0', id: JSON.parse(opts.body).id, result: '0x' + '00'.repeat(32) });
   if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
   if (u.includes('/scripthash/')) return json([]);
-  if (u.includes(`/address/${ADDR}/utxo`)) return json(utxoFn ? utxoFn() : fundSats ? [{ txid: 'ee'.repeat(32), vout: 0, value: fundSats, status: { confirmed: true } }] : []);
+  if (u.includes(`/address/${ADDR}/utxo`)) { dapp._testClearRecentSpends(); return json(utxoFn ? utxoFn() : fundSats ? [{ txid: 'ee'.repeat(32), vout: 0, value: fundSats, status: { confirmed: true } }] : []); }  // this chain never remembers a spend
   if (/\/tx\/[0-9a-f]{64}\/status$/.test(u)) return json({ confirmed: true });
   if (method === 'POST' && u.includes('/pin-json')) { if (pinFails) return json({ error: 'pin down' }, 502); pinned.push(JSON.parse(opts.body)); return json({ cid: CID }); }
   if (method === 'POST' && u.includes('/assets/hint')) { hints.push(JSON.parse(opts.body)); return json({ ok: true }); }

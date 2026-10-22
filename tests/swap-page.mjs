@@ -214,6 +214,48 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 
+// ── a wallet in Private: a private amount has 8 decimals (Max and long amounts are cut there, not refused), the wallet's ETH is held to, a comma is a point ──
+{
+  const w = await fundedWallet();
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { wallet: w });
+  await page.click('#wallet-chip');
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  const settled = () => until(page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });
+  // an amount typed for a public swap that is longer than a private one can be is cut when Private is chosen
+  await typeAmt(page, '0.123456789012345678');
+  await page.click('[data-mode="private"]');
+  ok((await page.inputValue('#amt')) === '0.12345678', `choosing Private cuts a longer amount to 8 decimals (${await page.inputValue('#amt')})`);
+  await pick(page, 'get', 'cUSD');
+  await quoted(page);
+  ok((await page.textContent('#go')) === 'Continue privately →', 'private ETH → cUSD quotes the cut amount');
+  // typing past 8 decimals stops at 8
+  await typeAmt(page, '0.0035162701');
+  await settled();
+  ok((await page.inputValue('#amt')) === '0.00351627' && (await page.textContent('#go')) === 'Continue privately →', `a ninth decimal is not kept (${await page.inputValue('#amt')})`);
+  // Max on the wallet's ETH is an amount the private quote takes, and it leaves the gas
+  await page.click('#max');
+  await quoted(page);
+  { const v = await page.inputValue('#amt'), all = BigInt(await rpcA('eth_getBalance', [w.account, 'latest']));
+    ok(/^\d+(\.\d{1,8})?$/.test(v) && (await page.textContent('#go')) === 'Continue privately →', `Max in Private is a quoted amount of at most 8 decimals (${v}, ${await page.textContent('#go')})`);
+    ok(BigInt(Math.round(Number(v) * 1e8)) * 10n ** 10n < all, 'and it is under the balance'); }
+  // the wallet's ETH is the one balance known here
+  await typeAmt(page, '9'); await settled();
+  ok((await page.textContent('#go')) === 'Not enough ETH' && await page.isDisabled('#go'), `more ETH than the wallet holds (${await page.textContent('#go')})`);
+  { const all = BigInt(await rpcA('eth_getBalance', [w.account, 'latest'])), cut = all - (all % 10n ** 10n), whole = cut / 10n ** 18n, frac = (cut % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '');
+    await typeAmt(page, `${whole}${frac ? '.' + frac : ''}`); await settled();
+    ok((await page.textContent('#go')) === 'Leave some ETH for the network fee', `all of it leaves nothing for the deposit's gas (${await page.textContent('#go')})`); }
+  // a comma is a decimal point where the amount is read; the console is handed the amount that was priced
+  await typeAmt(page, '0,5'); await quoted(page);
+  await Promise.all([page.waitForURL(/#card=swap:ether:cusd:private&amt=0\.5$/), page.click('#go')]);
+  ok(true, 'the hand-off carries 0.5 for "0,5", not 5');
+  await browser.close();
+  const t = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private&from=TAC&to=cUSD&amt=0.01' });
+  await until(t.page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });
+  ok((await t.page.textContent('#go')) === 'Amount too small' && /Swap more than/.test(await t.page.textContent('#q')), `an amount under the relay's fee says so, not "No route" (${await t.page.textContent('#go')})`);
+  await t.browser.close();
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+}
+
 // ── a wallet: ETH → TAC, USDC → TAC by permit, TAC → ETH by permit, then the farm ──
 {
   const w = await fundedWallet();

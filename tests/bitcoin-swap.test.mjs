@@ -30,9 +30,31 @@ const ADDR = dapp.wallet.address();
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const POOL_ID = 'aa'.repeat(32), RA = 20000n, RB = 182704255n;
 const BLINDING = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdefn;
-const NOTE_TXID = 'ab'.repeat(32);
+let NOTE_TXID = 'ab'.repeat(32);
+
+// The chain as a node keeps it. A transaction that spends what one already sent spends is a replacement, and it is refused when it pays less than
+// what it would replace (the answer a node gives, whose "conflicting" fees count the first transaction and everything built on it). An address's UTXOs
+// are the ones nothing sent spends. Two funding UTXOs, so that a swap built after a cut has another to pick.
+const inputsOf = (hex) => {
+  const b = Buffer.from(hex, 'hex'); let o = 4;
+  if (b[o] === 0 && b[o + 1] === 1) o += 2;
+  const vi = () => { const f = b[o++]; if (f < 0xfd) return f; const n = f === 0xfd ? 2 : 4; const v = b.readUIntLE(o, n); o += n; return v; };
+  const ins = [];
+  for (let n = vi(), k = 0; k < n; k++) { ins.push(`${Buffer.from(b.subarray(o, o + 32)).reverse().toString('hex')}:${b.readUInt32LE(o + 32)}`); o += 36; const sl = vi(); o += sl + 4; }
+  return ins;
+};
+let FUNDING = [];
+// A spent outpoint is never offered again, so each section that sends gets coins of its own, and an empty mempool.
+let coinsN = 0, apiLags = false, posts = 0, rejectAt = 0;
+const newCoins = () => {
+  const id = (c) => c.toString(16).padStart(2, '0').repeat(32);
+  coinsN++; NOTE_TXID = id(0xa0 + coinsN); broadcasts = []; posts = 0; rejectAt = 0; apiLags = false;
+  FUNDING = [{ txid: id(0xe0 + coinsN), vout: 0, value: 5_000_000, status: { confirmed: true } }, { txid: id(0xd0 + coinsN), vout: 0, value: 3_000_000, status: { confirmed: true } }];
+};
+const spentBy = () => new Set(broadcasts.flatMap(inputsOf));
 
 let head = { projected: { reserve_a: String(RA), reserve_b: String(RB) }, pending_count: 0 }, broadcasts = [], pools = [{ pool_id: POOL_ID, asset_a: TETH, asset_b: TAC, reserve_a: String(RA), reserve_b: String(RB), fee_bps: 30, validation: 'xcurve-verified' }];
+newCoins();
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url), method = (opts.method || 'GET').toUpperCase();
@@ -41,8 +63,14 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.includes(`/amm/pool/${POOL_ID}/head`)) return json(head);
   if (u.endsWith('/v1/fees/recommended')) return json({ fastestFee: 10, halfHourFee: 5, hourFee: 2, economyFee: 1, minimumFee: 1 });
   if (u.includes('/scripthash/')) return json([]);
-  if (u.includes(`/address/${ADDR}/utxo`)) return json([{ txid: 'ee'.repeat(32), vout: 0, value: 5_000_000, status: { confirmed: true } }]);
-  if (method === 'POST' && u.endsWith('/tx')) { if (!broadcasts.includes(opts.body)) broadcasts.push(opts.body); return new Response('0'.repeat(64), { status: 200 }); }
+  if (u.includes(`/address/${ADDR}/utxo`)) { const gone = apiLags ? new Set() : spentBy(); return json(FUNDING.filter((x) => !gone.has(`${x.txid}:${x.vout}`))); }
+  if (method === 'POST' && u.endsWith('/tx')) {
+    if (broadcasts.includes(opts.body)) return new Response('0'.repeat(64), { status: 200 });
+    posts++;
+    const gone = spentBy();
+    if (posts === rejectAt || inputsOf(opts.body).some((k) => gone.has(k))) return new Response('sendrawtransaction RPC error: {"code":-26,"message":"insufficient fee, rejecting replacement ' + '0'.repeat(64) + ', less fees than conflicting txs; 0.000005 < 0.00001"}', { status: 400 });
+    broadcasts.push(opts.body); return new Response('0'.repeat(64), { status: 200 });
+  }
   if (/\/tx\/[0-9a-f]{64}\/outspend\/\d+$/.test(u)) return json({ spent: false });
   if (method === 'GET' && /\/tx\/[0-9a-f]{64}$/.test(u)) return broadcasts.length ? json({ txid: u.slice(-64), status: { confirmed: false }, vout: [], vin: [] }) : json({ error: 'Not found' }, 404);
   if (u.includes('/blocks/tip/height')) return new Response('800000', { status: 200 });
@@ -88,7 +116,7 @@ console.log('\nThe swap refuses before it sends anything:');
 
 console.log('\nA swap that goes out:');
 {
-  broadcasts = []; const stages = [];
+  newCoins(); const stages = [];
   const r = await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n, onProgress: (s) => stages.push(s) });
   ok('it reports the check, the preparation and the send', ['check', 'prepare', 'send'].every((s) => stages.includes(s)), stages.join());
   ok('a note of exactly that amount needs no cutting: no prep transaction', r.prepTxid === null);
@@ -99,10 +127,40 @@ console.log('\nA swap that goes out:');
 console.log('\nA swap from a bigger note:');
 {
   dapp._testSetScanHoldingsOverride(() => new Map([[TETH, { balance: 5000n, utxos: [{ utxo: { txid: NOTE_TXID, vout: 1, value: 546 }, amount: 5000n, blinding: BLINDING }] }]]));
-  broadcasts = []; const stages = [];
+  newCoins(); const stages = [];
   const r = await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n, onProgress: (s) => stages.push(s) });
   ok('the exact amount is cut first (a transaction pair), then the swap goes out (another)', broadcasts.length === 4 && /^[0-9a-f]{64}$/.test(r.prepTxid || ''), `${broadcasts.length} broadcasts, prep ${r.prepTxid}`);
   ok('the swap is the one that spends the cut note, and its id is returned', r.revealTxid.length === 64 && r.revealTxid !== r.prepTxid);
+}
+
+console.log('\nThe chain API is a moment behind (it still lists what the cut spent):');
+{
+  newCoins(); apiLags = true;
+  dapp._testSetScanHoldingsOverride(() => new Map([[TETH, { balance: 5000n, utxos: [{ utxo: { txid: NOTE_TXID, vout: 1, value: 546 }, amount: 5000n, blinding: BLINDING }] }]]));
+  let err = null, r = null;
+  try { r = await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n }); } catch (e) { err = e; }
+  ok('the swap is not built on the coins the cut spent (the node would refuse it as a cheaper replacement)', !err && broadcasts.length === 4, err ? String(err.message) : `${broadcasts.length} broadcasts`);
+  const used = broadcasts.slice(0, 3).map((h) => inputsOf(h)[0]);
+  ok('the swap\'s commit pays from the other funding coin', !err && used[0] !== used[2], used.join(' / '));
+  let again = null;
+  try { await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n }); } catch (e) { again = e; }
+  ok('the same note, still listed, is not cut again while its spend settles', /still settling/.test(String(again?.message)), String(again?.message));
+  ok('and nothing more was sent', broadcasts.length === 4, `${broadcasts.length} broadcasts`);
+}
+
+console.log('\nA conflict that gets through is said in words:');
+{
+  newCoins(); rejectAt = 3;
+  dapp._testSetScanHoldingsOverride(() => new Map([[TETH, { balance: 5000n, utxos: [{ utxo: { txid: NOTE_TXID, vout: 1, value: 546 }, amount: 5000n, blinding: BLINDING }] }]]));
+  let err = null;
+  try { await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n }); } catch (e) { err = e; }
+  const m = String(err?.message);
+  ok('the swap commit refused as a replacement: no node text, what to do, and the cut stays', /has not confirmed yet/.test(m) && /amount you cut stays in your wallet/.test(m) && !/API 400|sendrawtransaction|\{/.test(m), m);
+  newCoins(); rejectAt = 1;
+  dapp._testSetScanHoldingsOverride(() => new Map([[TETH, { balance: 2000n, utxos: [{ utxo: { txid: NOTE_TXID, vout: 1, value: 546 }, amount: 2000n, blinding: BLINDING }] }]]));
+  err = null;
+  try { await dapp.bitcoinSwap({ fromAid: TETH, toAid: TAC, amountIn: 2000n, minOut: 16398524n }); } catch (e) { err = e; }
+  ok('with no cut made, it does not say one stays', /has not confirmed yet/.test(String(err?.message)) && !/you cut/.test(String(err?.message)), String(err?.message));
 }
 
 console.log('\nWhat became of a sent swap:');
