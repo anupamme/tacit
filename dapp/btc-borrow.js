@@ -25,10 +25,20 @@ export function exactNotes(notes, debt) {
   return null;
 }
 
+// ── a lock's bond and its mint ──
+export const ESCROW = '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA', POST_ESCROW_WITH_ETH = 'c0e2d9a1';
+// the pool's key for a lock's outpoint (its txid in the pool's byte order)
+export const outpointOf = (t, lock) => t.pool.outpointKey('0x' + lock.lockTxid.match(/../g).reverse().join(''), lock.lockVout);
+// The wstETH bond a lock needs: the engine's required escrow for its BTC and a tenth more, so its value can fall a little before it is
+// short; less what is posted already. The page turns the gap into ETH at stETH's rate, since it is paid in ETH.
+export function bondGap(needWst, have) { const want = (BigInt(needWst) * 11n) / 10n, held = BigInt(have || 0); return { want, gap: want > held ? want - held : 0n }; }
+// the call that posts it: the bond helper stakes the ETH sent with it and holds the wstETH against the lock
+export const bondCall = (t, lock) => ({ to: ESCROW, data: '0x' + POST_ESCROW_WITH_ETH + strip(outpointOf(t, lock)) });
+
 const strip = (h) => String(h).replace(/^0x/, '');
 const ZERO = '0x' + '0'.repeat(64);
 
-export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex }) {
+export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex, noteRecovery = () => import('/cbtc-note-recovery.js') }) {
   // the key's loans as this browser keeps them (encrypted to the key): what a loan needs to be repaid from here
   async function positions() {
     const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
@@ -95,5 +105,14 @@ export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex }
   // forgotten once repaid
   const repaid = (ps, p) => ps.remove((x) => x.controller === p.controller && (x.positionOwner || '') === (p.positionOwner || '') && x.debtValue === p.debtValue);
 
-  return { positions, nextKeyNonce, fresh, openArgs, opened, positionLeaf, repayArgs, repaid };
+  // A lock's mint: the cBTC note's blinding comes from the key and the lock's anchor, so it is never stored and the note can be found again
+  // from the key alone.
+  async function mintArgs(t, priv, lock) {
+    const { makeCbtcNoteRecovery } = await noteRecovery();
+    const r = makeCbtcNoteRecovery({ hmac, sha256, curveOrder: secp.CURVE.n });
+    const b = r.deriveCbtcNoteBlinding({ privkey: priv, anchorOutpoint: r.anchorBytes(lock.anchor.txid, lock.anchor.vout), outputIndex: 0 });
+    return { walletPriv: priv, outpoint: outpointOf(t, lock), vBtc: BigInt(lock.vBtc), blinding: '0x' + b.toString(16).padStart(64, '0') };
+  }
+
+  return { positions, nextKeyNonce, fresh, openArgs, opened, positionLeaf, repayArgs, repaid, mintArgs };
 }

@@ -98,11 +98,15 @@ function rpcAnswer(req) {
     return err('stub: eth_call', 3);
   }
   if (method === 'eth_getBalance') return res('0x' + (5n * 10n ** 18n).toString(16));
+  if (method === 'eth_getTransactionReceipt') return res(params[0] === SENT ? { status: '0x1', transactionHash: SENT, blockNumber: '0x1', logs: [] } : null);
   if (method === 'eth_getLogs') return chain.logs && String(params[0].address).toLowerCase() === '0x000000003f608bddf0ca45934003ffb9dbdf70db' ? res(engineLogs) : err('stub: no logs');
   return err(`stub: ${method}`);
 }
 
 // ── the wallet that signs for real (the key opens from its signature) ──
+// the hash the stub wallet answers with once a test lets it send, and the chain's receipt for it
+const SENT = '0x' + 'aa'.repeat(32);
+let walletAccepts = false;
 async function stubWallet(ctx) {
   const j = JSON.parse(cast('wallet', 'new', '--json'))[0], account = j.address, log = { account, signs: 0, sends: 0 };
   await ctx.exposeFunction('__wallet', async (method, params) => {
@@ -110,7 +114,7 @@ async function stubWallet(ctx) {
     if (method === 'eth_chainId') return '0x1';
     if (method === 'eth_getCode') return '0x';
     if (method === 'personal_sign') { log.signs++; return cast('wallet', 'sign', '--private-key', j.private_key, params[0]); }
-    if (method === 'eth_sendTransaction') { log.sends++; throw Object.assign(new Error('User rejected the request.'), { code: 4001 }); }
+    if (method === 'eth_sendTransaction') { log.sends++; log.lastSend = params[0]; if (walletAccepts) return SENT; throw Object.assign(new Error('User rejected the request.'), { code: 4001 }); }
     throw new Error(`the stub wallet does not do ${method}`);
   });
   await ctx.addInitScript(() => {
@@ -132,6 +136,15 @@ export function makeConfidentialPoolUx() {
   return {
     pool: { outpointKey: (txid, vout) => '0x' + '00'.repeat(31) + vout.toString(16).padStart(2, '0') },
     async cbtcLockState(txid, vout) { ux.calls.push(['cbtcLockState', vout]); return ux.cfg.states?.[vout] || { spent: false, redeemed: false }; },
+    async ethCall(to, data) {
+      const w = (v) => '0x' + BigInt(v).toString(16).padStart(64, '0'), s = data.slice(2, 10);
+      ux.calls.push(['ethCall', s]);
+      if (s === '034448ed') return w(10n ** 15n);                                                   // requiredEscrow: 0.001 wstETH
+      if (s === 'e06e89c9') return w(ux.cfg.bondHave || 0);                                         // escrowTotal
+      if (s === 'bb2952fc') return w(BigInt('0x' + data.slice(10)) * 117n / 100n);                  // stEthPerWst: 1.17
+      return w(0);
+    },
+    async mintCbtc(a) { ux.calls.push(['mintCbtc', a.outpoint, String(a.vBtc), a.blinding, typeof a.waitOpts?.onJob]); a.waitOpts?.onJob?.('mint-1'); if (ux.cfg.mintFail) throw new Error(ux.cfg.mintFail); return { jobId: 'mint-1', txHash: '0x' + 'cc'.repeat(32) }; },
     async recoverCdpPositions(a) { ux.calls.push(['recoverCdpPositions', a.walletPriv.length]); if (ux.cfg.loansFail) throw new Error('cdp read failed'); return { positions: ux.cfg.loans || [] }; },
     async balance(priv, o) {
       ux.calls.push(['balance', priv.length, JSON.stringify(o)]); await wait(ux.cfg.balanceMs || 0);
@@ -303,7 +316,9 @@ try {
   await p.waitForSelector('#btc-mine [data-mine="open"]');
   await p.waitForTimeout(1500);
   ok(await p.evaluate(() => !window.__ux), 'the Borrow page loads nothing of a key until it is asked to');
-  await cfg(p, mineCfg);
+  const lockD = { lockTxid: '34'.repeat(32), lockVout: 4, vBtc: '300000', anchor: { txid: '56'.repeat(32), vout: 0 }, at: Date.now() };
+  chain.lockStates.set(op(4), { recorded: false, bonded: false, minted: false, sats: 300000n });
+  await cfg(p, { ...mineCfg, locks: [...mineCfg.locks, lockD] });
   await p.click('#btc-mine [data-mine="open"]');
   await p.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
   await p.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
@@ -312,7 +327,29 @@ try {
   ok(/cBTC, private0\.042/.test(vm) && /cUSD, private1,234/.test(vm) && /Loan900 cUSD/.test(vm) && /0\.05 BTC/.test(vm) && /0\.01 BTC/.test(vm) && !/0\.002 BTC/.test(vm),
     `vault: the key's private cBTC and cUSD, its loan and its two live locks (${vm.slice(0, 220)})`);
   const vlinks = await p.$$eval('#btc-mine a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
-  ok(vlinks.includes('Mint cBTC:/#lock') && !vlinks.some((x) => /Post the bond/.test(x)) && !!(await p.$('#btc-mine [data-mine="repay"]')), `vault: a lock's next step links to where it is done, and the loan is repaid here (${vlinks.join(' ')})`);
+  ok(!vlinks.length && !!(await p.$('#btc-mine [data-mine="mint"]')) && !!(await p.$('#btc-mine [data-mine="bond"]')) && !!(await p.$('#btc-mine [data-mine="repay"]')), `vault: each lock's next step and the loan are done from here (${vlinks.join(' ') || 'no links'})`);
+  // a lock ready to mint is minted from here, relayed, its blinding from the key and the anchor
+  await p.click('#btc-mine [data-mine="mint"]');
+  await until(p, () => /cBTC minted/.test(document.querySelector('#bm-status')?.textContent || ''), null, 30000);
+  const mintCall = (await ux(p)).calls.find((c) => c[0] === 'mintCbtc');
+  ok(mintCall && mintCall[1] === '0x' + '00'.repeat(31) + '02' && mintCall[2] === '1000000' && /^0x[0-9a-f]{64}$/.test(mintCall[3]) && mintCall[4] === 'function', `vault: Mint cBTC asks the pool for the lock's mint, its blinding derived here (${JSON.stringify(mintCall)})`);
+  const jl = await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+  ok(jl.includes('Mint 0.01 cBTC:settled'), `vault: and the mint is in the Activity journal, settled (${jl.join(' | ')})`);
+  // a lock waiting for its bond: the bond is sized as the front page sizes it and paid in ETH from the connected wallet
+  walletAccepts = false;
+  await p.click('#btc-mine [data-mine="bond"]');
+  await until(p, () => /Cancelled in your wallet/.test(document.querySelector('#bm-status')?.textContent || ''), null, 30000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${await text(p, '#bm-status').catch(() => '?')} | sheets: ${await p.evaluate(() => [...document.querySelectorAll('.bsheet')].map((x) => x.textContent.replace(/\s+/g, ' ').slice(0, 80)).join(' || '))}`); });
+  const asked = r.log.lastSend || {};
+  ok(String(asked.to).toLowerCase() === '0x000000008ecd09f922c9fbbdd9aca5ae8f0bebfa' && String(asked.data).toLowerCase() === '0xc0e2d9a1' + '00'.repeat(31) + '04' && BigInt(asked.value) === 1287000000000000n,
+    `vault: Post the bond asks the wallet for postEscrowWithETH on the lock, 1.1× the required wstETH in ETH (${JSON.stringify(asked)})`);
+  ok(/Cancelled in your wallet\. Nothing was sent/.test(await text(p, '#bm-status')) && !(await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).some((x) => /Post the bond/.test(x.label)))), 'vault: declined in the wallet, nothing is posted or journaled');
+  walletAccepts = true;
+  await p.click('#btc-mine [data-mine="bond"]');
+  await until(p, () => /Bond posted/.test(document.querySelector('#bm-status')?.textContent || ''), null, 30000);
+  const jb = await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+  ok(jb.includes('Post the bond for 0.003 BTC:confirmed'), `vault: sent, the bond is followed to its receipt and journaled (${jb.join(' | ')})`);
+  walletAccepts = false;
   await p.click('#btc-mine [data-mine="lock"]');
   await until(p, () => !!document.querySelector('#btc-mine [data-mine="open"]'), null, 10000);
   ok(true, 'vault: Lock your key puts the panel back to asking');

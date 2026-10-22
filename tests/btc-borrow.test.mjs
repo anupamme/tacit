@@ -3,7 +3,11 @@
 // The pool module is a stand-in that records what it is asked: its own maths is tested elsewhere.
 //   node tests/btc-borrow.test.mjs
 import assert from 'node:assert/strict';
-import { makeLoans, exactNotes } from '../dapp/btc-borrow.js';
+import { makeLoans, exactNotes, bondGap, bondCall, ESCROW } from '../dapp/btc-borrow.js';
+import * as secp from '@noble/secp256k1';
+import { sha256 } from '@noble/hashes/sha256';
+import { hmac } from '@noble/hashes/hmac';
+import { makeCbtcNoteRecovery } from '../dapp/cbtc-note-recovery.js';
 
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
@@ -74,4 +78,18 @@ assert.deepEqual(exactNotes(nv(100, 150, 200, 50), 500n)?.map((x) => x.value).so
 assert.equal(exactNotes(nv(100, 100, 100, 100, 100), 500n), null, 'never more than four');
 assert.equal(exactNotes(nv(300, 400), 500n), null, 'no exact sum: left for a cut');
 assert.equal(exactNotes(nv(200), 500n), null, 'too little');
+// ── a lock's bond and mint ──
+assert.deepEqual(bondGap(1000n, 0n), { want: 1100n, gap: 1100n }, 'the bond is the required escrow and a tenth more');
+assert.deepEqual(bondGap(1000n, 400n), { want: 1100n, gap: 700n }, 'less what is posted');
+assert.deepEqual(bondGap(1000n, 1200n), { want: 1100n, gap: 0n }, 'and nothing once it is covered');
+const lockT = { pool: { outpointKey: (txid, vout) => `op(${txid},${vout})` } };
+const lock = { lockTxid: '0102030405060708091011121314151617181920212223242526272829303132', lockVout: 1, vBtc: '5000000', anchor: { txid: 'ab'.repeat(32), vout: 0 } };
+assert.deepEqual(bondCall(lockT, lock), { to: ESCROW, data: '0xc0e2d9a1' + `op(0x${lock.lockTxid.match(/../g).reverse().join('')},1)` }, 'postEscrowWithETH on the lock\'s outpoint, its txid in the pool\'s byte order');
+const curveOrder = secp.CURVE?.n ?? secp.Point?.CURVE?.().n;
+const LR = makeLoans({ sha256, hmac, secp: { CURVE: { n: curveOrder } }, pubHex: () => 'p', noteRecovery: async () => ({ makeCbtcNoteRecovery }) });
+const priv = new Uint8Array(32).fill(7);
+const ma = await LR.mintArgs(lockT, priv, lock);
+const r0 = makeCbtcNoteRecovery({ hmac, sha256, curveOrder }), b0 = r0.deriveCbtcNoteBlinding({ privkey: priv, anchorOutpoint: r0.anchorBytes(lock.anchor.txid, lock.anchor.vout), outputIndex: 0 });   // the front page's former inline formula
+assert.deepEqual(ma, { walletPriv: priv, outpoint: `op(0x${lock.lockTxid.match(/../g).reverse().join('')},1)`, vBtc: 5000000n, blinding: '0x' + b0.toString(16).padStart(64, '0') }, 'the mint\'s arguments, its blinding from the key and the anchor');
+assert.notEqual((await LR.mintArgs(lockT, new Uint8Array(32).fill(8), lock)).blinding, ma.blinding, 'another key, another blinding');
 console.log('btc-borrow: all checks passed');
