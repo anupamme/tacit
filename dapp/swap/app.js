@@ -762,7 +762,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=56416f97')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=64a749e8')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
 }
