@@ -373,6 +373,41 @@ console.log('\nA logo still uploading, and a name that was not saved:');
   await page.close();
 }
 
+console.log('\nFound again after the page is left:');
+{
+  const { page } = await fresh();
+  await type(page, '#tk', 'again');
+  await type(page, '#sup', '7');
+  await page.click('#go');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Etch AGAIN');
+  await page.click('#go');
+  await page.waitForSelector('#done:not([hidden])');
+  const link = await page.$$eval('#done [data-copy]', (b) => b.map((x) => x.dataset.copy));
+  ok(link.some((l) => l === `${BASE}/etch/#discover=${'a7'.repeat(32)}`), 'the done card has a link to share, which searches for the asset');
+  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tacit-etch-mine-v1') || '[]').some((m) => m.id === 'a7'.repeat(32) && m.ticker === 'AGAIN')), 'the etch is kept in this browser');
+  await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('tacit-etch-mine-v1')); v[0].at -= 7200; localStorage.setItem('tacit-etch-mine-v1', JSON.stringify(v)); });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.click('#t-find');
+  await page.waitForSelector('#list .as');
+  const first = await page.$eval('#list .as', (e) => ({ id: e.dataset.id, t: e.textContent.replace(/\s+/g, ' ') }));
+  ok(first.id === 'a7'.repeat(32) && /AGAIN/.test(first.t) && /Yours/.test(first.t), 'after the page is left and opened again, it is first in Discover, as yours, before the registry lists it');
+  // an Ethereum etch kept here shows on that side with no node to read
+  await page.evaluate(() => localStorage.setItem('tacit-etch-mine-v1', JSON.stringify([{ id: '0x' + '9a'.repeat(20), chain: 'eth', ticker: 'KEPT', decimals: 18, etchTxid: 'ab'.repeat(32), at: 1780000000, supply: '5000000000000000000', name: '', logo: null }])));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.click('#t-find');
+  await page.click('[data-fchain="eth"]');
+  await page.waitForSelector('#list .as');
+  const eth = await text(page, '#list .as');
+  ok(/KEPT/.test(eth) && /5/.test(eth) && /Yours/.test(eth), 'an Ethereum etch kept here is listed on the Ethereum side');
+  await page.close();
+}
+{
+  const { page } = await fresh('/etch/#discover:eth');
+  await page.waitForFunction(() => /Could not load the Ethereum assets/.test(document.querySelector('#find-q')?.textContent || ''), null, { timeout: 40000 });
+  ok(await page.$eval('#fchain [aria-checked="true"]', (e) => e.dataset.fchain) === 'eth', '#discover:eth opens the Ethereum side, and a node that cannot be read says so with a way to try again');
+  await page.close();
+}
+
 console.log('\nDiscover:');
 {
   const { page, errs, csp } = await fresh('/etch/#discover');

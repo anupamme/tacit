@@ -16,7 +16,7 @@ import { join, extname } from 'node:path';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
-const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com';
+const FORK = process.env.FORK || 'https://mainnet.gateway.tenderly.co';       // the free node that serves the factory's logs over its whole life, as the page reads them
 const PORT = 21000 + Math.floor(Math.random() * 2000), ANVIL = `http://127.0.0.1:${PORT}`;
 const ACCOUNT = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
 const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
@@ -54,6 +54,7 @@ const cidOf = (bytes) => {
   return { cid: `b${out}`, digest: digest.toString('hex') };
 };
 
+const byCid = {};                                                  // what the pin was given, by the content id it answered, for the page's reads of names
 const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'];
 let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
@@ -80,8 +81,9 @@ async function fresh(path, ways = {}) {
   await ctx.route(/^https:\/\/api\.tacit\.finance\//, async (route) => {
     if (await preflight(route)) return;
     const u = new URL(route.request().url()), cors = { 'access-control-allow-origin': '*' };
-    if (u.pathname === '/pin-json') { const bytes = route.request().postDataBuffer(); pinned.push(JSON.parse(bytes.toString())); return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ cid: cidOf(bytes).cid, _digest: cidOf(bytes).digest }) }); }
+    if (u.pathname === '/pin-json') { const bytes = route.request().postDataBuffer(); pinned.push(JSON.parse(bytes.toString())); byCid[cidOf(bytes).cid] = JSON.parse(bytes.toString()); return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ cid: cidOf(bytes).cid, _digest: cidOf(bytes).digest }) }); }
     if (u.pathname === '/pin') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ cid: cidOf(Buffer.from('logo')).cid }) });
+    if (u.pathname === '/ipfs/batch') { const ids = JSON.parse(route.request().postData() || '{}').cids || [], blobs = {}; for (const c of ids) blobs[c] = byCid[c] || { error: 'not json' }; return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ blobs }) }); }
     if (u.pathname === '/assets') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ assets: [], meta: {} }) });
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
   });
@@ -213,6 +215,46 @@ let token1, minter1;
   await page.waitForFunction(() => document.querySelector('#watch').textContent === 'Added');
   ok(true, 'it can be offered to the wallet’s token list');
   ok(errs.length === 0, 'no script errors' + (errs[0] ? `: ${errs[0]}` : ''));
+  await page.close();
+}
+
+console.log('\nFinding it again:');
+{
+  const { page } = await fresh('/etch/');
+  await page.click('#t-find');
+  await page.click('[data-fchain="eth"]');
+  await page.waitForSelector('#list .as', { timeout: 60000 });
+  const rows = await page.$$eval('#list .as', (r) => r.map((x) => ({ id: x.dataset.id, t: x.textContent.replace(/\s+/g, ' ') })));
+  const mine = rows.find((r) => r.id === token1.toLowerCase());
+  ok(!!mine && /ORANGE/.test(mine.t) && /1,000,000/.test(mine.t), 'the factory’s record lists the etch, with its supply');
+  ok(!rows.some((r) => /^TAC\b|TAC ✓/.test(r.t)), 'the assets the pool mints itself are not listed as etches');
+  await page.waitForFunction((id) => /Orange Coin/.test(document.querySelector(`#list .as[data-id="${id}"]`)?.textContent || ''), token1.toLowerCase(), { timeout: 20000 });
+  ok(true, 'its name comes from the metadata the stamp names');
+  await type(page, '#find', token1.slice(0, 10));
+  ok((await text(page, '#cnt')) === '1 found', 'it is found by the start of its address');
+  await page.click('#list .as-b');
+  ok((await page.$$eval('#list .as-d a', (a) => a.map((x) => x.href))).some((h) => h === `https://etherscan.io/token/${token1.toLowerCase()}`), 'and opens to its Etherscan page');
+  ok((await page.evaluate(() => location.hash)).startsWith('#discover='), 'the address keeps the search');
+  await page.close();
+}
+{
+  const { page } = await fresh(`/etch/#discover=${token1}`);
+  await page.waitForSelector('#list .as', { timeout: 60000 });
+  ok(await page.$eval('#fchain [aria-checked="true"]', (e) => e.dataset.fchain) === 'eth' && (await text(page, '#cnt')) === '1 found', 'a link with the token’s address opens on the Ethereum side, at that token');
+  await page.close();
+}
+{
+  const { page } = await fresh('/etch/');
+  await page.click('#t-find');
+  await page.click('[data-fchain="eth"]');
+  await page.waitForSelector('#list .as', { timeout: 60000 });
+  await page.click('#t-create'); await page.click('[data-chain="eth"]');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Connect a wallet');
+  await page.click('#go');
+  await page.waitForFunction(() => document.querySelector('#go').textContent === 'Enter a ticker');
+  await page.click('#t-find');
+  await page.waitForFunction((id) => /You hold 1,000,000/.test(document.querySelector(`#list .as[data-id="${id}"]`)?.textContent || ''), token1.toLowerCase(), { timeout: 30000 });
+  ok(true, 'with the wallet connected, the tokens it holds say how much');
   await page.close();
 }
 

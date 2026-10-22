@@ -25,12 +25,12 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- preload-roots: /etch/app.js | | /trade/btc.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/etch/app.js?cb=257076fd">
+<link rel="modulepreload" href="/etch/app.js?cb=2d63d0d5">
 <link rel="modulepreload" href="/trade/util.js?cb=509d6618">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/etch/find.js?cb=32a2e96a">
+<link rel="modulepreload" href="/etch/find.js?cb=0972c6b8">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -462,6 +462,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           </div>
 
           <div id="p-find" role="tabpanel" aria-labelledby="t-find" hidden>
+            <div class="mode" id="fchain" role="radiogroup" aria-label="Chain">
+              <button type="button" role="radio" aria-checked="true" data-fchain="btc">Bitcoin</button>
+              <button type="button" role="radio" aria-checked="false" data-fchain="eth">Ethereum</button>
+            </div>
             <div class="srch"><input id="find" type="search" placeholder="Ticker, name or asset ID" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search assets"></div>
             <div class="cnt num" id="cnt" role="status"></div>
             <ul class="al" id="list"></ul>
@@ -496,6 +500,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 </template>
 <!-- warm:end -->
 <div class="sr" id="live" role="status" aria-live="polite"></div>
-<script type="module" src="/etch/app.js?cb=257076fd"></script>
+<script type="module" src="/etch/app.js?cb=2d63d0d5"></script>
 </body>
 </html>

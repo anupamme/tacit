@@ -65,14 +65,14 @@ export async function readNames(assets, onRead = () => {}, fetcher = fetch) {
 export function matches(a, q) {
   const t = String(q || '').trim().toLowerCase();
   if (!t) return true;
-  return a.ticker.toLowerCase().includes(t) || a.name.toLowerCase().includes(t) || (/^[0-9a-f]{4,64}$/.test(t) && a.id.startsWith(t));
+  return a.ticker.toLowerCase().includes(t) || a.name.toLowerCase().includes(t) || (/^(0x)?[0-9a-f]{4,64}$/.test(t) && a.id.startsWith(t.startsWith('0x') || !a.id.startsWith('0x') ? t : `0x${t}`));
 }
 // The ticker typed exactly (or an asset id), then tickers that begin with it, then the rest. Among exact ones the listed asset comes first, then the earliest of
 // its ticker; everything else keeps the order it came in (newest first).
 export function search(assets, q) {
   const t = String(q || '').trim().toLowerCase();
   if (!t) return assets;
-  const key = (a, i) => { const exact = a.ticker.toLowerCase() === t || a.id.startsWith(t); return [exact ? 0 : a.ticker.toLowerCase().startsWith(t) ? 1 : 2, exact && !a.verified ? 1 : 0, exact && a.later ? 1 : 0, i]; };
+  const key = (a, i) => { const exact = a.ticker.toLowerCase() === t || a.id.startsWith(t) || a.id.startsWith(`0x${t}`); return [exact ? 0 : a.ticker.toLowerCase().startsWith(t) ? 1 : 2, exact && !a.verified ? 1 : 0, exact && a.later ? 1 : 0, i]; };
   const cmp = (x, y) => { for (let n = 0; n < 4; n++) if (x[n] !== y[n]) return x[n] - y[n]; return 0; };
   return assets.filter((a) => matches(a, t)).map((a, i) => [a, key(a, i)]).sort((x, y) => cmp(x[1], y[1])).map(([a]) => a);
 }

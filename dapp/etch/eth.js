@@ -129,3 +129,44 @@ export async function verify(p, read) {
 
 // Offers the token to the wallet's token list (EIP-747); a wallet without it, or a no, is not an error.
 export const addToWallet = (wallet, p, image) => wallet.watchAsset({ address: p.token, symbol: p.symbol.slice(0, 11), decimals: p.decimals, ...(image ? { image } : {}) });
+
+// ── finding them again ──
+// The factory's own record: every token it has made is a Deployed event. Those the pool mints itself (the bridged assets, TAC among them) are not etches
+// made here, and are left out. The free node that answers a read over the factory's whole life is Tenderly's; the others refuse a range this wide, so it
+// is asked first (the read moves on to the next when it fails).
+export const DEPLOY_BLOCK = 25998736;
+const DEPLOYED = '0x93c5d8685811454892b561b9f2a796b6f00badaadfbd6d47fd79e69219292913';
+const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+// The metadata hash as the CID string the pin returned: "b" + base32 of 0x01 0x55 0x12 0x20 + the digest.
+export function cidString(digest) {
+  const bytes = [0x01, 0x55, 0x12, 0x20, ...strip(digest).match(/../g).map((h) => parseInt(h, 16))];
+  let bits = 0, acc = 0, out = '';
+  for (const b of bytes) { acc = (acc << 8) | b; bits += 8; while (bits >= 5) { bits -= 5; out += B32[(acc >> bits) & 31]; acc &= (1 << bits) - 1; } }
+  if (bits) out += B32[(acc << (5 - bits)) & 31];
+  return `b${out}`;
+}
+export async function listEtches(read, hosts) {
+  const logs = await read('eth_getLogs', [{ address: FACTORY, topics: [DEPLOYED], fromBlock: '0x' + DEPLOY_BLOCK.toString(16), toBlock: 'latest' }], hosts);
+  const out = [];
+  for (const l of logs) {
+    const minter = '0x' + strip(l.topics[3]).slice(24), token = '0x' + strip(l.topics[2]).slice(24);
+    if (minter === POOL.toLowerCase()) continue;
+    const d = strip(l.data), len = parseInt(d.slice(3 * 64, 4 * 64), 16), cid = '0x' + d.slice(2 * 64, 3 * 64);
+    const symbol = decodeURIComponent(d.slice(4 * 64, 4 * 64 + len * 2).replace(/(..)/g, '%$1'));
+    out.push({ id: token, chain: 'eth', ticker: symbol, decimals: parseInt(d.slice(64, 128), 16), cid: /^0x0+$/.test(cid) ? null : cidString(cid), height: parseInt(l.blockNumber, 16), etchTxid: l.transactionHash, minter, name: '', logo: null, verified: false, mintable: false, holders: 0, later: false, same: 0, supply: null, at: 0 });
+  }
+  await Promise.all([
+    ...out.map(async (a) => { try { a.supply = BigInt(await read('eth_call', [{ to: a.id, data: SEL.totalSupply }, 'latest'])); } catch { /* a supply that cannot be read is not shown */ } }),
+    ...[...new Set(out.map((a) => a.height))].map(async (h) => { try { const ts = Number((await read('eth_getBlockByNumber', ['0x' + h.toString(16), false]))?.timestamp); for (const a of out) if (a.height === h) a.at = ts || 0; } catch { /* the date is a convenience */ } }),
+  ]);
+  const by = new Map();
+  for (const a of out.sort((x, y) => x.height - y.height)) { const k = a.ticker.toLowerCase(); (by.get(k) || by.set(k, []).get(k)).push(a); }
+  for (const g of by.values()) g.forEach((a, i) => { a.same = g.length - 1; a.later = i > 0; });
+  return out.sort((x, y) => y.height - x.height);
+}
+// What `account` holds of each token.
+export async function balances(read, account, tokens) {
+  const out = {};
+  await Promise.all(tokens.map(async (t) => { try { out[t] = BigInt(await read('eth_call', [{ to: t, data: SEL.balanceOf + addr(account) }, 'latest'])); } catch { /* unread */ } }));
+  return out;
+}

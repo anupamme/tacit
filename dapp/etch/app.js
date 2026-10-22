@@ -3,9 +3,9 @@
 // (/trade/btc.js signs them in), not before. The asset is the key's own the moment the reveal is sent, so the front page's wallet lists it as it lists TAC.
 import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618';
 import { day } from '/trade/fmt.js?cb=c07717c4';
-import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
+import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=0972c6b8';
 
-const BTC_MODULE = '/trade/btc.js?cb=4d58b515', ETH_MODULE = '/etch/eth.js?cb=141012b7', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
+const BTC_MODULE = '/trade/btc.js?cb=4d58b515', ETH_MODULE = '/etch/eth.js?cb=258db1fd', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
 const DECIMALS_OF = { btc: [0, 2, 6, 8], eth: [0, 6, 8, 18] };
 // What the pool can hold of an asset, in its base units (2^64 − 1 in-system units); on Bitcoin, the etch's own limit.
 const maxFor = (dec) => (S.chain === 'eth' ? ((1n << 64n) - 1n) * 10n ** BigInt(dec - Math.min(dec, 8)) : MAX_BASE);
@@ -16,8 +16,20 @@ const PAGE = 30;
 const sats = (n) => Math.round(n).toLocaleString('en-US');
 // The registry's assets, and what this visit etched that it does not list yet (it is read every few minutes), first.
 const known = () => (S.assets ? [...S.mine.filter((m) => !S.assets.some((a) => a.id === m.id)), ...S.assets] : null);
+const knownEth = () => (S.ethList ? [...S.mineEth.filter((m) => !S.ethList.some((a) => a.id === m.id)), ...S.ethList] : null);
+// What this browser has etched, kept so that it is found again after the page is left (a convenience: the registry and the factory's record hold them too, and
+// a Bitcoin asset is also in the wallet that holds it).
+const MINE_KEY = 'tacit-etch-mine-v1';
+function loadMine() {
+  try {
+    const v = JSON.parse(localStorage.getItem(MINE_KEY) || '[]');
+    return (Array.isArray(v) ? v : []).filter((m) => m && /^(0x[0-9a-f]{40}|[0-9a-f]{64})$/.test(m.id) && typeof m.ticker === 'string').map((m) => ({ ...m, supply: m.supply == null ? null : BigInt(m.supply), mine: true, pending: false, height: Infinity }));
+  } catch { return []; }
+}
+const saveMine = () => { try { localStorage.setItem(MINE_KEY, JSON.stringify([...S.mine, ...S.mineEth].slice(0, 40).map((m) => ({ id: m.id, chain: m.chain || 'btc', ticker: m.ticker, decimals: m.decimals, etchTxid: m.etchTxid, at: m.at, mintable: m.mintable, supply: m.supply == null ? null : String(m.supply), name: m.name, logo: m.logo && /^https:/.test(m.logo) ? m.logo : null, later: m.later, same: m.same })))); } catch { /* storage is a convenience */ } };
 
-const S = { tab: 'create', chain: 'btc', eth: { bal: null, gasPrice: 0n, px: 0 }, dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, working: false, uploading: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
+const S = { tab: 'create', chain: 'btc', fchain: 'btc', ethList: null, ethFailed: false, ethNamed: false, held: {}, mineEth: [], eth: { bal: null, gasPrice: 0n, px: 0 }, dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, working: false, uploading: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
+{ const mine = loadMine(); S.mine = mine.filter((m) => m.chain !== 'eth'); S.mineEth = mine.filter((m) => m.chain === 'eth'); }
 let bitcoin = null, T = null, laneP = null, quoteKey = '', quoteTimer = 0, warmed = false;
 const ui = { reg: $('#reg'), tk: $('#tk'), sup: $('#sup'), dec: $('#dec'), nm: $('#nm'), ds: $('#ds'), ln: $('#ln'), pub: $('#pub'), mint: $('#mint'), lg: $('#lg'), find: $('#find'), list: $('#list') };
 
@@ -219,8 +231,15 @@ function rememberMine(out, job) {
   const t = job.ticker.toLowerCase(), earlier = (S.assets || []).filter((a) => a.ticker.toLowerCase() === t).length, name = job.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
   S.mine.unshift({
     id: out.assetIdHex, ticker: job.ticker, decimals: job.dec, etchTxid: out.revealTxid, at: Math.floor(Date.now() / 1000), height: Infinity, mintable: job.mint, verified: false,
-    supply: out.supplyPublished ? job.base : null, holders: 1, cid: null, name: name.toLowerCase() === t ? '' : name, logo: job.logo ? ipfs(job.logo.uri.slice(7)) : null, later: earlier > 0, same: earlier, pending: true,
+    supply: out.supplyPublished ? job.base : null, holders: 1, cid: null, name: name.toLowerCase() === t ? '' : name, logo: job.logo ? ipfs(job.logo.uri.slice(7)) : null, later: earlier > 0, same: earlier, pending: true, mine: true, chain: 'btc',
   });
+  saveMine();
+}
+function rememberEth(d, job) {
+  const t = d.plan.token.toLowerCase(), same = (S.ethList || []).filter((a) => a.ticker.toLowerCase() === job.ticker.toLowerCase()).length, name = job.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
+  S.mineEth.unshift({ id: t, chain: 'eth', ticker: job.ticker, decimals: job.dec, etchTxid: d.hashes[0], at: Math.floor(Date.now() / 1000), height: Infinity, mintable: false, verified: false, supply: job.base, holders: 0, cid: null,
+    name: name.toLowerCase() === job.ticker.toLowerCase() ? '' : name, logo: job.logo ? ipfs(job.logo.uri.slice(7)) : null, later: same > 0, same, pending: true, mine: true });
+  saveMine();
 }
 function showDone() {
   const d = S.done, done = $('#done');
@@ -228,6 +247,7 @@ function showDone() {
     <h2>${esc(d.ticker)} <em>is etched</em></h2>
     <div class="kvs">
       <div class="kv"><span>Asset ID</span><b><code>${esc(short(d.assetIdHex, 6))}</code> <button class="link" type="button" data-copy="${esc(d.assetIdHex)}">Copy</button></b></div>
+      <div class="kv"><span>Link</span><b><button class="link" type="button" data-copy="${esc(`${location.origin}/etch/#discover=${d.assetIdHex}`)}">Copy link</button></b></div>
       <div class="kv"><span>Supply</span><b>${esc(fmtUnits(d.base, d.dec, d.dec))} ${esc(d.ticker)}${d.supplyPublished ? '' : ' · private'}</b></div>
       <div class="kv"><span>Transactions</span><b><a href="${MEMPOOL}/tx/${esc(d.commitTxid)}" target="_blank" rel="noopener noreferrer">commit</a> · <a href="${MEMPOOL}/tx/${esc(d.revealTxid)}" target="_blank" rel="noopener noreferrer">reveal</a></b></div>
     </div>
@@ -291,9 +311,9 @@ function ethLane() {
   return (ethP ||= (async () => {
     const [E, Wm, U] = await Promise.all([import(ETH_MODULE), import(WALLET_MODULE), import(UTIL_MODULE)]);
     const wallet = Wm.makeWallet({ rpc: U.rpc });
-    wallet.onChange(() => { ethRead(); paint(); });
+    wallet.onChange(() => { ethRead(); paint(); if (S.tab === 'find' && S.fchain === 'eth') ethHeld(); });
     wallet.restore().then(() => { ethRead(); paint(); }, () => {});
-    return { E, wallet, rpc: U.rpc };
+    return { E, wallet, rpc: U.rpc, RPCS: U.RPCS };
   })().catch((e) => { ethP = null; throw e; }));
 }
 // The balance and the price of gas, read for the account that is connected.
@@ -382,13 +402,14 @@ async function actEth() {
       made = true;
       say('Checking what was made…');
       const v = await lane.E.verify(plan, lane.rpc);
-      S.done = { eth: true, plan, hashes, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: job.reg };
+      S.done = { eth: true, job, plan, hashes, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: job.reg };
     } catch (e) {
       if (!e?.partial?.length) throw e;
       // the token was made and a later call was not: what exists is said, and the page shows it
       const v = await lane.E.verify(plan, lane.rpc).catch(() => ({ ok: false, checks: {} }));
-      S.done = { eth: true, plan, hashes: e.partial, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: false, note: stopped(e) ? 'Registering it with the pool was not confirmed in your wallet. The token is made.' : `Registering it with the pool did not go through: ${e.message}` };
+      S.done = { eth: true, job, plan, hashes: e.partial, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: false, note: stopped(e) ? 'Registering it with the pool was not confirmed in your wallet. The token is made.' : `Registering it with the pool did not go through: ${e.message}` };
     }
+    rememberEth(S.done, job);
     showDoneEth();
   } catch (e) {
     say(stopped(e) ? 'Nothing was sent.' : esc(e?.message || String(e)), stopped(e) ? '' : 'err');
@@ -401,6 +422,7 @@ function showDoneEth() {
     <h2>${esc(d.ticker)} <em>is etched</em></h2>
     <div class="kvs">
       <div class="kv"><span>Token</span><b><code>${esc(short(t, 6))}</code> <button class="link" type="button" data-copy="${esc(t)}">Copy</button></b></div>
+      <div class="kv"><span>Link</span><b><button class="link" type="button" data-copy="${esc(`${location.origin}/etch/#discover=${t}`)}">Copy link</button></b></div>
       <div class="kv"><span>Supply</span><b>${esc(fmtUnits(d.base, d.dec, d.dec))} ${esc(d.ticker)}, all in your wallet</b></div>
       <div class="kv"><span>${d.hashes.length > 1 ? 'Transactions' : 'Transaction'}</span><b>${d.hashes.map((h, i) => `<a href="${scan}/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${d.hashes.length > 1 ? (i ? 'register' : 'create') : 'view'}</a>`).join(' · ')}</b></div>
       ${d.registered ? '<div class="kv"><span>Tacit pool</span><b>registered</b></div>' : ''}
@@ -433,28 +455,35 @@ const ageOf = (a) => (a.at ? day(a.at) : '');
 const market = (id) => `/classic.html#tab=market&aid=${id}`;
 function row(a) {
   const sup = a.supply != null ? `${fmtUnits(a.supply, a.decimals, Math.min(a.decimals, 4))}` : null;
-  const note = (a.later ? [a.pending ? 'Just etched' : '', 'Ticker used by an earlier asset'] : [a.mintable ? 'Mintable' : '', a.pending ? 'Just etched' : ageOf(a)]).filter(Boolean).join(' · ');
+  const own = a.mine ? (Date.now() / 1000 - a.at < 1800 ? 'Just etched' : 'Yours') : '';
+  const note = (a.later ? [own, 'Ticker used by an earlier asset'] : [a.mintable ? 'Mintable' : '', own || ageOf(a)]).filter(Boolean).join(' · ');
+  const held = a.chain === 'eth' && S.held[a.id] > 0n ? `You hold ${fmtUnits(S.held[a.id], a.decimals, Math.min(a.decimals, 4))}` : a.holders ? `${a.holders} holder${a.holders === 1 ? '' : 's'}` : '';
   return `<li class="as" data-id="${a.id}"><button class="as-b" type="button" aria-expanded="${S.open === a.id}">${markHtml(a)}
     <span class="as-t"><span class="as-n"><b>${esc(a.ticker)}</b>${a.verified ? '<i class="vf" title="On Tacit’s list of official assets">✓</i>' : ''}${a.name ? `<small>${esc(a.name)}</small>` : ''}</span><small>${esc(note)}</small></span>
-    <span class="as-v num">${sup != null ? esc(sup) : '<small>Supply private</small>'}<small>${a.holders ? `${a.holders} holder${a.holders === 1 ? '' : 's'}` : ''}</small></span></button>
+    <span class="as-v num">${sup != null ? esc(sup) : a.chain === 'eth' ? '' : '<small>Supply private</small>'}<small>${esc(held)}</small></span></button>
     <div class="as-d"${S.open === a.id ? '' : ' hidden'}>${S.open === a.id ? details(a) : ''}</div></li>`;
 }
 function details(a) {
+  if (a.chain === 'eth') return `<div class="kv"><span>Token</span><b><code>${a.id}</code> <button class="link" type="button" data-copy="${a.id}">Copy</button></b></div>
+    ${a.at ? `<div class="kv"><span>Etched</span><b>${esc(day(a.at))}</b></div>` : ''}
+    <div class="links"><a href="https://etherscan.io/token/${a.id}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a>${a.etchTxid ? `<a href="https://etherscan.io/tx/${a.etchTxid}" target="_blank" rel="noopener noreferrer">Etch transaction ↗</a>` : ''}</div>`;
   return `<div class="kv"><span>Asset ID</span><b><code>${a.id}</code> <button class="link" type="button" data-copy="${a.id}">Copy</button></b></div>
     ${a.at ? `<div class="kv"><span>Etched</span><b>${esc(day(a.at))}</b></div>` : ''}
     <div class="links"><a href="${market(a.id)}">Trade</a><a href="${SCAN}/assets/${a.id}" target="_blank" rel="noopener noreferrer">tacitscan ↗</a>${a.etchTxid ? `<a href="${MEMPOOL}/tx/${a.etchTxid}" target="_blank" rel="noopener noreferrer">Etch transaction ↗</a>` : ''}</div>`;
 }
 const skeleton = `<li class="sks" aria-hidden="true"><span class="sk" style="width:62%"></span><span class="sk" style="width:48%"></span><span class="sk" style="width:55%"></span><span class="sk" style="width:40%"></span></li>`;
 function paintList() {
-  const cnt = $('#cnt'), more = $('#more-r'), fq = $('#find-q');
+  const cnt = $('#cnt'), more = $('#more-r'), fq = $('#find-q'), eth = S.fchain === 'eth';
   fq.textContent = '';
-  if (!S.assets) {
+  for (const b of document.querySelectorAll('#fchain [data-fchain]')) b.setAttribute('aria-checked', String(b.dataset.fchain === S.fchain));
+  const failed = eth ? S.ethFailed : S.failed, ready = eth ? S.ethList || S.mineEth.length : S.assets;
+  if (!ready) {
     more.hidden = true; cnt.textContent = '';
-    if (S.failed) { ui.list.innerHTML = ''; fq.className = 'q err'; fq.innerHTML = 'Could not load the assets. <button class="link" type="button" id="retry">Try again</button>'; $('#retry').onclick = () => { S.failed = false; openFind(); }; }
+    if (failed) { ui.list.innerHTML = ''; fq.className = 'q err'; fq.innerHTML = `Could not load the ${eth ? 'Ethereum ' : ''}assets. <button class="link" type="button" id="retry">Try again</button>`; $('#retry').onclick = () => { if (eth) S.ethFailed = false; else S.failed = false; openFind(); }; }
     else ui.list.innerHTML = skeleton;
     return;
   }
-  const term = ui.find.value.trim(), all = known(), hits = search(all, term), shown = hits.slice(0, S.shown);
+  const term = ui.find.value.trim(), all = eth ? knownEth() || S.mineEth : known(), hits = search(all, term), shown = hits.slice(0, S.shown);
   cnt.textContent = term ? `${hits.length} found` : `${hits.length} asset${hits.length === 1 ? '' : 's'}`;
   ui.list.innerHTML = shown.length ? shown.map(row).join('') : `<li class="empty">Nothing matches “${esc(term)}”.</li>`;
   more.hidden = hits.length <= shown.length;
@@ -464,10 +493,34 @@ function ensureAssets() {
   if (S.assets) return Promise.resolve();
   return (loading ||= loadAssets().then((a) => { S.assets = a; S.failed = false; }, () => { S.failed = true; }).finally(() => { loading = null; }));
 }
+// The Ethereum side's list: the factory's record of what it has made, and what the connected wallet holds of it.
+let ethLoading = null;
+function ensureEthList() {
+  if (S.ethList) return Promise.resolve();
+  return (ethLoading ||= (async () => {
+    try { const lane = await ethLane(); S.ethList = await lane.E.listEtches(lane.rpc, ['https://mainnet.gateway.tenderly.co', ...lane.RPCS]); S.ethFailed = false; }
+    catch { S.ethFailed = true; }
+  })().finally(() => { ethLoading = null; }));
+}
+async function ethHeld() {
+  try {
+    const lane = await ethLane(), a = lane.wallet.state.account;
+    if (!a || !S.ethList?.length) return;
+    S.held = await lane.E.balances(lane.rpc, a, knownEth().map((x) => x.id));
+    paintList();
+  } catch { /* what is held is a convenience */ }
+}
 async function openFind(term) {
   if (term != null) ui.find.value = term;
   S.shown = PAGE;
   paintList();
+  if (S.fchain === 'eth') {
+    await ensureEthList();
+    paintList();
+    if (S.ethList && !S.ethNamed) { S.ethNamed = true; readNames(S.ethList, paintList).catch(() => {}); }
+    ethHeld();
+    return;
+  }
   await ensureAssets();
   paintList(); paint();
   if (S.assets && !S.named) { S.named = true; readNames(S.assets, paintList).catch(() => {}); }
@@ -491,8 +544,9 @@ ui.list.addEventListener('error', (e) => {
 }, true);
 
 // ── the two panels ──
-function setTab(t, term = null) {
+function setTab(t, term = null, side = null) {
   S.tab = t;
+  if (t === 'find') S.fchain = side || (/^0x[0-9a-f]{40}$/i.test(term || '') ? 'eth' : S.fchain);
   for (const [k, id] of [['create', 't-create'], ['find', 't-find']]) { const b = $(`#${id}`); b.setAttribute('aria-selected', String(k === t)); b.tabIndex = k === t ? 0 : -1; }
   $('.sw-h').style.setProperty('--i', t === 'find' ? 1 : 0);
   $('#p-create').hidden = t !== 'create'; $('#p-find').hidden = t !== 'find';
@@ -500,12 +554,13 @@ function setTab(t, term = null) {
   keepUrl();
 }
 function keepUrl() {
-  const q = ui.find.value.trim(), h = S.tab === 'find' ? `#discover${q ? `=${encodeURIComponent(q)}` : ''}` : '';
+  const q = ui.find.value.trim(), h = S.tab === 'find' ? `#discover${q ? `=${encodeURIComponent(q)}` : S.fchain === 'eth' ? ':eth' : ''}` : '';
   try { history.replaceState(null, '', location.pathname + location.search + h); } catch { /* the address is a convenience */ }
 }
 function readUrl() {
   let h = '';
   try { h = decodeURIComponent(location.hash.slice(1)); } catch { /* an unreadable address opens Create */ }
+  if (h === 'discover:eth') return { tab: 'find', term: '', side: 'eth' };
   return h.startsWith('discover') ? { tab: 'find', term: h.slice(9) } : { tab: 'create', term: null };
 }
 $('#t-create').addEventListener('click', () => setTab('create'));
@@ -515,7 +570,8 @@ $('.sw-h').addEventListener('keydown', (e) => {
   const t = S.tab === 'create' ? 'find' : 'create';
   setTab(t); $(`#t-${t}`).focus();
 });
-addEventListener('hashchange', () => { const u = readUrl(); if (u.tab !== S.tab || u.term != null) setTab(u.tab, u.term); });
+addEventListener('hashchange', () => { const u = readUrl(); if (u.tab !== S.tab || u.term != null) setTab(u.tab, u.term, u.side); });
+$('#fchain').addEventListener('click', (e) => { const b = e.target.closest('[data-fchain]'); if (!b || b.dataset.fchain === S.fchain) return; S.fchain = b.dataset.fchain; S.open = null; openFind(); keepUrl(); });
 
 // ── events ──
 const chips = () => { ui.dec.innerHTML = `<span>Decimals</span>${DECIMALS_OF[S.chain].map((d) => `<button type="button" data-d="${d}" aria-pressed="false">${d}</button>`).join('')}`; };
@@ -533,9 +589,9 @@ ui.reg.addEventListener('change', paint);
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-fund]')) { if (bitcoin?.session.unlocked) addSats(); return; }
   const f = e.target.closest('[data-find]');
-  if (f) { setTab('find', f.dataset.find); return; }
+  if (f) { setTab('find', f.dataset.find, 'btc'); return; }
   const c = e.target.closest('[data-copy]');
-  if (c) navigator.clipboard?.writeText(c.dataset.copy).then(() => { c.textContent = 'Copied'; setTimeout(() => { c.textContent = 'Copy'; }, 1500); }, () => { c.textContent = 'Could not copy'; });
+  if (c) { const was = c.textContent; navigator.clipboard?.writeText(c.dataset.copy).then(() => { c.textContent = 'Copied'; setTimeout(() => { c.textContent = was; }, 1500); }, () => { c.textContent = 'Could not copy'; }); }
 });
 addEventListener('beforeunload', (e) => { if (S.busy) { e.preventDefault(); e.returnValue = ''; } });
 // a visitor short of sats goes to their wallet and comes back: the balance is read again, on return and every half minute while the page is in view
@@ -548,4 +604,4 @@ setInterval(() => { if (!document.hidden) recheck(); }, 30e3);
 ensureAssets().then(paint);
 const u = readUrl();
 paint();
-if (u.tab === 'find') setTab('find', u.term);
+if (u.tab === 'find') setTab('find', u.term, u.side);
