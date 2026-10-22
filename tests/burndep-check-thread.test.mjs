@@ -57,6 +57,45 @@ test('the same check asked again joins the one running, then reads its answer, a
   assert.match((await other.json()).error, /too many check requests/);
 });
 
+// A burn reveal as the page builds it: one input (the burn address), one output, and the 161-byte burn envelope in the script the
+// input's witness reveals. `sig` stands for the signature, which a page draws fresh each time it signs.
+const burnHex = ({ prev = 'ab'.repeat(32), nullifier = 'cd'.repeat(32), sig = '11' }) => {
+  const env = '544143495401' + '2b' + '33'.repeat(32) + '00'.repeat(32) + nullifier + '44'.repeat(32) + '55'.repeat(32);   // the TACIT frame, then the burn
+  const pushes = env.match(/.{1,150}/g).map((c) => (c.length / 2).toString(16).padStart(2, '0') + c).join('');
+  const script = '20' + '22'.repeat(32) + 'ac' + '0063' + pushes + '68';
+  const varint = (n) => (n < 0xfd ? n.toString(16).padStart(2, '0') : 'fd' + (n & 0xff).toString(16).padStart(2, '0') + (n >> 8).toString(16).padStart(2, '0'));
+  return '0x02000000' + '0001' + '01' + prev.match(/../g).reverse().join('') + '00000000' + '00' + 'fdffffff'
+    + '01' + '2202000000000000' + '22' + '5120' + '66'.repeat(32)
+    + '03' + '40' + sig.repeat(64) + varint(script.length / 2) + script + '21' + 'c0' + '77'.repeat(32) + '00000000';
+};
+
+test('a burn signed again is the same check: the key is what the burn names, not its bytes', async () => {
+  let runs = 0, finish;
+  const env = {
+    REGISTRY_KV: kv(),
+    burnDepositCheckOffThread: () => { runs++; return new Promise((resolve) => { finish = () => resolve({ status: 200, body: { ok: true, admitted: true } }); }); },
+  };
+  const ask = (body) => worker.fetch(new Request('https://api.tacit.finance/reflection/burndep/check?network=mainnet', { method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.9' }, body: JSON.stringify(body) }), env);
+  const bundle = { burned: { cx: '0x' + '44'.repeat(32), cy: '0x' + '55'.repeat(32) } };
+  const first = burnHex({ sig: '11' }), again = burnHex({ sig: '99' });
+  assert.notEqual(first, again, 'the two burns differ in their signature');
+  const a = ask({ bundle, assetId: '0x' + '33'.repeat(32), burnTxHex: first }), b = ask({ bundle, assetId: '0x' + '33'.repeat(32), burnTxHex: again });
+  await new Promise((r) => setTimeout(r, 50));
+  finish();
+  assert.equal((await a).status, 200); assert.equal((await b).status, 200);
+  assert.equal(runs, 1, 'one check ran for both');
+  const later = await ask({ bundle, assetId: '0x' + '33'.repeat(32), burnTxHex: burnHex({ sig: '55' }) });
+  assert.equal(later.status, 200);
+  assert.equal(runs, 1, 'a burn signed a third time reads the kept answer');
+  const other = ask({ bundle, assetId: '0x' + '33'.repeat(32), burnTxHex: burnHex({ nullifier: 'ee'.repeat(32) }) });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(runs, 2, 'a burn naming another nullifier is another check');
+  const elsewhere = ask({ bundle, assetId: '0x' + '33'.repeat(32), burnTxHex: burnHex({ prev: 'ef'.repeat(32) }) });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(runs, 3, 'and so is a burn spending another outpoint');
+  finish(); await other; await elsewhere;
+});
+
 test('a busy or failed check is not kept: the next ask starts it again', async () => {
   const outs = [{ status: 429, body: { ok: false, error: 'the check is busy with other lineages; retry in a moment', retryAfter: 15 }, retryAfter: 15 }, { status: 200, body: { ok: true, admitted: true } }];
   let runs = 0;

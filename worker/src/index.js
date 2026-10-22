@@ -114,7 +114,7 @@ import { opExpiry } from '../../dapp/confidential-relay.js';
 import { sanitizeLedger, sanitizeBooks, readChain, readTips, buildEconomics } from './relay-economics.js';
 import { CONFIDENTIAL_DEPLOYMENTS as _CONFIDENTIAL_DEPLOYMENTS } from '../../dapp/confidential-deployments.js';
 import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEPLOYMENTS } from '../../dapp/confidential-crossout-consumer.js';
-import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
+import { classifyConfidentialTx, extractInputs, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
 import { makeScanReflectionIndexer } from '../../dapp/confidential-reflection-scan-indexer.js';
 import { makeBurndepAdmission, HEADER_CHUNK as BURNDEP_HEADER_CHUNK } from './burndep-admission.js';
 import { handleProverUpload, handleProverDownload, PROVER_PROXY_PATHS } from './prover-proxy.js';
@@ -2456,10 +2456,10 @@ async function handleBridgeRecoverMark(req, env, url, cors) {
 // slightly higher, which the same forward-extension logic closes at fold time, so this is a strong predictor,
 // not an eternal guarantee. Permissionless and side-effect-free: nothing is written, and the guest re-verifies
 // everything in-zkVM regardless of what this answers.
-// One check per distinct request at a time. A page answered 202 asks again with the same body: that ask joins the check still
+// One check per distinct request at a time. A page answered 202 asks again about the same burn: that ask joins the check still
 // running, or reads its answer for BURNDEP_CHECK_KEEP_MS after, rather than starting another (each takes a place in the thread's
 // one-at-a-time queue and tens of seconds of CPU). Only new work spends a rate-limit token.
-const _burndepChecks = new Map(); // `${network}:${sha256(body)}` -> { work, out, at, progress }
+const _burndepChecks = new Map(); // `${network}:${sha256(what the body asks, _burndepCheckKey)}` -> { work, out, at, progress }
 const BURNDEP_CHECK_KEEP_MS = 10 * 60_000;
 // The longest an unanswered check can honestly be pending: the whole queue ahead of it (1 running and up to 3 waiting), each held
 // to the thread's longest limit (server/burndep-check-thread.mjs, 25 minutes for the deepest history), and its own run after.
@@ -2474,6 +2474,19 @@ function _burndepTooLong(bundle) {
   }
   return null;
 }
+// What a check's answer rests on is the history, the note's opening and what the burn names: the outpoint its first input spends and
+// its envelope (asset, nullifier, destination, target). Not the burn's bytes: a page signs its burn afresh every time it builds one, so
+// the same burn asked about again after the page's hold on it ended would be a new check, run from the back of the line while the first
+// still runs for no one. A burn that does not parse is keyed by its bytes, and the check refuses it.
+function _burndepCheckKey(network, text, body) {
+  let named = null;
+  try {
+    const hex = body && typeof body.burnTxHex === 'string' ? withHex(body.burnTxHex) : null;
+    const burn = hex ? classifyConfidentialTx(hex) : null, ins = burn && burn.type === 'burn' ? extractInputs(hex) : null;
+    if (ins && ins.length) named = { spends: `${ins[0].prevTxid}:${ins[0].prevVout}`, ...burn };
+  } catch { /* the check itself refuses a burn that does not parse */ }
+  return `${network}:${bytesToHex(sha256(new TextEncoder().encode(named ? JSON.stringify({ ...body, burnTxHex: named }) : text)))}`;
+}
 function _burndepCheckFor(key) {
   const t = Date.now();
   for (const [k, e] of _burndepChecks) if (t - e.at > (e.out ? BURNDEP_CHECK_KEEP_MS : BURNDEP_CHECK_STALE_MS)) _burndepChecks.delete(k);
@@ -2486,7 +2499,7 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   try { text = await req.text(); body = JSON.parse(text); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
   const tooLong = _burndepTooLong(body && body.bundle);
   if (tooLong) return jsonResponse({ ok: false, error: tooLong }, 400, { ...cors, 'Cache-Control': 'no-store' });
-  const key = `${network}:${bytesToHex(sha256(new TextEncoder().encode(text)))}`;
+  const key = _burndepCheckKey(network, text, body);
   let entry = _burndepCheckFor(key);
   if (!entry) {
     // Kept before the rate limit is read, so an identical ask arriving meanwhile joins this one rather than racing it.
