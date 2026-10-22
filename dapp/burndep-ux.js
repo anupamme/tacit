@@ -526,7 +526,9 @@ export function makeBurnDepositUx(deps) {
 
   let _burner = null;
   const burner = () => _burner || (_burner = makeBridgeBurnBroadcaster({ pool, bridgeMint }));
-  async function startReflected({ note, walletPriv, feeRate = null, allowHighFee = false }) {
+  // `recipient` { pubHex, name? } pays someone else: the burn names a stealth lock for their address (OP_BRIDGE_STEALTH_MINT) instead
+  // of a note for this key, and they claim it under their private payments.
+  async function startReflected({ note, walletPriv, feeRate = null, allowHighFee = false, recipient = null }) {
     const walletPub = secp.getPublicKey(walletPriv, true);
     const id = recordId(note.txid, note.vout);
     if (getRecord(walletPub, id)) throw new Error('burndep-ux: a bridge already exists for this note');
@@ -535,6 +537,13 @@ export function makeBurnDepositUx(deps) {
     if (!asset) throw new Error('burndep-ux: this asset cannot be sent back to Ethereum here');
     if (BigInt(note.amount) > asset.capRaw) throw new Error('burndep-ux: over the beta cap');
     if (note.stealthTweakedSk) throw new Error(`burndep-ux: ${PRIVATE_NOTE}`);
+    const recipientPub = recipient ? lc(withHex(String(recipient.pubHex))) : null;
+    if (recipient) {
+      if (!/^0x0[23][0-9a-f]{64}$/.test(recipientPub)) throw new Error('burndep-ux: the recipient must be a private-payment address');
+      if (recipientPub === '0x' + bytesToHexLocal(walletPub)) throw new Error('burndep-ux: that is this key’s own address; bridge without a recipient to receive it yourself');
+    }
+    const lockDeadline = recipient ? bridgeMint.stealthDeadline(Math.floor(now() / 1000)) : null;
+    const lockerScanPriv = recipient ? '0x' + bytesToHexLocal(walletPriv) : null;
     const p2tr = !!note.p2tr;
     if (p2tr && !allowHighFee) {
       const rate = Number(feeRate != null ? feeRate : await chain.getFeeRate('priority'));
@@ -550,8 +559,12 @@ export function makeBurnDepositUx(deps) {
       prims: P, snapshot, feeRate, fundingUtxos: Array.isArray(safe) ? safe : [safe].filter(Boolean),
       note: { txid: stripHex(note.txid), vout: Number(note.vout), sats: Number(note.sats), asset: asset.assetId, value: BigInt(note.amount), blinding: BigInt(note.blinding), script: p2tr ? '5120' + bytesToHexLocal(walletPub.slice(1)) : bytesToHexLocal(p2wpkhScriptOf(walletPub)) },
       notePriv: walletPriv, chainBinding: withHex(chainBindingHex()), sourceClass: 1, fee: 0n,
-      dest: { owner: pickDestOwner(walletPriv, asset.assetId).owner },
-      deriveDestBlinding: (nu) => mintRecovery.deriveBridgeMintBlinding({ privkey: walletPriv, nullifier: nu }),
+      ...(recipient
+        ? { stealthDest: (nu, v) => bridgeMint.stealthDestFor({ asset: asset.assetId, lockerScanPriv, nullifier: nu, recipientSpendPub: recipientPub, value: v, deadline: lockDeadline }) }
+        : {
+          dest: { owner: pickDestOwner(walletPriv, asset.assetId).owner },
+          deriveDestBlinding: (nu) => mintRecovery.deriveBridgeMintBlinding({ privkey: walletPriv, nullifier: nu }),
+        }),
     });
     const p = built.plan;
     const funding = built.commitTx.inputs.map((i) => ({ txid: i.txid, vout: i.vout }));
@@ -560,6 +573,7 @@ export function makeBurnDepositUx(deps) {
       source: { txid: stripHex(note.txid).toLowerCase(), vout: Number(note.vout), sats: Number(note.sats), assetId: asset.assetId, ticker: asset.ticker, ...(p2tr ? { p2tr: true } : {}), amount: BigInt(note.amount), blinding: BigInt(note.blinding) },
       burn: { txid: built.revealTxid, hex: built.revealHex, commitTxid: built.commitTxid, commitHex: built.commitHex, fee: built.commitFee + built.revealFee, feeRate: built.feeRate, fundingUtxo: funding[0], fundingUtxos: funding },
       envelope: { destLeaf: p.destLeaf, nullifier: p.nullifier, burnId: p.burnId },
+      ...(p.stealth ? { stealth: stealthRecord(p.stealth, recipient) } : {}),
       mint: {
         sourceClass: p.sourceClass, spentTxid: p.spentTxid, spentVout: p.spentVout, chainBinding: p.chainBinding,
         burned: { value: p.burned.value, blinding: p.burned.blinding, owner: p.burned.owner },
@@ -568,11 +582,30 @@ export function makeBurnDepositUx(deps) {
     });
   }
 
+  // What the journal keeps of a stealth bridge: public fields only. The ephemeral key, the lock's blinding and the refund key are not
+  // kept; stealthDestFor derives them again from this key, the burn's nullifier, the recipient and the deadline.
+  function stealthRecord(sd, recipient) {
+    return {
+      recipientPub: sd.recipientSpendPub, ...(recipient && recipient.name ? { recipientName: String(recipient.name) } : {}),
+      deadline: String(sd.deadline), ownerPub: sd.ownerPub, lockLeaf: sd.lockLeaf, refundPub: sd.refundPub, ephemeralPub: sd.ephemeralPub,
+    };
+  }
+  function stealthDestOf(rec, walletPriv) {
+    const sd = bridgeMint.stealthDestFor({
+      asset: withHex((rec.source && rec.source.assetId) || tacAssetId), lockerScanPriv: '0x' + bytesToHexLocal(walletPriv), nullifier: rec.envelope.nullifier,
+      recipientSpendPub: rec.stealth.recipientPub, value: BigInt(rec.mint.dest.value), deadline: BigInt(rec.stealth.deadline),
+    });
+    if (lc(sd.lockLeaf) !== lc(rec.envelope.destLeaf)) throw new Error('burndep-ux: this key does not rebuild the stealth lock this burn named, so it cannot mint it');
+    return sd;
+  }
+
   const ARM_RETRY_MS = 10 * 60 * 1000, ARM_TRIES = 6, ARM_GRACE_MS = 15 * 60 * 1000;
   const ARMABLE = new Set(['rburn-signed', 'rburn-sent', 'rburn-mined', 'rfolded']);
   async function armMint(walletPub, id, { walletPriv }) {
     const rec = getRecord(walletPub, id);
-    if (!rec || rec.path !== 'reflected' || !rec.mint || !ARMABLE.has(rec.stage) || typeof bridgeMint.armMint !== 'function') return rec;
+    // The relay arms only a plain mint (POST /confidential/arm takes type bridgemint), so a bridge that pays a stealth address is minted
+    // from this page once the burn is folded.
+    if (!rec || rec.path !== 'reflected' || !rec.mint || rec.stealth || !ARMABLE.has(rec.stage) || typeof bridgeMint.armMint !== 'function') return rec;
     const a = rec.arm;
     if (a && (a.ok || Number(a.tries) >= ARM_TRIES || now() - Number(a.at || 0) < ARM_RETRY_MS)) return rec;
     if (!walletPriv) throw new Error('burndep-ux: arming needs the wallet key');
@@ -780,15 +813,20 @@ export function makeBurnDepositUx(deps) {
       say('fetching-snapshot');
       let minted;
       try {
-        minted = await bridgeMint.bridgeMint({
-        network, sourceClass: m.sourceClass, spentTxid: m.spentTxid, spentVout: m.spentVout,
-        asset: withHex((rec.source && rec.source.assetId) || tacAssetId), chainBinding: m.chainBinding,
-        burned: { value: BigInt(m.burned.value), blinding: BigInt(m.burned.blinding), owner: m.burned.owner },
-        dest: { value: BigInt(m.dest.value), blinding: BigInt(m.dest.blinding), owner: m.dest.owner },
-        recovery: recoveryFor(walletPriv, m.dest.value, (rec.source && rec.source.assetId) || tacAssetId),
-        selfSettle,
-        waitOpts: { timeoutMs: MINT_WAIT_MS, onJob: (jobId) => { noteJob(rec, jobId); say('submitted', { jobId }); }, onUpdate: (st) => say('status', { status: st.status }) },
-        });
+        const common = {
+          network, sourceClass: m.sourceClass, spentTxid: m.spentTxid, spentVout: m.spentVout,
+          asset: withHex((rec.source && rec.source.assetId) || tacAssetId), chainBinding: m.chainBinding,
+          burned: { value: BigInt(m.burned.value), blinding: BigInt(m.burned.blinding), owner: m.burned.owner },
+          selfSettle,
+          waitOpts: { timeoutMs: MINT_WAIT_MS, onJob: (jobId) => { noteJob(rec, jobId); say('submitted', { jobId }); }, onUpdate: (st) => say('status', { status: st.status }) },
+        };
+        minted = rec.stealth
+          ? await bridgeMint.bridgeStealthMint({ ...common, stealthDest: stealthDestOf(rec, walletPriv), lockerScanPriv: '0x' + bytesToHexLocal(walletPriv) })
+          : await bridgeMint.bridgeMint({
+            ...common,
+            dest: { value: BigInt(m.dest.value), blinding: BigInt(m.dest.blinding), owner: m.dest.owner },
+            recovery: recoveryFor(walletPriv, m.dest.value, (rec.source && rec.source.assetId) || tacAssetId),
+          });
       } catch (e) {
         const done = await mintLanded(rec);
         if (done) return done;
@@ -981,7 +1019,10 @@ export function makeBurnDepositUx(deps) {
     } finally { inFlight.delete(id); releaseLease(id); }
   }
 
-  async function recoverReflectedBurn(burnTxidDisplay, walletPriv) {
+  // `recipient` { pubHex, name? }: the address a burn paid, for a bridge that paid someone else. Its lock cannot be told from the
+  // chain alone (the envelope holds only the lock's hash), so the holder names the address and the deadline is found among the few
+  // days around the burn's block time (the deadline is a whole UTC day, see stealthDeadline).
+  async function recoverReflectedBurn(burnTxidDisplay, walletPriv, { recipient = null } = {}) {
     if (!openNote && !openHeldNote) return null;
     const id = stripHex(burnTxidDisplay).toLowerCase();
     const burnTx = await fetchChainJson(`/tx/${id}`).catch((e) => {
@@ -1012,7 +1053,18 @@ export function makeBurnDepositUx(deps) {
     const owner = pickDestOwner(walletPriv, asset.assetId).owner;
     const destBlinding = mintRecovery.deriveBridgeMintBlinding({ privkey: walletPriv, nullifier: env.nullifier });
     const { cx: dx, cy: dy } = pool.commitXY(BigInt(opened.amount), destBlinding);
-    if (lc(pool.leaf(asset.assetId, dx, dy, owner)) !== lc(env.dest)) throw new Error('burndep-ux: that burn names a destination that is not this wallet’s, so it is not this wallet’s bridge');
+    let stealth = null;
+    if (lc(pool.leaf(asset.assetId, dx, dy, owner)) !== lc(env.dest)) {
+      const recipientPub = recipient ? lc(withHex(String(recipient.pubHex))) : null;
+      if (recipientPub) {
+        const at = Number(burnTx.status.block_time) || Math.floor(now() / 1000);
+        for (const deadline of bridgeMint.stealthDeadlineCandidates(at)) {
+          const sd = bridgeMint.stealthDestFor({ asset: asset.assetId, lockerScanPriv: '0x' + bytesToHexLocal(walletPriv), nullifier: env.nullifier, recipientSpendPub: recipientPub, value: BigInt(opened.amount), deadline });
+          if (lc(sd.lockLeaf) === lc(env.dest)) { stealth = sd; break; }
+        }
+      }
+      if (!stealth) throw new Error(recipient ? 'burndep-ux: that burn does not name a stealth lock for that address' : 'burndep-ux: that burn names a destination that is not this wallet’s, so it is not this wallet’s bridge. If it paid someone else, give their address');
+    }
 
     const rid = recordId(note.txid, note.vout);
     const existing = getRecord(walletPub, rid);
@@ -1027,10 +1079,11 @@ export function makeBurnDepositUx(deps) {
       burn: { txid: id, hex: null },
       burnHeight: Number(burnTx.status.block_height),
       envelope: { destLeaf: env.dest, nullifier: env.nullifier, burnId: pool.bridgeBurnId(1, spentTxid, Number(note.vout), srcLeaf, env.target) },
+      ...(stealth ? { stealth: stealthRecord(stealth, recipient) } : {}),
       mint: {
         sourceClass: 1, spentTxid, spentVout: Number(note.vout), chainBinding: env.target,
         burned: { value: BigInt(opened.amount), blinding: BigInt(opened.blinding), owner: burnedOwner },
-        dest: { value: BigInt(opened.amount), blinding: destBlinding, owner },
+        dest: stealth ? { value: BigInt(opened.amount), blinding: BigInt(stealth.lBlinding), owner: stealth.ownerPub } : { value: BigInt(opened.amount), blinding: destBlinding, owner },
       },
     };
     if (nullifierSpent && await nullifierSpent(env.nullifier).catch(() => false)) return putRecord({ ...rec, stage: 'minted', mintedAt: now() });
@@ -1127,8 +1180,8 @@ export function makeBurnDepositUx(deps) {
     return rec;
   }
 
-  async function recoverFromTxid(burnTxidDisplay, walletPriv, { amount } = {}) {
-    const reflectedBridge = await recoverReflectedBurn(burnTxidDisplay, walletPriv);
+  async function recoverFromTxid(burnTxidDisplay, walletPriv, { amount, recipient = null } = {}) {
+    const reflectedBridge = await recoverReflectedBurn(burnTxidDisplay, walletPriv, { recipient });
     if (reflectedBridge) return reflectedBridge;
     const moved = await recoverMoveFromTxid(burnTxidDisplay, walletPriv);
     if (moved) return moved;

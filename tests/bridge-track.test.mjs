@@ -39,6 +39,16 @@ test('a bridge in reads its asset, amount, step and transactions', () => {
   assert.equal(r.href, '/#bridge'); assert.equal(r.due, '');
 });
 
+test('a bridge that paid someone else ends in a payment, and shows no more of the record', () => {
+  const stealth = { recipientPub: '02' + 'ee'.repeat(32), recipientName: 'alice.wei', deadline: '1800000000', ownerPub: '0x' + 'dd'.repeat(32), lockLeaf: '0x' + 'ab'.repeat(32), refundPub: '0x' + 'cc'.repeat(32), ephemeralPub: '02' + 'ff'.repeat(32) };
+  const own = inRow(inRec({ stage: 'minted', mintedAt: NOW }), NOW), paid = inRow(inRec({ stage: 'minted', mintedAt: NOW, stealth }), NOW);
+  assert.equal(own.paid, false); assert.equal(paid.paid, true);
+  assert.equal(own.steps[3], 'Minted privately'); assert.deepEqual(paid.steps, [...own.steps.slice(0, 3), 'Paid privately']);
+  assert.equal(paid.done, true); assert.equal(paid.at, 4);
+  const text = JSON.stringify(paid, (k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  assert.ok(!text.includes('alice.wei') && !text.includes(stealth.recipientPub) && !text.includes(stealth.lockLeaf), 'the row says it paid someone, not whom');
+});
+
 test('nothing secret leaves a record', () => {
   const rows = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([inRec()]), [OUT_PREFIX + PUB]: JSON.stringify([outRec()]) }), NOW);
   const text = JSON.stringify(rows, (k, v) => (typeof v === 'bigint' ? v.toString() : v));

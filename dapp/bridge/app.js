@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=bcba2bda';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=0c8b8a37';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -212,7 +212,7 @@ function rowHtml(r) {
   const to = r.dir === 'in' ? 'to Ethereum' : 'to Bitcoin';
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
-  const where = r.done ? 'Arrived' : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
+  const where = r.done ? (r.paid ? 'Sent' : 'Arrived') : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
   const act = nx.due
     ? `<a class="mb-due" href="${r.href}">${esc(nx.due)} <span aria-hidden="true">→</span></a>`
     : r.done || r.back ? '' : nx.self ? '<span class="mb-self">Goes on by itself</span>'
@@ -267,8 +267,8 @@ function notifyChanges() {
 function ping(r, kind) {
   const a = ROUTES[r.asset] || ROUTES.tac, amt = `${fmtAmount(r.amount, a.dp)} ${a.ticker}`, due = nextOf(r, LIVE).due;
   try {
-    const n = new Notification(kind === 'due' ? `${amt} bridge needs you` : `${amt} has arrived`, {
-      body: kind === 'due' ? `${due}: open the app to finish it.` : r.dir === 'in' ? 'It is private on Ethereum now.' : 'It is on your Bitcoin address.', tag: `${r.dir}:${r.id}`,
+    const n = new Notification(kind === 'due' ? `${amt} bridge needs you` : r.paid ? `${amt} was sent` : `${amt} has arrived`, {
+      body: kind === 'due' ? `${due}: open the app to finish it.` : r.paid ? 'It is with the address you paid, to claim as a private payment.' : r.dir === 'in' ? 'It is private on Ethereum now.' : 'It is on your Bitcoin address.', tag: `${r.dir}:${r.id}`,
     });
     n.onclick = () => { window.focus(); location.href = r.href; n.close(); };
   } catch { /* a browser that refuses a notification keeps the tab title */ }

@@ -35,7 +35,7 @@ export function txidInternal(displayHex) {
   return '0x' + h.match(/../g).reverse().join('').toLowerCase();
 }
 
-export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl = null, relayBase = '' } = {}) {
+export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl = null, relayBase = '', stealth = null, airdrop = null } = {}) {
   if (!pool) throw new Error('confidential-bridge-mint: pool is required');
   const hex32 = (v) => '0x' + BigInt(v).toString(16).padStart(64, '0');
   const lc = (x) => String(x || '').toLowerCase();
@@ -174,22 +174,153 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     return { op: done.op, fee, destLeaf: parts.destLeaf, nullifier: parts.nullifier, burnId: parts.burnId, sourceClass: cls };
   }
 
-  function buildBridgeBurnEnvelope({ asset, bitcoinPoolRoot, chainBinding, sourceClass = SOURCE_REFLECTED_BOUND, burned, fee = 0n, dest, deriveDestBlinding = null }) {
+  // `stealthDest(nullifier, vOut)` (pay-to-stealth) names the burn's destination as a stealth lock for someone else, built by
+  // stealthDestFor from the nullifier this burn will carry; the envelope then pins the lock's leaf instead of a note's.
+  function buildBridgeBurnEnvelope({ asset, bitcoinPoolRoot, chainBinding, sourceClass = SOURCE_REFLECTED_BOUND, burned, fee = 0n, dest, deriveDestBlinding = null, stealthDest = null }) {
     const cls = Number(sourceClass);
     if (cls !== SOURCE_REFLECTED && cls !== SOURCE_REFLECTED_BOUND) throw new Error('bridge-mint: the envelope builder covers reflected notes (class 1 or 2); a burn-deposit has its own path');
-    for (const [k, v] of [['asset', asset], ['bitcoinPoolRoot', bitcoinPoolRoot], ['chainBinding', chainBinding], ['burned.owner', burned && burned.owner], ['dest.owner', dest && dest.owner]]) {
+    for (const [k, v] of [['asset', asset], ['bitcoinPoolRoot', bitcoinPoolRoot], ['chainBinding', chainBinding], ['burned.owner', burned && burned.owner], ...(stealthDest ? [] : [['dest.owner', dest && dest.owner]])]) {
       if (!/^0x[0-9a-fA-F]{64}$/.test(String(v))) throw new Error(`bridge-mint: ${k} must be 32 bytes of hex`);
     }
     const vOut = destValueFor({ burnValue: burned.value, fee });
     const { cx, cy } = pool.commitXY(BigInt(burned.value), BigInt(burned.blinding));
     const srcLeaf = sourceLeaf({ sourceClass: cls, asset, cx, cy, owner: burned.owner, chainBinding });
     const nullifier = pool.nullifier(srcLeaf);
-    const rDest = BigInt(dest.blinding != null ? dest.blinding : typeof deriveDestBlinding === 'function' ? deriveDestBlinding(nullifier) : 0n);
-    if (rDest <= 0n) throw new Error('bridge-mint: dest.blinding or deriveDestBlinding required');
-    const d = pool.commitXY(vOut, rDest);
-    const destLeaf = pool.leaf(asset, d.cx, d.cy, dest.owner);
+    let destLeaf, destOut;
+    if (typeof stealthDest === 'function') {
+      const sd = stealthDest(nullifier, vOut);
+      if (!sd || BigInt(sd.value) !== vOut) throw new Error('bridge-mint: the stealth destination must hold the burned value net of the fee');
+      destLeaf = sd.lockLeaf;
+      destOut = { value: vOut, blinding: BigInt(sd.lBlinding), owner: sd.ownerPub, cx: sd.cx, cy: sd.cy, stealth: sd };
+    } else {
+      const rDest = BigInt(dest.blinding != null ? dest.blinding : typeof deriveDestBlinding === 'function' ? deriveDestBlinding(nullifier) : 0n);
+      if (rDest <= 0n) throw new Error('bridge-mint: dest.blinding or deriveDestBlinding required');
+      const d = pool.commitXY(vOut, rDest);
+      destLeaf = pool.leaf(asset, d.cx, d.cy, dest.owner);
+      destOut = { value: vOut, blinding: rDest, owner: dest.owner, cx: d.cx, cy: d.cy };
+    }
     const envelope = '0x2b' + [asset, bitcoinPoolRoot, nullifier, destLeaf, chainBinding].map((h) => String(h).replace(/^0x/, '').toLowerCase()).join('');
-    return { envelope, nullifier, destLeaf, fee: BigInt(fee), dest: { value: vOut, blinding: rDest, owner: dest.owner, cx: d.cx, cy: d.cy } };
+    return { envelope, nullifier, destLeaf, fee: BigInt(fee), dest: destOut };
+  }
+
+  // ---- Pay-to-stealth: a burn that pays someone else (OP_BRIDGE_STEALTH_MINT) ----
+  // The burn pins destLeaf = stealth_lock_leaf_blind(asset, L, ownerPub, deadline, refundPub) as its destination and the mint puts
+  // that lock in the shared lock-set: only the recipient's one-time key can claim it (OP_STEALTH_CLAIM), and the burner's refund key
+  // takes it back after the deadline (OP_STEALTH_REFUND). The ephemeral key, L's blinding and the refund key are all derived from
+  // the burner's key and the burn's nullifier (the airdrop's derivations), so a lost page costs nothing the key cannot rebuild.
+  const ZERO32 = '0x' + '00'.repeat(32);
+  const STEALTH_LOCK_DAYS = 90;
+  const needStealth = () => {
+    if (!stealth || !airdrop) throw new Error('bridge-mint: paying a stealth address needs the stealth and airdrop helpers wired');
+    return { S: stealth, A: airdrop };
+  };
+  // A deadline on a whole UTC day, `days` ahead: the same burn rebuilt after a reload lands on the same day, and a burn found on
+  // Bitcoin later can be matched by trying the few days around its block time (stealthDeadlineCandidates).
+  const stealthDeadline = (nowSec, days = STEALTH_LOCK_DAYS) => (Math.floor(Number(nowSec) / 86400) + days) * 86400;
+  const stealthDeadlineCandidates = (burnSec, days = STEALTH_LOCK_DAYS) => {
+    const day = Math.floor(Number(burnSec) / 86400);
+    return [-3, -2, -1, 0, 1, 2].map((d) => (day + d + days) * 86400);
+  };
+  function stealthDestFor({ asset, lockerScanPriv, nullifier, recipientSpendPub, value, deadline }) {
+    const { S, A } = needStealth();
+    const v = BigInt(value), dl = BigInt(deadline);
+    if (v <= 0n || v > U64_MAX) throw new Error('bridge-mint: stealth value out of range');
+    if (dl <= 0n) throw new Error('bridge-mint: a stealth lock needs a deadline');
+    if (!/^0x0[23][0-9a-fA-F]{64}$/.test(String(recipientSpendPub))) throw new Error('bridge-mint: the recipient must be a 33-byte compressed public key');
+    const ePriv = A.ephPriv(lockerScanPriv, recipientSpendPub, 0, nullifier);
+    const { ephemeralPub, ownerPub } = S.oneTimeAddress({ recipientSpendPub, ephemeralPriv: ePriv });
+    const lBlinding = A.lockBlinding(lockerScanPriv, 0, nullifier);
+    const rPriv = A.refundPriv(lockerScanPriv, 0, nullifier);
+    const refundPub = A.refundPubOf(rPriv);
+    const { cx, cy } = pool.commitXY(v, BigInt(lBlinding));
+    const lockLeaf = S.stealthLockLeafBlind(asset, cx, cy, ownerPub, dl, refundPub);
+    return { asset: lc(asset), recipientSpendPub: lc(recipientSpendPub), ephemeralPriv: hex32(ePriv), ephemeralPub, ownerPub, lBlinding, refundPriv: hex32(rPriv), refundPub, deadline: dl, value: v, cx, cy, lockLeaf };
+  }
+
+  // Memo for the lock: the recipient's half (the opening they need to claim) and the burner's tail (so "take back a private send"
+  // finds the lock from the key alone). The contract wants one memo per lock leaf.
+  function sealStealthLockMemo({ lockerScanPriv, stealthDest: sd }) {
+    const { A } = needStealth();
+    const recipientMemo = A.sealStealthMemo({ recipientSpendPub: sd.recipientSpendPub, ephemeralPriv: sd.ephemeralPriv, asset: sd.asset, amount: sd.value, lBlinding: sd.lBlinding, deadline: sd.deadline, refundPub: sd.refundPub });
+    const tail = A.sealStealthSenderTail({ senderPriv: lockerScanPriv, ephemeralPub: sd.ephemeralPub, asset: sd.asset, amount: sd.value, lBlinding: sd.lBlinding, deadline: sd.deadline, refundPriv: sd.refundPriv, ownerPub: sd.ownerPub, recipientPub: sd.recipientSpendPub });
+    return recipientMemo + String(tail).replace(/^0x/, '');
+  }
+
+  function bridgeStealthMintParts({ chainBinding, asset, spentTxid, spentVout, sourceClass, burned, stealthDest: sd }) {
+    const { S } = needStealth();
+    const vout = Number(spentVout);
+    if (!Number.isInteger(vout) || vout < 0 || vout > 0xffffffff) throw new Error('bridge-mint: bad spentVout');
+    const cls = Number(sourceClass);
+    if (![SOURCE_DEPOSIT, SOURCE_REFLECTED, SOURCE_REFLECTED_BOUND].includes(cls)) throw new Error(`bridge-mint: unknown source class ${sourceClass}`);
+    const vIn = BigInt(burned.value), rIn = BigInt(burned.blinding), vOut = BigInt(sd.value);
+    if (vIn <= 0n || vIn > U64_MAX || vOut <= 0n || vOut > vIn) throw new Error('bridge-mint: destination value must be positive and at most the burned value');
+    const fee = vIn - vOut;
+    if (!feeIsQuantized(fee)) throw new Error(`bridge-mint: implied fee ${fee} (burned − destination) is not on the fee ladder`);
+    const { cx: inCx, cy: inCy } = pool.commitXY(vIn, rIn);
+    const srcLeaf = sourceLeaf({ sourceClass: cls, asset, cx: inCx, cy: inCy, owner: burned.owner, spentTxid, spentVout: vout, chainBinding });
+    const burnId = pool.bridgeBurnId(cls === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, spentTxid, vout, srcLeaf, chainBinding);
+    const lockLeaf = S.stealthLockLeafBlind(asset, sd.cx, sd.cy, sd.ownerPub, sd.deadline, sd.refundPub);
+    if (lc(lockLeaf) !== lc(sd.lockLeaf)) throw new Error('bridge-mint: the stealth destination does not match its own lock leaf');
+    const op = S.buildBridgeStealthMint({
+      chainBinding, bitcoinBurnRoot: ZERO32, asset, poolRoot: ZERO32,
+      burned: { cx: inCx, cy: inCy, owner: burned.owner, blinding: rIn, sourceClass: cls, spentTxid, spentVout: vout, leafIndex: 0, path: [] },
+      ownerPub: sd.ownerPub, amount: vIn, deadline: sd.deadline, locker: sd.refundPub, lBlinding: sd.lBlinding,
+      bmNext: ZERO32, bmIndex: 0, bmPath: [], fee,
+    });
+    if (lc(op.lCx) !== lc(sd.cx) || lc(op.lCy) !== lc(sd.cy)) throw new Error('bridge-mint: the stealth mint\'s lock commitment is not the one the burn pinned');
+    return { op, fee, destLeaf: lockLeaf, nullifier: pool.nullifier(srcLeaf), burnId, sourceClass: cls, srcLeaf };
+  }
+
+  // The public half, read off the reflected state: the burned note's place in the note tree and the burn's place in the burn set,
+  // which must hold exactly the stealth lock this mint creates.
+  function completeBridgeStealthMintOp(op, reflection) {
+    const r = prepareReflection(reflection);
+    const cls = Number(op.sourceClass);
+    const srcLeaf = sourceLeaf({ sourceClass: cls, asset: op.asset, cx: op.inCx, cy: op.inCy, owner: op.inOwner, spentTxid: op.spentTxid, spentVout: Number(op.spentVout), chainBinding: op.chainBinding });
+    const burnId = pool.bridgeBurnId(cls === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, op.spentTxid, Number(op.spentVout), srcLeaf, op.chainBinding);
+    const destLeaf = needStealth().S.stealthLockLeafBlind(op.asset, op.lCx, op.lCy, op.ownerPub, op.deadline, op.locker);
+    const leafIndex = r.leafIndexOf.get(lc(srcLeaf));
+    if (leafIndex == null) throw bridgeMintError('note_not_in_tree', 'the burned note is not in the reflected note tree (yet), or the opening/outpoint does not match it');
+    if (!r.burns.contains(burnId)) throw bridgeMintError('burn_not_recorded', 'the burn is not recorded in the reflected state yet');
+    const bm = r.burns.membershipWitness(burnId);
+    if (lc(bm.value) !== lc(destLeaf)) throw bridgeMintError('dest_mismatch', 'the burn committed to a different destination than this stealth lock (check the recipient and the deadline)');
+    const { root: poolRoot, path: inPath } = r.noteTree().rootAndPath(leafIndex);
+    return { op: { ...op, bitcoinBurnRoot: r.burnRoot, poolRoot, inIndex: leafIndex, inPath, bmNext: bm.next, bmIndex: bm.index, bmPath: bm.path }, burnId, destLeaf, srcLeaf, burnRoot: r.burnRoot, poolRoot };
+  }
+
+  function buildBridgeStealthMintOp({ chainBinding, asset, spentTxid, spentVout, sourceClass, burned, stealthDest: sd, snapshot }) {
+    if (!snapshot || !Array.isArray(snapshot.noteLeaves) || !Array.isArray(snapshot.burnNodes)) throw new Error('bridge-mint: snapshot { noteLeaves, burnNodes } required');
+    const r = prepareReflection(snapshot);
+    const parts = bridgeStealthMintParts({ chainBinding, asset, spentTxid, spentVout, sourceClass: sourceClass == null ? SOURCE_REFLECTED : sourceClass, burned, stealthDest: sd });
+    if (!r.leafIndexOf.has(lc(parts.srcLeaf)) || !r.burns.contains(parts.burnId)) {
+      throw new Error('bridge-mint: burn not found in the reflected state yet (the burned note or its burn record is not folded), or the opening/outpoint does not match it');
+    }
+    const done = completeBridgeStealthMintOp(parts.op, r);
+    return { op: done.op, fee: parts.fee, destLeaf: parts.destLeaf, nullifier: parts.nullifier, burnId: parts.burnId, sourceClass: parts.sourceClass };
+  }
+
+  // Settle a stealth mint: the same loop as bridgeMint (a stale burn root is rebuilt from a fresh dump), with the lock memo in place
+  // of a note memo. `lockerScanPriv` is the burner's key as the sent-lock scan reads it (identity(walletPriv).priv, hex).
+  async function bridgeStealthMint({ network = 'mainnet', snapshot = null, lockerScanPriv, stealthDest: sd, waitOpts, selfSettle = null, staleDelayMs = 4000, ...args }) {
+    if (!relay) throw new Error('bridge-mint: no relay wired');
+    if (!lockerScanPriv) throw new Error('bridge-mint: the burner\'s key is needed to seal the lock memo');
+    for (let attempt = 0; ; attempt++) {
+      const snap = snapshot && attempt === 0 ? snapshot : await fetchReflectionSnapshot({ network });
+      const built = buildBridgeStealthMintOp({ ...args, stealthDest: sd, snapshot: snap });
+      const memo = sealStealthLockMemo({ lockerScanPriv, stealthDest: sd });
+      const spec = { type: 'bridgestealthmint', op: built.op, lockMemos: [memo] };
+      try {
+        if (!selfSettle) return { ...(await relay.settle(spec, waitOpts)), ...built, lockMemo: memo };
+        const proven = await relay.prove(spec, waitOpts);
+        if (proven.status === 'settled') return { ...proven, ...built, lockMemo: memo };
+        if (proven.status !== 'proven') throw new Error(`bridge-mint: the relay could not prove this mint (${proven.error || proven.status})`);
+        const sent = await selfSettle({ jobId: proven.jobId, publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos && proven.memos.length ? proven.memos : [memo] });
+        return { jobId: proven.jobId, ...sent, ...built, lockMemo: memo };
+      } catch (e) {
+        if (!(e && e.code === 'stale_root') || attempt >= 2) throw e;
+        await new Promise((r) => setTimeout(r, staleDelayMs * (attempt + 1)));
+      }
+    }
   }
 
   async function fetchReflectionSnapshot({ network = 'mainnet' } = {}) {
@@ -258,5 +389,6 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     }
   }
 
-  return { sourceLeaf, buildBridgeBurnEnvelope, buildBridgeMintOp, bridgeMintParts, bridgeMintIdentity, armMint, armedStatus, prepareReflection, completeBridgeMintOp, verifyBridgeMintParts, fetchReflectionSnapshot, bridgeMint, feeIsQuantized, ladderFee, destValueFor, txidInternal };
+  return { sourceLeaf, buildBridgeBurnEnvelope, buildBridgeMintOp, bridgeMintParts, bridgeMintIdentity, armMint, armedStatus, prepareReflection, completeBridgeMintOp, verifyBridgeMintParts, fetchReflectionSnapshot, bridgeMint, feeIsQuantized, ladderFee, destValueFor, txidInternal,
+    stealthDestFor, stealthDeadline, stealthDeadlineCandidates, sealStealthLockMemo, bridgeStealthMintParts, completeBridgeStealthMintOp, buildBridgeStealthMintOp, bridgeStealthMint };
 }

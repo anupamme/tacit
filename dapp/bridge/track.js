@@ -113,7 +113,8 @@ export function inRow(r, now = Date.now(), plan = null) {
   const burnTxid = lc(r.burn?.txid) || null;
   return {
     id: String(r.id || ''), dir: 'in', asset: key, amount: big(r.source?.amount), stage: r.stage,
-    at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: route.steps, href: route.href,
+    // a bridge that paid someone else ends in a payment to them, not a private note for the key
+    at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: r.stealth ? [...route.steps.slice(0, 3), 'Paid privately'] : route.steps, href: route.href, paid: !!r.stealth,
     done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
     due: done ? '' : inDue(r, now, plan), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
     checkNote: r.stage === 'traced' && !r.lastError ? checkNote(r.checkWait, now) : '',

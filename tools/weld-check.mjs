@@ -180,7 +180,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2966,7 +2966,7 @@ await step('bridgedeep', async () => {
 // Merge notes and Bridge all, the two presses over the Bridge tab's whole list. The key holds three notes in the proof's tree (950 TAC), two the
 // tree holds in an older form (200 TAC), one the proof does not track (60 TAC), one that holds nothing and one over the limit. The page's
 // broadcasts are caught, not sent: each press is judged by the notes the transactions it signed spend.
-async function bridgeAllRig() {
+async function bridgeAllRig({ search = '' } = {}) {
   const r = await openPage({ account: A0, key: K0 });
   const hex = 'b41f'.padEnd(64, '7'), pubB = secp.getPublicKey(hex, true), pub = Buffer.from(pubB).toString('hex');
   const { ripemd160 } = await import('@noble/hashes/ripemd160');
@@ -2995,7 +2995,7 @@ async function bridgeAllRig() {
   await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?address\/[^/]+\/utxo/, (route) => json(route, [1, 2, 3, 4, 5, 6].map((i) => ({ txid: ('9' + i).repeat(32), vout: 1, value: 100000, status: { confirmed: true, block_height: 960000 } }))));
   await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?tx$/, (route) => { const h = route.request().postData() || ''; if (!sent.includes(h)) sent.push(h); return route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: 'ab'.repeat(32) }); });
   await api(/^https:\/\/api\.tacit\.finance\/reflection\/burndep\/trace/, (route) => json(route, { ok: false, error: 'trace failed: temporarily unavailable' }));
-  await r.page.goto(r.url + '#wallet');
+  await r.page.goto(r.url + search + '#wallet');
   await r.page.evaluate(async ([ids, amts, aid]) => {
     globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
     const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
@@ -3106,6 +3106,58 @@ await step('bridgeall', async () => {
     const preps = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []).map((x) => [x.amount, !!x.plan?.auto]), ['tacit-lite-bridge-prep-v1', pub]);
     ok(preps.length === 1 && preps[0][0] === '20000000000' && preps[0][1], `bridgeall: the two older notes went as one send of 200 TAC, to be bridged once it is ready (${JSON.stringify(preps)})`);
     if (r.errors.length) { fails++; console.log('FAIL bridgeall page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Paying someone else from the bridge form (off until ?stealth=1): the review and the confirmation say the TAC goes to them, an address that is
+// not one is refused before anything is signed, and the burn that goes out names the stealth lock for that address, not a note for this key.
+await step('bridgeto', async () => {
+  const { r, pub, id, sent } = await bridgeAllRig({ search: '?stealth=1' });
+  try {
+    const WALLET_HEX = 'b41f'.padEnd(64, '7'), TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+    const recipient = '0x' + Buffer.from(secp.getPublicKey('c0de'.padEnd(64, '3'), true)).toString('hex');
+    await r.page.check(`#bridge-body input[value="${id('R1')}:0"]`);
+    await until(r.page, () => !!document.querySelector('#br-towrap') && !document.querySelector('#br-towrap').hidden && /One Bitcoin transaction/.test(document.querySelector('#br-rcpt')?.textContent || ''), null, 120000);
+    const rc0 = (await text(r.page, '#br-rcpt')).replace(/\s+/g, ' ');
+    ok(/You get\s*400 private TAC on Ethereum/.test(rc0), `bridgeto: with no address typed the review reads as it always did (${rc0.slice(0, 120)})`);
+    await r.page.fill('#br-to', recipient);
+    const rc1 = (await text(r.page, '#br-rcpt')).replace(/\s+/g, ' '), ack1 = await text(r.page, '#br-acktext');
+    ok(/They get\s*400 TAC, to claim as a private payment/.test(rc1) && /goes to that address/.test(ack1), `bridgeto: with an address typed it says they get it, and the confirmation says it goes to that address (${rc1.slice(0, 120)} | ${ack1.slice(0, 80)})`);
+    await r.page.fill('#br-to', '');
+    ok(/You get\s*400 private TAC on Ethereum/.test((await text(r.page, '#br-rcpt')).replace(/\s+/g, ' ')) && /^I understand a bridge can’t be undone/.test(await text(r.page, '#br-acktext')), 'bridgeto: clearing the address puts the review and the confirmation back');
+    await r.page.fill('#br-to', 'not an address');
+    await r.page.check('#br-ack');
+    await until(r.page, () => !document.querySelector('#br-go').disabled, null, 30000);
+    await r.page.click('#br-go');
+    await until(r.page, () => /err/.test(document.querySelector('#br-tos')?.innerHTML || ''), null, 120000);
+    ok(sent.length === 0, `bridgeto: an address that is not one is refused in place, with nothing signed or sent (${(await text(r.page, '#br-tos')).slice(0, 100)})`);
+    await r.page.fill('#br-to', recipient);
+    await pressUntil(r.page, '#br-go', /Burn sent/)
+      .catch(async (e) => { console.log('bridgeto: the status showed', JSON.stringify(await text(r.page, '#br-status')), 'sent', sent.length, 'errors', r.errors.slice(0, 3)); throw e; });
+    ok(sent.length === 2, `bridgeto: the burn is two transactions, a commit and a reveal (${sent.length})`);
+    const { classifyConfidentialTx } = await import(new URL('../dapp/burn-deposit-bitcoin.js', import.meta.url));
+    const { makeConfidentialTransfer } = await import(new URL('../dapp/confidential-transfer.js', import.meta.url));
+    const { makeConfidentialStealth } = await import(new URL('../dapp/confidential-stealth.js', import.meta.url));
+    const { makeConfidentialAirdrop } = await import(new URL('../dapp/confidential-airdrop.js', import.meta.url));
+    const { makeConfidentialBridgeMint } = await import(new URL('../dapp/confidential-bridge-mint.js', import.meta.url));
+    const { makeConfidentialPool } = await import(new URL('../dapp/confidential-pool.js', import.meta.url));
+    const { signSchnorr, SECP_N } = await import(new URL('../dapp/bulletproofs.js', import.meta.url));
+    const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+    const ct = makeConfidentialTransfer({ keccak256: keccak_256 });
+    const stealth = makeConfidentialStealth({ keccak256: keccak_256, secp, signSchnorr, curveOrder: SECP_N, pool, transfer: ct });
+    const airdrop = makeConfidentialAirdrop({ stealth, secp, sha256, keccak256: keccak_256, curveOrder: SECP_N, pool, transfer: ct });
+    const bm = makeConfidentialBridgeMint({ pool, ct, stealth, airdrop });
+    const dec = classifyConfidentialTx('0x' + sent[1]);
+    // Rebuilt here from the key, the burn's own nullifier and the address, over the few days a deadline can fall on.
+    const lock = dec && bm.stealthDeadlineCandidates(Math.floor(Date.now() / 1000)).map((deadline) => bm.stealthDestFor({ asset: '0x' + TAC, lockerScanPriv: '0x' + WALLET_HEX, nullifier: dec.nullifier, recipientSpendPub: recipient, value: 40000000000n, deadline })).find((x) => x.lockLeaf === dec.dest);
+    ok(dec && dec.type === 'burn' && !!lock, `bridgeto: the burn names the stealth lock for that address, rebuilt here from the key and the burn's nullifier (${dec ? dec.dest : 'no burn'})`);
+    const recs = await r.page.evaluate(([k]) => JSON.parse(localStorage.getItem(k) || '[]'), [`tacit-burndep-bridge-v1:mainnet:${pub}`]);
+    const raw = JSON.stringify(recs);
+    ok(recs.length === 1 && recs[0].stealth?.recipientPub === recipient && recs[0].stealth.lockLeaf === dec.dest && lock && !raw.includes(lock.refundPriv.slice(2)) && !raw.includes(lock.ephemeralPriv.slice(2)),
+      `bridgeto: the journal holds who it pays and the lock, and neither secret key (${JSON.stringify(recs[0]?.stealth || null).slice(0, 160)})`);
+    await until(r.page, () => /Paid/.test(document.querySelector('#bridge-body .brr')?.textContent || ''), null, 60000);
+    ok(/Paid/.test(await text(r.page, '#bridge-body .brr')), 'bridgeto: its row ends in Paid, not Arrived');
+    if (r.errors.length) { fails++; console.log('FAIL bridgeto page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

@@ -1904,7 +1904,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
   const _ct = makeConfidentialTransfer({ keccak256 });
   const _stealth = makeConfidentialStealth({ keccak256, secp, signSchnorr, curveOrder: SECP_N, pool, transfer: _ct });
-  const _bridgeMint = makeConfidentialBridgeMint({ pool, ct: _ct, relay, fetchImpl: _fetch, relayBase: cfg.relayBase });
+  // The airdrop helpers below are built after this; the bridge mint only calls them when a burn pays a stealth address.
+  const _airdropLazy = Object.fromEntries(['ephPriv', 'lockBlinding', 'refundPriv', 'refundPubOf', 'sealStealthMemo', 'sealStealthSenderTail'].map((k) => [k, (...a) => _airdrop[k](...a)]));
+  const _bridgeMint = makeConfidentialBridgeMint({ pool, ct: _ct, relay, fetchImpl: _fetch, relayBase: cfg.relayBase, stealth: _stealth, airdrop: _airdropLazy });
   const _bridgeBurn = makeBridgeBurnBroadcaster({ pool, bridgeMint: _bridgeMint, fetchImpl: _fetch, relayBase: cfg.relayBase });
   function bridgeBurnToPool({ prims, chainBinding, ...args } = {}) {
     return _bridgeBurn.broadcastBridgeBurn({ ...args, prims, chainBinding: chainBinding || chainBindingHex() });

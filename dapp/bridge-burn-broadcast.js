@@ -93,8 +93,9 @@ export function makeBridgeBurnBroadcaster({ pool, bridgeMint, prims: defaultPrim
   //   notePriv — the key of the note's output: a P2TR output's key (its x-only key is the note's auth key, spent by key
   //              path), or the wallet key of a P2WPKH output (auth key zero), named by note.script
   //   dest  { owner, blinding? , value? } — the Ethereum destination; value, if given, must be the burned value net of fee
+  //   stealthDest  (nullifier, vOut) => stealth lock — instead of `dest`, pay a stealth address (confidential-bridge-mint's stealthDestFor)
   // Returns the envelope and every value the mint needs.
-  function planBridgeBurn({ note, notePriv, chainBinding, dest, fee = 0n, sourceClass = null, deriveDestBlinding = null, snapshot, bitcoinPoolRoot = ZERO32 }) {
+  function planBridgeBurn({ note, notePriv, chainBinding, dest, fee = 0n, sourceClass = null, deriveDestBlinding = null, stealthDest = null, snapshot, bitcoinPoolRoot = ZERO32 }) {
     if (!note) throw new Error('bridge-burn: note required');
     if (!HEX32.test(String(chainBinding)) || isZero(chainBinding)) throw new Error('bridge-burn: chainBinding (the target pool\'s CHAIN_BINDING) required');
     if (!HEX32.test(String(note.asset)) || isZero(note.asset)) throw new Error('bridge-burn: note.asset must be a 32-byte asset id');
@@ -106,10 +107,10 @@ export function makeBridgeBurnBroadcaster({ pool, bridgeMint, prims: defaultPrim
     const value = BigInt(note.value), blinding = BigInt(note.blinding);
     if (value <= 0n || value > U64_MAX) throw new Error('bridge-burn: note value out of range');
     if (blinding <= 0n) throw new Error('bridge-burn: note blinding required');
-    if (!dest || !HEX32.test(String(dest.owner)) || isZero(dest.owner)) throw new Error('bridge-burn: dest.owner must be a non-zero 32-byte Ethereum note owner');
+    if (stealthDest ? typeof stealthDest !== 'function' : (!dest || !HEX32.test(String(dest.owner)) || isZero(dest.owner))) throw new Error('bridge-burn: dest.owner must be a non-zero 32-byte Ethereum note owner');
     const f = BigInt(fee);
     const vDest = destValueFor({ burnValue: value, fee: f }); // refuses an off-ladder fee or one that eats the note
-    if (dest.value != null && BigInt(dest.value) !== vDest) {
+    if (!stealthDest && dest.value != null && BigInt(dest.value) !== vDest) {
       throw new Error(`bridge-burn: dest.value ${dest.value} is not the burned value net of the fee (${vDest}); the mint proves v_burn == v_dest + fee`);
     }
     if (sourceClass != null && Number(sourceClass) !== SOURCE_REFLECTED && Number(sourceClass) !== SOURCE_REFLECTED_BOUND) {
@@ -138,7 +139,7 @@ export function makeBridgeBurnBroadcaster({ pool, bridgeMint, prims: defaultPrim
 
     const built = bridgeMint.buildBridgeBurnEnvelope({
       asset: h32(note.asset), bitcoinPoolRoot: h32(bitcoinPoolRoot), chainBinding: h32(chainBinding), sourceClass: cls,
-      burned: { value, blinding, owner }, fee: f, dest: { owner: h32(dest.owner), blinding: dest.blinding }, deriveDestBlinding,
+      burned: { value, blinding, owner }, fee: f, ...(stealthDest ? { stealthDest } : { dest: { owner: h32(dest.owner), blinding: dest.blinding }, deriveDestBlinding }),
     });
     const srcLeaf = bridgeMint.sourceLeaf({ sourceClass: cls, asset: h32(note.asset), cx, cy, owner, chainBinding: h32(chainBinding) });
     if (!st.leaves.has(lc(srcLeaf))) {
@@ -155,7 +156,8 @@ export function makeBridgeBurnBroadcaster({ pool, bridgeMint, prims: defaultPrim
       envelope: built.envelope, nullifier: built.nullifier, destLeaf: built.destLeaf, fee: f, sourceClass: cls, burnId, srcLeaf,
       spentTxid, spentVout: vout, noteKey: key, owner, wpkh, sats, asset: h32(note.asset), chainBinding: h32(chainBinding),
       burned: { value, blinding, owner },
-      dest: { value: built.dest.value, blinding: built.dest.blinding, owner: h32(dest.owner), cx: built.dest.cx, cy: built.dest.cy },
+      dest: { value: built.dest.value, blinding: built.dest.blinding, owner: h32(built.dest.owner), cx: built.dest.cx, cy: built.dest.cy },
+      ...(built.dest.stealth ? { stealth: built.dest.stealth } : {}),
       liveIndex: st,
     };
   }
@@ -323,10 +325,12 @@ export function makeBridgeBurnBroadcaster({ pool, bridgeMint, prims: defaultPrim
       status: 'broadcast', commitTxid: b.commitTxid, revealTxid: b.revealTxid, commitHex: b.commitHex, revealHex: b.revealHex,
       commitFee: b.commitFee, revealFee: b.revealFee, feeRate: b.feeRate,
       burnId: p.burnId, nullifier: p.nullifier, destLeaf: p.destLeaf, sourceClass: p.sourceClass, fee: p.fee, dest: p.dest,
-      // Pass to bridgeMint({ ...mintArgs, recovery }) once the reflection has folded the reveal's block.
+      // Pass to bridgeMint({ ...mintArgs, recovery }) once the reflection has folded the reveal's block (a burn that pays a
+      // stealth address carries `stealthDest` instead of `dest`: pass it to bridgeStealthMint).
       mintArgs: {
         chainBinding: p.chainBinding, asset: p.asset, spentTxid: p.spentTxid, spentVout: p.spentVout, sourceClass: p.sourceClass,
-        burned: p.burned, dest: { value: p.dest.value, blinding: p.dest.blinding, owner: p.dest.owner },
+        burned: p.burned,
+        ...(p.stealth ? { stealthDest: p.stealth } : { dest: { value: p.dest.value, blinding: p.dest.blinding, owner: p.dest.owner } }),
       },
     };
   }

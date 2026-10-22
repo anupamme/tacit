@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-7PsH2eU1jKe2RugghAvoVKSCSlOW7f/otNuTUnkLe+M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0xnNscsNkBtYV/FbECbnmfYYsyWHxuayob1VY99R4gA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1567,7 +1567,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=3587a81a","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=5e2e5531","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4161,7 +4161,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=3587a81a'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=5e2e5531'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -7085,6 +7085,12 @@ const BR = { pub: null, notes: null, at: 0, loading: null, err: null, pick: null
   opts: { selfburn: true, prepauto: true, public: false }, deep: new Map(), checks: new Map() };
 const BR_DONE = ['minted', 'reclaimed'], BR_HELD = ['not-recorded', 'stopped', 'recovered'];
 const BR_STEPS = { reflected: ['Burn sent', 'Confirmed', 'Recorded', 'Arrived'], deposit: ['Moved', 'Burned', 'Recorded', 'Arrived'] };
+// Paying someone else from the bridge form is off until switched on: open the page once with ?stealth=1 (?stealth=0 turns it off again).
+const BR_TO_ON = (() => {
+  try { const q = new URLSearchParams(location.search).get('stealth'); if (q === '1') store.set('tacit-bridge-to', 'on'); else if (q === '0') store.set('tacit-bridge-to', 'off'); } catch {}
+  return store.get('tacit-bridge-to') === 'on';
+})();
+const brPaid = (rec) => rec?.stealth?.recipientName || short(rec?.stealth?.recipientPub || '', 8);
 const BR_AT = { 'rburn-signed': 0, 'rburn-sent': 1, 'rburn-mined': 2, rfolded: 3,
   'migrate-signed': 0, 'migrate-sent': 0, 'migrate-confirmed': 1, traced: 1, 'burn-signed': 1, 'burn-submitted': 1, 'burn-mined': 2, registered: 2, folded: 3 };
 const BR_SIGNED = ['rburn-signed', 'rburn-sent', 'migrate-signed', 'migrate-sent'];
@@ -7206,6 +7212,7 @@ const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHel
     : rec.lastError.relay ? ' Its proof is not ready yet: this page asks again every few minutes while it is open with your wallet.' : ''}`
   : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. The relay is minting it, usually within minutes.`
   : rec.arm?.ok && Date.now() - Number(rec.foldedAt || rec.arm.at || 0) < 15 * 60e3 ? `Recorded. The relay finishes the mint even if this page is closed, usually within minutes.`
+  : rec.stealth ? `Recorded. Minting the payment to ${brPaid(rec)}: this page does it while it is open with your wallet.`
   : `Recorded. Minting your private ${brTk(rec)}: this page does it while it is open with your wallet.`);
 function brMoveText(rec) {
   const h = Number(rec.migrateHeight), p = Number(BR.refl), at = (n) => n.toLocaleString('en-US');
@@ -7238,6 +7245,7 @@ function brTracedText(rec) {
   return 'Moved. Its burn is sent for you within a few minutes, while this page is open with your wallet.';
 }
 function brMintedText(rec) {
+  if (rec.stealth) return html`Sent to ${brPaid(rec)}. It is theirs to claim as a private payment. If they have not claimed it by ${new Date(Number(rec.stealth.deadline) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}, you can take it back.`;
   const tk = brTk(rec), plan = tk === 'TAC' ? brPlanOf(rec) : null;
   if (tk !== 'TAC') return html`Arrived in your private ${tk}.`;
   if (plan?.publicTo && plan.publicDone && !plan.publicNote) return html`Arrived, and made public TAC in ${short(plan.publicTo, 6)}.`;
@@ -7285,7 +7293,7 @@ function brPrivateNote(rec) {
 }
 function brRow(rec) {
   const arrived = rec.stage === 'minted', at = arrived ? 4 : BR_AT[rec.stage], held = at == null, failing = !!rec.lastError && !held && !arrived;
-  const steps = BR_STEPS[rec.path === 'reflected' ? 'reflected' : 'deposit'], due = brDue(rec);
+  const steps = rec.stealth ? [...BR_STEPS.reflected.slice(0, 3), 'Paid'] : BR_STEPS[rec.path === 'reflected' ? 'reflected' : 'deposit'], due = brDue(rec);
   const tx = brBtcTx(rec), eth = rec.mintedTxHash ? '0x' + String(rec.mintedTxHash).replace(/^0x/, '') : null;
   const btn = (kind, label, ghost = true) => html`<button class="btn${ghost ? ' ghost' : ''}" type="button" data-bract="${kind}" data-brid="${rec.id}">${label}</button>`;
   const act = rec.stage === 'traced' ? btn('burn', 'Burn it', false) : rec.stage === 'folded' || rec.stage === 'rfolded' ? btn('mint', 'Mint now', false)
@@ -7295,7 +7303,7 @@ function brRow(rec) {
   const stuck = BR_SIGNED.includes(rec.stage) && failing && (rec.errorCount || 0) >= 3;
   const self = (rec.stage === 'folded' || rec.stage === 'rfolded') && failing && brRefused(rec.lastError?.message);
   const back = brMinerStuck(rec) || brStalled(rec);
-  const when = arrived ? `Arrived ${ago(rec.mintedAt || Date.now())}` : rec.createdAt ? `Started ${ago(rec.createdAt)}` : '';
+  const when = arrived ? `${rec.stealth ? 'Sent' : 'Arrived'} ${ago(rec.mintedAt || Date.now())}` : rec.createdAt ? `Started ${ago(rec.createdAt)}` : '';
   return html`<li class="actr brr">
     <div class="actr-h"><b class="num">${brAmt(rec)}</b><span>${due ? html`<b class="brdue">Your turn</b> · ` : ''}${when}</span></div>
     ${held ? '' : html`<ol class="stp">${steps.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing ? 'bad' : 'now') : ''))}</ol>`}
@@ -7456,13 +7464,17 @@ function renderBridgeIn(el) {
         ${bulk ? html`<div class="brr-a brall">${bulk.merge.groups.length ? html`<button class="btn ghost" type="button" id="br-merge" aria-pressed="false">Merge notes</button>` : ''}<button class="btn ghost" type="button" id="br-all" aria-pressed="false">Bridge all</button></div>
         <div class="rcpt" id="br-allp" hidden></div>` : ''}`}
     <div class="rcpt" id="br-rcpt" hidden></div>
-    <label class="pick" id="br-ackrow" hidden><input type="checkbox" id="br-ack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
+    ${BR_TO_ON ? html`<div id="br-towrap" hidden>
+      <div class="amt text"><input id="br-to" placeholder="Send it to someone else: their Tacit address or name" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Send it to someone else"></div>
+      <div class="status" role="status" id="br-tos"></div></div>` : ''}
+    <label class="pick" id="br-ackrow" hidden><input type="checkbox" id="br-ack"><span id="br-acktext">I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
     <button class="btn" type="button" id="br-go" disabled>Bridge to Ethereum</button>
     <div class="status" role="status" id="br-status"></div>
     <details class="lockmore"><summary>A bridge you started is not listed</summary>
       <p class="note">One started on another device, or in the classic app, is rebuilt from its burn or move transaction and this key.</p>
       <div class="amt text"><input id="br-txid" placeholder="Burn or move transaction id" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Burn or move transaction id"></div>
       <div class="amt text" id="br-amtrow" hidden><input id="br-ramt" inputmode="decimal" placeholder="TAC amount" autocomplete="off" aria-label="TAC amount of that bridge"></div>
+      ${BR_TO_ON ? html`<div class="amt text"><input id="br-fto" placeholder="Sent to someone else? Their address" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Address that bridge paid"></div>` : ''}
       <button class="btn ghost" type="button" id="br-find">Find it</button>
       <div class="status" role="status" id="br-fstatus"></div>
     </details>`);
@@ -7471,12 +7483,25 @@ function renderBridgeIn(el) {
   const nf = $('#br-notify', el);
   if (nf) nf.onclick = () => busy(nf, async () => { const why = await setNotify(true); toast(why || 'Notices are on.', !!why); rerender('tac'); });
   const go = $('#br-go'), rc = $('#br-rcpt'), ackRow = $('#br-ackrow'), ack = $('#br-ack'), status = $('#br-status');
+  const toWrap = $('#br-towrap'), toIn = $('#br-to'), toSay = $('#br-tos'), ackText = $('#br-acktext');
   let review = null, seq = 0;
   const gateOk = () => { go.disabled = !review || review.short || !ack.checked; };
   ack.onchange = () => { BR.acked = ack.checked && review ? review.key : null; gateOk(); };
+  // With an address typed in, the review and the confirmation say the TAC goes to them, not to this key.
+  const paintTo = () => {
+    const on = !!toIn && !!toIn.value.trim() && review?.pf.path === 'reflected', kv = $('.kv', rc);
+    if (kv && review) {
+      $('span', kv).textContent = on ? 'They get' : 'You get';
+      $('b', kv).textContent = on ? `${fmt(BigInt(review.note.amount), 8, 4)} TAC, to claim as a private payment` : `${fmt(BigInt(review.note.amount), 8, 4)} private TAC on Ethereum`;
+    }
+    ackText.textContent = on ? 'I understand this goes to that address and can’t be undone once its burn confirms on Bitcoin. If they do not claim it, I can take it back after about 90 days.'
+      : 'I understand a bridge can’t be undone once its burn confirms on Bitcoin.';
+  };
+  if (toIn) toIn.oninput = () => { say(toSay, ''); paintTo(); };
   const check = async () => {
     const my = ++seq;
     review = null; ackRow.hidden = true; gateOk();
+    if (toWrap) toWrap.hidden = true;
     const n = open.find((x) => brId(x) === BR.pick);
     if (!n) { rc.hidden = true; return; }
     const rvKey = `${pub}:${brId(n)}`, kept = BR.rv?.key === rvKey && Date.now() - BR.rv.at < 120e3 ? BR.rv.pf : null;
@@ -7549,6 +7574,8 @@ function renderBridgeIn(el) {
           : html`The move spends one coin whole: the largest free coin on this key’s Bitcoin address holds ${fmt(have, 8, 8)} BTC, and this needs one of ${sats(cost.need)}.${arriving} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
       }
       if (BR.acked !== rvKey) ack.checked = false;
+      if (toWrap) toWrap.hidden = pf.path !== 'reflected';
+      paintTo();
       ackRow.hidden = false; gateOk();
     } catch (e) { if (my === seq && rc.isConnected) quoteErr(rc, brFail(e)); }
   };
@@ -7580,10 +7607,17 @@ function renderBridgeIn(el) {
     if (!r) return;
     const amt = `${fmt(BigInt(r.note.amount), 8, 4)} TAC`;
     const mara = r.pf.slipstreamRates, base = mara ? Math.max(Number(mara.effective_rate) || 0, Number(mara.submit_fee_rate) || 0, 1) * 1.1 : 10;
+    // An address typed in is resolved before anything is signed, so a name that does not resolve costs nothing.
+    let recipient = null;
+    const toRaw = toIn && r.pf.path === 'reflected' ? toIn.value.trim() : '';
+    if (toRaw) {
+      try { recipient = await resolveTo(toRaw); } catch (e) { say(toSay, html`<span class="err">${errText(e)}</span>`); return; }
+    }
     const plan = brPlanFrom(rc, { burnMaxRate: r.pf.path === 'reflected' ? null : Math.ceil(Math.max(10, base * 2)) });
+    if (recipient) delete plan.publicTo;
     try {
       run.say(status, r.pf.path === 'reflected' ? 'Signing the burn and sending it to Bitcoin…' : 'Signing the move to its burn address and sending it to Bitcoin…');
-      const rec = await brBegin(pub, r);
+      const rec = await brBegin(pub, r, recipient);
       if (plan.burn || plan.publicTo) brPlanSet(pub, rec.id, plan);
       BR.pick = null; BR.rv = null; BR.acked = null; review = null;
       const tx = rec.burn?.txid || rec.migrate?.revealTxid, sent = !/-signed$/.test(rec.stage);
@@ -7599,12 +7633,14 @@ function renderBridgeIn(el) {
     const id = txid.value.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(id)) { say(fst, html`<span class="err">A transaction id is 64 characters, 0-9 and a-f.</span>`); return; }
     const raw = amtRow.hidden ? 0n : parseUnits(ramt.value, 8) || 0n;
+    const fto = $('#br-fto'), toRaw = fto ? fto.value.trim() : '';
     try {
       run.say(fst, 'Checking the burn and rebuilding the bridge…');
-      const found = await (await brUx()).recoverFromTxid(id, walletPriv(), raw > 0n ? { amount: raw } : {});
-      clearField(txid); clearField(ramt); amtRow.hidden = true;
+      const recipient = toRaw ? await resolveTo(toRaw) : null;
+      const found = await (await brUx()).recoverFromTxid(id, walletPriv(), { ...(raw > 0n ? { amount: raw } : {}), ...(recipient ? { recipient } : {}) });
+      clearField(txid); clearField(ramt); if (fto) clearField(fto); amtRow.hidden = true;
       if (brTk(found) !== 'TAC') say(fst, html`<span class="ok">That is a ${brTk(found)} return, not a TAC bridge: it shows on the tETH sheet’s Bitcoin tab, under Back to Ethereum.</span>`);
-      else say(fst, html`<span class="ok">${found?.stage === 'minted' ? 'That bridge has arrived: its TAC is in your private TAC.' : '✓ Found it. It shows under On the way.'}</span>`);
+      else say(fst, html`<span class="ok">${found?.stage === 'minted' ? (found.stealth ? `That bridge has gone through: it was sent to ${brPaid(found)}.` : 'That bridge has arrived: its TAC is in your private TAC.') : '✓ Found it. It shows under On the way.'}</span>`);
       if (found?.stage === 'minted') scanPrivate(true).catch(() => {});
       BR.at = 0; rerender('tac');
     } catch (e) {
@@ -7638,10 +7674,10 @@ function brPlanFrom(root, { burnMaxRate = null, autoMaxFee = null } = {}) {
   if (on('#br-public') && brPublicTo()) plan.publicTo = brPublicTo();
   return plan;
 }
-const brBegin = (pub, r) => withKey(async (t) => {
+const brBegin = (pub, r, recipient = null) => withKey(async (t) => {
   const ux = t.bridgeUx(), priv = walletPriv();
   let made;
-  if (r.pf.path === 'reflected') made = await ux.startReflected({ note: r.note, walletPriv: priv, feeRate: r.pf.burnFeeRate });
+  if (r.pf.path === 'reflected') made = await ux.startReflected({ note: r.note, walletPriv: priv, feeRate: r.pf.burnFeeRate, ...(recipient ? { recipient } : {}) });
   else {
     const safe = await t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), u = ux.pickFunding(safe, Math.ceil(r.cost.need * 1.1));
     if (!u) throw new Error('This key’s Bitcoin address has no sats free to pay the fee. Add some, then try again.');
@@ -7860,7 +7896,7 @@ async function brAct(run, kind, id) {
       run.say(status(), 'Checking…');
       const [after] = await Promise.all([ux.advance(pub, id), brProof(true)]);
       if ((after.stage === 'rfolded' || after.stage === 'folded') && !after.lastError) return await brAct(run, 'mint', id);
-      run.say(status(), after.stage === 'minted' ? html`<span class="ok">✓ ${amt} arrived in your private ${tk}.</span>`
+      run.say(status(), after.stage === 'minted' ? html`<span class="ok">✓ ${after.stealth ? `${amt} sent to ${brPaid(after)}.` : `${amt} arrived in your private ${tk}.`}</span>`
         : after.stage === rec.stage ? html`Not yet. ${brNoteText(after)}` : brNoteText(after));
       return;
     }
@@ -7922,7 +7958,10 @@ async function brAct(run, kind, id) {
     const advance = () => ux.advance(pub, id, { walletPriv: walletPriv(), selfSettle,
       onProgress: (p) => { if (p.phase === 'submitted' && !selfSettle) run.say(status(), `Minting ${amt}: proving…`); } });
     const after = selfSettle ? await proveWith(brTypes, advance) : await advance();
-    if (after.stage === 'minted') {
+    if (after.stage === 'minted' && after.stealth) {
+      toast(`${amt} from Bitcoin was sent to ${brPaid(after)}`);
+      run.say(status(), html`<span class="ok">✓ ${amt} sent to ${brPaid(after)}.</span> ${after.mintedTxHash ? txLink(after.mintedTxHash) : ''}`);
+    } else if (after.stage === 'minted') {
       toast(`${amt} from Bitcoin is in your private ${tk}`);
       run.say(status(), html`<span class="ok">✓ ${amt} arrived in your private ${tk}.</span> ${after.mintedTxHash ? txLink(after.mintedTxHash) : ''} ${tk === 'TAC' ? html`<span>Make public, above, turns it into ERC20 TAC.</span>` : ''}`);
       scanPrivate(true).then(() => rerender(tk === 'TAC' ? 'tac' : 'eth')).catch(() => {});

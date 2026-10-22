@@ -15,9 +15,11 @@ import { makeConfidentialPool } from '../dapp/confidential-pool.js';
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 import { makeBurnDepositKit, classifyConfidentialTx } from '../dapp/burn-deposit-bitcoin.js';
 import { ripemd160 } from '../dapp/vendor/tacit-deps.min.js';
-import { verifySchnorr } from '../dapp/bulletproofs.js';
+import { verifySchnorr, signSchnorr as bpSignSchnorr, SECP_N } from '../dapp/bulletproofs.js';
 import { recoverClaimDigest } from '../dapp/bridge-recover.js';
 import { makeConfidentialBridgeMint } from '../dapp/confidential-bridge-mint.js';
+import { makeConfidentialStealth } from '../dapp/confidential-stealth.js';
+import { makeConfidentialAirdrop } from '../dapp/confidential-airdrop.js';
 import { makeConfidentialTransfer } from '../dapp/confidential-transfer.js';
 import { makeBridgeMintRecovery } from '../dapp/bridge-mint-recovery.js';
 import { makeBtcWallet } from '../dapp/bitcoin-taproot-wallet.js';
@@ -172,10 +174,25 @@ function makeWorld() {
     getFeeRate: async () => BASE_RATE,
   };
 
-  const bridgeMintCalls = [];
-  const realBm = makeConfidentialBridgeMint({ pool, ct: makeConfidentialTransfer({ keccak256: keccak_256 }) });
+  const bridgeMintCalls = [], stealthMintCalls = [];
+  const bmCt = makeConfidentialTransfer({ keccak256: keccak_256 });
+  const bmStealth = makeConfidentialStealth({ keccak256: keccak_256, secp, signSchnorr: bpSignSchnorr, curveOrder: SECP_N, pool, transfer: bmCt });
+  const bmAirdrop = makeConfidentialAirdrop({ stealth: bmStealth, secp, sha256, keccak256: keccak_256, curveOrder: SECP_N, pool, transfer: bmCt });
+  const realBm = makeConfidentialBridgeMint({ pool, ct: bmCt, stealth: bmStealth, airdrop: bmAirdrop });
   const bridgeMint = {
     buildBridgeBurnEnvelope: realBm.buildBridgeBurnEnvelope, sourceLeaf: realBm.sourceLeaf,
+    stealthDestFor: realBm.stealthDestFor, stealthDeadline: realBm.stealthDeadline, stealthDeadlineCandidates: realBm.stealthDeadlineCandidates,
+    // The stealth mint, as the relay path would take it: the lock the burn named, the key that seals its memo, the settle choice.
+    bridgeStealthMint: async (args) => {
+      stealthMintCalls.push(args);
+      if (args.selfSettle) {
+        const x = await args.selfSettle({ jobId: 'job-self', publicValues: '0x' + '0a'.repeat(32), proof: '0x' + '0b'.repeat(32), memos: [] });
+        return { jobId: 'job-self', ...x };
+      }
+      const w = args.waitOpts || {};
+      if (w.onJob) w.onJob('job-stealth', 'bridgestealthmint');
+      return { jobId: 'job-stealth', txHash: '0x' + 'ef'.repeat(32) };
+    },
     // Mirrors confidential-bridge-mint.js's own recovery check (lines 211-212) — a stub that accepts anything
     // is exactly how the wrong { ownerPub, secret } shape here shipped unnoticed: nothing caught it short of a
     // real mint against the live module.
@@ -199,7 +216,7 @@ function makeWorld() {
   };
 
   return {
-    fetchImpl, chain, bridgeMint, broadcasts, registered, bridgeMintCalls, recoverPosts,
+    fetchImpl, chain, bridgeMint, broadcasts, registered, bridgeMintCalls, stealthMintCalls, recoverPosts,
     setRecoverStatus: (burn, status, txid = null) => recoverState.set(burn, { status, txid }),
     setMigrateConfirmed: (v) => { migrateConfirmed = v; },
     setBurnSubmitted: (txid) => { burnSubmitted = txid; },
@@ -2252,6 +2269,85 @@ const startMoved = async (world, ux) => {
   const ux = makeUx(world, blocked);
   await assert.rejects(() => ux.start({ note: NOTE, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE }), /cannot keep the bridge record/, 'with storage blocked a bridge is not started');
   ok(world.broadcasts.length === 0, 'and nothing is sent');
+}
+
+// A bridge that pays someone else: the burn names a stealth lock for their address, the mint is a stealth mint sent from this page (the
+// relay arms only plain mints), the journal keeps no secret, and a fresh browser rebuilds it from the key, the burn's txid and the address.
+{
+  const RECIPIENT_PUB = bytesToHex(secp.getPublicKey(0x7e57c0ffee1234567n, true));
+  const OTHER_PUB = bytesToHex(secp.getPublicKey(0x1234567n, true));
+  const wpkh = '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex');
+  const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+  const setup = () => { const w = makeWorld(); w.setBurnHomeOnChain(NOTE_TXID, wpkh); w.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING }); return w; };
+  const big = (k, v) => (typeof v === 'bigint' ? v.toString() : v);
+  const lockerPriv = bytesToHex(WALLET_PRIV);
+
+  const world = setup();
+  world.bridgeMint.armMint = async () => { throw new Error('a stealth bridge must not be armed'); };
+  const storage = makeMemStorage();
+  const ux = makeUx(world, storage);
+  let r = await ux.startReflected({ note, walletPriv: WALLET_PRIV, feeRate: BASE_RATE, recipient: { pubHex: RECIPIENT_PUB, name: 'alice.wei' } });
+  const dec = classifyConfidentialTx(withHex(r.burn.hex));
+  ok(r.stage === 'rburn-signed' && r.stealth && r.stealth.recipientPub === RECIPIENT_PUB && r.stealth.recipientName === 'alice.wei', 'a bridge to an address journals who it pays');
+  ok(dec && dec.type === 'burn' && dec.dest === r.stealth.lockLeaf && r.envelope.destLeaf === r.stealth.lockLeaf, 'the burn names the stealth lock leaf, not a note');
+  ok(BigInt(r.stealth.deadline) % 86400n === 0n && BigInt(r.stealth.deadline) > BigInt(Math.floor(Date.now() / 1000)), 'its deadline is a whole UTC day ahead');
+  const sd = world.bridgeMint.stealthDestFor({ asset: ASSET, lockerScanPriv: lockerPriv, nullifier: r.envelope.nullifier, recipientSpendPub: RECIPIENT_PUB, value: NOTE_AMOUNT, deadline: BigInt(r.stealth.deadline) });
+  ok(sd.lockLeaf === r.stealth.lockLeaf, 'the key, the nullifier, the address and the deadline rebuild the lock');
+  const raw = JSON.stringify([...storage._raw.values()], big);
+  ok(!raw.includes(stripHex(sd.ephemeralPriv)) && !raw.includes(stripHex(sd.refundPriv)), 'the journal keeps neither the ephemeral key nor the refund key');
+  ok(r.mint.sourceClass === 1 && BigInt(r.mint.dest.value) === NOTE_AMOUNT && r.mint.dest.owner === sd.ownerPub, 'the mint is planned as class 1 for the full amount, to the one-time key');
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'rburn-sent' && world.broadcasts.length === 2, 'the burn goes out like any other');
+  world.setChainTx(r.burn.txid, { confirmed: true });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setNoteHeight(1001); world.setChainTx(r.burn.txid, { confirmed: true }); world.foldReflected(r.burn.hex);
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'rfolded', 'once the attested state records the lock, it is ready to mint');
+  const armed = await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(armed.stage === 'rfolded' && !armed.arm, 'it is not armed with the relay');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  const sc = world.stealthMintCalls[0];
+  ok(r.stage === 'minted' && world.stealthMintCalls.length === 1 && world.bridgeMintCalls.length === 0, 'it is minted as a stealth mint, never as a plain one');
+  ok(sc && sc.stealthDest.lockLeaf === r.envelope.destLeaf && sc.lockerScanPriv === lockerPriv && sc.sourceClass === 1 && sc.spentTxid === withHex(revHex(NOTE_TXID)) && BigInt(sc.burned.blinding) === NOTE_BLINDING,
+    'with the lock the burn named, the key that seals its memo, and the burned note as class 1');
+  ok(r.mintedJobId === 'job-stealth', 'and the job it was given is kept');
+
+  // refusals: nothing journalled or broadcast
+  const w2 = setup(), s2 = makeMemStorage(), ux2 = makeUx(w2, s2);
+  const refuse = async (recipient, re, what) => {
+    await assert.rejects(() => ux2.startReflected({ note, walletPriv: WALLET_PRIV, feeRate: BASE_RATE, recipient }), re, what);
+    ok(w2.broadcasts.length === 0 && ux2.list(bytesToHex(WALLET_PUB).slice(2)).length === 0, `${what}: nothing journalled or sent`);
+  };
+  await refuse({ pubHex: bytesToHex(WALLET_PUB) }, /own address/, 'this key\'s own address');
+  await refuse({ pubHex: '0x04' + 'ab'.repeat(32) }, /private-payment address/, 'a malformed address');
+  await refuse({ pubHex: '0x' }, /private-payment address/, 'an empty address');
+
+  // a fresh browser: the key, the burn's txid and the address rebuild it; the address is asked for because the chain holds only the lock's hash
+  const w3 = setup();
+  const first = makeUx(w3, makeMemStorage());
+  const orig = await first.startReflected({ note, walletPriv: WALLET_PRIV, feeRate: BASE_RATE, recipient: { pubHex: RECIPIENT_PUB } });
+  w3.setChainTx(orig.burn.txid, { confirmed: true, vin: [{ txid: orig.burn.commitTxid, vout: 0 }, { txid: NOTE_TXID, vout: NOTE_VOUT, prevout: { value: NOTE_SATS } }] });
+  w3.setChainHex(orig.burn.txid, orig.burn.hex);
+  w3.setChainHex(orig.burn.commitTxid, orig.burn.commitHex);
+  const ownerOpens = async (txid, vout) => (stripHex(txid) === NOTE_TXID && vout === NOTE_VOUT ? { amount: NOTE_AMOUNT, blinding: NOTE_BLINDING } : null);
+  const fresh = makeUx(w3, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false });
+  let msg = null; try { await fresh.recoverFromTxid(orig.burn.txid, WALLET_PRIV); } catch (e) { msg = e.message; }
+  ok(/give their address/.test(msg || '') && fresh.list(orig.walletPub).length === 0, 'without the address it says so and journals nothing');
+  msg = null; try { await fresh.recoverFromTxid(orig.burn.txid, WALLET_PRIV, { recipient: { pubHex: OTHER_PUB } }); } catch (e) { msg = e.message; }
+  ok(/does not name a stealth lock for that address/.test(msg || '') && fresh.list(orig.walletPub).length === 0, 'with another address it is refused and journals nothing');
+  const rebuilt = await fresh.recoverFromTxid(orig.burn.txid, WALLET_PRIV, { recipient: { pubHex: RECIPIENT_PUB, name: 'alice.wei' } });
+  ok(rebuilt.stage === 'rburn-mined' && rebuilt.path === 'reflected' && rebuilt.stealth && rebuilt.stealth.lockLeaf === orig.stealth.lockLeaf && rebuilt.stealth.deadline === orig.stealth.deadline,
+    'with the address it is rebuilt: the same lock and the same deadline, found among the days around the burn');
+  ok(rebuilt.envelope.destLeaf === orig.envelope.destLeaf && rebuilt.envelope.burnId === orig.envelope.burnId && BigInt(rebuilt.mint.dest.blinding) === BigInt(orig.mint.dest.blinding),
+    'and names the same burn, destination and lock blinding');
+  w3.setNoteHeight(1001); w3.foldReflected(orig.burn.hex);
+  let rr = await fresh.advance(rebuilt.walletPub, rebuilt.id);
+  rr = await fresh.advance(rebuilt.walletPub, rr.id, { walletPriv: WALLET_PRIV });
+  ok(rr.stage === 'minted' && w3.stealthMintCalls.length === 1 && w3.stealthMintCalls[0].stealthDest.lockLeaf === orig.stealth.lockLeaf, 'the rebuilt bridge mints the same stealth lock');
+  // a plain bridge is still found as before, and is not mistaken for a stealth one
+  const w4 = setup();
+  const plain = await makeUx(w4, makeMemStorage()).startReflected({ note, walletPriv: WALLET_PRIV, feeRate: BASE_RATE });
+  ok(!plain.stealth, 'a bridge to this key\'s own address journals no stealth record');
 }
 
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
