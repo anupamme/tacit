@@ -5,7 +5,7 @@ import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618'
 import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
 
-const BTC_MODULE = '/trade/btc.js?cb=01d0a051';
+const BTC_MODULE = '/trade/btc.js?cb=32bedf68';
 const API = 'https://api.tacit.finance', MEMPOOL = 'https://mempool.space', SCAN = 'https://www.tacitscan.io';
 const MAX_BASE = (1n << 64n) - 1n, DECIMALS = [0, 2, 6, 8];
 const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']), LOGO_MAX = 2 * 1024 * 1024;
