@@ -37,4 +37,56 @@ mem.set(`tacit-crossout-bridge-v1:mainnet:${pub}`, JSON.stringify([{ stage: 'min
 assert.deepEqual(A.activityCount(), { total: 1, live: 0 }, 'minted on Bitcoin: done (the row is read again when it changes)');
 
 assert.ok(Object.values(A.JOB_LABEL).every((x) => typeof x === 'string' && x.length > 0), 'every relay job has a name');
+// ── the journal a page writes ──
+mem.clear();
+const said = [], changed = [];
+let trims = 0;
+const J = A.makeJournal({ pub: () => 'PUB', onTrim: () => trims++, onStatus: (it, prev) => said.push(`${it.id}:${prev}->${it.status}`), onChange: () => changed.push(1) });
+J.put('job:a', { kind: 'job', label: 'Private transfer', status: 'pending' });
+assert.equal(J.get('job:a').pub, 'PUB', 'a new entry records the open key');
+J.put('job:a', { status: 'proving' }); J.put('job:a', { status: 'pending' });
+assert.equal(J.get('job:a').status, 'proving', 'a status never goes back');
+assert.ok(J.get('job:a').prov, 'proving is remembered');
+J.put('job:a', { status: 'settled', hash: '0x1', label: 'renamed' });
+assert.equal(J.get('job:a').status, 'settled'); assert.equal(J.get('job:a').label, 'Private transfer', 'a later patch does not rename it');
+assert.ok(J.get('job:a').end > 0, 'its end is stamped');
+assert.deepEqual(said, ['job:a:null->pending', 'job:a:pending->proving', 'job:a:proving->settled'], 'onStatus once per change, not for a refused step back');
+assert.equal(changed.length, 4, 'onChange after every put');
+J.put('job:b', { kind: 'job', status: 'failed' }); J.put('job:b', { status: 'settled' });
+assert.ok(J.get('job:b').flip, 'a failure that turns out settled is marked');
+J.write(); assert.equal(JSON.parse(mem.get(A.ACT_KEY)).items.length, 2, 'written to the shared key');
+for (let i = 0; i < 25; i++) J.put(`tx:1:0x${i}`, { kind: 'tx', status: 'confirmed', at: 1000 + i });
+assert.equal(A.listed(J.state.items).length, A.ACT_MAX, `kept to the newest ${A.ACT_MAX}`); assert.ok(trims > 0, 'onTrim before letting go');
+J.state.items = J.state.items.filter((x) => x.kind !== 'tx');                       // the page may replace the list in place
+assert.equal(J.get('tx:1:0x24'), undefined, 'and the journal reads what the page left');
+assert.equal(A.ahead('settled', 'failed'), true, 'settled wins over a failure'); assert.equal(A.ahead('open', 'sending'), true); assert.equal(A.ahead('pending', 'proving'), false);
+
+// ── following ──
+const tick = () => new Promise((r) => setTimeout(r, 20));
+let asked = 0, finished = [];
+const F = A.makeFollow({ journal: J, jobStatus: async () => { asked++; return { status: 'settled', txHash: '0xfeed' }; },
+  receipt: async () => ({ status: '0x1' }), receiptOnce: async () => null, btcConfirmed: async () => true,
+  own: (id) => id.startsWith('job:spn:'), onOwn: (id) => finished.push('own:' + id), finished: (f, h) => finished.push(`${f}@${h}`) });
+J.put('job:c', { kind: 'job', status: 'pending' }); F.job('job:c'); F.job('job:c');
+await tick();
+assert.equal(J.get('job:c').status, 'settled'); assert.equal(J.get('job:c').hash, '0xfeed'); assert.equal(asked, 1, 'one follower per entry');
+J.put('tx:1:0xaa', { kind: 'tx', status: 'pending', hash: '0xaa', chain: 1, finishes: ['op:1'] }); F.tx('tx:1:0xaa'); await tick();
+assert.equal(J.get('tx:1:0xaa').status, 'confirmed'); assert.deepEqual(finished, ['op:1@0xaa'], 'a confirmed transaction finishes what it names');
+J.put('tx:1:0xbb', { kind: 'tx', status: 'stale', hash: '0xbb', chain: 1 }); F.tx('tx:1:0xbb', true); await tick();
+assert.equal(J.get('tx:1:0xbb').status, 'stale', 'asked once with no receipt: left as it was');
+J.put('btc:dd', { kind: 'btc', status: 'pending', hash: 'dd' }); F.btc('btc:dd'); await tick();
+assert.equal(J.get('btc:dd').status, 'confirmed');
+F.job('job:spn:9'); assert.deepEqual(finished.at(-1), 'own:job:spn:9', 'a job proved on this device goes back to the page');
+J.put('job:old', { kind: 'job', status: 'pending', at: Date.now() - 2 * 86400e3 }); F.job('job:old'); await tick();
+assert.equal(J.get('job:old').status, 'unknown', 'a day with no answer ends it as unknown');
+
+// ── the relay's state ──
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u) => ({ ok: /\/confidential\/relay$/.test(u), status: /\/confidential\/relay$/.test(u) ? 200 : 404, json: async () => ({ state: 'paused' }) });
+let moved = 0;
+const R = A.makeRelayState({ api: 'https://api.example', onChange: () => moved++ });
+assert.equal(await R.now(), 'paused'); assert.equal(R.why(), 'paused', 'kept for 15 s'); assert.equal(moved, 1);
+assert.deepEqual(await R.jobStatus('x'), { status: 'unknown' }, 'a job the relay has not heard of is unknown');
+globalThis.fetch = realFetch;
+
 console.log('activity: all checks passed');

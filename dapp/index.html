@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IwTipXglTxzSHN1SjWwa2IYmQ49ESig7t/y8eZ69kMc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XRAzYlfiSidwsgXKqftV8hxgSW6ucL66aE4OIL802ak=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1581,7 +1581,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone } from '/activity.js?cb=ea1cef9e';
+import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=20546c5d';
 if (window.__tacitAway) await new Promise(() => {});
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
@@ -2038,11 +2038,13 @@ function receipt(hash, chainId = 1) {
 }
 
 const NOTIFY_KEY = 'tacit-lite-notify-v1';
-const ACT = { items: [].concat(store.get(ACT_KEY)?.items || []).filter((x) => x?.id && ENDS[x.kind]), cleared: Number(store.get(ACT_KEY)?.cleared) || 0 };
+// The journal, kept by /activity.js; what this page does when an entry moves is actStatus (below)
+const JRN = makeJournal({ pub: () => S.key?.pubHex ?? null, onTrim: () => RUNS.forEach(lastEnd), onStatus: (it, prev) => actStatus(it, prev), onChange: () => paintAct() });
+const ACT = JRN.state;
 const clearedBy = (x, at) => ended(x) && (x.end || x.at) <= at;
 const actGet = (id) => ACT.items.find((x) => x.id === id);
 const listed = () => listedOf(ACT.items);
-const SESS = new Set(), OWN = new Map(), FOLLOW = new Map();
+const SESS = new Set(), OWN = new Map();
 const busySheet = () => Object.keys(INFLIGHT).find(running) ?? null;
 function midAction() {
   if (!busySheet()) return false;
@@ -2208,43 +2210,16 @@ function opSync(id) {
   else patch = { status: steps.length > 1 || (last?.it && last.it.status !== 'pending') ? 'proving' : 'pending' };
   actPut(id, patch);
 }
-const RANK = { pending: 0, proving: 1, stale: 1, open: 1.5, sending: 1.5, proven: 2, failed: 2, unknown: 2, settled: 3, confirmed: 3 };
-const OPENISH = ['open', 'sending'];
-const ahead = (next, cur) => next !== cur && (cur == null || cur === 'unknown' || next === 'settled' || next === 'confirmed' || (OPENISH.includes(next) && OPENISH.includes(cur)) || (RANK[next] ?? -1) > (RANK[cur] ?? -1));
-let actSaving = 0;
-const actWrite = () => { clearTimeout(actSaving); actSaving = 0; store.set(ACT_KEY, { items: ACT.items, cleared: ACT.cleared }); };
-const actSave = () => { clearTimeout(actSaving); actSaving = setTimeout(actWrite, 150); };
-addEventListener('pagehide', () => { if (actSaving) actWrite(); });
-function actTrim() {
-  RUNS.forEach(lastEnd);
-  for (let top = listed(); top.length > ACT_MAX; top = listed()) {
-    const gone = top.findLast(actDone) || top.at(-1);
-    ACT.items = ACT.items.filter((x) => x !== gone && x.in !== gone.id);
-  }
-}
-function actPut(id, patch) {
-  let it = actGet(id);
-  const prev = it ? it.status : null;
-  if (!it) {
-    it = { at: Date.now(), ...patch, pub: patch.pub ?? S.key?.pubHex ?? null, id };
-    ACT.items.unshift(it);
-    ACT.items.sort((a, b) => b.at - a.at);
-    actTrim();
-  } else {
-    for (const [k, v] of Object.entries(patch)) if (v !== undefined && k !== 'status' && k !== 'label' && k !== 'at') it[k] = v;
-    if (patch.status && ahead(patch.status, it.status)) it.status = patch.status;
-  }
-  if (it.status !== prev) {
-    it.up = Date.now();
-    if (ended(it) && ['failed', 'stale', 'unknown'].includes(prev) && !it.sent) it.flip = true;
-    it.end = ended(it) ? it.end || Date.now() : null;
-    if (it.status === 'proving') it.prov = true;
-    if (it.in) opSync(it.in); else actSaid(it, prev);
-    if (it.kind === 'job' && ['failed', 'unknown'].includes(it.status) && SESS.has(it.id)) setTimeout(() => recheckJob(it.id), 180e3);
-    if (ended(it)) { runsPrune(); const r = it.kind === 'job' && JOBS.get(it.id.slice(4))?.run; if (r) batchLine(r); }
-  }
-  actSave(); paintAct();
-  return it;
+function actWrite() { JRN.write(); }
+function actSave() { JRN.save(); }
+function actTrim() { JRN.trim(); }
+function actPut(id, patch) { return JRN.put(id, patch); }
+// what this page does when an entry's status changes: an op's steps sum up into it, the rest are said (a toast, a notice), a failed job of
+// this visit is asked about again later, and a run whose jobs have all ended lets go of what it held
+function actStatus(it, prev) {
+  if (it.in) opSync(it.in); else actSaid(it, prev);
+  if (it.kind === 'job' && ['failed', 'unknown'].includes(it.status) && SESS.has(it.id)) setTimeout(() => recheckJob(it.id), 180e3);
+  if (ended(it)) { runsPrune(); const r = it.kind === 'job' && JOBS.get(it.id.slice(4))?.run; if (r) batchLine(r); }
 }
 
 const LANE_SAID = { board: ', proved on Tacit’s own machine', 'network-private': ', proved on the prover network (private input)', 'network-public': ', proved on the prover network (public input)' };
@@ -2262,48 +2237,9 @@ addEventListener('tacit:job', ({ detail: d }) => {
 });
 
 const relayBase = lazy(() => import('/confidential-deployments.js').then((d) => d.getConfidentialDeployment('mainnet')?.relayBase || API, () => API));
-async function jobStatus(jobId) {
-  const r = await fetch(`${await relayBase()}/confidential/status?id=${encodeURIComponent(jobId)}`, { cache: 'no-store', signal: within(15e3) });
-  if (r.status === 404) return { status: 'unknown' };
-  if (!r.ok) throw new Error(`relay ${r.status}`);
-  return r.json();
-}
-const RS = { at: 0, why: null, reading: null };
-const RELAY_WHY = { busy: 'busy', held: 'held', paused: 'paused', down: 'down' };
-async function readRelay() {
-  try {
-    const rs = await SP.ux?.relay?.state?.();
-    if (rs) return RELAY_WHY[rs.state ?? rs] ?? null;
-  } catch { }
-  const r = await fetch(`${API}/confidential/relay`, { cache: 'no-store', signal: within(10e3) });
-  if (r.ok) return RELAY_WHY[(await r.json())?.state] ?? null;
-  if (r.status !== 404) throw new Error(`relay ${r.status}`);
-  const h = await fetch(`${API}/prover-health?network=mainnet`, { cache: 'no-store', signal: within(10e3) }).then((x) => x.json());
-  const st = h?.services?.settle, note = String(st?.note || '');
-  return !st || Number(st.age_seconds) > 600 ? 'down' : /leaving jobs queued|a page settles itself/i.test(note) ? 'held' : /settle: proving/i.test(note) ? 'busy' : null;
-}
-function relayWhy() {
-  if (Date.now() - RS.at < 15e3 || RS.reading) return RS.why;
-  relayNow().catch(() => {});
-  return RS.why;
-}
-function relayNow(fresh = false) {
-  if (!fresh && Date.now() - RS.at < 15e3) return Promise.resolve(RS.why);
-  if (RS.reading) return RS.reading;
-  const p = RS.reading = readRelay().then((why) => {
-    const changed = why !== RS.why;
-    Object.assign(RS, { at: Date.now(), why });
-    if (changed) paintAct();
-    return why;
-  }, () => { RS.at = Date.now(); return null; }).finally(() => { if (RS.reading === p) RS.reading = null; });
-  return p;
-}
-const WAIT_WHY = {
-  held: 'In line. It keeps its place and goes through on its own.',
-  paused: 'In line: the relay isn’t proving right now. It keeps its place and goes through once it is.',
-  down: 'In line: the relay has been quiet for a few minutes (a long proof, or a restart). It keeps its place and goes through on its own.',
-  busy: 'In line behind another request.',
-};
+// the relay's state, read by /activity.js
+const RELAY = makeRelayState({ api: API, base: relayBase, uxState: async () => SP.ux?.relay?.state?.(), onChange: () => paintAct() });
+const RS = RELAY.state, jobStatus = RELAY.jobStatus, relayNow = RELAY.now, relayWhy = RELAY.why;
 function spStale(id) {
   const it = actGet(id);
   if (it && !ended(it) && !JOBS.get(id.slice(4)) && Date.now() - (it.up || it.at) > 30 * 60e3) actPut(id, { status: 'failed', err: 'The page that asked for it closed before it was sent, so nothing was sent. Start it again.' });
@@ -2314,25 +2250,15 @@ const spStage = (st) => {
   actPut(j.id, { stage: st.stage, ...(st.inputPublic ? { inPub: true } : {}) });
   if (st.inputPublic && j.in && actGet(j.in)) actPut(j.in, { inPub: true });
 };
-function followJob(id) {
-  if (ownJob(id)) return spStale(id);
-  if (FOLLOW.has(id)) return;
-  const run = (async () => {
-    for (;;) {
-      const it = ACT.items.find((x) => x.id === id);
-      if (!it || ended(it)) return;
-      const age = Date.now() - it.at;
-      if (age > 86400e3) { actPut(id, { status: 'unknown', err: 'The relay gave no answer for a day.' }); return; }
-      if (it.status === 'pending' && age > 60e3) { relayWhy(); if (!it.slow) { it.slow = true; paintAct(); } }
-      if (!JOBS.get(id.slice(4))?.run.live) {
-        const st = await jobStatus(id.slice(4)).catch(() => null);
-        if (st?.status && (st.status !== 'unknown' || age > 120e3)) actPut(id, { status: st.status, hash: st.txHash || undefined, err: st.error || undefined });
-      }
-      await sleep(age < 180e3 ? 5000 : age < 1800e3 ? 15000 : 60000);
-    }
-  })().finally(() => FOLLOW.delete(id));
-  FOLLOW.set(id, run);
-}
+// entries followed to their end by /activity.js
+const FOLLOWS = makeFollow({
+  journal: JRN, jobStatus: (j) => jobStatus(j), receipt, receiptOnce,
+  btcConfirmed: async (txid) => !!(await esplora(`/tx/${txid}/status`).catch(() => null))?.confirmed,
+  live: (id) => !!JOBS.get(id.slice(4))?.run.live, own: (id) => ownJob(id), onOwn: (id) => spStale(id),
+  onSlow: (it) => { relayWhy(); if (!it.slow) { it.slow = true; paintAct(); } },
+  finished: (f, hash) => finishedBy(f, hash),
+});
+function followJob(id) { FOLLOWS.job(id); }
 const recheckJob = (id) => ownJob(id) ? null : jobStatus(id.slice(4)).then((st) => { if (st?.status === 'settled') actPut(id, { status: 'settled', hash: st.txHash || undefined }); }).catch(() => {});
 const runTx = (run, hash, step, doing) => { if (run && hash) run.txs.push({ id: `tx:1:${String(hash).toLowerCase()}`, step, doing }); return hash; };
 
@@ -2343,17 +2269,7 @@ function actTx(hash, { label, chainId = 1, via = null, nest = null, finishes = n
   followTx(id);
   return hash;
 }
-function followTx(id, once = false) {
-  const it = ACT.items.find((x) => x.id === id);
-  if (FOLLOW.has(id) || !it || (ended(it) && !once)) return;
-  const p = (once ? receiptOnce(it.hash, it.chain) : receipt(it.hash, it.chain)).then((r) => {
-    if (r) {
-      actPut(id, r.status === '0x1' ? { status: 'confirmed' } : { status: 'failed', err: 'The transaction reverted.' });
-      if (r.status === '0x1') for (const f of it.finishes || []) finishedBy(f, it.hash);
-    } else if (!once) actPut(id, { status: 'stale' });
-  }).catch(() => {}).finally(() => FOLLOW.delete(id));
-  FOLLOW.set(id, p);
-}
+function followTx(id, once = false) { FOLLOWS.tx(id, once); }
 function actBtc(txid, label) {
   if (!txid) return txid;
   const id = 'btc:' + String(txid).toLowerCase();
@@ -2361,19 +2277,7 @@ function actBtc(txid, label) {
   followBtc(id);
   return txid;
 }
-function followBtc(id) {
-  if (FOLLOW.has(id)) return;
-  const run = (async () => {
-    for (;;) {
-      const it = ACT.items.find((x) => x.id === id);
-      if (!it || ended(it)) return;
-      if (Date.now() - it.at > 3 * 86400e3) { actPut(id, { status: 'stale' }); return; }
-      if ((await esplora(`/tx/${it.hash}/status`).catch(() => null))?.confirmed) { actPut(id, { status: 'confirmed' }); return; }
-      await sleep(document.hidden ? 120e3 : 30e3);
-    }
-  })().finally(() => FOLLOW.delete(id));
-  FOLLOW.set(id, run);
-}
+function followBtc(id) { FOLLOWS.btc(id); }
 
 function failText(it) {
   if (it.status === 'unknown') return it.err || 'The relay has no record of it. Check your balance before trying again.';
