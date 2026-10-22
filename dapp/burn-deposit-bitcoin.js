@@ -975,7 +975,7 @@ export function makeBurnDepositKit({ secp, keccak256, sha256 }) {
       }
       out.push({ txid, inputs, outputs });
     }
-    return bpRangeVerifyBatch(rangeSink.classic) && bppRangeVerifyBatch(rangeSink.plus) ? out : null;
+    try { return bpRangeVerifyBatch(rangeSink.classic) && bppRangeVerifyBatch(rangeSink.plus) ? out : null; } catch { return null; }
   }
   function dagCommitmentHash(leaves, burnedOutpoint, hops) {
     if (!hops.length) return null;

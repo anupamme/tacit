@@ -33,13 +33,17 @@ function admit(f, tweak = {}) {
   });
 }
 
-const valid = [['fixed supply', {}], ['CBURN step', { CBURN: '1' }], ['mintable (issuer cmint)', { MINTABLE: '1' }], ['atomic settlement hop (asset input at vin 1)', { AXFER: '1' }]];
+const valid = [['fixed supply', {}], ['CBURN step', { CBURN: '1' }], ['mintable (issuer cmint)', { MINTABLE: '1' }], ['atomic settlement hop (asset input at vin 1)', { AXFER: '1' }], ['classic range proof on the hop', { CLASSIC: '1' }]];
 const invalid = [
   ['non-conserving hop', { TAMPER: '1' }], ['understated CBURN', { CBURN: '1', CBURN_LIE: '1' }],
   ['hop witness not committed', { WITNESS_TAMPER: '1' }], ['etch witness not committed', { ETCH_WITNESS_TAMPER: '1' }],
   ['unauthorized cmint', { MINTABLE: '1', CMINT_TAMPER: '1' }],
   ['atomic settlement hop witnessed with skip 0', { AXFER: '1', AXFER_SKIP: '0' }],
   ['atomic settlement hop witnessed with skip 2', { AXFER: '1', AXFER_SKIP: '2' }],
+  // The hop's range proof alone is wrong (its kernel and witness hold). The admission checks a history's range proofs together after
+  // its other checks, so these are the cases that fail if that check is dropped. Not in the guest KAT: classic and BP+ both refuse.
+  ['BP+ range proof with a bit flipped near its start', { RANGE_TAMPER: '5' }], ['BP+ range proof with a bit flipped in its middle', { RANGE_TAMPER: '110' }],
+  ['classic range proof with a bit flipped near its start', { CLASSIC: '1', RANGE_TAMPER: '5' }], ['classic range proof with a bit flipped in its middle', { CLASSIC: '1', RANGE_TAMPER: '140' }],
 ];
 for (const [name, env] of valid) {
   const f = build(env);

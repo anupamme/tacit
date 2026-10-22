@@ -31,6 +31,7 @@ import * as secp from '../node_modules/@noble/secp256k1/index.js';
 import { createHash } from 'node:crypto';
 import { makeConfidentialProver } from '../dapp/evm-confidential.js';
 import { bppRangeProve } from '../dapp/bulletproofs-plus.js';
+import { bpRangeAggProve } from './bulletproofs.mjs';
 import { makeConfidentialPool } from '../dapp/confidential-pool.js';
 import { makeBurnDepositAssembler } from '../dapp/burn-deposit-assembler.js';
 import { makeBurnDepositKit } from '../dapp/burn-deposit-bitcoin.js';
@@ -173,7 +174,10 @@ const r1 = 0x6262n;
 const changeVal = inVal - cburn; // the burned note's value = inputs minus the public burn
 const burned = prover.commit(changeVal, r1);
 const burnedC = compress(burned);
-const { proof: cxRange } = bppRangeProve([changeVal], [r1]);
+// CLASSIC=1 proves the hop's range with classic Bulletproofs, the form nearly all of an old history is in. RANGE_TAMPER=<byte offset>
+// flips one bit of that proof after it is made, so the hop's witness still commits to the bytes and only the range proof is wrong.
+const { proof: cxRange } = process.env.CLASSIC ? bpRangeAggProve([changeVal], [r1]) : bppRangeProve([changeVal], [r1]);
+if (process.env.RANGE_TAMPER) cxRange[Number(process.env.RANGE_TAMPER)] ^= 1;
 const excess = ((inBlind - r1) % N + N) % N; // P = C_in − C_change − cburn·H = excess·G
 const kmsg = sha256(_cat([
   new TextEncoder().encode('tacit-kernel-v1'), assetId, new Uint8Array([1]),
