@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8530,8 +8530,8 @@ await step('rewardspriv', async () => {
     await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
     await r.page.waitForSelector('#pf-mine [data-pf="harvest"]', { timeout: 300000 });
     const row = (await text(r.page, '#pf-mine')).replace(/\s+/g, ' ');
-    ok(/0\.05 TAC earned/.test(row) && !(await r.page.isDisabled('#pf-mine [data-pf="harvest"]')) && await r.page.isDisabled('#pf-mine [data-pf="unbond"]') && (await r.page.getAttribute('#pf-mine a[href^="/#farm/private-"]', 'href')) === '/#farm/private-0',
-      `rewardspriv: a position with a reward worth having can be harvested and not unbonded, and links to the front page for the rest (${row.slice(0, 160)})`);
+    ok(/0\.05 TAC earned/.test(row) && !(await r.page.isDisabled('#pf-mine [data-pf="harvest"]')) && await r.page.isDisabled('#pf-mine [data-pf="unbond"]') && !(await r.page.isDisabled('#pf-mine [data-pf="exit"]')),
+      `rewardspriv: a position with a reward worth having can be harvested or exited, and not unbonded (${row.slice(0, 160)})`);
     // refused by the relay: said, with the way to the front page
     await r.page.evaluate(() => { window.__pf.refuse = true; });
     await r.page.click('#pf-mine [data-pf="harvest"]');
@@ -8550,6 +8550,71 @@ await step('rewardspriv', async () => {
     const j = await journal();
     ok(j.includes('Harvest farm rewards:settled') && j.includes('Unbond from a farm:settled'), `rewardspriv: both are in the shared journal, settled (${j.slice(0, 4).join(' | ')})`);
     if (r.errors.length) { fails++; console.log('FAIL rewardspriv page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Out of a farm from the rewards page, and its rewards turned into TAC: the position unbonded (its dust given up, nothing to harvest) and the
+// liquidity note it gives back taken out at the pool's two assets and fee; the reward note unwrapped by the relay to the connected wallet,
+// and the wallet's wTAC turned into TAC on the fork, its TAC arriving. The farm program is the live one; the relay's calls are answered here.
+await step('rewardsout', async () => {
+  const prog = await fetch('https://api.tacit.finance/farm/program?network=mainnet').then((x) => x.json());
+  const pool = prog.pools.find((p) => p.reserves?.assetA) || prog.pools[0], RID = String(prog.rewardAsset).toLowerCase(), LP = String(pool.lpAsset).toLowerCase();
+  const WTAC_ADDR = '0x2018139a8fdd3666855be3315c7683b4d6ab7aef', wt = 3n * 10n ** 18n;
+  // the wTAC the relay's unwrap would deliver, there before the press: the reserve's TAC deposited into wTAC for the wallet
+  await rpc('anvil_impersonateAccount', [RESERVE]); await rpc('anvil_setBalance', [RESERVE, '0x' + (10n ** 18n).toString(16)]);
+  await rpc('eth_sendTransaction', [{ from: RESERVE, to: TAC, data: '0x095ea7b3' + addrWord(WTAC_ADDR) + word(wt) }]);
+  await rpc('eth_sendTransaction', [{ from: RESERVE, to: WTAC_ADDR, data: '0x6e553f65' + word(wt) + addrWord(A0) }]);
+  await rpc('anvil_stopImpersonatingAccount', [RESERVE]);
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      const note = (asset, value, i) => ({ asset, value: String(value), leaf: h(0xc0c000 + i), leafIndex: 700000 + i, cx: h(0x200 + i), cy: h(2), owner: h(3), secret: h(0x6100 + i), blinding: h(0x8800 + i), root: h(1), path: [] });
+      const S = window.__po = { calls: [], unbonded: false, out: false, redeemed: false };
+      ux.farmPositions = async () => (S.unbonded ? [] : [{ pid: ${Number(pool.pid)}, shares: '1000', pendingUnits: '500000', pendingTac: '0.005', unlockAt: 0, receiptLeaf: h(0xfb) }]);
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts), extra = [...(S.redeemed ? [] : [note('${RID}', 5000000000n, 1)]), ...(S.unbonded && !S.out ? [note('${LP}', 1000n, 2)] : [])];
+        b.notes = [...(b.notes || []), ...extra];
+        return b;
+      };
+      ux.farmUnbond = async (a) => { S.calls.push(['unbond', a.position.pid, a.forfeitPending]); a.waitOpts?.onJob?.('po-u', 'farmunbond'); S.unbonded = true; return { jobId: 'po-u', txHash: h(0xb2) }; };
+      ux.farmHarvest = async (a) => { S.calls.push(['harvest']); return { jobId: 'po-h' }; };
+      ux.lpRemove = async (a) => { S.calls.push(['lpRemove', a.assetA, a.assetB, a.feeBps, a.shareNote.value]); a.waitOpts?.onJob?.('po-l', 'lpremove'); S.out = true; return { jobId: 'po-l', txHash: h(0xb3) }; };
+      ux.farmRedeem = async (a) => { S.calls.push(['redeem', a.note.value, a.to.toLowerCase(), a.wait]); a.waitOpts?.onJob?.('po-r', 'unwrap'); S.redeemed = true; return { jobId: 'po-r', txHash: h(0xb4) }; };
+      return ux;
+    }` }));
+  const po = () => r.page.evaluate(() => window.__po);
+  const said = () => text(r.page, '#pf-said').then((t) => t.replace(/\s+/g, ' ').trim());
+  try {
+    await r.page.goto(r.url + 'rewards/');
+    await r.page.click('#pf-row > summary');
+    await r.page.click('#pf-mine [data-pf="open"]');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#pf-mine [data-pf="exit"]', { timeout: 300000 });
+    const shown = (await text(r.page, '#pf-mine')).replace(/\s+/g, ' ');
+    ok(/Rewards to turn into TAC50 wTAC private/.test(shown) && !!(await r.page.$('#pf-mine [data-pf="totac"]')), `rewardsout: the private reward notes are shown to be turned into TAC (the wallet's own wTAC is read once it is connected) (${shown.slice(0, 200)})`);
+    // the rewards into TAC
+    const tac0 = await tacOf(A0);
+    await r.page.click('#pf-mine [data-pf="totac"]');
+    await until(r.page, () => /Turned 3 wTAC into TAC/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await po()).calls)}`); });
+    const red = (await po()).calls.find((c) => c[0] === 'redeem');
+    ok(red && red[1] === '5000000000' && red[2] === A0.toLowerCase() && red[3] === true, `rewardsout: the relay unwraps the reward note to the connected wallet (${JSON.stringify(red)})`);
+    ok((await tacOf(A0)) - tac0 === wt, `rewardsout: and the wallet's wTAC is turned into TAC on chain (${(await tacOf(A0)) - tac0})`);
+    // out of the farm
+    await r.page.click('#pf-mine [data-pf="exit"]');
+    await until(r.page, () => /Out\. Your liquidity is back/.test(document.querySelector('#pf-said')?.textContent || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await po()).calls)}`); });
+    const calls = (await po()).calls.filter((c) => c[0] !== 'redeem');
+    ok(calls.length === 2 && calls[0].join() === `unbond,${Number(pool.pid)},false` && calls[1][0] === 'lpRemove' && String(calls[1][1]).toLowerCase() === String(pool.reserves.assetA).toLowerCase() && Number(calls[1][3]) === Number(pool.feeBps ?? 30) && calls[1][4] === '1000',
+      `rewardsout: with only dust pending there is no harvest: the position is unbonded and the liquidity it gives back taken out at the pool's assets and fee (${JSON.stringify(calls)})`);
+    const j = await r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
+    ok(j.some((x) => /^Unwrap 50 wTAC of farm rewards:settled/.test(x)) && j.some((x) => /^Turn 3 wTAC into TAC:confirmed/.test(x)) && j.includes('Unbond from a farm:settled') && j.some((x) => /liquidity:settled$/.test(x)), `rewardsout: each step is in the shared journal (${j.slice(0, 5).join(' | ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL rewardsout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

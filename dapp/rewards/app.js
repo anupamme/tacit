@@ -363,7 +363,7 @@ function noteFarm(f) {
   $('#farm-apr').textContent = f?.live ? aprText(f.apr) : f ? '—' : '';
   $('#farm-d').textContent = f?.live ? `Public · ${tac(f.perDay, 0)} TAC a day` : f ? 'Public · between reward periods' : 'Public';
 }
-let PRIV = [];
+let PRIV = [], PROG = null;
 function paintPrivate(list) {
   PRIV = list;
   const host = $('#farms'), h = list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join('');
@@ -378,7 +378,7 @@ let farmsP = null;
 $('#pf-mine').addEventListener('click', (e) => {
   if (farmsP || !e.target.closest('[data-pf="open"]')) return;
   e.stopImmediatePropagation();
-  farmsP = import('/rewards/farms.js?cb=3f4e5955').then((m) => { m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])) }); $('#pf-mine [data-pf="open"]')?.click(); })
+  farmsP = import('/rewards/farms.js?cb=5617a97e').then((m) => { m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])), program: () => PROG, wallet, W, connect: () => connect.connect() }); $('#pf-mine [data-pf="open"]')?.click(); })
     .catch((err) => { farmsP = null; console.warn('your positions:', err?.message || err); });
 });
 function notePoints(c) {
@@ -412,7 +412,7 @@ async function readEarn() {
   earnAgain();
   const f = await farmFacts().catch(() => null);
   noteFarm(f);
-  Promise.all([get('farm/program?network=mainnet'), readSpot((calls) => Promise.all(calls.map((c) => call(c).catch(() => null))))]).then(([prog, px]) => paintPrivate(privateFarms(prog, f?.tacEth || 0, px)), () => paintPrivate([]));
+  Promise.all([get('farm/program?network=mainnet'), readSpot((calls) => Promise.all(calls.map((c) => call(c).catch(() => null))))]).then(([prog, px]) => { PROG = prog; paintPrivate(privateFarms(prog, f?.tacEth || 0, px)); }, () => paintPrivate([]));
   capNow().then(notePoints, () => {});
   readLiquidity(json).then(noteLiquidity, () => noteLiquidity(null));
   readTasks(json).then(noteTasks, () => noteTasks(null));

@@ -27,3 +27,28 @@ export async function unbond(t, priv, pos, waitOpts, again = (p) => p) {
     return t.farmUnbond({ walletPriv: priv, position: again(pos), forfeitPending: true, waitOpts });
   }
 }
+
+// ── what a position pays, turned into TAC ──
+// A harvest pays wTAC, the farm's reward token, held privately as a note. The relay unwraps a note to an Ethereum address (wTAC there), and
+// that address turns its wTAC into TAC with the token's withdraw(amount, to).
+export const WTAC = '0x2018139a8fdd3666855be3315c7683b4d6ab7aef';
+const word = (v) => BigInt(v).toString(16).padStart(64, '0'), addr = (a) => String(a).replace(/^0x/, '').toLowerCase().padStart(64, '0');
+export const wtacWithdrawCall = (amount, to) => ({ to: WTAC, data: '0x00f714ce' + word(amount) + addr(to) });
+export const wtacBalanceCall = (who) => ({ to: WTAC, data: '0x70a08231' + addr(who) });
+export const rewardNotes = (notes, rewardAsset) => (notes || []).filter((n) => rewardAsset && String(n.asset).toLowerCase() === String(rewardAsset).toLowerCase());
+// a reward note the relay can unwrap for something: what it charges leaves a remainder (a note that cannot be priced is tried)
+export function relayable(t, note, rewardAsset) {
+  try { return (t.quoteUnwrapFee(note.value, t.poolTickerOf(String(rewardAsset).toLowerCase()))?.net ?? 1n) > 0n; } catch { return true; }
+}
+// worth harvesting through the relay: its unwrap costs no more than half of it
+export function worthHarvesting(t, units, rewardAsset) {
+  const v = BigInt(units || 0);
+  if (v <= HARVEST_WORTH) return false;
+  try { return t.quoteUnwrapFee(v, t.poolTickerOf(String(rewardAsset).toLowerCase())).fee * 2n <= v; } catch { return false; }
+}
+export const redeem = (t, priv, note, to, waitOpts) => t.farmRedeem({ walletPriv: priv, note, to, wait: true, waitOpts });
+
+// ── taking the liquidity out ──
+// the pool's share notes, which an unbond gives back, and taking one out of the pool as its two assets
+export const lpNotes = (notes, pool) => (notes || []).filter((n) => pool?.lpAsset && String(n.asset).toLowerCase() === String(pool.lpAsset).toLowerCase());
+export const takeOut = (t, priv, pool, note, waitOpts) => t.lpRemove({ walletPriv: priv, assetA: pool.reserves.assetA, assetB: pool.reserves.assetB, feeBps: Number(pool.feeBps ?? 30), shareNote: note, waitOpts });
