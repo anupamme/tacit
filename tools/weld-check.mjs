@@ -37,6 +37,7 @@
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
 //   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
 //   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
+//   slowline  a relayed harvest waiting in the relay's line says so after a minute, and after three offers the paying account with what it costs
 //   selfwallet a refused exit from a key whose Tacit account holds no ETH offers the connected wallet as the sender too, and pressed, the settle goes from the wallet
 //   farmreuse a stopped zap's two notes (one of the swapped amount, one that pairs with its return) are spent whole: Max takes both and
 //            nothing is split again
@@ -181,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -237,10 +238,10 @@ const provenJobs = {};
 // `refuseTypes`: refuse only submits of these op types (with refuseSubmits counting them). `openNext`: that many settle-mode submits
 // are proved and held as an open job (status `open`, its proof and the memos it was sent with), as the relay holds what it cannot
 // send. `landedPosts`: the page's reports of a settle it sent itself (POST /confidential/landed), which settle an open job here.
-let refuseWith = null, refuseTypes = null, openNext = 0;
+let refuseWith = null, refuseTypes = null, openNext = 0, pendingNext = 0;
 // What GET /confidential/relay says of the relay: 'ok' unless a scenario sets 'held', 'paused', 'down' or 'busy' (null: the route is missing).
 let relayStateNow = 'ok';
-const openJobs = {}, landedPosts = [];
+const openJobs = {}, pendingJobs = {}, landedPosts = [];
 
 // router.withdrawToV1(tx, intent), encoded as evm-pool-wallet.js encodes it for a self-sent move.
 const { calldata } = await import(new URL('../dapp/evm-pool-gateway.js', import.meta.url));
@@ -287,6 +288,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       const jobId = 'stub-' + (submits.push(sub));
       if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [] };
       if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
+      if (pendingNext > 0 && (sub.mode || 'settle') === 'settle') { pendingNext--; pendingJobs[jobId] = sub.type; }          // a job that stays in the relay's line
       return json(route, { jobId });
     }
     if (u.pathname === '/confidential/relay') {
@@ -301,6 +303,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     }
     if (u.pathname === '/confidential/status') {
       const id = u.searchParams.get('id'), pj = provenJobs[id], oj = openJobs[id];
+      if (pendingJobs[id]) return json(route, { jobId: id, type: pendingJobs[id], mode: 'settle', status: 'pending', txHash: null, error: null, createdAt: Date.now() });
       if (pj) return json(route, { jobId: id, mode: 'prove', status: 'proven', publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: pj.memos });
       if (oj) return json(route, { jobId: id, type: oj.type, mode: 'settle', status: oj.status, txHash: oj.txHash || null, ...(oj.status === 'settled' ? {} : { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: oj.memos }) });
       return json(route, { status: 'failed', error: statusError });
@@ -8228,6 +8231,34 @@ await step('selfwallet', async () => {
       `selfwallet: the same exit goes out with the settle handed over, the wallet is kept as the payer, and the Tacit account sent nothing (${calls.join()}; ${kept})`);
     if (r.errors.length) { fails++; console.log('FAIL selfwallet page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { if (restore) await restore(); await r.browser.close(); }
+});
+
+// A relayed harvest that stays in the relay's line (the relay up and sending, but busy or waiting out a spike): a minute on, the sheet says it
+// is in line and that the paying account can send it; three minutes on, it is offered to the paying account with what that costs.
+await step('slowline', async () => {
+  const r = await openFarmKey('51a3'.padEnd(64, '8'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, held: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
+    pendingNext = 1;
+    await p.evaluate(() => { const real = Date.now.bind(Date); window.__shift = 0; Date.now = () => real() + window.__shift; });
+    await p.click('[data-harvest="0"]');
+    await until(p, () => /proving your harvest/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 60000).catch(() => {});
+    await sleep(4000);
+    await p.evaluate(() => { window.__shift = 75e3; });
+    await until(p, () => /In line/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 60000).catch(() => {});
+    const early = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    ok(/In line\./.test(early) && /It keeps its place; if it takes much longer you can send it from your own account, and the relay still proves it/.test(early) && !(await p.$('#sf-act-0 [data-selfdo]')) && !/gas|credit|low on/i.test(early.replace(/Network fees/g, '')),
+      `slowline: a minute in the line, the sheet says so and what can be done (${early})`);
+    await p.evaluate(() => { window.__shift = 190e3; });
+    await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 60000 });
+    await until(p, () => /costs about [\d.]+ ETH/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 30000).catch(() => {});
+    const late = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    ok(/It is taking longer than usual\. It keeps its place in line/.test(late) && /Send it from your Tacit account/.test(late) && /costs about [\d.]+ ETH/.test(late) && /Send it from your wallet instead/.test(late) && !/low on|out of/i.test(late),
+      `slowline: three minutes on, it is offered to the paying account with the cost (${late})`);
+    if (r.errors.length) { fails++; console.log('FAIL slowline page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { pendingNext = 0; await r.browser.close(); }
 });
 
 // The relay's day of proofs used up (prove_budget) is not a refusal the paying account gets round (sending it needs a proof from the same

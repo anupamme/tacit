@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Vq4Q4Bl+Szxb0nJiD4RWUNrXpcNyU0umOpS2OvVVBe0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PKa/vTxQvtTAAUP3NVQirej20rE6ICNcLNKAorDKOpM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1793,7 +1793,7 @@ const errText = (e) => {
   if (relayCode(e) === 'open' || /^settle held: proved/i.test(m)) return proved(e) ? 'It is proved and waiting to be sent: it goes through when a relay sends it, or send it yourself now from Activity.'
     : 'It is proved and waiting for a relay to send it. It goes through when one does; follow it in Activity.';
   if (relayCode(e) === 'relay_paused') return e?.queued ? 'The relay isn’t proving right now. It keeps its place in line and goes through once it is.' : 'The relay isn’t proving right now. Nothing was spent.';
-  if (relayCode(e) === 'relay_held') return e?.queued ? 'The relay can’t send this one right now. It keeps its place in line.' : 'The relay can’t take this one right now.';
+  if (relayCode(e) === 'relay_held') return e?.queued ? (e.slow ? 'It is taking longer than usual. It keeps its place in line.' : 'The relay can’t send this one right now. It keeps its place in line.') : 'The relay can’t take this one right now.';
   if (relayCode(e) === 'free_budget') return 'The relay’s free settles for today are used up. They open again at midnight UTC.';
   if (/prove failed:/i.test(m) && proofsBusy(m)) return failText({ status: 'failed', err: m.slice(m.search(/prove failed:/i)) });
   if (/could not make this proof|produced no proof|prove failed: exec:/i.test(m)) return 'The relay could not make this proof. Nothing was spent and what you hold is still in the pool. Try again in a few minutes, or prove it yourself.';
@@ -2076,12 +2076,26 @@ function newRun(sheet) {
   RUNS.add(run);
   return run;
 }
+// Network fees this high (five times the line under which the relay opens its free allowances) are a spike: a relayed settle can wait
+// for them to ease, and one sent from the holder's own account costs that much more.
+const FEES_HIGH = 300000000n, FEES = { high: false };
+const feesRead = () => gasNow().then((g) => (FEES.high = !!g && g >= FEES_HIGH), () => FEES.high);
+const feesLine = () => (FEES.high ? ' Network fees are high right now, so a relayed one can take longer.' : '');
+// A relayed settle that has waited this long is offered to the paying account too, as a held relay's is.
+const SLOW_MS = 3 * 60e3;
 async function waitOn(run, w, ms) {
   await sleep(ms);
   if (!w.since || run.away || !run.live || run.keep || Date.now() - w.since < 60e3) return;
   const why = await relayNow();
   if (why === 'paused' || why === 'down') throw Object.assign(new Error('relay paused: the relay isn’t proving right now'), { code: 'relay_paused', queued: true });
   if (why === 'held' && w.mode === 'settle') throw Object.assign(new Error('relay held: the relay can’t send this one right now'), { code: 'relay_held', queued: true });
+  if (w.mode !== 'settle') return;
+  await feesRead();
+  if (Date.now() - w.since >= SLOW_MS) throw Object.assign(new Error('relay slow: still in the relay’s line'), { code: 'relay_held', queued: true, slow: true });
+  if (!w.told && run.statusOf) {
+    w.told = true;
+    run.say(run.statusOf(), `${why === 'busy' ? 'In line behind another request.' : 'In line.'}${feesLine()} It keeps its place; if it takes much longer you can send it from your own account, and the relay still proves it.`);
+  }
 }
 const kNote = (n) => 'n:' + String(n.leaf || n.nullifier || `${n.cx}:${n.cy}`).toLowerCase();
 const kLock = (l) => 'l:' + String(l.leaf).toLowerCase();
@@ -2256,7 +2270,7 @@ const FOLLOWS = makeFollow({
   journal: JRN, jobStatus: (j) => jobStatus(j), receipt, receiptOnce,
   btcConfirmed: async (txid) => !!(await esplora(`/tx/${txid}/status`).catch(() => null))?.confirmed,
   live: (id) => !!JOBS.get(id.slice(4))?.run.live, own: (id) => ownJob(id), onOwn: (id) => spStale(id),
-  onSlow: (it) => { relayWhy(); if (!it.slow) { it.slow = true; paintAct(); } },
+  onSlow: (it) => { relayWhy(); feesRead().then(() => paintAct()); if (!it.slow) { it.slow = true; paintAct(); } },
   finished: (f, hash) => finishedBy(f, hash),
 });
 function followJob(id) { FOLLOWS.job(id); }
@@ -2394,7 +2408,8 @@ const jobWhere = (j) => {
   if (j.status === 'sending') return `Proved. A relay is sending it.${byLine(j)}`;
   if (j.status === 'proven') return 'Proved.';
   const why = Date.now() - j.at > 60e3 ? relayWhy() : null;
-  return j.by ? `${WAIT_BY[why] || 'Waiting for the relay to pick it up.'}${byLine(j)}` : (why && WAIT_WHY[why]) || 'Waiting for the relay to pick it up.';
+  const fees = Date.now() - j.at > 60e3 ? feesLine() : '';
+  return j.by ? `${WAIT_BY[why] || 'Waiting for the relay to pick it up.'}${fees}${byLine(j)}` : `${(why && WAIT_WHY[why]) || 'Waiting for the relay to pick it up.'}${fees}`;
 };
 function opWhere(it) {
   const parts = opParts(it), cur = parts.at(-1);
@@ -2615,9 +2630,21 @@ async function lockSend({ t, priv, note, who, units, ticker, selfSettle = null, 
 const SELFDO = {};
 let selfdoSeq = 0;
 async function selfGasWei() {
-  const gas = BigInt(await rpc('eth_gasPrice', []).catch(() => '0x0') || 0);
+  const gas = (await gasNow().catch(() => null)) || 0n;
   return 700000n * (gas > 0n ? gas * 3n / 2n : 2000000000n);
 }
+// What sending it from the paying account costs, said in the offer and filled in when the price is read (the offer is drawn before that).
+const COST = { text: '', at: 0 };
+function costPaint() {
+  if (Date.now() - COST.at < 15e3) return;
+  COST.at = Date.now();
+  Promise.all([selfGasWei(), feesRead()]).then(([wei]) => {
+    const eth = fmt(wei, 18, wei < 10n ** 14n ? 6 : 4);
+    COST.text = FEES.high ? `Network fees are high right now: sending it yourself costs about ${eth} ETH.` : `Sending it yourself costs about ${eth} ETH in network fees.`;
+    document.querySelectorAll('[data-selfcost]').forEach((el) => { el.textContent = COST.text; });
+  }, () => { COST.at = 0; });
+}
+const costNote = () => { costPaint(); return html` <span data-selfcost>${COST.text}</span>`; };
 // Proving with your own credit needs the credit and the network fee for the settle on hand. A wrap checks them before its deposit goes
 // out, which would otherwise sit in the pool, untipped and unsettled, until they are.
 async function ownReady(type) {
@@ -2631,12 +2658,12 @@ async function selfGasCheck() {
   const need = await selfGasWei(), have = await ethBalance();
   if (have != null && have < need) throw Object.assign(new Error(`Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()} (${short(S.address, 6)}). It holds ${fmt(have, 18, 4)}. Add a little ETH there, then press the button again.`), { said: true });
 }
-const selfOffer = (spec) => (spec.open
+const selfOffer = (spec, cost = true) => (spec.open
   ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it now from ${your()}</button>:
-    ${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.${otherSelf('selfdo', spec.id)}</div>`
-  : spec.held ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button>: the relay proves it, and ${your()} pays the network fee, and its address shows as the sender${keepLink(spec.keep)}.${otherSelf('selfdo', spec.id)}</div>`
+    ${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`
+  : spec.held ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button>: the relay proves it, and ${your()} pays the network fee, and its address shows as the sender${keepLink(spec.keep)}.${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`
   : html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
-    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}${otherSelf('selfdo', spec.id)}</div>`);
+    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}${cost ? costNote() : ''}${otherSelf('selfdo', spec.id)}</div>`);
 function offerSelf(spec, e) {
   noteOpen(e);
   if (proved(e)) spec.open = e.open;
@@ -2694,7 +2721,7 @@ async function selfDo(run, spec) {
     if (have != null && have < need) {
       if (on) throw Object.assign(new Error(`Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()} (${short(S.address, 6)}). It holds ${fmt(have, 18, 4)}. Add a little ETH there, then press the button again.`), { said: true });
       say(status(), html`<span class="err">Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()}. It holds ${fmt(have, 18, 4)}. Send a little ETH to it, then press the button again.</span>
-        <div class="kv"><span>Address</span><b class="mono">${short(S.address, 10)}</b><button class="link" type="button" data-selfcopy="${S.address}">copy</button></div>${selfOffer(spec)}`);
+        <div class="kv"><span>Address</span><b class="mono">${short(S.address, 10)}</b><button class="link" type="button" data-selfcopy="${S.address}">copy</button></div>${selfOffer(spec, false)}`);
       return;
     }
     const t = await getUx(), priv = walletPriv();
@@ -2803,6 +2830,7 @@ async function proveOr(spec) {
     if (why === 'paused' || why === 'down') throw offerPaused(spec);
     if (why === 'held') throw offerSelf({ ...spec, held: true, keep: keepFor(spec) }, Object.assign(new Error('The relay can’t send this one right now.'), { said: true }));
   }
+  if (spec.run && spec.status) spec.run.statusOf = spec.status;
   try { return await spec.relayed(); }
   catch (e) {
     if (spec.offer === false) throw e;
