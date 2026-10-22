@@ -33,12 +33,19 @@ export const outpointOf = (t, lock) => t.pool.outpointKey('0x' + lock.lockTxid.m
 // short; less what is posted already. The page turns the gap into ETH at stETH's rate, since it is paid in ETH.
 export function bondGap(needWst, have) { const want = (BigInt(needWst) * 11n) / 10n, held = BigInt(have || 0); return { want, gap: want > held ? want - held : 0n }; }
 // the call that posts it: the bond helper stakes the ETH sent with it and holds the wstETH against the lock
+// What a lock needs at the deposit address beyond its amount: the lock output's dust and the fees of its two transactions at the fastest rate
+// (from mempool.space's recommendation, else an esplora estimate, else 5 sat/vB), a tenth more for the rate moving.
+export function lockPad(recommended, estimates) {
+  const rate = Math.max(1, Math.ceil(recommended?.fastestFee || estimates?.['1'] || estimates?.['2'] || 5)), fee = (vb) => Math.max(500, vb * rate);
+  return BigInt(Math.ceil((546 + fee(200) + fee(11 + 2 * 68 + 43 + 31)) * 1.1));
+}
 export const bondCall = (t, lock) => ({ to: ESCROW, data: '0x' + POST_ESCROW_WITH_ETH + strip(outpointOf(t, lock)) });
 
 const strip = (h) => String(h).replace(/^0x/, '');
 const ZERO = '0x' + '0'.repeat(64);
 
-export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex, noteRecovery = () => import('/cbtc-note-recovery.js') }) {
+export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex, noteRecovery = () => import('/cbtc-note-recovery.js'),
+  lockModule = () => import('/cbtc-lock-mint.js'), deployments = () => import('/confidential-deployments.js') }) {
   // the key's loans as this browser keeps them (encrypted to the key): what a loan needs to be repaid from here
   async function positions() {
     const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
@@ -114,5 +121,23 @@ export function makeLoans({ sha256, hmac, secp, bytesToHex, hexToBytes, pubHex, 
     return { walletPriv: priv, outpoint: outpointOf(t, lock), vBtc: BigInt(lock.vBtc), blinding: '0x' + b.toString(16).padStart(64, '0') };
   }
 
-  return { positions, nextKeyNonce, fresh, openArgs, opened, positionLeaf, repayArgs, repaid, mintArgs };
+  // The key's own lock maker: its deposit address (a plain one, which any wallet or exchange can pay) and the lock it signs and broadcasts from
+  // the coins there. Outputs that are locks already, and any `skip`ped (coins not yet confirmed), are never spent by it.
+  async function lockMaker(t, priv, skip = []) {
+    const [lm, dep] = await Promise.all([lockModule(), deployments()]);
+    return { lm: lm.makeCbtcLockMint({ priv, pool: t.pool, cbtcAsset: t.pool.CBTC_ZK_ASSET_ID, hrp: 'bc', excludeOutpoints: [...dep.listProtectedOutpoints(), ...skip] }), dep };
+  }
+  // A lock of `sats`: the pool's reservations read first so no output that is a lock already is spent, then signed and broadcast; the new
+  // lock's outpoint is protected from being spent as an ordinary coin, and its record (what minting it needs) returned for the page to keep.
+  async function lock(t, priv, { sats, unconfirmed = [], say = () => {} }) {
+    say('Checking which of your outputs are already locks…');
+    await t.syncCbtcLockReservations(priv);
+    const { lm, dep } = await lockMaker(t, priv, unconfirmed);
+    say('Signing and broadcasting your lock…');
+    const res = await lm.lock({ amountSats: sats });
+    dep.protectOutpoint(res.lockTxid, res.lockVout, res.vBtc);
+    return { ...res, record: { lockTxid: res.lockTxid, lockVout: res.lockVout, vBtc: String(res.vBtc), anchor: { txid: res.anchor.txid, vout: res.anchor.vout }, at: Date.now() } };
+  }
+
+  return { positions, nextKeyNonce, fresh, openArgs, opened, positionLeaf, repayArgs, repaid, mintArgs, lockMaker, lock };
 }

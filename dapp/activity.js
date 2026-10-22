@@ -222,10 +222,10 @@ export function makeRelayState({ api, base = async () => api, uxState = async ()
 // A page other than the front one that sets relay jobs going (the borrow page): each job goes into the shared journal under the name the page
 // gives it, moves on as the relay client announces it, and is followed to its end while the page is open; the front page follows it from the
 // same journal whenever it is opened. `wait(label)` is what a pool call takes as its waitOpts.
-export function makeRunner({ api, base, pub = () => null }) {
+export function makeRunner({ api, base, pub = () => null, btcConfirmed = async () => false }) {
   const journal = makeJournal({ pub, shared: true });
   const relay = makeRelayState({ api, base });
-  const follow = makeFollow({ journal, jobStatus: (j) => relay.jobStatus(j), receipt: async () => null, receiptOnce: async () => null, btcConfirmed: async () => false });
+  const follow = makeFollow({ journal, jobStatus: (j) => relay.jobStatus(j), receipt: async () => null, receiptOnce: async () => null, btcConfirmed });
   const named = new Map();
   addEventListener('tacit:job', ({ detail: d }) => {
     if (!d?.jobId || !d.status) return;

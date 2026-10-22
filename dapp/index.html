@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nqRe7dCgFLJ8ZkTWWJKvGllh5EEVAY/z3wXFJD8Hqk0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cCsLTS8TE7SRvF2Gu17ar2xYKw4Tq8RaclGQIa+jtX0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1586,8 +1586,8 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { makeLoans, bondGap } from '/btc-borrow.js?cb=b1b8bb0f';
-import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=4824e4fc';
+import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
+import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
 if (window.__tacitAway) await new Promise(() => {});
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
@@ -10083,8 +10083,7 @@ function bondsBlock() {
 async function lockPad() {
   const f = await esplora('/v1/fees/recommended').catch(() => null);
   const j = f?.fastestFee ? null : await esplora('/fee-estimates').catch(() => null);
-  const rate = Math.max(1, Math.ceil(f?.fastestFee || j?.['1'] || j?.['2'] || 5)), fee = (vb) => Math.max(500, vb * rate);
-  return BigInt(Math.ceil((546 + fee(200) + fee(11 + 2 * 68 + 43 + 31)) * 1.1));
+  return lockPadOf(f, j);
 }
 const loadBorrow = (fresh = false, force = fresh) => once(LOCK, S.key?.pubHex, (current) => readBorrow(fresh, current), force);
 async function settleBorrow() {
@@ -10232,15 +10231,10 @@ const BWX = {
       if (!sats || sats < 10000n) throw new Error('Lock at least 0.0001 BTC.');
       const pad = await lockPad();
       if (st.sats != null && sats + pad > st.sats - st.pendingSats) throw new Error(st.sats >= sats + pad ? 'Wait for the deposit to confirm, then lock.' : `Not enough BTC at the deposit address for this lock and its fees, about ${fmt(pad, 8, 8)} BTC at today’s rate.`);
-      const t = await getUx(), m = await getLockMod();
-      say(where(), 'Checking which of your outputs are already locks…');
-      await t.syncCbtcLockReservations(priv);
-      const lm = await lockMint(st.unconfirmed, priv);
-      say(where(), 'Signing and broadcasting your lock…');
-      const res = await lm.lock({ amountSats: sats });
+      const t = await getUx();
+      const res = await LN.lock(t, priv, { sats, unconfirmed: st.unconfirmed, say: (x) => say(where(), x) });
       actBtc(res.lockTxid, `Lock ${fmt(sats, 8, 8)} BTC`);
-      m.protectOutpoint(res.lockTxid, res.lockVout, res.vBtc);
-      store.set(key, { lockTxid: res.lockTxid, lockVout: res.lockVout, vBtc: String(res.vBtc), anchor: { txid: res.anchor.txid, vout: res.anchor.vout }, at: Date.now() });
+      store.set(key, res.record);
       LOCK.pick = `${res.lockTxid}:${res.lockVout}`;
       say(where(), html`<span class="ok">Locked.</span> <a href="${MEMPOOL}/tx/${res.lockTxid}" target="_blank" rel="noopener">${short(res.lockTxid, 6)} ↗</a> Post the bond next.`);
       toast('BTC locked');

@@ -127,6 +127,19 @@ async function stubWallet(ctx) {
   return log;
 }
 // ── the pool module and the key's Bitcoin history, as stand-ins that record what they are asked ──
+// the key's deposit address and what it holds, as the explorer answers; and the lock maker, a stand-in that records the lock it is asked for
+const DEPOSIT = { utxos: [{ txid: '77'.repeat(32), vout: 0, value: 60000, status: { confirmed: true } }, { txid: '78'.repeat(32), vout: 1, value: 5000, status: { confirmed: false } }] };
+const LOCK_STUB = `
+export function makeCbtcLockMint(o) {
+  const ux = (window.__ux ||= { calls: [], cfg: {} });
+  return {
+    wallet: { address: () => 'bc1qdeposit0000000000000000000000000000000' },
+    async lock(a) {
+      ux.calls.push(['lock', String(a.amountSats), (o.excludeOutpoints || []).join()]);
+      return { lockTxid: '9a'.repeat(32), lockVout: 7, vBtc: a.amountSats, anchor: { txid: '77'.repeat(32), vout: 0 } };
+    },
+  };
+}`;
 const UX_STUB = `
 const ux = (window.__ux ||= { calls: [], cfg: {} });
 export function setExternalTacHolders() {}
@@ -134,7 +147,8 @@ export function forgetKeys() { ux.forgot = (ux.forgot || 0) + 1; }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 export function makeConfidentialPoolUx() {
   return {
-    pool: { outpointKey: (txid, vout) => '0x' + '00'.repeat(31) + vout.toString(16).padStart(2, '0') },
+    pool: { outpointKey: (txid, vout) => '0x' + '00'.repeat(31) + vout.toString(16).padStart(2, '0'), CBTC_ZK_ASSET_ID: '0xcb' },
+    async syncCbtcLockReservations() { ux.calls.push(['syncCbtcLockReservations']); },
     async cbtcLockState(txid, vout) { ux.calls.push(['cbtcLockState', vout]); return ux.cfg.states?.[vout] || { spent: false, redeemed: false }; },
     async ethCall(to, data) {
       const w = (v) => '0x' + BigInt(v).toString(16).padStart(64, '0'), s = data.slice(2, 10);
@@ -168,6 +182,14 @@ async function openPage(viewport, { wallet = false, scheme = 'light', hash = '' 
     return r.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' });
   });
   await ctx.route('**/confidential-pool-ux.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: UX_STUB }));
+  await ctx.route(/\/cbtc-lock-mint\.js(\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: LOCK_STUB }));
+  await ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\//, (r) => {
+    const u = new URL(r.request().url()), ok200 = (b) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(b) });
+    if (/\/address\/bc1qdeposit[a-z0-9]*\/utxo$/.test(u.pathname)) return ok200(DEPOSIT.utxos);
+    if (u.pathname.endsWith('/v1/fees/recommended')) return ok200({ fastestFee: 3, halfHourFee: 2, hourFee: 1 });
+    if (/\/tx\/[0-9a-f]{64}\/status$/.test(u.pathname)) return ok200({ confirmed: true, block_height: 970000 });
+    return r.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: '' });
+  });
   await ctx.route('**/confidential-recovery-btc.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: HIST_STUB }));
   await ctx.route('**/walletconnect.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const WC_PROJECT_ID = "test"; export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; } export function wcSheets() { return { onPair() {}, onAsk() {} }; } export function dialogHost() { return () => ({}); }' }));
   const page = await ctx.newPage(), errors = [], blocked = [];
@@ -327,7 +349,7 @@ try {
   ok(/cBTC, private0\.042/.test(vm) && /cUSD, private1,234/.test(vm) && /Loan900 cUSD/.test(vm) && /0\.05 BTC/.test(vm) && /0\.01 BTC/.test(vm) && !/0\.002 BTC/.test(vm),
     `vault: the key's private cBTC and cUSD, its loan and its two live locks (${vm.slice(0, 220)})`);
   const vlinks = await p.$$eval('#btc-mine a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
-  ok(!vlinks.length && !!(await p.$('#btc-mine [data-mine="mint"]')) && !!(await p.$('#btc-mine [data-mine="bond"]')) && !!(await p.$('#btc-mine [data-mine="repay"]')), `vault: each lock's next step and the loan are done from here (${vlinks.join(' ') || 'no links'})`);
+  ok(vlinks.join() === 'Send from a wallet in this browser →:/#lock' && !!(await p.$('#btc-mine [data-mine="mint"]')) && !!(await p.$('#btc-mine [data-mine="bond"]')) && !!(await p.$('#btc-mine [data-mine="repay"]')), `vault: each lock's next step and the loan are done from here (${vlinks.join(' ') || 'no links'})`);
   // a lock ready to mint is minted from here, relayed, its blinding from the key and the anchor
   await p.click('#btc-mine [data-mine="mint"]');
   await until(p, () => /cBTC minted/.test(document.querySelector('#bm-status')?.textContent || ''), null, 30000);
@@ -350,6 +372,27 @@ try {
   const jb = await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
   ok(jb.includes('Post the bond for 0.003 BTC:confirmed'), `vault: sent, the bond is followed to its receipt and journaled (${jb.join(' | ')})`);
   walletAccepts = false;
+  // BTC sent to the key's deposit address from any wallet is locked from here, keeping what the lock's fees need
+  const dep = (await text(p, '#btc-mine .bm-lock')).replace(/\s+/g, ' ');
+  ok(/Deposit addressbc1qde/.test(dep) && /It holds0\.0006 BTC/.test(dep) && /0\.00005 on its way/.test(dep) && /keeping about 0\.0000199 BTC for fees/.test(dep), `vault: the deposit address, what it holds and what is on its way, and the fees a lock keeps back (${dep.slice(0, 220)})`);
+  await p.fill('#bm-lock', '0.0006');
+  await p.click('#btc-mine [data-mine="lockbtc"]');
+  await until(p, () => /Wait for the deposit to confirm/.test(document.querySelector('#bm-status')?.textContent || ''), null, 20000);
+  ok(true, 'vault: a lock its fees would take past what is confirmed, with the rest on its way, waits for it to confirm');
+  await p.fill('#bm-lock', '0.0007');
+  await p.click('#btc-mine [data-mine="lockbtc"]');
+  await until(p, () => /Not enough BTC at the deposit address/.test(document.querySelector('#bm-status')?.textContent || ''), null, 20000);
+  ok(!(await ux(p)).calls.some((c) => c[0] === 'lock'), 'vault: and more than the address will hold is refused, both before anything is signed');
+  await p.fill('#bm-lock', '0.0005');
+  await p.click('#btc-mine [data-mine="lockbtc"]');
+  await until(p, () => /Locked/.test(document.querySelector('#bm-status')?.textContent || ''), null, 30000);
+  const lk = (await ux(p)).calls.filter((c) => c[0] === 'lock' || c[0] === 'syncCbtcLockReservations').map((c) => c.join('|'));
+  ok(lk.join(' ') === `syncCbtcLockReservations lock|50000|${'78'.repeat(32)}:1`, `vault: the pool's reservations are read first, then 0.0005 BTC is locked, the coin not yet confirmed left alone (${lk.join(' ')})`);
+  const kept = await p.evaluate(() => ({ prot: Object.keys(JSON.parse(localStorage.getItem('tacit-protected-outpoints-v1') || '{}')), rec: Object.entries(localStorage).filter(([k]) => k.startsWith('tacit-lite-cbtc-v1:')).map(([, v]) => JSON.parse(v)), act: (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.kind}`) }));
+  ok(kept.prot.some((x) => x.startsWith('9a'.repeat(32))) && kept.rec.some((x) => x.lockTxid === '9a'.repeat(32) && x.vBtc === '50000' && x.anchor?.txid === '77'.repeat(32)) && kept.act.includes('Lock 0.0005 BTC:btc'),
+    `vault: the lock's outpoint is protected, its record kept where the front page keeps it, and it is in the journal (${JSON.stringify(kept).slice(0, 200)})`);
+  await until(p, () => /Lock 9a9a9a/.test(document.querySelector('#btc-mine')?.textContent || ''), null, 30000);
+  ok(true, 'vault: and the new lock is listed before Bitcoin\'s history has it');
   await p.click('#btc-mine [data-mine="lock"]');
   await until(p, () => !!document.querySelector('#btc-mine [data-mine="open"]'), null, 10000);
   ok(true, 'vault: Lock your key puts the panel back to asking');

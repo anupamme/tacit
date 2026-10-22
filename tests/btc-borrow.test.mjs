@@ -3,7 +3,7 @@
 // The pool module is a stand-in that records what it is asked: its own maths is tested elsewhere.
 //   node tests/btc-borrow.test.mjs
 import assert from 'node:assert/strict';
-import { makeLoans, exactNotes, bondGap, bondCall, ESCROW } from '../dapp/btc-borrow.js';
+import { makeLoans, exactNotes, bondGap, bondCall, ESCROW, lockPad } from '../dapp/btc-borrow.js';
 import * as secp from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';
@@ -92,4 +92,20 @@ const ma = await LR.mintArgs(lockT, priv, lock);
 const r0 = makeCbtcNoteRecovery({ hmac, sha256, curveOrder }), b0 = r0.deriveCbtcNoteBlinding({ privkey: priv, anchorOutpoint: r0.anchorBytes(lock.anchor.txid, lock.anchor.vout), outputIndex: 0 });   // the front page's former inline formula
 assert.deepEqual(ma, { walletPriv: priv, outpoint: `op(0x${lock.lockTxid.match(/../g).reverse().join('')},1)`, vBtc: 5000000n, blinding: '0x' + b0.toString(16).padStart(64, '0') }, 'the mint\'s arguments, its blinding from the key and the anchor');
 assert.notEqual((await LR.mintArgs(lockT, new Uint8Array(32).fill(8), lock)).blinding, ma.blinding, 'another key, another blinding');
+// ── locking ──
+const oldPad = (f, j) => { const rate = Math.max(1, Math.ceil(f?.fastestFee || j?.['1'] || j?.['2'] || 5)), fee = (vb) => Math.max(500, vb * rate); return BigInt(Math.ceil((546 + fee(200) + fee(11 + 2 * 68 + 43 + 31)) * 1.1)); };
+for (const [f, j] of [[null, null], [{ fastestFee: 3 }, null], [{ fastestFee: 40 }, null], [null, { 1: 12.4 }], [null, { 2: 7 }]]) assert.equal(lockPad(f, j), oldPad(f, j), `the pad for ${JSON.stringify([f, j])}`);
+assert.equal(lockPad(null, null), 2917n, 'at the 5 sat/vB fallback: (546 dust + 1,000 + 1,105 in fees) and a tenth more');
+const order = [];
+const lockTL = { pool: { CBTC_ZK_ASSET_ID: '0xcbtc' }, syncCbtcLockReservations: async (priv) => { order.push(['sync', priv]); } };
+const lockRes = { lockTxid: 'aa'.repeat(32), lockVout: 1, vBtc: 50000n, anchor: { txid: 'bb'.repeat(32), vout: 0 }, extra: 1 };
+const LL = makeLoans({ pubHex: () => 'p',
+  lockModule: async () => ({ makeCbtcLockMint: (o) => { order.push(['make', o.priv, o.cbtcAsset, o.hrp, o.excludeOutpoints.join()]); return { lock: async (a) => { order.push(['lock', String(a.amountSats)]); return lockRes; } }; } }),
+  deployments: async () => ({ listProtectedOutpoints: () => ['p1:0'], protectOutpoint: (txid, vout, v) => order.push(['protect', txid, vout, String(v)]) }) });
+const said = [];
+const got = await LL.lock(lockTL, 'PRIV', { sats: 50000n, unconfirmed: ['u1:2'], say: (x) => said.push(x) });
+assert.deepEqual(order, [['sync', 'PRIV'], ['make', 'PRIV', '0xcbtc', 'bc', 'p1:0,u1:2'], ['lock', '50000'], ['protect', 'aa'.repeat(32), 1, '50000']],
+  'reservations read, then a lock maker that spends neither a lock nor an unconfirmed coin, then the lock, then its outpoint protected');
+assert.equal(said.length, 2, 'and it says what it is doing');
+assert.deepEqual({ ...got.record, at: 0 }, { lockTxid: 'aa'.repeat(32), lockVout: 1, vBtc: '50000', anchor: { txid: 'bb'.repeat(32), vout: 0 }, at: 0 }, 'the record minting it needs');
 console.log('btc-borrow: all checks passed');
