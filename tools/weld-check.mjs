@@ -452,10 +452,10 @@ const toastSays = (page, re) => until(page, (r) => new RegExp(r).test(document.q
 // The TAC sheet drawn again (and read again), as another tab and back once did: its link followed while it is open
 const redrawTac = async (p) => { await p.evaluate(() => { location.hash = '#bridge/in'; }); await sleep(300); };
 // The front page's links for buying, selling and the airdrop leave for the pages that do them
-// Where a press sends the page, read from the request and refused, so the page (and its open key) stays as it was
+// Where a press sends the page, read from the request and answered with 204 No Content, so the browser stays on the page (and its open key)
 const asksFor = async (p, re, act) => {
   let asked = null;
-  const h = (rt) => { asked = rt.request().url(); return rt.abort(); };
+  const h = (rt) => { asked = rt.request().url(); return rt.fulfill({ status: 204, body: '' }); };
   await p.route(re, h);
   try { await act(); for (let i = 0; i < 300 && !asked; i++) await sleep(100); } finally { await p.unroute(re, h); }
   return asked || '';
@@ -538,6 +538,8 @@ await step('ux', async () => {
   await page.waitForSelector('#pf-connect, #pf-amt', { timeout: 60000 });
   if (await page.$('#pf-connect')) await page.click('#pf-connect');
   await page.waitForSelector('#sheet-farm[open] #pf-amt', { timeout: 120000 });
+  await until(page, () => /APR now/.test(document.querySelector('#farm-precision')?.textContent || ''), null, 120000);   // drawn with what it read, so a redraw does not take the hint away
+  await sleep(1500);
   // The page outside a modal dialog is inert, so a toast has to sit inside it to be pressed.
   await page.evaluate(() => {
     const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = '<button id="ux-toast" type="button">Open</button>'; window.__ux = 0;
@@ -2282,7 +2284,7 @@ await step('makepub', async () => {
     const said = (await text(r.page, '#tac-bal-status')).replace(/\s+/g, ' ');
     const job = submits.slice(n0).find((x) => x.type === 'unwrap');
     ok(job && String(job.op.recipient).toLowerCase() === DEAD.toLowerCase(), `makepub: the exit pays the address entered (${job ? job.op.recipient : 'no submit'})`);
-    ok(/✓ Sent to the relay/.test(said) && /0x0000/.test(said) && /proved in about a minute/.test(said), `makepub: the sheet says it was sent and where it goes (${said.slice(0, 150)})`);
+    ok(/✓ Sent to the relay/.test(said) && /0x0000/.test(said) && /its first step is with the relay and more follow/.test(said), `makepub: the sheet says it was sent, where it goes and that more steps follow (${said.slice(0, 150)})`);
     ok(!!(await r.page.$('#tac-bal-status button.btn[data-act-open]')), 'makepub: and offers a clear button to follow it');
     if (r.errors.length) { fails++; console.log('FAIL makepub page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
@@ -2455,6 +2457,7 @@ await step('acct', async () => {
   await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);             // funded from outside, as an exchange would
   await fundTac(want, 100n * 10n ** 18n);                                                // and some TAC (bought on the swap page, which is tested on its own)
 
+  await go(r.page, '#tac');                                                               // another sheet first, so the farm's link is followed again and its balances read again
   await go(r.page, '#farm');
   await r.page.waitForSelector('[data-pfm="pair"]', { timeout: 60000 });
   await r.page.click('[data-pfm="pair"]');
@@ -3443,7 +3446,8 @@ await step('xobridge', async () => {
   ok(/You get0\.0\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
   // the receipt can be drawn again while the quote settles, so the button, the box and the copy are read together once they hold
   const formReady = await until(r.page, () => { const ack = document.querySelector('#xo-ackrow'); return !!document.querySelector('#xo-rcpt [data-copy-addr]') && document.querySelector('#xo-go')?.disabled && ack && !ack.hidden; }, null, 30000).then(() => true, () => false);
-  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && /exchange:\s*bc1q[a-z0-9]{38}/.test(rc0) && formReady, `xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and the whole address to send them to, with a copy (${rc0.slice(-200)})`);
+  const rcF = (await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ');                       // read again once it holds: the first draw may still be reading the balance
+  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rcF) && /exchange:\s*bc1q[a-z0-9]{38}/.test(rcF) && formReady, `xobridge: with no sats on the key’s Bitcoin address it can still start, once the box is ticked, and says how many sats the Bitcoin step will need and the whole address to send them to, with a copy (${rcF.slice(-200)})`);
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: and ticked, it starts with no sats on the address: the Bitcoin step is paid hours later');
   await r.page.uncheck('#xo-ack');
@@ -3451,7 +3455,7 @@ await step('xobridge', async () => {
   // so there is one coin for each of those and one for this.
   utxos = Array.from({ length: 8 }, (_, i) => ({ txid: (i + 10).toString(16).padStart(2, '0').repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 970000 } }));
   await r.page.click('#xo-recheck');
-  await until(r.page, () => !document.querySelector('#xo-ackrow')?.hidden, null, 240000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')}`); });
+  await until(r.page, () => !document.querySelector('#xo-ackrow')?.hidden && /Keep about \d/.test(document.querySelector('#xo-rcpt')?.textContent || '') && !/Add bitcoin to it/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 240000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(await r.page.isDisabled('#xo-go') && !/Add bitcoin to it/.test(await text(r.page, '#xo-rcpt')) && /Keep about \d[\d,]* sats/.test(await text(r.page, '#xo-rcpt')), 'xobridge: with sats free, the button still waits for the box to be ticked, and the request for sats gives way to keeping them');
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: ticked, it can start');
@@ -3932,10 +3936,12 @@ await step('xtbridge', async () => {
   const rc0 = (await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ');
   ok(/You get46 TAC on your Bitcoin address/.test(rc0) && /Relay fee4 TAC/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0) && !/Relay fee to (split|combine)/.test(rc0), `xtbridge: the receipt names what arrives (50 less the relay's 4 TAC floor), the fee and the time, with no split since a note is exactly that size (${rc0.slice(0, 200)})`);
   ok(/If the relay’s floor has moved by the time it takes the burn, its fee is 8 TAC and 4 TAC less arrives\./.test(rc0), 'xtbridge: the receipt says what the fee is if the relay’s floor has moved: 8 TAC, with 4 TAC less arriving');
-  ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && await r.page.isDisabled('#xt-go') && await r.page.isHidden('#xt-ackrow'), 'xtbridge: with no sats on the key’s Bitcoin address it cannot start, and says how many it needs');
+  // No sats on the key's Bitcoin address does not stop a bridge (the Bitcoin step is paid hours later, and the row asks for them then): it says how many, and the box gates the button
+  const xtReady = await until(r.page, () => { const ack = document.querySelector('#xt-ackrow'); return /needs (a|one) coin of \d[\d,]* sats/.test(document.querySelector('#xt-rcpt')?.textContent || '') && document.querySelector('#xt-go')?.disabled && ack && !ack.hidden; }, null, 60000).then(() => true, () => false);
+  ok(xtReady, `xtbridge: with no sats on the key’s Bitcoin address it can still start once the box is ticked, and says how many sats it needs (${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ').slice(0, 200)})`);
   utxos = Array.from({ length: 8 }, (_, i) => ({ txid: (i + 10).toString(16).padStart(2, '0').repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 970000 } }));
   await r.page.click('#xt-recheck');
-  await until(r.page, () => !document.querySelector('#xt-ackrow')?.hidden, null, 240000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
+  await until(r.page, () => !document.querySelector('#xt-ackrow')?.hidden && /Keep about \d/.test(document.querySelector('#xt-rcpt')?.textContent || '') && !/Add bitcoin to it/.test(document.querySelector('#xt-rcpt')?.textContent || ''), null, 240000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(await r.page.isDisabled('#xt-go'), 'xtbridge: with sats free, the button still waits for the box to be ticked');
   await r.page.check('#xt-ack');
   ok(!(await r.page.isDisabled('#xt-go')), 'xtbridge: ticked, it can start');
@@ -3967,8 +3973,8 @@ await step('xtbridge', async () => {
   const l40 = await cardAt('40', '36', 'to cut a note of this size');
   ok(/^Relay fee 4 TAC \(8 TAC if its floor has moved\), and 2 TAC to cut a note of this size,/.test(l40), `xtbridge: and 40 TAC as 36 with the cut named, no note being exactly 40 (${l40.slice(0, 120)})`);
   const l5 = await cardAt('5', '—', '^A bridge takes 20 to 1,000 TAC while this is new\\.$');
-  const l5000 = await cardAt('5000', '—', '^A bridge takes 20 to 1,000 TAC while this is new\\.$');
-  ok(l5.length > 0 && l5000.length > 0, `xtbridge: and a size the sheet refuses is not quoted, on either side of its limits (${l5} | ${l5000})`);
+  const l5000 = await cardAt('1200', '—', '^A bridge takes 20 to 1,000 TAC while this is new\\.$');
+  ok(l5.length > 0 && l5000.length > 0, `xtbridge: and a size the sheet refuses is not quoted, on either side of its limits (1,200 is over the limit but held) (${l5} | ${l5000})`);
   await r.page.fill('#hx-amt', '40');
   await until(r.page, () => document.querySelector('#hx-out')?.textContent === '36', null, 120000);
   await r.page.click('#hx-go');
@@ -7533,6 +7539,7 @@ await step('hxsell', async () => {
     ok(await text(p, '#hx-go') === 'Sell TAC' && !/…|—/.test(await text(p, '#hx-out')), `hxsell: 12,000 TAC is quoted as a split, paid out as ETH (${(await text(p, '#hx-q')).slice(0, 110)})`);
     const cardQ = await text(p, '#hx-q'), cardPct = Number((cardQ.match(/moves the price ([\d.]+)%/) || [])[1]);
     ok(cardPct > 1, `hxsell: a split sale says how far it moves the price, as the Sell sheet counts it (${cardQ.slice(0, 160)})`);
+    await until(p, () => ![...document.querySelectorAll('#hx-routes [data-hxr]')].some((x) => /reading the pool/.test(x.textContent)), null, 240000).catch(() => {});   // the private row reads its pool after the public one
     const rows = await p.$$eval('#hx-routes [data-hxr]', (b) => b.map((x) => `${x.dataset.hxr}:${x.textContent.replace(/\s+/g, ' ')}`));
     ok(rows.length === 0 || (rows.some((x) => /^public:.*Two public pools.*Precision pool.*Tacit public pool/.test(x)) && rows.some((x) => /^private:.*arrives as tETH/.test(x))), `hxsell: with both ways quoted they are two rows, the public one naming the two pools (${rows.join(' | ').slice(0, 220)})`);
     const w0 = await text(p, '#hx-to-w');
