@@ -7636,9 +7636,9 @@ await step('tradelinks', async () => {
           scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
-      if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/ Rewards:/rewards/', `tradelinks (${name}): and Assets, Swap, Pay, Borrow and Rewards beside it (${seen.order})`);
-      else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/ Rewards:/rewards/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
-      ok(seen.more === 'Bridge:/bridge/ Shielded TAC:/tac/ Tasks:/tasks/ Build:/build/ Stats:/weld/stats/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
+      if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/swap/ Pay:/pay/ Bridge:/bridge/ Borrow:/vault/ Rewards:/rewards/', `tradelinks (${name}): and Assets, Swap, Pay, Bridge, Borrow and Rewards beside it (${seen.order})`);
+      else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/swap/ Pay:/pay/ Bridge:/bridge/ Borrow:/vault/ Rewards:/rewards/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
+      ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Stats:/weld/stats/ Build:/build/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
       await p.click('.sn .sm > summary');
       ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/assets/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Assets only where the header has not`);
       await p.keyboard.press('Escape');

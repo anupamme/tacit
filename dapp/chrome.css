@@ -5,7 +5,7 @@
 header.top { position: relative; z-index: 30; container: top / inline-size; }
 header.top .top-r { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
 
-/* page links: four in the header (icons, then icons and names as the header gets wide), the rest in the menu; on a phone all of them are there */
+/* page links: six in the header (icons, then icons and names as the header gets wide), the rest in the menu; on a phone all of them are there */
 .sn { display: flex; align-items: center; gap: 2px; }
 .sn > a, .sn summary {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; flex: none;
@@ -31,6 +31,10 @@ header.top .sm > summary::before, header.top .sm > summary::after { content: non
 .sn[data-owed] > a[href="/rewards/"]::after, .sn[data-owed] .sm > summary::after { content: ''; position: absolute; top: 8px; left: 26px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); }
 @container top (min-width: 540px) { .sn[data-owed] .sm > summary::after { display: none; } }
 @container top (max-width: 539px) { .sn[data-owed] > a[href="/rewards/"]::after { display: none; } }
+/* a bridge under way: a dot on the header's Bridge link, or on the menu button where the links are in the menu (chrome.js adds both) */
+.sn .bd { position: absolute; top: 5px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); pointer-events: none; }
+.sn > a > .bd { top: 8px; right: auto; left: 26px; width: 7px; height: 7px; }
+@container top (min-width: 540px) { .sn .sm > summary > .bd { display: none; } }
 @container top (min-width: 900px) {
   .sn > a { padding: 0 13px 0 11px; }
   .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }

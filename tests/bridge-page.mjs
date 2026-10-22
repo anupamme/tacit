@@ -336,11 +336,11 @@ try {
     await page.waitForSelector('.sm summary', { state: 'attached' });
     await page.waitForTimeout(500);
     const read = () => page.evaluate(() => {
-      const s = document.querySelector('.sm summary'), t = document.querySelector('.sm-p a[href="/bridge/"]'), d = s.querySelector(':scope > span');
-      return { dot: !!d && !d.hidden, label: s.getAttribute('aria-label'), tag: t?.lastElementChild && !t.lastElementChild.hidden ? t.lastElementChild.textContent : '' };
+      const s = document.querySelector('.sm summary'), t = document.querySelector('.sm-p a[href="/bridge/"]'), d = s.querySelector(':scope > .bd'), bd = document.querySelector('.sn > a[href="/bridge/"] > .bd');
+      return { dot: !!d && !d.hidden, bar: !!bd && !bd.hidden && getComputedStyle(bd).display !== 'none', label: s.getAttribute('aria-label'), tag: t?.lastElementChild && !t.lastElementChild.hidden ? t.lastElementChild.textContent : '' };
     });
     let m = await read();
-    ok(m.dot && m.tag === '1 needs you' && /4 bridges under way, 1 needs you/.test(m.label), `${path}: the menu button carries a dot, and the Bridge entry says what waits on the holder (${JSON.stringify(m)})`);
+    ok(m.dot && m.bar && m.tag === '1 needs you' && /4 bridges under way, 1 needs you/.test(m.label), `${path}: the Bridge link (1024px wide) carries a dot, and the Bridge entry says what waits on the holder (${JSON.stringify(m)})`);
     await page.evaluate(([pub, a, b]) => {
       localStorage.setItem('tacit-burndep-bridge-v1:mainnet:' + pub, a); localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, b);
       window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub }));
@@ -354,7 +354,7 @@ try {
     }, [PUB, JSON.stringify(OUT.map((r) => ({ ...r, stage: 'minted' })))]);
     await page.waitForTimeout(300);
     m = await read();
-    ok(!m.dot && !m.tag && m.label === 'More pages', `${path}: once every bridge has arrived the dot and the count go (${JSON.stringify(m)})`);
+    ok(!m.dot && !m.bar && !m.tag && m.label === 'More pages', `${path}: once every bridge has arrived the dot and the count go (${JSON.stringify(m)})`);
     await browser.close();
   }
 
