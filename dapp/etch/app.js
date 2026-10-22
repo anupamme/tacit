@@ -5,18 +5,23 @@ import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618'
 import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
 
-const BTC_MODULE = '/trade/btc.js?cb=12f6037a';
+const BTC_MODULE = '/trade/btc.js?cb=4d58b515', ETH_MODULE = '/etch/eth.js?cb=141012b7', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
+// The Ethereum side is off until the page has been opened once with ?eth=1 (and stays on in this browser after).
+const ETH_ON = (() => { try { if (new URLSearchParams(location.search).has('eth')) localStorage.setItem('tacit-etch-eth', '1'); return localStorage.getItem('tacit-etch-eth') === '1'; } catch { return new URLSearchParams(location.search).has('eth'); } })();
+const DECIMALS_OF = { btc: [0, 2, 6, 8], eth: [0, 6, 8, 18] };
+// What the pool can hold of an asset, in its base units (2^64 − 1 in-system units); on Bitcoin, the etch's own limit.
+const maxFor = (dec) => (S.chain === 'eth' ? ((1n << 64n) - 1n) * 10n ** BigInt(dec - Math.min(dec, 8)) : MAX_BASE);
 const API = 'https://api.tacit.finance', MEMPOOL = 'https://mempool.space', SCAN = 'https://www.tacitscan.io';
-const MAX_BASE = (1n << 64n) - 1n, DECIMALS = [0, 2, 6, 8];
+const MAX_BASE = (1n << 64n) - 1n;
 const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']), LOGO_MAX = 2 * 1024 * 1024;
 const PAGE = 30;
 const sats = (n) => Math.round(n).toLocaleString('en-US');
 // The registry's assets, and what this visit etched that it does not list yet (it is read every few minutes), first.
 const known = () => (S.assets ? [...S.mine.filter((m) => !S.assets.some((a) => a.id === m.id)), ...S.assets] : null);
 
-const S = { tab: 'create', dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, working: false, uploading: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
+const S = { tab: 'create', chain: 'btc', eth: { bal: null, gasPrice: 0n, px: 0 }, dec: 8, logo: null, quote: null, silent: 0, silentKey: '', busy: false, working: false, uploading: false, done: null, soft: '', mine: [], assets: null, failed: false, named: false, shown: PAGE, open: null };
 let bitcoin = null, T = null, laneP = null, quoteKey = '', quoteTimer = 0, warmed = false;
-const ui = { tk: $('#tk'), sup: $('#sup'), dec: $('#dec'), nm: $('#nm'), ds: $('#ds'), ln: $('#ln'), pub: $('#pub'), mint: $('#mint'), lg: $('#lg'), find: $('#find'), list: $('#list') };
+const ui = { reg: $('#reg'), tk: $('#tk'), sup: $('#sup'), dec: $('#dec'), nm: $('#nm'), ds: $('#ds'), ln: $('#ln'), pub: $('#pub'), mint: $('#mint'), lg: $('#lg'), find: $('#find'), list: $('#list') };
 
 const live = (t) => { $('#live').textContent = t; };
 // A line the visitor must read stays (a progress step, an error) until the next thing they do; the one about sats follows the balance and goes when it is met.
@@ -51,16 +56,19 @@ function lane() {
 function warm() {
   if (warmed) return;
   warmed = true;
+  readPrice();
+  if (S.chain !== 'btc') return;                       // an Ethereum etch does not load the Bitcoin side's library
   const t = $('#warm');
   if (t) document.head.append(t.content.cloneNode(true));
   lane().then(() => { paint(); needQuote(); }, () => {});
-  readPrice();
 }
 // What sats are worth in dollars, for a visitor who thinks in them; nothing is said of it when the price cannot be read.
 let px = 0;
 function readPrice() {
-  fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null))
-    .then((j) => { const v = Number(j?.data?.amount); if (v > 0) { px = v; paint(); } }).catch(() => {});
+  for (const [pair, set] of [['BTC', (v) => { px = v; }], ['ETH', (v) => { S.eth.px = v; }]]) {
+    fetch(`https://api.coinbase.com/v2/prices/${pair}-USD/spot`, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null))
+      .then((j) => { const v = Number(j?.data?.amount); if (v > 0) { set(v); paint(); } }).catch(() => {});
+  }
 }
 const fiat = (n) => (px > 0 ? `≈ $${(n / 1e8 * px).toFixed(2)}` : '');
 const withFiat = (n) => `${sats(n)} sats${px > 0 ? ` (${fiat(n)})` : ''}`;
@@ -80,12 +88,12 @@ function read() {
     base = parseUnits(raw, S.dec);
     if (base == null) err = /^\d{1,3},\d{3}$/.test(raw) ? 'Write it without the comma' : parseUnits(raw, 18) != null ? (S.dec ? `Up to ${S.dec} decimals` : 'Whole numbers only') : 'Enter a number';
     else if (base <= 0n) { base = null; err = 'More than zero'; }
-    else if (base > MAX_BASE) { base = null; err = `At most ${fmtUnits(MAX_BASE, S.dec, S.dec)}`; }
+    else if (base > maxFor(S.dec)) { base = null; err = `At most ${fmtUnits(maxFor(S.dec), S.dec, S.dec)}`; }
   }
   const link = ui.ln.value.trim();
   return { ticker, tickerOk: /^[A-Z0-9]{1,8}$/.test(ticker), base, supplyOk: base != null, err, linkOk: !link || /^https:\/\//i.test(link) };
 }
-const wantsPin = () => !!(ui.nm.value.trim() || ui.ds.value.trim() || ui.ln.value.trim() || ui.pub.checked);
+const wantsPin = () => !!(ui.nm.value.trim() || ui.ds.value.trim() || ui.ln.value.trim() || S.logo || (S.chain === 'btc' && ui.pub.checked));
 // What is etched is what the form held when the button was pressed: its fields can change while the balance is read and the etch is built.
 const snapshot = (r) => ({ ...r, dec: S.dec, name: ui.nm.value, description: ui.ds.value, link: ui.ln.value, logo: S.logo, mint: ui.mint.checked, pub: ui.pub.checked, pin: wantsPin() });
 
@@ -139,8 +147,9 @@ function paint() {
   $('#unit').textContent = r.tickerOk ? r.ticker : '';
   $('#sup-note').textContent = r.err;
   for (const b of ui.dec.querySelectorAll('[data-d]')) b.setAttribute('aria-pressed', String(Number(b.dataset.d) === S.dec));
-  const used = r.tickerOk && S.assets ? known().filter((a) => a.ticker.toLowerCase() === r.ticker.toLowerCase()).length : 0;
+  const used = r.tickerOk && S.assets && S.chain === 'btc' ? known().filter((a) => a.ticker.toLowerCase() === r.ticker.toLowerCase()).length : 0;
   $('#tk-note').innerHTML = used ? `<button class="link" type="button" data-find="${esc(r.ticker)}">${used === 1 ? '1 asset uses' : `${used} assets use`} ${esc(r.ticker)}</button>` : '';
+  if (S.chain === 'eth') { ethFoot(r); return; }
   const rc = $('#rcpt');
   rc.hidden = !(r.tickerOk && r.supplyOk);
   if (!rc.hidden) {
@@ -159,6 +168,7 @@ function paint() {
 
 async function act() {
   if (S.busy || S.working) return;
+  if (S.chain === 'eth') return actEth();
   S.working = true; paint();
   try {
     const b = await lane();
@@ -273,6 +283,151 @@ $('#lg-x').addEventListener('click', () => {
   paint(); needQuote();
 });
 
+// ── On Ethereum: the same form, an asset made through the canonical factory (etch/eth.js) from the visitor's own wallet ──
+// Gas, as measured on a fork of mainnet (877,447 and 83,018 at the time of writing), with room: the token's creation and its supply, and the pool's registration.
+const GAS_ETCH = 950_000n, GAS_REGISTER = 120_000n;
+const ZERO32 = '0x' + '00'.repeat(32);
+let ethP = null;
+function ethLane() {
+  return (ethP ||= (async () => {
+    const [E, Wm, U] = await Promise.all([import(ETH_MODULE), import(WALLET_MODULE), import(UTIL_MODULE)]);
+    const wallet = Wm.makeWallet({ rpc: U.rpc });
+    wallet.onChange(() => { ethRead(); paint(); });
+    wallet.restore().then(() => { ethRead(); paint(); }, () => {});
+    return { E, wallet, rpc: U.rpc };
+  })().catch((e) => { ethP = null; throw e; }));
+}
+// The balance and the price of gas, read for the account that is connected.
+async function ethRead() {
+  try {
+    const lane = await ethLane(), a = lane.wallet.state.account;
+    if (!a) { S.eth.bal = null; return; }
+    const [bal, gp] = await Promise.all([lane.rpc('eth_getBalance', [a, 'latest']).catch(() => null), lane.rpc('eth_gasPrice', []).catch(() => null)]);
+    if (lane.wallet.state.account !== a) return;
+    S.eth.bal = bal == null ? null : BigInt(bal); S.eth.gasPrice = gp == null ? S.eth.gasPrice : BigInt(gp);
+    paint();
+  } catch { /* the balance is a convenience: the send reads the chain itself */ }
+}
+const ethFiat = (wei) => (S.eth.px > 0 ? ` (≈ $${(Number(wei) / 1e18 * S.eth.px).toFixed(2)})` : '');
+const ethCost = (reg) => (S.eth.gasPrice > 0n ? (GAS_ETCH + (reg ? GAS_REGISTER : 0n)) * S.eth.gasPrice * 12n / 10n : 0n);
+function ethFoot(r) {
+  const W = ethP ? S.eth.wallet : null, on = !!W?.account, reg = ui.reg.checked, cost = ethCost(reg);
+  const rc = $('#rcpt');
+  rc.hidden = !(r.tickerOk && r.supplyOk);
+  const short = on && S.eth.bal != null && cost > 0n && S.eth.bal < cost;
+  if (!rc.hidden) {
+    const rows = [['Supply', `${fmtUnits(r.base, S.dec, S.dec)} ${esc(r.ticker)}`], ['Network fee', cost > 0n ? `about ${fmtUnits(cost, 18, 5)} ETH${ethFiat(cost)}` : '…']];
+    if (on && S.eth.bal != null) rows.push(['In your wallet', `${fmtUnits(S.eth.bal, 18, 5)} ETH`, short ? 'warn' : '']);
+    rc.innerHTML = rows.map(([k, v, c]) => `<div><dt>${k}</dt><dd${c ? ` class="${c}"` : ''}>${v}</dd></div>`).join('');
+  }
+  const go = $('#go');
+  const [label, off] = S.busy ? ['Etching…', true] : S.working ? ['One moment…', true] : S.uploading ? ['Uploading the logo…', true] : !on ? ['Connect a wallet', false]
+    : !r.tickerOk ? ['Enter a ticker', true] : !r.supplyOk ? ['Enter a supply', true] : !r.linkOk ? ['The link starts with https://', true] : [`Etch ${r.ticker} on Ethereum`, false];
+  go.textContent = label; go.disabled = off;
+  $('#edit').inert = S.busy || S.working;
+  const soft = !S.busy && on && short && r.tickerOk && r.supplyOk ? `It needs about ${fmtUnits(cost, 18, 5)} ETH${ethFiat(cost)} for gas. Your wallet holds ${fmtUnits(S.eth.bal, 18, 5)}.` : '';
+  if (soft !== S.soft) { if (soft || S.soft) put(soft); S.soft = soft; }
+}
+async function pickEth(list) {
+  const { overlay } = await import(SHEET_MODULE);
+  return new Promise((resolve) => {
+    const o = overlay({ title: 'Choose a wallet', top: true, onClose: () => resolve(null) });
+    o.body.innerHTML = `<div class="picker">${list.map((w, i) => `<button class="way" type="button" data-i="${i}"><span class="way-t">${esc(w.info?.name || 'Wallet')}</span></button>`).join('')}</div>`;
+    o.body.querySelectorAll('[data-i]').forEach((b) => { b.onclick = () => { resolve(Number(b.dataset.i)); o.close(); }; });
+  });
+}
+async function connectEth(lane) {
+  const list = lane.wallet.available();
+  if (!list.length) throw new Error('No Ethereum wallet was found in this browser. Open this page in your wallet app’s browser, or on a computer with a wallet extension.');
+  let w = list[0];
+  if (list.length > 1) { const i = await pickEth(list); if (i == null) return false; w = list[i]; }
+  await lane.wallet.connect(w);
+  await ethRead();
+  return true;
+}
+// The details of an Ethereum asset are pinned before anything is sent: their content hash is part of the token's address, so there is no making it without them.
+async function pinDetails(job, E) {
+  if (!(job.name.trim() || job.description.trim() || job.link.trim() || job.logo)) return ZERO32;
+  const md = { name: job.name.trim() || job.ticker, decimals: job.dec };
+  if (job.logo) md.image = job.logo.uri;
+  if (job.description.trim()) md.description = job.description.trim();
+  if (job.link.trim()) md.external_url = job.link.trim();
+  const r = await fetch(`${API}/pin-json`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(md), signal: AbortSignal.timeout(20e3) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.cid) throw new Error(`its details could not be saved (${j.error || r.status}), so nothing was made: try again`);
+  return E.cidDigest(j.cid);
+}
+const stopped = (e) => e?.userStopped || e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)|cancell?ed in your wallet/i.test(e?.message || '');
+async function actEth() {
+  S.working = true; paint();
+  try {
+    const lane = await ethLane();
+    S.eth.wallet = lane.wallet.state;
+    if (!lane.wallet.state.account) { say(''); await connectEth(lane); return; }
+    const r = read();
+    if (!r.tickerOk || !r.supplyOk || !r.linkOk) return;
+    const job = { ...snapshot(r), reg: ui.reg.checked };
+    const need = ethCost(job.reg);
+    if (S.eth.bal != null && need > 0n && S.eth.bal < need) { say(`It needs about ${esc(fmtUnits(need, 18, 5))} ETH for gas, and your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
+    S.busy = true; paint();
+    say('Saving its details…');
+    const cid = await pinDetails(job, lane.E);
+    say('Checking it…');
+    const account = lane.wallet.state.account.toLowerCase();
+    const plan = await lane.E.plan({ account, symbol: job.ticker, decimals: job.dec, supply: job.base, cid, register: job.reg }, lane.rpc);
+    const cost = plan.gas * (S.eth.gasPrice || 0n) * 12n / 10n;
+    if (S.eth.bal != null && cost > 0n && S.eth.bal < cost) { say(`It needs about ${esc(fmtUnits(cost, 18, 5))} ETH for gas, and your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
+    let made = false;
+    try {
+      const hashes = await lane.E.send(plan, lane.wallet, { read: lane.rpc, step: (i, n, label) => say(n > 1 ? `${esc(label)} (${i} of ${n})…` : `${esc(label)}…`) });
+      made = true;
+      say('Checking what was made…');
+      const v = await lane.E.verify(plan, lane.rpc);
+      S.done = { eth: true, plan, hashes, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: job.reg };
+    } catch (e) {
+      if (!e?.partial?.length) throw e;
+      // the token was made and a later call was not: what exists is said, and the page shows it
+      const v = await lane.E.verify(plan, lane.rpc).catch(() => ({ ok: false, checks: {} }));
+      S.done = { eth: true, plan, hashes: e.partial, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: false, note: stopped(e) ? 'Registering it with the pool was not confirmed in your wallet. The token is made.' : `Registering it with the pool did not go through: ${e.message}` };
+    }
+    showDoneEth();
+  } catch (e) {
+    say(stopped(e) ? 'Nothing was sent.' : esc(e?.message || String(e)), stopped(e) ? '' : 'err');
+  } finally { S.busy = false; S.working = false; paint(); }
+}
+function showDoneEth() {
+  const d = S.done, done = $('#done'), scan = 'https://etherscan.io', t = d.plan.token;
+  const bad = d.verified.ok ? '' : `The chain does not show everything that was asked for (${Object.entries(d.verified.checks).filter(([, v]) => !v).map(([k]) => k).join(', ') || 'it could not be read'}). Check the token on Etherscan before using it.`;
+  done.innerHTML = `<span class="tk letter" id="d-mark"></span>
+    <h2>${esc(d.ticker)} <em>is etched</em></h2>
+    <div class="kvs">
+      <div class="kv"><span>Token</span><b><code>${esc(short(t, 6))}</code> <button class="link" type="button" data-copy="${esc(t)}">Copy</button></b></div>
+      <div class="kv"><span>Supply</span><b>${esc(fmtUnits(d.base, d.dec, d.dec))} ${esc(d.ticker)}, all in your wallet</b></div>
+      <div class="kv"><span>${d.hashes.length > 1 ? 'Transactions' : 'Transaction'}</span><b>${d.hashes.map((h, i) => `<a href="${scan}/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${d.hashes.length > 1 ? (i ? 'register' : 'create') : 'view'}</a>`).join(' · ')}</b></div>
+      ${d.registered ? '<div class="kv"><span>Tacit pool</span><b>registered</b></div>' : ''}
+    </div>
+    <button class="btn" type="button" id="watch">Add it to your wallet</button>
+    <a class="btn ghost" href="${scan}/token/${esc(t)}" target="_blank" rel="noopener noreferrer">View on Etherscan</a>
+    <button class="btn ghost" type="button" id="again">Etch another</button>
+    <p class="q${bad || d.note ? ' err' : ''}">${esc(bad || d.note || 'It is yours: nothing can mint more of it.')}</p>`;
+  paintMark($('#d-mark'), d.ticker, t, d.logo);
+  $('#edit').hidden = true; $('.act').hidden = true; done.hidden = false;
+  $('#again').onclick = reset;
+  $('#watch').onclick = async () => { const lane = await ethLane(); const ok = await lane.E.addToWallet(lane.wallet, { token: t, symbol: d.ticker, decimals: d.dec }, d.logoUri ? `${API}/ipfs/${d.logoUri.slice(7)}` : null); $('#watch').textContent = ok ? 'Added' : 'Add it to your wallet'; };
+  $('#again').focus();
+}
+// The switch between the two sides: the form is the same, the decimals offered and what is chosen under "more" are not.
+function setChain(c) {
+  if (S.chain === c) return;
+  S.chain = c; S.dec = c === 'eth' ? 18 : 8; S.quote = c === 'btc' ? S.quote : null;
+  for (const b of document.querySelectorAll('#chain [data-chain]')) b.setAttribute('aria-checked', String(b.dataset.chain === c));
+  $('#pub-row').hidden = $('#mint-row').hidden = c === 'eth'; $('#reg-row').hidden = c === 'btc';
+  chips(); say('');
+  if (c === 'eth') { S.eth.wallet = null; ethLane().then((l) => { S.eth.wallet = l.wallet.state; ethRead(); paint(); }, (e) => say(esc(e?.message || String(e)), 'err')); readPrice(); }
+  else if (warmed) lane().then(() => { paint(); needQuote(); }, () => {});
+  paint();
+}
+
 // ── Discover ──
 const ageOf = (a) => (a.at ? day(a.at) : '');
 function row(a) {
@@ -362,17 +517,23 @@ $('.sw-h').addEventListener('keydown', (e) => {
 addEventListener('hashchange', () => { const u = readUrl(); if (u.tab !== S.tab || u.term != null) setTab(u.tab, u.term); });
 
 // ── events ──
-ui.dec.innerHTML = `<span>Decimals</span>${DECIMALS.map((d) => `<button type="button" data-d="${d}" aria-pressed="false">${d}</button>`).join('')}`;
+const chips = () => { ui.dec.innerHTML = `<span>Decimals</span>${DECIMALS_OF[S.chain].map((d) => `<button type="button" data-d="${d}" aria-pressed="false">${d}</button>`).join('')}`; };
+chips();
 $('#form').addEventListener('submit', (e) => { e.preventDefault(); act(); });
 $('#form').addEventListener('input', () => { warm(); if (!S.busy && !S.soft) say(''); paint(); needQuote(); });
-$('#form').addEventListener('pointerenter', warm, { once: true, passive: true });
-$('#form').addEventListener('focusin', warm, { once: true });
+if (!ETH_ON) {                                         // with the Ethereum side on, a visitor may not want the Bitcoin library: it waits for the first thing typed
+  $('#form').addEventListener('pointerenter', warm, { once: true, passive: true });
+  $('#form').addEventListener('focusin', warm, { once: true });
+}
 $('#more').addEventListener('toggle', warm);
 ui.dec.addEventListener('click', (e) => {
   const b = e.target.closest('[data-d]');
   if (!b) return;
   S.dec = Number(b.dataset.d); paint();
 });
+if (ETH_ON) { $('#chain').hidden = false; $('.lede').textContent = 'Make a token, or look one up.'; }
+$('#chain').addEventListener('click', (e) => { const b = e.target.closest('[data-chain]'); if (b) setChain(b.dataset.chain); });
+ui.reg.addEventListener('change', paint);
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-fund]')) { if (bitcoin?.session.unlocked) addSats(); return; }
   const f = e.target.closest('[data-find]');

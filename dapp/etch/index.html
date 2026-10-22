@@ -25,7 +25,7 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- preload-roots: /etch/app.js | | /trade/btc.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/etch/app.js?cb=c34afeaa">
+<link rel="modulepreload" href="/etch/app.js?cb=c32f3fa8">
 <link rel="modulepreload" href="/trade/util.js?cb=509d6618">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
@@ -134,6 +134,10 @@ img.tk { object-fit: cover; background: var(--field); }
 @media (pointer: coarse) { .quick button { min-height: 34px; padding: 3px 13px; } }
 
 /* the optional details */
+.mode { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
+.mode button { min-height: 30px; padding: 2px 14px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
+.mode button[aria-checked="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
+@media (pointer: coarse) { .mode button { min-height: 38px; } }
 .more { margin: 12px 2px 0; }
 .more > summary { display: flex; align-items: center; gap: 6px; width: fit-content; padding: 4px 0; list-style: none; cursor: pointer; font-size: 12.5px; color: var(--mute); }
 .more > summary::-webkit-details-marker { display: none; }
@@ -415,6 +419,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <div id="p-create" role="tabpanel" aria-labelledby="t-create">
             <form id="form" autocomplete="off" novalidate>
               <div id="edit">
+                <div class="mode" id="chain" role="radiogroup" aria-label="Chain" hidden>
+                  <button type="button" role="radio" aria-checked="true" data-chain="btc">On Bitcoin</button>
+                  <button type="button" role="radio" aria-checked="false" data-chain="eth">On Ethereum</button>
+                </div>
                 <div class="f">
                   <div class="fh"><label for="tk">Ticker</label><span class="where" id="tk-note"></span></div>
                   <div class="fm"><input class="amt tkr" id="tk" maxlength="8" placeholder="TICKER" autocapitalize="characters" autocorrect="off" spellcheck="false"><span id="mark" class="tk letter" hidden></span></div>
@@ -439,8 +447,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
                     </div>
                     <label class="fld"><span>Description</span><textarea id="ds" maxlength="500" rows="2" placeholder="Optional"></textarea></label>
                     <label class="fld"><span>Link</span><input type="text" id="ln" placeholder="https://" autocomplete="off" spellcheck="false"></label>
-                    <label class="chk"><input type="checkbox" id="pub" checked><span>Publish the supply<small>Anyone can check the total against the chain.</small></span></label>
-                    <label class="chk"><input type="checkbox" id="mint"><span>Mintable<small>You can issue more later. This cannot be changed.</small></span></label>
+                    <label class="chk" id="pub-row"><input type="checkbox" id="pub" checked><span>Publish the supply<small>Anyone can check the total against the chain.</small></span></label>
+                    <label class="chk" id="mint-row"><input type="checkbox" id="mint"><span>Mintable<small>You can issue more later. This cannot be changed.</small></span></label>
+                    <label class="chk" id="reg-row" hidden><input type="checkbox" id="reg"><span>Register it with the Tacit pool<small>One more call, sent together with the first when your wallet takes batches.</small></span></label>
                   </div>
                 </details>
               </div>
@@ -481,12 +490,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 </div>
 <!-- warm:begin -->
 <template id="warm">
-<link rel="modulepreload" href="/trade/btc.js?cb=12f6037a">
-<link rel="modulepreload" href="/trade/btc-session.js?cb=73042d01">
+<link rel="modulepreload" href="/trade/btc.js?cb=4d58b515">
+<link rel="modulepreload" href="/trade/btc-session.js?cb=b73875e1">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 </template>
 <!-- warm:end -->
 <div class="sr" id="live" role="status" aria-live="polite"></div>
-<script type="module" src="/etch/app.js?cb=c34afeaa"></script>
+<script type="module" src="/etch/app.js?cb=c32f3fa8"></script>
 </body>
 </html>

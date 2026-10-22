@@ -190,7 +190,7 @@ const BUILD_CB_FILES = ['build/app.js', 'build/index.html'];
 // dapp/assets/ lists Tacit's own assets: its one script, then the page.
 const ASSETS_CB_FILES = ['assets/app.js', 'assets/index.html'];
 // dapp/etch/ makes an asset on Bitcoin and searches the ones that exist: its search first, then app.js, then the page (it loads /trade/btc.js, hashed with the trade page's).
-const ETCH_CB_FILES = ['etch/find.js', 'etch/app.js', 'etch/index.html'];
+const ETCH_CB_FILES = ['etch/minter.js', 'etch/eth.js', 'etch/find.js', 'etch/app.js', 'etch/index.html'];
 // dapp/rewards/ looks up the airdrop and the points of an address or name: its one script, then the page.
 const REWARDS_CB_FILES = ['rewards/app.js', 'rewards/index.html'];
 // dapp/bridge/ follows this browser's bridges and shows how each way is proven: its reading of the journals first, then app.js, then the page.
