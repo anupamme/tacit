@@ -657,22 +657,11 @@
           "bound": false,
           "minWei": "30000000000000000000",
           "maxWei": "200000000000000000000",
-          "label": "Deploy the contract (earlier address)"
+          "label": "Deploy the contract"
         }
       ],
-      "title": "Deploy the swap route (earlier address)",
-      "tagline": "The same contract at an earlier address: 1 transaction, done.",
-      "about": [
-        {
-          "h": "What it is",
-          "p": "The same contract at another address. The swap page uses the one in the job above."
-        },
-        {
-          "h": "Who is paid",
-          "p": "The account that sent it, like any other step."
-        }
-      ],
-      "links": [],
+      "title": "Deploy the swap route",
+      "into": "amm-route",
       "verified": false,
       "created": [],
       "retired": true,

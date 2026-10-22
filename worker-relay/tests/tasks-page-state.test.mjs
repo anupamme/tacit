@@ -62,8 +62,9 @@ try {
     const { ctx, page, calls, errors } = await open({ service: view(new Set(jobs.map((j) => j.id))) });
     await ready(page); await page.waitForTimeout(1500);
     assert.equal(calls.filter((c) => c.method === 'eth_getCode').length, 0, `no code was read from the chain (${calls.map((c) => c.method).join(',')})`);
-    assert.deepEqual(await titles(page), ['Deploy the swap route', 'Deploy the swap route (earlier address)', 'Deploy the TAC vaults'], 'finished jobs list the newest first');
-    assert.match(await page.locator('#stats').innerText(), /3 of 3\s+jobs done/);
+    assert.deepEqual(await titles(page), ['Deploy the swap route', 'Deploy the TAC vaults'], 'finished jobs list the newest first, a job folded into another is not listed');
+    assert.match(await page.locator('#stats').innerText(), /2 of 2\s+jobs done/);
+    assert.match(await page.locator('#amm-route .job-fig').innerText(), /60\s*TAC/, 'the job it was folded into carries what both paid');
     assert.match(await page.locator('#jobs').innerText(), /No open jobs right now/);
     assert.ok((await page.evaluate(() => window.__cls)) < 0.02, `the page did not move (${await page.evaluate(() => window.__cls)})`);
     assert.deepEqual(errors, []);
@@ -79,7 +80,7 @@ try {
     assert.ok(reads.some((c) => c.to === route), 'the chain was asked for the contract');
     const text = await page.locator('#jobs').innerText();
     assert.match(text, /no reward claimed yet/, 'a done job nobody has claimed says so');
-    assert.match(text, /OPEN JOBS\s*2/i, 'the two jobs not on the chain are open');
+    assert.match(text, /OPEN JOBS\s*1/i, 'the one job not on the chain is open');
     console.log('ok - steps the service has not claimed are read from the chain, and a done job with no claim says so');
     await ctx.close();
   }

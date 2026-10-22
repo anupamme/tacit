@@ -61,7 +61,7 @@ const day = (t) => new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeri
 const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
 const link = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
-const S = { jobs: [], api: null, asked: false, done: {}, loaded: false, payload: {}, verdict: {}, running: null, hashes: {}, expanded: new Map() };
+const S = { jobs: [], folded: [], api: null, asked: false, done: {}, loaded: false, payload: {}, verdict: {}, running: null, hashes: {}, expanded: new Map() };
 
 // ── what the browser remembers: the transactions this visitor sent or named, until the service has answered for each ──
 const remembered = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
@@ -149,9 +149,12 @@ const firstOpen = () => S.jobs.find((j) => stateOf(j) !== 'done');
 // Open jobs show in full; a job that is done shows its tile and opens when clicked (what the visitor chose stays as chosen).
 const isExpanded = (job) => (S.expanded.has(job.id) ? S.expanded.get(job.id) : stateOf(job) !== 'done');
 
+// The service's claims for a job, with those of the jobs folded into it (`into` in jobs.json: listed under the job they belong to).
+const claimsOf = (job) => (S.api?.claims ?? []).filter((c) => c.job === job.id || S.folded.some((f) => f.id === c.job && f.into === job.id));
+
 // What a job has paid so far, from the service's claims: the TAC, who got it, and when the steps landed.
 function resultOf(job) {
-  const mine = (S.api?.claims ?? []).filter((c) => c.job === job.id);
+  const mine = claimsOf(job);
   const times = mine.map((c) => c.blockTime).sort((a, b) => a - b);
   return {
     total: mine.reduce((x, c) => x + BigInt(c.wei), 0n), count: mine.length,
@@ -248,14 +251,14 @@ const links = (job) => `<div class="links">${job.links.map((l) => link(l.href, `
 const verifiedOn = (addr) => ` · source on ${link(`${ETHERSCAN}/address/${addr}#code`, 'Etherscan ↗')} ${link(`https://repo.sourcify.dev/1/${addr}`, 'Sourcify ↗')}`;
 
 function doneRow(job, s, i) {
-  const c = apiJob(job)?.steps.find((x) => x.id === s.id)?.claim;
+  const cs = claimsOf(job).filter((c) => c.step === s.id);
   const id = chainOf(job, s), ex = CHAINS[id].explorer;
   const where = s.kind === 'createx' ? link(`${ex}/address/${s.expected}`, esc(s.expected)) : s.kind === 'post' ? `A point posted to ${link(`${ex}/address/${s.to}`, 'the registry')}` : 'Call to the confidential pool';
   const proof = s.kind === 'createx' && job.verified && id === 1 ? verifiedOn(s.expected) : '';
   return `<li class="step is-done">
     <span class="n num">${i + 1}</span>
-    <span class="what"><b>${esc(s.label)}</b><small>${atChain(job, s)}${where}${proof}${c ? ` · ${link(`${ex}/tx/${c.txHash}`, 'transaction ↗')}` : ''}</small></span>
-    <span class="paid num">${c ? `${tac(c.wei)} TAC` : '—'}</span>
+    <span class="what"><b>${esc(s.label)}</b><small>${atChain(job, s)}${where}${proof}${cs.map((c) => ` · ${link(`${ex}/tx/${c.txHash}`, 'transaction ↗')}`).join('')}</small></span>
+    <span class="paid num">${cs.length ? `${tac(cs.reduce((x, c) => x + BigInt(c.wei), 0n))} TAC` : '—'}</span>
   </li>`;
 }
 
@@ -554,7 +557,8 @@ setTimeout(settled, 12e3);
 async function start() {
   const file = await get('/tasks/jobs.json');
   if (!file?.jobs?.length) { settled(); $('#jobs').innerHTML = '<p class="none">Could not load the jobs. Try again in a moment.</p>'; return; }
-  S.jobs = file.jobs;
+  S.jobs = file.jobs.filter((j) => !j.into);
+  S.folded = file.jobs.filter((j) => j.into);
   const wanted = location.hash.slice(1);
   if (S.jobs.some((j) => j.id === wanted)) S.expanded.set(wanted, true);          // a link to a job opens it
   renderAll();
