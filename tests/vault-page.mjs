@@ -912,6 +912,12 @@ try {
       ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
       await shot(r.page, 'pools-advert');
       await closeAll(r);
+      // a link ending in &pools opens on the markets of the vault it names, and the address then drops it
+      r = await openPage({ hash: hashP('&v=eth&pools'), lp: camp0 });
+      await until(r.page, () => { const e = document.querySelector('#pools'); return !!e && !e.hidden && /Where TACE sells/.test(e.textContent) && scrollY > 0 && e.getBoundingClientRect().top < innerHeight; });
+      ok(/v=eth/.test(await r.page.evaluate(() => location.hash)) && !/(^|[#&])pools(&|$)/.test(await r.page.evaluate(() => location.hash)), '#…&v=eth&pools opens on the TACE markets, and the address keeps the vault and drops the flag');
+      ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+      await closeAll(r);
     }
 
     // 1. nothing is open: the templates are listed, with where each opens and its range, and anyone may create one

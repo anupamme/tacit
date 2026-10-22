@@ -5,7 +5,9 @@ import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { TAC, POOL, FARM, aprText, readPrecision, readSpot, readStake, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 import { rememberOwed } from '/trade/rewards-dot.js?cb=837a0a4e';
-import { readLiquidity, readTasks } from '/rewards/earn.js?cb=ffffbe6c';
+import { readTasks } from '/rewards/earn.js?cb=74689244';
+import { readCampaign, bestApr } from '/trade/lp-campaign.js?cb=9d89e80f';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=4af96594';
 
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9', BOARD = 500, KEEP = 60e3, RECENT = 'tacit-rewards-recent-v1';
@@ -354,7 +356,6 @@ function claimedNow(address, air, pts) {
   quoteFor(total).then((q) => q, () => null).then((q) => { const box = $('#bw'); if (my === bwSeq && box && out.dataset.address === address) { const h = borrowLine(q); if (box.__h !== h) { box.__h = h; box.innerHTML = h; } } });
 }
 
-const dayText = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const json = (url) => fetch(url, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const farmFacts = () => keep('farm', () => readPrecision(call));
 const ICONS = new Set(['tac', 'eth', 'teth', 'cusd', 'cbtc']);
@@ -370,7 +371,8 @@ function paintPrivate(list) {
   if (host.__priv === h) return;
   host.__priv = h;
   $$('#farms [data-priv]').forEach((e) => e.remove());
-  host.insertAdjacentHTML('beforeend', h);
+  const at = $('#lp-usd');
+  if (at) at.insertAdjacentHTML('beforebegin', h); else host.insertAdjacentHTML('beforeend', h);
 }
 // The holder's own private positions (rewards/farms.js): loaded on the first press, so the page reads nothing more until then
 const pickProvider = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
@@ -387,14 +389,14 @@ function notePoints(c) {
   $('#pts-f').textContent = over ? '' : tac(BigInt(c.program.dayBudgetWei || 0), 0);
   $('#pts-s').textContent = over ? 'The program has ended' : `Day ${c.programDay} of ${c.programDays} · split by points`;
 }
-function noteLiquidity(l) {
-  const row = $('#lp-row');
-  row.hidden = !l;
-  if (!l) return;
-  const open = l.create > 0n && l.bonusOpen;
-  $('#lp-f').textContent = tac(l.daily > 0n ? l.daily : l.create, 0);
-  $('#lp-u').textContent = l.daily > 0n ? 'TAC a day' : 'TAC once';
-  $('#lp-s').textContent = `Supply a Borrow market${l.daily > 0n && open ? ` · ${tac(l.create, 0)} TAC for opening one` : ''}${l.from ? ` · from ${dayText(l.from * 86400)}` : ''}`;
+// TACD's and TACE's pools: shown while the liquidity campaign pays for them, each with the most a dollar in one of them earns a year
+function noteLiquidity(c, tacUsd = 0) {
+  for (const [key, id] of [['usd', 'lp-usd'], ['eth', 'lp-eth']]) {
+    const row = $(`#${id}`), apr = c ? bestApr(c, key, tacUsd) : null;
+    row.hidden = !c;
+    row.classList.remove('wait');
+    row.querySelector('.apr').textContent = apr == null ? '' : aprText(apr);
+  }
 }
 const noteTasks = (t) => { $('#tk-f').textContent = t ? tac(t.left, 0) : '—'; };
 function farmChanged() {
@@ -412,9 +414,11 @@ async function readEarn() {
   earnAgain();
   const f = await farmFacts().catch(() => null);
   noteFarm(f);
-  Promise.all([get('farm/program?network=mainnet'), readSpot((calls) => Promise.all(calls.map((c) => call(c).catch(() => null))))]).then(([prog, px]) => { PROG = prog; paintPrivate(privateFarms(prog, f?.tacEth || 0, px)); }, () => paintPrivate([]));
+  const spot = readSpot((calls) => Promise.all(calls.map((c) => call(c).catch(() => null))));
+  Promise.all([get('farm/program?network=mainnet'), spot]).then(([prog, px]) => { PROG = prog; paintPrivate(privateFarms(prog, f?.tacEth || 0, px)); }, () => paintPrivate([]));
   capNow().then(notePoints, () => {});
-  readLiquidity(json).then(noteLiquidity, () => noteLiquidity(null));
+  const synths = Object.fromEntries(DEPLOYMENTS.vaults.map((v) => [v.key, v.hint?.synth]).filter(([, a]) => a));
+  Promise.all([readCampaign({ ethCall: (to, data) => call({ to, data }), synths }), spot]).then(([c, px]) => noteLiquidity(c, (px.ethUsd || 0) * (f?.tacEth || 0)), () => noteLiquidity(null));
   readTasks(json).then(noteTasks, () => noteTasks(null));
 }
 

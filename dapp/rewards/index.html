@@ -31,7 +31,7 @@
 <link rel="preconnect" href="https://1rpc.io" crossorigin>
 <!-- preload-roots: /rewards/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/rewards/app.js?cb=646bbf93">
+<link rel="modulepreload" href="/rewards/app.js?cb=5152032e">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-names.js?cb=9efdff52">
 <link rel="modulepreload" href="/tacit-address.js">
@@ -46,7 +46,9 @@
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
 <link rel="modulepreload" href="/trade/rewards-dot.js?cb=837a0a4e">
-<link rel="modulepreload" href="/rewards/earn.js?cb=ffffbe6c">
+<link rel="modulepreload" href="/rewards/earn.js?cb=74689244">
+<link rel="modulepreload" href="/trade/lp-campaign.js?cb=9d89e80f">
+<link rel="modulepreload" href="/vault/deployments.js?cb=4af96594">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -479,6 +481,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-teth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#627eea" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#627eea" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#627eea" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -542,6 +546,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <div class="fm-in"><p class="note fm-note" id="farm-note" role="status"></p><div class="farm-host" id="farm-host"></div><p class="more fm-alt"><a href="/#farm/public">Using a Tacit account? Farm from the app →</a></p></div>
         </details>
         <span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span>
+        <a class="ern wait" id="lp-usd" data-lp href="/vault/#v=usd&amp;pools"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg></span><span class="rt"><b>TACD / USDC</b><small>Borrow market</small></span><span class="ra"><b class="apr"></b><small>best APR now</small></span><span class="go o">Supply</span></a>
+        <a class="ern wait" id="lp-eth" data-lp href="/vault/#v=eth&amp;pools"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="rt"><b>TACE / ETH</b><small>Borrow market</small></span><span class="ra"><b class="apr"></b><small>best APR now</small></span><span class="go o">Supply</span></a>
       </div>
       <div class="lst" id="pf-lst">
         <details class="ern" id="pf-row">
@@ -557,7 +563,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
             <details class="fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>
           </div>
         </details>
-        <a class="ern" id="lp-row" href="/vault/"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3.5 4.2 6 7 6 10a6 6 0 0 1-12 0c0-3 2.5-5.8 6-10z"/></svg></span><span class="rt"><b>Liquidity</b><small id="lp-s">Supply a Borrow market</small></span><span class="ra"><b id="lp-f"></b><small id="lp-u">TAC a day</small></span><span class="go o">Open</span></a>
         <a class="ern" id="tk-row" href="/tasks/"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></span><span class="rt"><b>Tasks</b><small>Small jobs paid in TAC</small></span><span class="ra"><b id="tk-f"></b><small>TAC left</small></span><span class="go o">Open</span></a>
       </div>
       <nav class="uses" aria-label="What you can do with TAC"><span>With TAC</span><a href="/trade/tac/" title="Buy or sell TAC">Trade</a><a href="/vault/" title="Borrow against your TAC">Borrow</a><a href="/#tac" title="Make TAC private on Ethereum">Shield</a><a href="/pay/#tac" title="Send TAC privately">Pay</a><a href="/tac/" title="Shield TAC on Bitcoin">Bitcoin</a></nav>
@@ -580,6 +585,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/rewards/app.js?cb=646bbf93"></script>
+<script type="module" src="/rewards/app.js?cb=5152032e"></script>
 </body>
 </html>

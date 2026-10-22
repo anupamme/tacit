@@ -4740,7 +4740,7 @@ await step('rewardsuses', async () => {
 // and a link ending in #farm opens it at once.
 await step('rewardsearn', async () => {
   const program = JSON.parse(readFileSync(new URL('../tests/fixtures/farm-program-2026-10-14.json', import.meta.url), 'utf8'));
-  const stubs = async (ctx, { lp = { enabled: true, endSec: 1795219200, terms: { fromDay: 20745, dailyWei: '25000000000000000000', createWei: '150000000000000000000', capWeiPerUsdDay: '50000000000000000' }, pools: [{ pool: '0x1', opened: true, openPaid: false }] }, tasks = { enabled: true, endSec: 1798243200, budget: { totalWei: '1150000000000000000000', creditedWei: '390000000000000000000', remainingWei: '760000000000000000000' } } } = {}) => {
+  const stubs = async (ctx, { lp = { enabled: true, endSec: 1795219200, terms: { fromDay: 20745, dailyWei: '25000000000000000000', createWei: '150000000000000000000', capWeiPerUsdDay: '50000000000000000' }, pools: [['0xdfee03499f65e56d54aceeedc6f41a09fbeb94b3', 10000, 31], ['0x867918fd7b6d4f13a20048485147867b9a597534', 5000, 31], ['0x386627b60cd2a11365e653f0382d92421fddf7a1', 10000, 25], ['0xe1e317700589f3eafca20ac9408c97fe700fc1c1', 5000, 31]].map(([pool, w, usd]) => ({ pool, weightBps: String(w), valueUsdWei: String(BigInt(usd) * 10n ** 18n), opened: true, openPaid: true })) }, tasks = { enabled: true, endSec: 1798243200, budget: { totalWei: '1150000000000000000000', creditedWei: '390000000000000000000', remainingWei: '760000000000000000000' } } } = {}) => {
     await ctx.route(/api\.tacit\.finance\/farm\/program/, (route) => json(route, program));
     await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, []));                  // the later route wins: the program's pot first below
     await ctx.route(/api\.tacit\.finance\/leaderboard\?day=today/, (route) => json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rates: {} } }));
@@ -4755,16 +4755,18 @@ await step('rewardsearn', async () => {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('#farm', { timeout: 60000 });
     await until(n.page, () => !document.querySelector('#farms [data-priv].wait') && document.querySelectorAll('#farms a[data-priv]').length === 3 && /^\d/.test(document.querySelector('#farm-apr')?.textContent || ''), null, 90000);
-    const farms = await rows(n.page, '#farms > .ern');
+    const farms = await rows(n.page, '#farms > .ern:not([data-lp])').then(async (r) => r.concat(await rows(n.page, '#farms > [data-lp]')));
     ok(/^TAC \/ ETH Public · \d[\d,]* TAC a day [\d,]+% APR now Farm$/.test(farms[0]), `rewardsearn: the Precision farm is the first row, with what it streams and its APR (${farms[0]})`);
-    ok(farms.length === 4 && /^tETH \/ TAC Private · 554 TAC a day [\d,]+% APR now Farm$/.test(farms[1]) && /^tETH \/ cUSD Private · 332 TAC a day [\d,]+% APR now Farm$/.test(farms[2]) && /^tETH \/ cBTC Private · 222 TAC a day [\d,]+% APR now Farm$/.test(farms[3]), `rewardsearn: then the private farms from the farm program, each with its stream and APR (${farms.slice(1).join(' | ')})`);
+    ok(farms.length === 6 && /^tETH \/ TAC Private · 554 TAC a day [\d,]+% APR now Farm$/.test(farms[1]) && /^tETH \/ cUSD Private · 332 TAC a day [\d,]+% APR now Farm$/.test(farms[2]) && /^tETH \/ cBTC Private · 222 TAC a day [\d,]+% APR now Farm$/.test(farms[3]), `rewardsearn: then the private farms from the farm program, each with its stream and APR (${farms.slice(1, 4).join(' | ')})`);
+    await until(n.page, () => !document.querySelector('#lp-usd')?.classList.contains('wait') && /\d/.test(document.querySelector('#lp-usd .apr')?.textContent || '') && /\d/.test(document.querySelector('#lp-eth .apr')?.textContent || ''), null, 90000);
+    const lpRows = await rows(n.page, '#farms > [data-lp]'), lpHrefs = await n.page.$$eval('#farms > [data-lp]', (a) => a.map((x) => x.getAttribute('href')));
+    ok(/^TACD \/ USDC Borrow market [\d,]+% best APR now Supply$/.test(lpRows[0]) && /^TACE \/ ETH Borrow market [\d,]+% best APR now Supply$/.test(lpRows[1]) && lpHrefs.join(' ') === '/vault/#v=usd&pools /vault/#v=eth&pools', `rewardsearn: and the TACD and TACE pools the liquidity campaign pays for, each with its APR, leading to its markets on the Borrow page (${lpRows.join(' | ')} ${lpHrefs.join(' ')})`);
     const hrefs = await n.page.$$eval('#farms a[data-priv]', (a) => a.map((x) => x.getAttribute('href')));
     ok(hrefs.join(' ') === '/#farm/private-0 /#farm/private-1 /#farm/private-2', `rewardsearn: each private farm leads to its own farm (${hrefs.join(' ')})`);
-    await until(n.page, () => !!document.querySelector('#pts-f')?.textContent && !!document.querySelector('#lp-f')?.textContent && !!document.querySelector('#tk-f')?.textContent, null, 60000);
+    await until(n.page, () => !!document.querySelector('#pts-f')?.textContent && !!document.querySelector('#tk-f')?.textContent, null, 60000);
     const more = await rows(n.page, '#more > .ern');
     ok(/^Points Day 25 of 90 · split by points 1,111 TAC a day$/.test(more[0]), `rewardsearn: the points row says the day's pot and where the program is (${more[0]})`);
-    ok(/^Liquidity Supply a Borrow market · 150 TAC for opening one 25 TAC a day Open$/.test(more[1]) && (await n.page.getAttribute('#lp-row', 'href')) === '/vault/', `rewardsearn: the liquidity campaign says what it pays and leads to the Borrow page (${more[1]})`);
-    ok(/^Tasks Small jobs paid in TAC 760 TAC left Open$/.test(more[2]) && (await n.page.getAttribute('#tk-row', 'href')) === '/tasks/', `rewardsearn: the task budget leads to the tasks (${more[2]})`);
+    ok(/^Tasks Small jobs paid in TAC 760 TAC left Open$/.test(more[1]) && (await n.page.getAttribute('#tk-row', 'href')) === '/tasks/' && more.length === 2, `rewardsearn: the task budget leads to the tasks (${more[1]})`);
     ok(!(await n.page.$('#out .rw')) && await n.page.evaluate(() => { const f = document.querySelector('#farms').getBoundingClientRect(); return f.top < innerHeight; }), 'rewardsearn: all of it with nothing looked up, no wallet, and the farms on the first screen');
     // The farm opens in place, with its form: ETH alone, and the button connects a wallet.
     await n.page.click('#farm > summary');
@@ -4793,8 +4795,8 @@ await step('rewardsearn', async () => {
     await m.page.goto(m.url + 'rewards/#farm');
     await until(m.page, () => document.querySelector('#farm')?.open === true && /APR now/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 90000);
     ok(true, 'rewardsearn: /rewards/#farm opens the farm at once');
-    await until(m.page, () => document.querySelector('#lp-row')?.hidden === true && !document.querySelector('#lp-row').checkVisibility() && document.querySelector('#tk-f')?.textContent === '—', null, 60000);
-    ok(true, 'rewardsearn: with the liquidity campaign off its row is gone, and a task budget that cannot be read is a dash, not a wrong number');
+    await until(m.page, () => ['#lp-usd', '#lp-eth'].every((i) => document.querySelector(i)?.hidden === true && !document.querySelector(i).checkVisibility()) && document.querySelector('#tk-f')?.textContent === '—', null, 60000);
+    ok(true, 'rewardsearn: with the liquidity campaign off the TACD and TACE rows are gone, and a task budget that cannot be read is a dash, not a wrong number');
     await m.page.goto(m.url + '#farm/public');
     await until(m.page, () => document.querySelector('#sheet-farm')?.open === true, null, 90000);
     ok(true, 'rewardsearn: and that link opens the app\'s farm sheet');

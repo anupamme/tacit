@@ -107,8 +107,8 @@ try {
     ok(pub.apr === aprText(PUBLIC_APR) && pub.href === '/#farm/public' && pub.name === 'TAC / ETH' && pub.sub === 'Public farm', `the public farm: ${pub.name}, ${pub.sub}, ${pub.apr} APR (${PUBLIC_APR.toFixed(1)}%), to the front page's farm`);
     ok(prv.apr === aprText(best.apr) && prv.href === `/#farm/private-${best.pid}` && prv.sub === '3 pools', `the private farms: the best of three, ${prv.apr} (${best.name}), to that farm`);
     ok(best.pid === 2, 'the best private farm is the tETH / cBTC one at these prices');
-    ok(tacd.apr === aprText(full) && tacd.href === '/vault/#v=usd' && tacd.name === 'TACD / USDC' && tacd.sub === 'Borrow market', `TACD / USDC: ${tacd.apr} APR, the full-weight pool's (0.05 TAC a day for a dollar at $${TAC_USD.toFixed(2)} for 365 days), to the dollar vault`);
-    ok(tace.apr === aprText(full) && tace.href === '/vault/#v=eth' && tace.name === 'TACE / ETH', `TACE / ETH: ${tace.apr} APR, to the ETH vault`);
+    ok(tacd.apr === aprText(full) && tacd.href === '/vault/#v=usd&pools' && tacd.name === 'TACD / USDC' && tacd.sub === 'Borrow market', `TACD / USDC: ${tacd.apr} APR, the full-weight pool's (0.05 TAC a day for a dollar at $${TAC_USD.toFixed(2)} for 365 days), to the dollar vault`);
+    ok(tace.apr === aprText(full) && tace.href === '/vault/#v=eth&pools' && tace.name === 'TACE / ETH', `TACE / ETH: ${tace.apr} APR, to the ETH vault`);
     ok(full > 0 && Math.abs(full - 0.05 * 0.24 * 365 * 100) < 1e-9, `the figure is 0.05 TAC × $0.24 × 365 = ${full.toFixed(1)}%`);
     ok(pub.label !== 'none' && prv.label !== 'none', 'each tile says what its figure is');
     ok(/\$0\.240/.test(await text(page, '#px-tac')) && /\$2,?400/.test(await text(page, '#px-teth')), 'the prices above still show');
@@ -132,7 +132,7 @@ try {
     ok(await settle(page, 'pub', aprText(PUBLIC_APR)), `${what}: the farms still read`);
     await page.waitForTimeout(800);
     const [tacd, tace] = await Promise.all([tileOf(page, 'tacd'), tileOf(page, 'tace')]);
-    ok(tacd.apr === '' && tace.apr === '' && tacd.label === 'none' && tace.label === 'none' && tacd.href === '/vault/#v=usd' && tace.href === '/vault/#v=eth', `${what}: TACD and TACE show no figure and no label, and still lead to their vaults`);
+    ok(tacd.apr === '' && tace.apr === '' && tacd.label === 'none' && tace.label === 'none' && tacd.href === '/vault/#v=usd&pools' && tace.href === '/vault/#v=eth&pools', `${what}: TACD and TACE show no figure and no label, and still lead to their vaults`);
     ok(errors.length === 0, `${what}: no page errors`);
     await browser.close();
   }

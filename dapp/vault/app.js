@@ -33,7 +33,7 @@ const VS = (() => {
 
 const ROUTER = (() => { const a = LOCAL && ADDR.test(params().get('router') || '') ? params().get('router') : DEPLOYMENTS.router; return ADDR.test(a || '') ? a : null; })();
 
-const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, routerSettled: false, batchBusy: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, routerSettled: false, batchBusy: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false, toPools: false };
 const BOOT = now();
 const MORE_KEY = 'tacit-vault-more';
 try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { }
@@ -74,7 +74,7 @@ const POOLS = (() => {
   return ADDR.test(usdc || '') ? { ...c, quotes: { ...c.quotes, USDC: { ...c.quotes.USDC, addr: usdc } } } : c;
 })();
 const pools = makePools({
-  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => { renderBoard(); renderPromo(); },
+  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => { renderBoard(); renderPromo(); toPools(); },
   synthOf: (key) => VS.find((v) => v.key === key)?.synth || null, symOf: (key) => KIND[key].sym,
 });
 
@@ -849,9 +849,19 @@ function readHash() {
   const p = params(), v = p.get('v'), t = p.get('t'), a = p.get('a'), amt = p.has('amt') ? M.parseUnits(p.get('amt'), 18) : null;
   if (v && VS.some((x) => x.key === v)) S.v = v;
   if (ACTS.some(([k]) => k === t)) S.t = t;
+  if (p.has('pools')) S.toPools = true;
   S.view = ADDR.test(a || '') ? a : null;
   if (amt != null && amt > 0n && !S.busy) { S.t = 'borrow'; S.pre = false; S.amt = M.plain(amt); $('#amt').value = S.amt; say('', ''); }
   if (p.has('amt')) keepInHash();
+}
+// A link ending in &pools opens on the markets, once they are drawn, and the page's address then drops it
+function toPools() {
+  if (!S.toPools || $('#pools').hidden) return;
+  S.toPools = false;
+  const p = params();
+  p.delete('pools');
+  history.replaceState(null, '', location.pathname + location.search + (p.toString() ? `#${p}` : ''));
+  $('#pools').scrollIntoView?.({ block: 'start', behavior: 'smooth' });
 }
 function keepInHash() {
   const p = params();
