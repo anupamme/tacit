@@ -5,7 +5,7 @@ import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618'
 import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
 
-const BTC_MODULE = '/trade/btc.js?cb=32bedf68';
+const BTC_MODULE = '/trade/btc.js?cb=12f6037a';
 const API = 'https://api.tacit.finance', MEMPOOL = 'https://mempool.space', SCAN = 'https://www.tacitscan.io';
 const MAX_BASE = (1n << 64n) - 1n, DECIMALS = [0, 2, 6, 8];
 const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']), LOGO_MAX = 2 * 1024 * 1024;
@@ -43,7 +43,7 @@ const markHtml = (a) => (a.logo
 function lane() {
   return (laneP ||= (async () => {
     const m = await import(BTC_MODULE);
-    bitcoin = m.makeBitcoin({ notify, onChange: () => { paint(); needQuote(); readSilent(); } });
+    bitcoin = m.makeBitcoin({ notify, purpose: 'etch an asset on Bitcoin', prefer: 'btc', onChange: () => { paint(); needQuote(); readSilent(); } });
     T = await bitcoin.session.load();
     return bitcoin;
   })().catch((e) => { laneP = null; throw e; }));
@@ -54,7 +54,21 @@ function warm() {
   const t = $('#warm');
   if (t) document.head.append(t.content.cloneNode(true));
   lane().then(() => { paint(); needQuote(); }, () => {});
+  readPrice();
 }
+// What sats are worth in dollars, for a visitor who thinks in them; nothing is said of it when the price cannot be read.
+let px = 0;
+function readPrice() {
+  fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null))
+    .then((j) => { const v = Number(j?.data?.amount); if (v > 0) { px = v; paint(); } }).catch(() => {});
+}
+const fiat = (n) => (px > 0 ? `≈ $${(n / 1e8 * px).toFixed(2)}` : '');
+const withFiat = (n) => `${sats(n)} sats${px > 0 ? ` (${fiat(n)})` : ''}`;
+// The sheet that gets sats to the wallet's address: what it is short of, and what the address must hold.
+const addSats = () => {
+  const need = S.quote?.need || 0, mine = bitcoin?.me?.sats || 0;
+  bitcoin.fund({ sats: need ? Math.max(0, need - mine) : 0, need, fiat });
+};
 
 // ── Create ──
 function read() {
@@ -130,15 +144,15 @@ function paint() {
   const rc = $('#rcpt');
   rc.hidden = !(r.tickerOk && r.supplyOk);
   if (!rc.hidden) {
-    const rows = [['Supply', `${fmtUnits(r.base, S.dec, S.dec)} ${esc(r.ticker)}`], ['Network fee', S.quote ? `about ${sats(S.quote.fee)} sats` : '…']];
-    if (unlocked && mine != null) rows.push(['In your wallet', `${sats(mine)} sats${S.silent ? ` + ${sats(S.silent)} silent` : ''}`, funding() === 'short' ? 'warn' : '']);
+    const rows = [['Supply', `${fmtUnits(r.base, S.dec, S.dec)} ${esc(r.ticker)}`], ['Network fee', S.quote ? `about ${esc(withFiat(S.quote.fee))}` : '…']];
+    if (unlocked && mine != null) rows.push(['In your wallet', `${sats(mine)} sats${S.silent ? ` + ${sats(S.silent)} silent` : ''} <button class="link" type="button" data-fund>add</button>`, funding() === 'short' ? 'warn' : '']);
     rc.innerHTML = rows.map(([k, v, c]) => `<div><dt>${k}</dt><dd${c ? ` class="${c}"` : ''}>${v}</dd></div>`).join('');
   }
   const [label, off] = goState(r), go = $('#go');
   go.textContent = label; go.disabled = off;
   $('#edit').inert = S.busy || S.working;
   const f = !S.busy && r.tickerOk && r.supplyOk ? funding() : null;
-  const soft = f === 'short' ? `Needs about ${sats(S.quote.need)} sats at your wallet’s address. It holds ${sats(mine)}.`
+  const soft = f === 'short' ? `Needs about ${withFiat(S.quote.need)} at your wallet’s address. It holds ${sats(mine)}.`
     : f === 'gather' ? 'Your sats are silent payments: etching first moves them to your wallet’s address, in one more transaction.' : '';
   if (soft !== S.soft) { if (soft || S.soft) put(soft); S.soft = soft; }
 }
@@ -158,7 +172,7 @@ async function act() {
     const wasShort = funding() === 'short';
     await Promise.all([b.refresh(), readSilent()]);
     S.quote = await T.etchQuote({ tickerLen: job.ticker.length, imageUri: job.logo?.uri || null, pin: job.pin });
-    if (funding() === 'short') { paint(); b.fund({ sats: S.quote.need - (b.me?.sats || 0) }); return; }
+    if (funding() === 'short') { paint(); addSats(); return; }
     if (wasShort) return;
     await etch(job);
   } catch (e) {
@@ -360,6 +374,7 @@ ui.dec.addEventListener('click', (e) => {
   S.dec = Number(b.dataset.d); paint();
 });
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-fund]')) { if (bitcoin?.session.unlocked) addSats(); return; }
   const f = e.target.closest('[data-find]');
   if (f) { setTab('find', f.dataset.find); return; }
   const c = e.target.closest('[data-copy]');

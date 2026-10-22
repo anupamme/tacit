@@ -189,7 +189,7 @@ console.log('\nThe wallet and the etch:');
   ok((await calls_(page, 'etch')).length === 0, 'nothing is sent by opening it');
   const rows = await page.$$eval('#rcpt div', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.some((r) => /^Network feeabout [\d,]+ sats$/.test(r)), 'the fee reads once the library is in');
-  ok(rows.some((r) => r === 'In your wallet1,200 sats'), 'and the sats the key holds');
+  ok(rows.some((r) => r === 'In your wallet1,200 sats add'), 'and the sats the key holds');
   ok(/^Add sats$/.test(await text(page, '#go')), 'a key short of sats is offered Add sats');
   ok(/Needs about 4,000 sats at your wallet’s address\. It holds 1,200\./.test(await text(page, '#q')), 'and the line says how much');
   ok(await page.$eval('#rcpt dd.warn', (e) => /1,200 sats/.test(e.textContent)), 'the balance is marked in the receipt');

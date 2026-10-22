@@ -13,7 +13,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // `wallet()` names the Ethereum wallet the page has connected ({ uuid, address }, or null), so opening the Tacit key can use that same wallet
 // without asking again which one. `onChange` hears when the key opens or locks and when the sats and TAC it holds are read again.
-export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange = () => {}, wallet = () => null, asset = TAC_ASSET } = {}) {
+// `purpose` finishes the sign-in sheet's first line; `prefer: 'btc'` puts a Bitcoin wallet first when the browser has one and no Tacit wallet was opened here before.
+export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange = () => {}, wallet = () => null, asset = TAC_ASSET, purpose = 'trade on Bitcoin', prefer = '' } = {}) {
   const AID = asset.id;
   const session = makeBtcSession({ moved: (why) => { session.lock(); meState = null; ctl?.refresh?.({ soft: true }); notify(why); } });
   let main = null, host = null, ctl = null, meState = null, meTimer = 0, off = null;
@@ -37,15 +38,17 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       const pk = session.passkeyAvailable(), hasBtc = session.btcSeen(), hasEth = session.ethAvailable(), here = wallet();
       // The wallet connected on this page leads, unless the Tacit wallet it would open is the one offered first anyway.
       const hereIsKnown = known?.mode === 'eth' && here && String(known.address || '').toLowerCase() === here.address.toLowerCase();
-      o.body.innerHTML = `<p class="note" style="margin-top:0">Open your Tacit wallet to trade on Bitcoin. This page never stores the key.</p><div class="ways">
+      const btcFirst = prefer === 'btc' && hasBtc && !known && !(here && !hereIsKnown);
+      const eth = opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.');
+      const btc = opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.', btcFirst ? 'main' : '');
+      o.body.innerHTML = `<p class="note" style="margin-top:0">Open your Tacit wallet to ${esc(purpose)}. It comes from a signature or a passkey, so there is nothing to back up, and this page never stores the key.</p><div class="ways">
         ${here && !hereIsKnown ? opt('page', 'Use the wallet connected here', `Ethereum ${esc(short(here.address))}. One free signature, two the first time.`, known ? '' : 'main') : ''}
         ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same wallet as everywhere on tacit.finance.`, 'main') : ''}
         ${other ? opt('other', 'Your other Tacit wallet', `A different wallet, opened here before with ${esc(via(other))}.`) : ''}
-        ${opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
-        ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
-        ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
+        ${btcFirst ? btc + eth : eth + btc}
+        ${pk ? opt('passkey', 'Passkey', prefer ? 'Touch ID, Windows Hello or a security key. No wallet needed.' : 'Touch ID, Windows Hello or a security key.') : ''}
         <p class="ways-err" role="alert" hidden></p>
-        ${pk ? '<p class="more"><button class="linkbtn" type="button" data-in="new">New passkey wallet</button></p>' : ''}
+        ${pk ? `<p class="more"><button class="linkbtn" type="button" data-in="new">${prefer ? 'No wallet yet? Create one with a passkey' : 'New passkey wallet'}</button></p>` : ''}
       </div>`;
       const err = o.body.querySelector('.ways-err');
       let busy = false;
@@ -101,36 +104,67 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       o.body.querySelector('[data-no]')?.addEventListener('click', () => { done(false); o.close(); });
     });
   }
-  // `sats`: how many the caller is short of. A key opened with a Bitcoin wallet is then offered that wallet's own transfer to the address, which the wallet
-  // asks to confirm; any key can copy the address and send from anywhere.
-  function fundDialog(opts) {
-    const addr = session.address, sats = Number(opts?.sats) || 0;
-    const ext = addr && sats > 0 && session.key?.mode === 'btc' && session.T?.extWallet?.state ? session.T.extWallet : null;
-    const send = ext ? Math.max(Math.ceil((sats + 1000) / 500) * 500, 5000) : 0;
+  // The sheet runs for as long as it watches the address and nobody waits on it: whatever goes wrong inside is not a page's error.
+  const fund = (opts) => { fundDialog(opts).catch(() => {}); };
+  // A Bitcoin wallet to send sats from, connected for that alone: the Tacit key is not changed, and the records of which wallet is open are put back.
+  async function connectExt() {
+    await session.load();
+    return session.turn(async () => {
+      const x = session.T.extWallet;
+      if (!x.state) {
+        const st = await x.connectDefault();
+        if (!/^(bc1|[13])/i.test(String(st?.address || ''))) { x.state = null; throw new Error('Your Bitcoin wallet is on a test network. Switch it to mainnet.'); }
+      }
+      return x;
+    });
+  }
+  // The sheet that gets sats to the key's Bitcoin address. `sats`: how many the page is short of, and `need`: how many the address must hold; `fiat(n)`: what n sats
+  // are worth, as text. A Bitcoin wallet in the browser sends them in one confirmation, whichever way the Tacit key was opened; anything else scans the code, opens a
+  // wallet app, or copies the address. The sheet watches the address and closes when the sats show.
+  async function fundDialog(opts) {
+    const addr = session.address, lack = Number(opts?.sats) || 0, need = Number(opts?.need) || 0, fiat = typeof opts?.fiat === 'function' ? opts.fiat : () => '';
     const o = overlay({ title: 'Add sats', top: true });
-    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to your Tacit wallet, and what you do here spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><p class="note" data-st role="status"></p><div class="bsheet-actions">${send ? `<button class="btn" type="button" data-send>Send ${send.toLocaleString('en-US')} sats from ${ext.state.provider === 'unisat' ? 'UniSat' : 'your wallet'}</button>` : ''}<button class="btn${send ? ' ghost' : ''}" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your Tacit wallet first. The address belongs to the wallet you open.</p>';
+    if (!addr) { o.body.innerHTML = '<p style="margin:0">Open your Tacit wallet first. The address belongs to the wallet you open.</p>'; return; }
+    const send = lack > 0 ? Math.max(Math.ceil((lack + 1000) / 500) * 500, 5000) : 0;
+    const connected = session.key?.mode === 'btc' && !!session.T?.extWallet?.state;
+    const money = (n) => { const f = fiat(n); return `${n.toLocaleString('en-US')} sats${f ? ` (${f})` : ''}`; };
+    const uri = `bitcoin:${addr}${send ? `?amount=${(send / 1e8).toFixed(8)}` : ''}`;
+    o.body.innerHTML = `<p style="margin:0 0 12px">${send ? `Send about ${esc(money(send))}` : 'Send sats'} to your Tacit wallet’s Bitcoin address, from any Bitcoin wallet or exchange.</p>
+      ${send && (connected || session.btcSeen()) ? `<button class="btn" type="button" data-send>Send ${esc(money(send))} from ${connected && session.T.extWallet.state.provider === 'unisat' ? 'UniSat' : 'your Bitcoin wallet'}</button>` : ''}
+      <div style="display:flex;gap:14px;align-items:center;margin:14px 0 4px"><span data-qr style="flex:none;line-height:0"></span><p class="addr" style="margin:0;min-width:0"><code>${esc(addr)}</code></p></div>
+      <div class="bsheet-actions"><button class="btn ghost" type="button" data-copy>Copy address</button><a class="btn ghost" href="${esc(uri)}" data-open>Open in a wallet app</a></div>
+      <p class="note" data-st role="status" style="margin:12px 0 0">Waiting for the sats to arrive…</p>`;
+    const st = o.body.querySelector('[data-st]'), say = (t) => { st.textContent = t; };
+    import('/qr.js?cb=926d16be').then(({ qrSvg }) => { const q = o.body.querySelector('[data-qr]'); if (q && !o.closed) q.innerHTML = qrSvg(uri, 148, 'QR code of your Tacit wallet’s Bitcoin address'); }).catch(() => {});
     const c = o.body.querySelector('[data-copy]');
-    if (c) c.onclick = () => navigator.clipboard?.writeText(addr).then(() => { c.textContent = 'Copied'; }, () => { c.textContent = 'Could not copy'; });
-    const b = o.body.querySelector('[data-send]'), st = o.body.querySelector('[data-st]');
-    if (!b) return;
-    b.onclick = async () => {
-      b.disabled = true; st.textContent = 'Confirm it in your wallet…';
-      const before = meState?.sats ?? 0;
+    c.onclick = () => navigator.clipboard?.writeText(addr).then(() => { c.textContent = 'Copied'; }, () => { c.textContent = 'Could not copy'; });
+    const b = o.body.querySelector('[data-send]');
+    if (b) b.onclick = async () => {
+      b.disabled = true; say('Confirm it in your wallet…');
       try {
-        await ext.sendSats(addr, send);
-        st.textContent = 'Sent. Waiting for Bitcoin to show it…';
-        for (let i = 0; i < 24 && !o.closed; i++) {
-          await sleep(2500);
-          await refreshMe().catch(() => {});                                        // a read that fails is not a transfer that failed: it is tried again
-          if ((meState?.sats ?? 0) >= before + send) { o.close(); return; }
-        }
-        if (!o.closed) st.textContent = 'Sent. It shows here once Bitcoin has it.';
+        const x = connected ? session.T.extWallet : await connectExt();
+        await x.sendSats(addr, send);
+        say('Sent. Waiting for Bitcoin to show it…');
       } catch (e) {
         const m = e?.message || String(e);
-        st.textContent = /reject|cancel|denied|declin/i.test(m) ? 'Nothing was sent.' : `Could not send: ${m}`;
+        say(/reject|cancel|denied|declin/i.test(m) ? 'Nothing was sent.' : `Could not send: ${m}`);
         b.disabled = false;
       }
     };
+    // the address is watched for as long as the sheet is open (half an hour): sats from a wallet, a phone or an exchange all end it the same way
+    const read = async () => { const u = await session.T.getUtxos(addr).catch(() => null); return Array.isArray(u) ? u.reduce((a, x) => a + (Number(x.value) > 546 ? Number(x.value) : 0), 0) : null; };
+    let base = await read();
+    for (let i = 0; i < 360 && !o.closed; i++) {
+      await sleep(5000);
+      const now = await read();
+      if (now == null) continue;
+      if (base == null || now <= base) { base = base == null ? now : Math.min(base, now); continue; }
+      const got = now - base; base = now;
+      await refreshMe().catch(() => {});                                            // a read that fails is not sats that did not arrive: it is tried again
+      const have = meState?.sats ?? 0;
+      if (!need || have >= need) { say(`Received ${got.toLocaleString('en-US')} sats.`); await sleep(900); o.close(); return; }
+      say(`Received ${got.toLocaleString('en-US')} sats. About ${(need - have).toLocaleString('en-US')} more are needed.`);
+    }
   }
   // A purchase that stopped after its commit went out holds sats until they are swept back; the record that sweeps them is in this browser.
   async function recovery(err) {
@@ -217,7 +251,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       asset: () => { const a = base.asset(); return { ...a, iconHtml: logo(a.iconHtml), identityHtml: logo(a.identityHtml) }; },
       me: () => meState,
       friendlyError: (...a) => { const m = base.friendlyError?.(...a); return typeof m === 'string' ? m.replace('retry with the Swap tile or pick another row', 'try again or pick another row') : m; },      // the classic app's wording names a tile this sheet does not have
-      unlock, fundSats: fundDialog,
+      unlock, fundSats: fund,
       confirm: confirmDialog,
       toast: (m, k, ms) => notify(m, k, ms),
       onError: (e) => { recovery(e).catch(() => {}); },
@@ -291,7 +325,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
   }
   return {
     open, session, recovery, get isOpen() { return !!main; },
-    openHere, refresh: refreshMe, fund: fundDialog, signIn: unlock,
+    openHere, refresh: refreshMe, fund, signIn: unlock,
     get me() { return meState; },
     lock() { session.lock(); meState = null; ctl?.refresh?.({ soft: true }); changed(); },
   };
