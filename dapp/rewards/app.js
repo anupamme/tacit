@@ -499,13 +499,13 @@ async function paintEarn() {
     ['cbtcmint', 'Post a bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`],
     ['cusdmint', 'Borrow cUSD', '/#borrow', (r) => `${n(r)} points per dollar, when you send the loan yourself`],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);
-  const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets' };
+  const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets', wrap: 'wrapping ETH', evmpooldeposit: 'pool deposits', btcpool: 'the Bitcoin pool' };
   const orList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);
   const andList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
   const upcoming = (P.budgets || []).filter((e) => e.fromDay > day).sort((a, b) => a.fromDay - b.fromDay)[0], live = inForce(P.budgets, day);
   const entry = live?.groups?.length ? live : upcoming?.groups?.length ? upcoming : null;
   const perPoint = (w) => `${(Number(BigInt(w) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC a point`;
-  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day’s ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}% for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)})` : ''}`).join(' and ')}. A share that is not used goes back to everyone else.</p>` : '';
+  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day’s ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}%${g.capped ? ' at most' : ''} for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)})` : ''}`).join(' and ')}. ${entry.groups.some((g) => g.capped) ? 'A share that is not used is not paid out.' : 'A share that is not used goes back to everyone else.'}</p>` : '';
   const tiers = P.holder?.tiers || [];
   el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
     + reserved

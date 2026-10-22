@@ -5107,7 +5107,7 @@ await step('rewardsfolds', async () => {
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
     const days = await read('#c-pts .rows');
-    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days) && /Thu 15 Oct\s*\+20\.0\s*—/.test(days) && /A dash means that day's TAC is in the total above/.test(await read('#c-pts .fold-b > p')), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days) && /Thu 15 Oct\s*\+20\.0\s*—/.test(days) && /A dash means that day's TAC is in the total above/.test(await read('#c-pts')), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));

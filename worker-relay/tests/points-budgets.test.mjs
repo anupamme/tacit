@@ -257,3 +257,26 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   assert.equal(alone.find((r) => r.address === A('3')).dayPoints, 1000, 'and as with no groups at all');
   console.log('ok - a share cap is a share of the capped activity\'s own group, so it holds when other groups are paid less a point');
 }
+
+// ── a capped group is held to its share: what the others leave is not handed to it ──
+{
+  const sched = parseBudgets('20747:stay=holding+cbtchold@0.25/0.02,use=zswapeth@0.15/0.01;20751:stay=holding+cbtchold@0.2/0.03,use=zswapeth+cusdmint@0.1/0.015,loop=wrap+evmpooldeposit+btcpool@0.7!/0.03');
+  assert.equal(sched.length, 2);
+  const g = budgetsForDay(sched, 20751), loop = g.find((x) => x.name === 'loop');
+  assert.equal(loop.capped, true);
+  assert.equal(g.find((x) => x.name === 'stay').capped, undefined);
+  const rows = [row(A('1'), { holding: 1750 }), row(A('2'), { zswapeth: 1644 }), row(A('3'), { evmpooldeposit: 4_200_000 }), row(A('4'), { wrap: 1_100_000 })];
+  const r = allocateDay({ rows, budgetWei: budget, maxWeiPerPoint: ceiling, groups: g });
+  const by = Object.fromEntries(r.groups.map((x) => [x.name, x]));
+  assert.equal(by.loop.paidWei, budget * 700000n / 1000000n, 'the loops are paid their 70% and no more');
+  assert.equal(by.stay.paidWei, 1750n * 3n * TAC / 100n);
+  assert.equal(by.use.paidWei, 1644n * 15n * TAC / 1000n);
+  assert.ok(r.pot < budget, 'what nobody could use stays unpaid');
+  assert.equal(groupTerms(loop).capped, true);
+  // uncapped, the same day hands the loops what the others leave
+  const open = allocateDay({ rows, budgetWei: budget, maxWeiPerPoint: ceiling, groups: parseBudgets('1:stay=holding+cbtchold@0.2/0.03,use=zswapeth+cusdmint@0.1/0.015,loop=wrap+evmpooldeposit+btcpool@0.7/0.03')[0].groups });
+  assert.ok(open.groups.find((x) => x.name === 'loop').paidWei > by.loop.paidWei);
+  // the record of what settled days were paid under is unchanged for an entry without the mark
+  assert.equal(checkSettledBudgets(settledBudgets(parseBudgets('20747:stay=holding+cbtchold@0.25/0.02,use=zswapeth@0.15/0.01'), 20748), sched).ok, true);
+  console.log('ok - a capped group is paid at most its share; the rest of the day stays unpaid rather than going to it');
+}
