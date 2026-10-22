@@ -6,13 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data: blob: https://api.tacit.finance https://ipfs.filebase.io; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit etch</title>
-<meta name="description" content="Create an asset on Bitcoin, or find one that exists.">
+<meta name="description" content="Create an asset on Bitcoin or Ethereum, or find one that exists.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/etch/">
 <meta property="og:url" content="https://tacit.finance/etch/">
 <meta property="og:title" content="tacit etch">
-<meta property="og:description" content="Create an asset on Bitcoin, or find one that exists.">
+<meta property="og:description" content="Create an asset on Bitcoin or Ethereum, or find one that exists.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -25,7 +25,7 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- preload-roots: /etch/app.js | | /trade/btc.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/etch/app.js?cb=c32f3fa8">
+<link rel="modulepreload" href="/etch/app.js?cb=c4599915">
 <link rel="modulepreload" href="/trade/util.js?cb=509d6618">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
@@ -406,7 +406,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="stage">
       <section class="hero" aria-labelledby="hero-h">
         <h1 id="hero-h">Etch an <em>asset</em></h1>
-        <p class="lede">Make a token on Bitcoin, or look one up.</p>
+        <p class="lede">Make a token, or look one up.</p>
       </section>
 
       <div class="sw" id="sw">
@@ -419,7 +419,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <div id="p-create" role="tabpanel" aria-labelledby="t-create">
             <form id="form" autocomplete="off" novalidate>
               <div id="edit">
-                <div class="mode" id="chain" role="radiogroup" aria-label="Chain" hidden>
+                <div class="mode" id="chain" role="radiogroup" aria-label="Chain">
                   <button type="button" role="radio" aria-checked="true" data-chain="btc">On Bitcoin</button>
                   <button type="button" role="radio" aria-checked="false" data-chain="eth">On Ethereum</button>
                 </div>
@@ -496,6 +496,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 </template>
 <!-- warm:end -->
 <div class="sr" id="live" role="status" aria-live="polite"></div>
-<script type="module" src="/etch/app.js?cb=c32f3fa8"></script>
+<script type="module" src="/etch/app.js?cb=c4599915"></script>
 </body>
 </html>

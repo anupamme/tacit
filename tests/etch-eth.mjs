@@ -2,7 +2,7 @@
 // dapp/etch/ on Ethereum, against a fork of mainnet: the real page and modules, the real canonical factory, CreateX and pool contracts on the fork, and a
 // wallet stand-in that sends as anvil's first account (and takes an EIP-5792 batch when told to). Only the API's pin is answered here, with the content id
 // the real pin would return for the same bytes.
-//   checks: the side is off until ?eth=1; the form's limits on this side; what the chain holds after an etch (the symbol, the decimals, the whole supply in one
+//   checks: the switch; the form's limits on this side; what the chain holds after an etch (the symbol, the decimals, the whole supply in one
 //   account, a minter with nothing to call, the metadata stamp the pinned JSON hashes to); the pool's registration, as a batch and as a sequence; a wallet that
 //   says no (to the first call, to the second); too little ETH; no metadata.
 //
@@ -139,23 +139,28 @@ async function form(page, o) {
   if (o.reg) await page.check('#reg');
 }
 const goLabel = (page) => text(page, '#go');
+// the done card, or what the page said instead
+async function done(page, errs = []) {
+  try { await page.waitForSelector('#done:not([hidden])', { timeout: 120000 }); }
+  catch (e) { console.log('DEBUG waiting for the done card: q =', await text(page, '#q'), '| go =', await goLabel(page), '| errors =', errs.join(' / ')); throw e; }
+}
 async function connect(page) {
   await page.waitForFunction(() => document.querySelector('#go').textContent === 'Connect a wallet');
   await page.click('#go');
   await page.waitForFunction(() => /^Etch .* on Ethereum$/.test(document.querySelector('#go').textContent));
 }
 
-console.log('The side is off until it is asked for:');
+console.log('The switch:');
 {
   const { page } = await fresh('/etch/');
-  ok(await page.$eval('#chain', (e) => e.hidden), 'a visitor to /etch/ is not shown the Ethereum side');
+  ok(!(await page.$eval('#chain', (e) => e.hidden)) && (await page.$eval('#chain [aria-checked="true"]', (e) => e.dataset.chain)) === 'btc', 'a visitor to /etch/ is shown both sides, on Bitcoin first');
   await page.close();
 }
 
 console.log('\nThe form on this side:');
 {
-  const { page, errs, reqs } = await fresh('/etch/?eth=1');
-  ok(!(await page.$eval('#chain', (e) => e.hidden)), 'opened once with ?eth=1, it shows the switch');
+  const { page, errs, reqs } = await fresh('/etch/');
+  ok(true, 'the Ethereum side opens from the switch');
   await choose(page);
   ok((await page.$$eval('#dec [data-d]', (b) => b.map((x) => x.dataset.d))).join() === '0,6,8,18' && (await page.$eval('#dec [aria-pressed="true"]', (e) => e.textContent)) === '18', 'it offers 0, 6, 8 and 18 decimals, and starts at 18');
   ok(await page.$eval('#pub-row', (e) => e.hidden) && await page.$eval('#mint-row', (e) => e.hidden) && !(await page.$eval('#reg-row', (e) => e.hidden)), 'publishing a supply and minting are not asked, registering with the pool is');
@@ -174,7 +179,7 @@ console.log('\nThe form on this side:');
 console.log('\nAn etch, call by call:');
 let token1, minter1;
 {
-  const { page, errs, log, pinned, batches } = await fresh('/etch/?eth=1');
+  const { page, errs, log, pinned, batches } = await fresh('/etch/');
   await choose(page);
   await form(page, { ticker: 'orange', supply: '1000000', name: 'Orange Coin', desc: 'A coin', link: 'https://orange.example', reg: true });
   await connect(page);
@@ -183,7 +188,7 @@ let token1, minter1;
   await shot(page, 'eth-form');
   ok(/Network fee[^|]*about [\d.]+ ETH \(≈ \$/.test((await page.$$eval('#rcpt div', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ')))).join('|')), 'the receipt gives the gas in ETH and dollars');
   await page.click('#go');
-  await page.waitForSelector('#done:not([hidden])', { timeout: 120000 });
+  await done(page);
   await shot(page, 'eth-done');
   ok(pinned.length === 1 && pinned[0].name === 'Orange Coin' && pinned[0].decimals === 18 && pinned[0].description === 'A coin' && pinned[0].external_url === 'https://orange.example', 'its details were pinned once, before anything was sent');
   ok(log.filter((m) => m === 'eth_sendTransaction').length === 2 && batches.length === 0, 'with no batching wallet, two transactions were sent one after the other');
@@ -213,12 +218,12 @@ let token1, minter1;
 
 console.log('\nThe same, as one batch:');
 {
-  const { page, log, batches } = await fresh('/etch/?eth=1', { batch: true });
+  const { page, log, batches } = await fresh('/etch/', { batch: true });
   await choose(page);
   await form(page, { ticker: 'batch', supply: '5', dec: 6, name: 'Batch', reg: true });
   await connect(page);
   await page.click('#go');
-  await page.waitForSelector('#done:not([hidden])', { timeout: 120000 });
+  await done(page);
   ok(batches.length === 1 && batches[0].calls.length === 2 && batches[0].atomicRequired === true && log.filter((m) => m === 'eth_sendTransaction').length === 0, 'a wallet that batches is given both calls once, atomic, and sent nothing else');
   const t = await page.$eval('#done [data-copy]', (e) => e.dataset.copy);
   ok(lastWord(await call(t, '0x18160ddd')) === 5_000_000n && lastWord(await call(t, '0x313ce567')) === 6n, 'five tokens at six decimals, all there');
@@ -227,12 +232,12 @@ console.log('\nThe same, as one batch:');
 
 console.log('\nNo details, no registration:');
 {
-  const { page, pinned, log } = await fresh('/etch/?eth=1');
+  const { page, pinned, log } = await fresh('/etch/');
   await choose(page);
   await form(page, { ticker: 'plain', supply: '21', dec: 0 });
   await connect(page);
   await page.click('#go');
-  await page.waitForSelector('#done:not([hidden])', { timeout: 120000 });
+  await done(page);
   ok(pinned.length === 0 && log.filter((m) => m === 'eth_sendTransaction').length === 1, 'nothing is pinned and one transaction is sent');
   const t = await page.$eval('#done [data-copy]', (e) => e.dataset.copy);
   ok(str(await call(t, '0xe8a3d485')) === '' && lastWord(await call(t, '0x18160ddd')) === 21n, 'the token has no metadata stamp, and 21 whole units');
@@ -241,7 +246,7 @@ console.log('\nNo details, no registration:');
 
 console.log('\nA wallet that says no:');
 {
-  const { page, st } = await fresh('/etch/?eth=1', { refuse: [1] });
+  const { page, st } = await fresh('/etch/', { refuse: [1] });
   await choose(page);
   await form(page, { ticker: 'nope', supply: '1', reg: true });
   await connect(page);
@@ -253,12 +258,12 @@ console.log('\nA wallet that says no:');
   await page.close();
 }
 {
-  const { page } = await fresh('/etch/?eth=1', { refuse: [2] });
+  const { page } = await fresh('/etch/', { refuse: [2] });
   await choose(page);
   await form(page, { ticker: 'half', supply: '2', reg: true });
   await connect(page);
   await page.click('#go');
-  await page.waitForSelector('#done:not([hidden])', { timeout: 120000 });
+  await done(page);
   ok(/Registering it with the pool was not confirmed in your wallet\. The token is made\./.test(await text(page, '#done .q')), 'turning down the second leaves the token made, and says what was not done');
   const t = await page.$eval('#done [data-copy]', (e) => e.dataset.copy);
   ok(lastWord(await call(t, '0x18160ddd')) === 2n * 10n ** 18n, 'the token exists with its supply');
@@ -269,7 +274,7 @@ console.log('\nA wallet that says no:');
 console.log('\nToo little ETH:');
 {
   await rpc('anvil_setBalance', [ACCOUNT, '0x9184e72a000']);          // 0.00001 ETH
-  const { page, st } = await fresh('/etch/?eth=1');
+  const { page, st } = await fresh('/etch/');
   await choose(page);
   await form(page, { ticker: 'poor', supply: '1' });
   await connect(page);

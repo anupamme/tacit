@@ -6,8 +6,6 @@ import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=32a2e96a';
 
 const BTC_MODULE = '/trade/btc.js?cb=4d58b515', ETH_MODULE = '/etch/eth.js?cb=141012b7', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
-// The Ethereum side is off until the page has been opened once with ?eth=1 (and stays on in this browser after).
-const ETH_ON = (() => { try { if (new URLSearchParams(location.search).has('eth')) localStorage.setItem('tacit-etch-eth', '1'); return localStorage.getItem('tacit-etch-eth') === '1'; } catch { return new URLSearchParams(location.search).has('eth'); } })();
 const DECIMALS_OF = { btc: [0, 2, 6, 8], eth: [0, 6, 8, 18] };
 // What the pool can hold of an asset, in its base units (2^64 − 1 in-system units); on Bitcoin, the etch's own limit.
 const maxFor = (dec) => (S.chain === 'eth' ? ((1n << 64n) - 1n) * 10n ** BigInt(dec - Math.min(dec, 8)) : MAX_BASE);
@@ -521,17 +519,12 @@ const chips = () => { ui.dec.innerHTML = `<span>Decimals</span>${DECIMALS_OF[S.c
 chips();
 $('#form').addEventListener('submit', (e) => { e.preventDefault(); act(); });
 $('#form').addEventListener('input', () => { warm(); if (!S.busy && !S.soft) say(''); paint(); needQuote(); });
-if (!ETH_ON) {                                         // with the Ethereum side on, a visitor may not want the Bitcoin library: it waits for the first thing typed
-  $('#form').addEventListener('pointerenter', warm, { once: true, passive: true });
-  $('#form').addEventListener('focusin', warm, { once: true });
-}
 $('#more').addEventListener('toggle', warm);
 ui.dec.addEventListener('click', (e) => {
   const b = e.target.closest('[data-d]');
   if (!b) return;
   S.dec = Number(b.dataset.d); paint();
 });
-if (ETH_ON) { $('#chain').hidden = false; $('.lede').textContent = 'Make a token, or look one up.'; }
 $('#chain').addEventListener('click', (e) => { const b = e.target.closest('[data-chain]'); if (b) setChain(b.dataset.chain); });
 ui.reg.addEventListener('change', paint);
 document.addEventListener('click', (e) => {
