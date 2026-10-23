@@ -142,6 +142,12 @@ export async function proveReflection(input) {
     // The network's refusal is reported on stderr, which the message above leaves out; it is marked here so the caller
     // can tell a batch the network would not run from a crash.
     fail.unexecutable = isUnexecutable(err);
+    // A request the account cannot pay for (the credit under what the request reserves) is refused the same way; the figures
+    // stay on the error for the stage to log and to wait on (lib/prove-pause.js).
+    if (CREDIT_SHORT.test(err) || CREDIT_SHORT.test(out)) {
+      fail.creditShort = true;
+      fail.refusal = String(err || '').slice(-4000);
+    }
     throw fail;
   }
 }

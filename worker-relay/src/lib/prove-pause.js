@@ -30,6 +30,16 @@ export function standingNote({ paused, short, board }) {
 export const CREDIT_SHORT = /Resource_?Exhausted|insufficient (balance|funds|credits?)|out of credits?/i;
 export const creditShort = (e) => !!e && (e.creditShort === true || CREDIT_SHORT.test(String(e.message || e)));
 
+// The two figures in the network's refusal, `insufficient balance 17.8126 PROVE for request cost 19.6030 PROVE`: what the account holds
+// and what the request reserves (its gas limit at the price cap, plus the base fee), as PROVE wei. The need is rounded up past the
+// four decimals the network prints. -> { haveWei, needWei } or null when the text is not that refusal.
+export function creditRefusal(text) {
+  const m = /insufficient balance ([\d.]+) PROVE for request cost ([\d.]+) PROVE/.exec(String(text || ''));
+  if (!m) return null;
+  const units = (x, up) => BigInt(up ? Math.ceil(Number(x) * 1e4) + 1 : Math.round(Number(x) * 1e4)) * 10n ** 14n;
+  return { haveWei: units(m[1], false), needWei: units(m[2], true) };
+}
+
 // Whether a credit reading (PROVE wei) covers a request. An unread one (null) covers nothing.
 export const creditCovers = (wei, minWei) => wei != null && BigInt(wei) >= BigInt(minWei);
 

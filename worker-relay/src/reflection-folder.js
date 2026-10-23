@@ -27,7 +27,8 @@ import { isMatured } from './lib/maturity.js';
 import { reflectionJob, reflectionAck, reflectionPending, reflectionAttestState, reflectionSubmitted, reflectionProofPublish, reflectionEthState, heartbeat, heartbeatIdle } from './lib/worker-client.js';
 import { awaitAttestLanding, digestDeepEnough } from './lib/attest-wait.js';
 import { recoverLostAck } from './lib/reflection-reconcile.js';
-import { proveReflection } from './lib/prover.js';
+import { proveReflection, proverCredit } from './lib/prover.js';
+import { creditShort, creditRefusal, makeProvePause } from './lib/prove-pause.js';
 import { nextBlockCap } from './lib/block-cap.js';
 import { makeHeldProof } from './lib/held-proof.js';
 import { relayWallet, publicClient, verifyClient, readPool, readReflectionDigest, POOL, POOL_ABI, gasAboveCap, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
@@ -47,8 +48,15 @@ const ATTEST_CONFIRMATIONS = Math.max(1, parseInt(process.env.ATTEST_CONFIRMATIO
 let blockCap = null;
 // The proof bought for the batch in hand, kept until the batch lands (lib/held-proof.js).
 const heldProof = makeHeldProof();
+// Set while the network is refusing requests for want of credit: the stage then does nothing but read the credit every few minutes
+// (no job assembled, no input built) and goes on once it covers what a request reserves.
+let creditPause = null;
 
 async function cycle() {
+  if (creditPause) {
+    if (await creditPause.check()) { await heartbeat('reflection', 'paused; waiting to prove'); return false; }
+    creditPause = null;
+  }
   const job = await reflectionJob({ maxBlocks: blockCap || 0 });
   // The API could not put a batch together (its block sources throttling, a restart): not the same as caught up, and said so.
   if (job?.unavailable) {
@@ -180,6 +188,17 @@ async function cycle() {
     try {
       proved = await proveReflection(job.input);
     } catch (e) {
+      // The prover account cannot pay what the request reserves (REFLECT_GAS_LIMIT at the price cap, plus the base fee), whatever the
+      // batch will really use. Pause on the figures the network gave, so the credit is read again rather than a job built each time.
+      const short = creditShort(e) && creditRefusal(e.refusal);
+      if (short) {
+        const have = (Number(short.haveWei) / 1e18).toFixed(2), need = (Number(short.needWei) / 1e18).toFixed(2);
+        log(`the prover credit (${have} PROVE) is under the ${need} PROVE a request reserves at REFLECT_GAS_LIMIT=${process.env.REFLECT_GAS_LIMIT || 'default'} — waiting for a top-up`);
+        creditPause = makeProvePause({ readCredit: proverCredit, minWei: short.needWei, everyMs: CFG.reflectionCreditRecheckSecs * 1000, log });
+        creditPause.enter(`${have} PROVE held, ${need} reserved`);
+        await heartbeat('reflection', 'paused; waiting to prove');
+        return false;
+      }
       // The network refusing to run the request (the batch costs more gas than REFLECT_GAS_LIMIT allows) repeats
       // for as long as the same batch is served, so the next job is asked for at half the blocks.
       const next = nextBlockCap(blockCap, { unexecutable: e?.unexecutable, blocks: job.blocks });

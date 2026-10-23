@@ -41,6 +41,7 @@ import { proveEthState, commitEthProveState } from './lib/prover.js';
 import { readPool } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 import { resumeMismatch, rebuildFromConfirmed } from './lib/eth-state-resume.js';
+import { finalizedSlot, finalityNotAdvanced } from './lib/beacon-finality.js';
 
 const log = (...a) => console.log(`[eth-state ${new Date().toISOString()}]`, ...a);
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -202,6 +203,18 @@ async function cycle() {
     throw new Error('SOURCE_CONSENSUS_RPC/SOURCE_EXECUTION_RPC/ETH_CALL_OUTBOX/GENESIS_SLOT must all be set '
       + '(pinned per deployment); refusing to guess them');
   }
+
+  // The guest refuses a candidate whose finalized head has not moved past the last one's, and this stage starts the moment an
+  // attest lands, often before finality has moved (every ~6.4 min). The network would refuse the request as unexecutable and the
+  // retry would wait two minutes, so ask the beacon node and wait for the head. A reading that fails is not a reason to wait.
+  try {
+    const wait = finalityNotAdvanced({ committed, slot: await finalizedSlot(CFG.sourceConsensusRpc) });
+    if (wait) {
+      log(`${wait} — waiting for finality to move before asking the network to prove`);
+      await heartbeat('eth-state', 'waiting for Ethereum finality to move');
+      return false;
+    }
+  } catch (e) { log(`finality check unavailable (${e.message}) — proceeding`); }
 
   // Free local dry-run first: catches a bad witness or a
   // digest-chain mismatch via a low, early-panic cycle count before spending a real network prove on it.

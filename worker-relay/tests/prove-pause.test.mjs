@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  NOTE_HELD, NOTE_HELD_BOARD, NOTE_PAUSED, boardProving, standingNote, CREDIT_SHORT, creditShort, creditCovers, makeProvePause,
+  NOTE_HELD, NOTE_HELD_BOARD, NOTE_PAUSED, boardProving, standingNote, CREDIT_SHORT, creditShort, creditCovers, creditRefusal, makeProvePause,
 } from '../src/lib/prove-pause.js';
 import { retryPublic } from '../src/lib/private-prove.js';
 
@@ -139,4 +139,24 @@ test('a credit that cannot be read leaves the pause as it is', async () => {
   r.set(5n * PROVE);
   r.tick(120_000);
   assert.equal(await r.p.check(), false, 'resumed on the first reading that covers a request');
+});
+
+test('the network\'s refusal for want of credit yields what the account holds and what the request reserves', () => {
+  const text = 'groth16 proof failed: status: ResourceExhausted, message: "insufficient balance 17.8126 PROVE for request cost 19.6030 PROVE", details: []';
+  const r = creditRefusal(text);
+  assert.equal(r.haveWei, 17_8126n * 10n ** 14n);
+  assert.ok(r.needWei > 19_6030n * 10n ** 14n && r.needWei <= 19_6032n * 10n ** 14n, 'the need is rounded up past the four decimals printed');
+  assert.ok(creditShort({ message: text }), 'and it is the same refusal the pause already recognises');
+  assert.equal(creditRefusal('groth16 proof failed: request is unexecutable'), null);
+  assert.equal(creditRefusal(undefined), null);
+});
+
+test('a credit that reads exactly the printed need does not resume a pause whose need was rounded up', async () => {
+  const need = creditRefusal('insufficient balance 17.8126 PROVE for request cost 19.6030 PROVE').needWei;
+  let at = 5000, credit = 19_6030n * 10n ** 14n;
+  const p = makeProvePause({ readCredit: async () => credit, minWei: need, everyMs: 1000, now: () => at });
+  p.enter(); at += 1000;
+  assert.equal(await p.check(), true, 'the printed figure alone is not enough: the network held back a hair more');
+  credit = need; at += 1000;
+  assert.equal(await p.check(), false);
 });
