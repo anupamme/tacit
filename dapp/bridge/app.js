@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=cb34691b';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=9bdc3efd';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -208,7 +208,6 @@ function wireTile() {
 let ROWS = [];
 // Moving them on from this page (mover.js, loaded when asked): the presses it can make itself
 let MV = null, MVP = null;
-const HERE = { 'Burn it': 'burn', 'Mint now': 'mint' };
 
 function rowHtml(r) {
   const a = ROUTES[r.asset] || ROUTES.tac;
@@ -217,8 +216,11 @@ function rowHtml(r) {
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
   const where = r.done ? (r.paid ? 'Sent' : 'Arrived') : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
-  const here = MV?.open && r.dir === 'in' && r.pub === MV.pub && HERE[nx.due];
-  const act = here ? `<button type="button" class="mb-due" data-mv-act="${here}" data-id="${esc(r.id)}">${esc(nx.due)}</button>`
+  // with the key open here, a bridge of that key offers its presses (track.js `acts`) as buttons; one that goes on by itself says so
+  const mine = MV?.open && r.pub === MV.pub && !r.done && !r.back;
+  const btn = (x) => `<button type="button" class="${x.main ? 'mb-due' : 'mb-alt'}" data-mv-act="${x.kind}" data-id="${esc(r.id)}">${esc(x.kind === 'cancel' && MV.armed(r.id) ? 'Yes, cancel it' : x.label)}</button>`;
+  const act = mine && r.acts?.length ? r.acts.map(btn).join('')
+    : mine && r.dir === 'out' && r.stage === 'covered' && nx.due === 'Send to Bitcoin' ? '<span class="mb-self">Goes on by itself</span>'
     : nx.due
     ? `<a class="mb-due" href="${r.href}">${esc(nx.due)} <span aria-hidden="true">→</span></a>`
     : r.done || r.back ? '' : nx.self ? '<span class="mb-self">Goes on by itself</span>'
@@ -330,7 +332,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=7d0ea648').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=ec468a0e').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });

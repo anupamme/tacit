@@ -4,7 +4,8 @@
 // the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
-import { stepIn, stepOut, outPubs } from '/bridge-tick.js?cb=84475d9e';
+import { stepIn, stepOut, advanceOut, outPubs } from '/bridge-tick.js?cb=84475d9e';
+import { ROUTES } from '/bridge/track.js?cb=9bdc3efd';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
@@ -62,36 +63,92 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     return true;
   }
 
-  // The two presses: the burn of a bridge that is moved and traced (it waits for the holder), and the mint of a recorded one. Anything the relay
-  // will not take, and the holder who proves their own mints, is sent to the front page.
+  // The presses a bridge offers (track.js `acts`), made with the key: the front page's own, one call to the bridge's engine each. What the relay
+  // will not take, and the holder who proves their own mints, is sent to the front page. A bridge is cancelled on the second press.
+  let drop = null;                                                                   // the bridge a first press of Cancel asked about: { id, at }
+  const armed = (id) => drop?.id === id && Date.now() - drop.at < 120e3;
+  const txt = (e) => String(e?.message || e).replace(/^(crossout-ux|burndep-ux):\s*/, '').slice(0, 200);
+  const outState = (after, ticker) => (after.stage === 'minted' ? `✓ ${ticker} is on your Bitcoin address.` : after.lastError ? `Checked: ${txt(after.lastError.message)}` : 'Checked: its row says where it stands.');
+
+  async function pressIn(T, pub, row, kind) {
+    const ux = T.bridgeUx(), id = row.id, rec = ux.list(pub).find((r) => r.id === id);
+    if (!rec) return say('That bridge is not in this browser’s record any more. Reload the page.');
+    const priv = () => key.priv();
+    if (kind === 'mint' && read(SELF_PROVE + pub) === true) return say('You prove your own mints, which the front page does.', true);
+    if (kind === 'burn') {
+      say('Signing the burn and sending it to a miner…');
+      let after = await TS.withKey(() => ux.advance(pub, id, { walletPriv: priv(), go: true }), pub);
+      if (after.stage === 'burn-signed') after = await ux.advance(pub, id).catch(() => ux.list(pub).find((r) => r.id === id) || after);
+      return say(BURN_SENT.includes(after.stage) ? '✓ Burn sent.'
+        : after.stage === 'traced' && after.checkWait ? 'Its history is being checked before the burn. This page sends the burn once the check is done, while it is open with your key.'
+        : after.stage === 'traced' ? 'Not yet: it waits for Bitcoin’s proof to reach the move. Try again later.'
+        : after.stage === 'burn-signed' ? 'Signed, but the miner did not take it yet. It is tried again on its own.' : 'Checked.');
+    }
+    if (kind === 'mint' || kind === 'poll') {
+      say(kind === 'mint' ? 'Minting: the relay proves it, about a minute…' : 'Trying again…');
+      const after = await TS.withKey(() => ux.advance(pub, id, { walletPriv: priv() }), pub);
+      return say(after.stage === 'minted' ? '✓ Minted: it is in your private balance.'
+        : after.mintJob && !after.lastError ? 'Its mint is with the relay and lands on its own, usually within minutes. It is not sent twice.' : after.lastError ? `Checked: ${txt(after.lastError.message)}` : 'Checked.');
+    }
+    if (kind === 'reclaim') {
+      const moved = await TS.withKey(() => ux.reclaim({ rec, walletPriv: priv() }), pub);
+      return say(moved && moved.stage !== 'reclaim-sent' ? 'Its burn is already with Bitcoin, so there is nothing to move back: the bridge goes on from the burn.'
+        : 'Moving it back to your Bitcoin address. It shows there once it confirms.');
+    }
+    if (kind === 'recover') {
+      const after = await ux.recover({ rec, walletPriv: priv() }).catch(async (e) => {
+        if (rec.path !== 'reflected' || !/completed|mint it instead/i.test(String(e?.message))) throw e;
+        await ux.recheckBurn(pub, id);
+        return null;
+      });
+      return say(!after ? 'Bitcoin’s proof on Ethereum did record this burn: it goes on to its mint.'
+        : after.stage === 'recovered' ? '✓ It is back on your Bitcoin address.' : 'Recovering: it returns to your Bitcoin address, usually within the hour.');
+    }
+    if (kind === 'recheck') {
+      const after = await ux.recheckBurn(pub, id);
+      return say(after.stage === 'rburn-mined' ? 'Looking again: it is waiting for Bitcoin’s proof on Ethereum to record the burn.' : 'Checked.');
+    }
+    if (kind === 'cancel') {
+      if (!armed(id)) { drop = { id, at: Date.now() }; say('Cancelling drops this bridge from this page once Bitcoin is asked again and has neither of its transactions; what it holds stays where it is. Press “Yes, cancel it” to go ahead.'); return; }
+      drop = null;
+      say('Asking Bitcoin for its transactions once more…');
+      const txid = rec.burn?.txid || rec.migrate?.revealTxid, after = await ux.cancelSigned(pub, id);
+      return say(after ? 'Bitcoin has this bridge’s transaction, so it was not cancelled: it goes on from its row.' : `Cancelled. What it held is where it was.${txid ? ` Its transaction id, should it ever show on Bitcoin: ${txid}` : ''}`);
+    }
+    say('That press is on the front page.', true);
+  }
+
+  async function pressOut(T, pub, row, kind) {
+    const ux = T.crossoutUx(), id = row.id, rec = ux.list(pub).find((r) => r.id === id);
+    if (!rec) return say('That bridge is not in this browser’s record any more. Reload the page.');
+    const priv = () => key.priv(), keyPub = () => key.key?.pubHex, ticker = ROUTES[row.asset]?.ticker || 'It';
+    if (kind === 'cancel') {
+      return say(await ux.cancelIntent(pub, id) ? 'That burn had landed on Ethereum: it goes on from its row.' : 'Cancelled: no burn for it was found on Ethereum.');
+    }
+    let cur = rec;
+    if (kind === 'recheck') cur = await ux.recoverFromEthTx('0x' + String(rec.settle.txHash).replace(/^0x/, ''), priv(), { amount: BigInt(rec.source.amount ?? rec.source.value) });
+    if (kind === 'resign') cur = await ux.resign(pub, id);
+    if (kind === 'retry') cur = await ux.retryRejected(pub, id);
+    say(kind === 'force' ? 'Sending it to Bitcoin at today’s fee…' : kind === 'retry' ? 'Sending the Bitcoin step again…' : 'Checking…');
+    say(outState(await advanceOut(ux, pub, cur, { withKey: TS.withKey, priv, keyPub, allowHighFee: kind === 'force' }), ticker));
+  }
+
   async function press(kind, row) {
     if (!key.unlocked) return say('Open your Tacit wallet first.');
     const pub = key.key.pubHex;
+    if (!row) return;
     if (row.pub && row.pub !== pub) return say('That bridge belongs to another Tacit key. Open that one to move it on.');
     if (busy) return say('Checking your bridges: press again in a moment.');
     busy = true;
     try {
-      const T = await TS.load(), ux = T.bridgeUx(), rec = ux.list(pub).find((r) => r.id === row.id);
-      if (!rec) return say('That bridge is not in this browser’s record any more. Reload the page.');
-      if (kind === 'mint' && read(SELF_PROVE + pub) === true) return say('You prove your own mints, which the front page does.', true);
-      if (kind === 'burn') {
-        say('Signing the burn and sending it to a miner…');
-        let after = await TS.withKey(() => ux.advance(pub, row.id, { walletPriv: key.priv(), go: true }), pub);
-        if (after.stage === 'burn-signed') after = await ux.advance(pub, row.id).catch(() => ux.list(pub).find((r) => r.id === row.id) || after);
-        say(BURN_SENT.includes(after.stage) ? '✓ Burn sent.'
-          : after.stage === 'traced' && after.checkWait ? 'Its history is being checked before the burn. This page sends the burn once the check is done, while it is open with your key.'
-          : after.stage === 'traced' ? 'Not yet: it waits for Bitcoin’s proof to reach the move. Try again later.'
-          : after.stage === 'burn-signed' ? 'Signed, but the miner did not take it yet. It is tried again on its own.' : 'Checked.');
-      } else {
-        say('Minting: the relay proves it, about a minute…');
-        const after = await TS.withKey(() => ux.advance(pub, row.id, { walletPriv: key.priv() }), pub);
-        say(after.stage === 'minted' ? '✓ Minted: it is in your private balance.'
-          : after.mintJob && !after.lastError ? 'Its mint is with the relay and lands on its own, usually within minutes. It is not sent twice.' : 'Checked.');
-      }
+      const T = await TS.load();
+      await (row.dir === 'out' ? pressOut : pressIn)(T, pub, row, kind);
     } catch (e) {
-      say(refused(e) ? 'The relay can’t take this one right now.' : String(e?.message || e).slice(0, 200), refused(e));
+      const f = e?.fundWait ? `Still no free coin of ${Number(e.needSats).toLocaleString('en-US')} sats on this key’s Bitcoin address. This goes on by itself once it is there.`
+        : /another tab/i.test(txt(e)) ? 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.' : null;
+      say(f || (refused(e) ? 'The relay can’t take this one right now.' : txt(e)), refused(e));
     } finally { busy = false; repaint(); }
   }
 
-  return { toggle, press, tick, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, armed, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

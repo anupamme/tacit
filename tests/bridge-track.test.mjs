@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { checkNote, readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { checkNote, readBridges, inRow, outRow, inActs, outActs, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 import { makeCrossoutMintReveal } from '../dapp/crossout-mint-reveal.js';
@@ -286,4 +286,36 @@ test('the front page words the same wait, from the same facts', () => {
       assert.equal(page.replace('so this page asks', 'so it asks'), sentence, JSON.stringify(cw));
     }
   } finally { Date.now = real; }
+});
+
+// the presses a row offers its holder are the front page's row buttons: one main press for what waits on the holder, the rest alongside
+test('inActs and outActs: the presses a bridge offers', () => {
+  const kinds = (xs) => xs.map((a) => a.kind + (a.main ? '*' : '')).join();
+  const inr = (stage, extra = {}) => ({ id: 'x', stage, path: 'reflected', source: {}, ...extra });
+  assert.equal(kinds(inActs(inr('traced'), 'Burn it')), 'burn*');
+  assert.equal(kinds(inActs(inr('rfolded'), 'Mint now')), 'mint*');
+  assert.equal(kinds(inActs(inr('stopped'), 'Move it back')), 'reclaim*');
+  assert.equal(kinds(inActs(inr('not-recorded'), 'Recover')), 'recover*,recheck');
+  assert.equal(kinds(inActs(inr('not-recorded', { source: { p2tr: true } }), '')), 'recheck', 'a note that cannot be recovered can still be looked at again');
+  assert.equal(kinds(inActs(inr('migrate-signed', { lastError: { message: 'x' }, errorCount: 3 }), 'Try again or cancel')), 'poll*,cancel');
+  assert.equal(kinds(inActs(inr('burn-mined', { lastError: { message: 'x' } }), '')), 'poll', 'any other bridge that is failing offers Try again');
+  assert.equal(kinds(inActs(inr('burn-mined'), '')), '', 'one that goes on by itself offers none');
+  assert.equal(kinds(inActs(inr('recovered', { lastError: { message: 'x' } }), '')), '', 'a bridge set aside offers none');
+  const out = (stage, extra = {}) => ({ id: 'y', stage, source: {}, ...extra });
+  const T0 = NOW;
+  assert.equal(kinds(outActs(out('settled', { settle: { claimIdVerified: false } }), T0)), 'recheck*');
+  assert.equal(kinds(outActs(out('settling', { createdAt: T0 - 3600e3 }), T0)), 'poll');
+  assert.equal(kinds(outActs(out('settling', { createdAt: T0 - 3 * 3600e3 }), T0)), 'poll,cancel', 'an old burn that has not been seen can be cancelled');
+  assert.equal(kinds(outActs(out('covered', { lastError: { message: 'crossout-ux: Bitcoin fees are high right now' }, errorCount: 1 }), T0)), 'force*');
+  assert.equal(kinds(outActs(out('covered', { lastError: { fundWait: true, message: 'x' } }), T0)), 'poll', 'waiting for sats: Check again');
+  assert.equal(kinds(outActs(out('covered'), T0)), '', 'covered with nothing wrong goes on by itself');
+  assert.equal(kinds(outActs(out('mint-rejected', { settle: { claimIdVerified: true }, attempts: [1] }), T0)), 'retry*');
+  assert.equal(kinds(outActs(out('mint-rejected', { settle: { claimIdVerified: true }, attempts: [1, 2] }), T0)), '', 'the third rejection is looked at, not sent again');
+  assert.equal(kinds(outActs(out('mint-signed', { lastError: { message: 'x' }, errorCount: 3 }), T0)), 'poll,resign');
+  assert.equal(kinds(outActs(out('mint-signed', { lastError: { message: 'x' }, errorCount: 1 }), T0)), 'poll');
+  assert.equal(kinds(outActs(out('minted'), T0)), '');
+  // rows carry them
+  const row = outRow(out('covered', { lastError: { message: 'Bitcoin fees are high right now' }, errorCount: 1, source: { value: big(5), amount: big(4) } }), T0);
+  assert.deepEqual(row.acts.map((a) => a.kind), ['force']);
+  assert.deepEqual(inRow(inr('minted'), T0).acts, [], 'an arrived bridge offers none');
 });

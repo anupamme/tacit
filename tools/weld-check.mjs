@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8832,6 +8832,7 @@ await step('bridgeout', async () => {
     await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
     await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
     await r.page.waitForSelector('#bo-amt', { timeout: 120000 });
+    await until(r.page, () => /Use the most \(/.test(document.querySelector('#bo-max')?.textContent || ''), null, 60000);
     ok(await r.page.isHidden('#bt-here') && /Use the most \(100 TAC\)/.test(await text(r.page, '#bo-max')), `bridgeout: with the key open the form takes the place of the offer, and says what is private (${await text(r.page, '#bo-max')})`);
     // under the least
     await typed('10');
@@ -8871,6 +8872,90 @@ await step('bridgeout', async () => {
     await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'in' && document.querySelector('#bt-form')?.hidden, null, 30000);
     ok(await r.page.isHidden('#bt-here'), 'bridgeout: the way in from Bitcoin has no form here');
     if (r.errors.length) { fails++; console.log('FAIL bridgeout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The other presses a bridge row offers once the key is open on the bridge page (move back, recover, check again, try again, cancel on a second
+// press, and on the way out: send again, check the burn again, sign again): each is one call to the bridge's engine with the key, and each says
+// what came of it. tacit.js is a stub that records the calls and moves the journals; the key sheet and the page are the real ones.
+await step('bridgepresses', async () => {
+  const TACID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', TETHID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/tacit\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const S = window.__bp = { calls: [] };
+    export const wallet = { priv: null, pub: null, mode: null };
+    export const invalidateHoldingsCache = () => {};
+    const IN = 'tacit-burndep-bridge-v1:mainnet:', OUT = 'tacit-crossout-bridge-v1:mainnet:';
+    // as the engines list a journal: an amount is a bigint
+    const get = (k) => JSON.parse(localStorage.getItem(k) || '[]', (_k, v) => (v && typeof v === 'object' && '__big' in v ? BigInt(v.__big) : v));
+    const put = (k, l) => localStorage.setItem(k, JSON.stringify(l, (_k, v) => (typeof v === 'bigint' ? { __big: String(v) } : v)));
+    const set = (key, pub, id, patch) => { const l = get(key + pub); const r = l.find((x) => x.id === id); if (r) { Object.assign(r, patch); if (patch.lastError === null) delete r.lastError; } put(key + pub, l); return r; };
+    const drop = (key, pub, id) => put(key + pub, get(key + pub).filter((x) => x.id !== id));
+    const note = (what, id, o) => S.calls.push([what, id, o?.walletPriv ? o.walletPriv.length : null]);
+    export const bridgeUx = () => ({
+      list: (pub) => get(IN + pub), armMint: async () => {}, mintRetryDue: () => false,
+      verify: async (pub, id) => get(IN + pub).find((x) => x.id === id),
+      advance: async (pub, id, o) => { if (o?.walletPriv) note('advance', id, o); return get(IN + pub).find((x) => x.id === id); },
+      reclaim: async ({ rec, walletPriv }) => { note('reclaim', rec.id, { walletPriv }); return set(IN, rec.walletPub, rec.id, { stage: 'reclaim-sent' }); },
+      recover: async ({ rec, walletPriv }) => { note('recover', rec.id, { walletPriv }); return set(IN, rec.walletPub, rec.id, { stage: 'recovered' }); },
+      recheckBurn: async (pub, id) => { note('recheck', id); return get(IN + pub).find((x) => x.id === id); },
+      cancelSigned: async (pub, id) => { note('cancelSigned', id); drop(IN, pub, id); return null; },
+    });
+    export const crossoutUx = () => ({
+      list: (pub) => get(OUT + pub),
+      advance: async (pub, id, o) => { note('out', id, o); return get(OUT + pub).find((x) => x.id === id) || { id, stage: 'settled' }; },
+      retryRejected: async (pub, id) => { note('retry', id); return set(OUT, pub, id, { stage: 'covered', lastError: null }); },
+      recoverFromEthTx: async (h, p, o) => { note('recheckBurn', h.length + ':' + String(o.amount)); return { id: 'x', stage: 'settled', settle: { txHash: h, claimIdVerified: true }, source: { amount: String(o.amount) } }; },
+      resign: async (pub, id) => { note('resign', id); return set(OUT, pub, id, { stage: 'covered', lastError: null }); },
+    });` }));
+  const bp = () => r.page.evaluate(() => window.__bp);
+  const said = () => text(r.page, '#mine-s').then((t) => t.replace(/\s+/g, ' ').trim());
+  const press = async (kind, id, waitFor) => {
+    await r.page.click(`#mine-l [data-mv-act="${kind}"][data-id="${id}"]`);
+    await until(r.page, (re) => new RegExp(re).test(document.querySelector('#mine-s')?.textContent || ''), waitFor, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${kind} ${await said()} | ${JSON.stringify((await bp())?.calls)}`); });
+  };
+  try {
+    await r.page.goto(r.url + 'bridge/');
+    const pub = await r.page.evaluate(async () => { const m = await import('/trade/key.js'); const s = m.makeKeySession(); await s.open.eth(null); return s.key.pubHex; });
+    const recIn = (n, stage, extra = {}) => ({ id: `${n.repeat(32)}:0`, network: 'mainnet', walletPub: pub, path: 'reflected', stage, createdAt: Date.now() - 1e6,
+      source: { txid: n.repeat(32), vout: 0, sats: 546, assetId: '0x' + TACID, amount: { __big: '10000000000' }, blinding: { __big: '777' } },
+      burn: { txid: 'bb'.repeat(32), hex: '00' }, envelope: { destLeaf: '0x' + 'ee'.repeat(32) }, ...extra });
+    const recOut = (n, stage, extra = {}) => ({ id: '0x' + n.repeat(32), network: 'mainnet', walletPub: pub, stage, createdAt: Date.now() - 9e5, destXonly: 'ab'.repeat(32),
+      source: { nullifier: '0x' + n.repeat(32), value: { __big: '400000' }, amount: { __big: '390000' }, fee: { __big: '10000' }, assetId: '0x' + TETHID, ticker: 'tETH' },
+      settle: { txHash: n.repeat(32), claimId: '0x' + n.repeat(32), cx: '0x' + 'c2'.repeat(32), cy: '0x' + 'c3'.repeat(32), destCommitment: '0x' + 'dd'.repeat(32), ethBlock: 1, claimIdVerified: true }, ...extra });
+    const I = ['a1', 'a2', 'a3'].map((n) => `${n.repeat(32)}:0`), O = ['c1', 'c2', 'c3'].map((n) => '0x' + n.repeat(32));
+    await r.page.evaluate(([k1, a, k2, b]) => { localStorage.setItem(k1, JSON.stringify(a)); localStorage.setItem(k2, JSON.stringify(b)); },
+      [`tacit-burndep-bridge-v1:mainnet:${pub}`, [recIn('a1', 'stopped'), recIn('a2', 'not-recorded'), recIn('a3', 'migrate-signed', { lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 })],
+        `tacit-crossout-bridge-v1:mainnet:${pub}`, [recOut('c1', 'mint-rejected', { attempts: ['1'], rejectedStatus: 'rejected' }), recOut('c2', 'settled', { settle: { txHash: 'c2'.repeat(32), claimIdVerified: false } }),
+          recOut('c3', 'mint-signed', { lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 })]]);
+    await r.page.reload();
+    await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
+    await r.page.click('#mine-mv');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector(`#mine-l [data-mv-act="reclaim"]`, { timeout: 120000 });
+    const kinds = await r.page.$$eval('#mine-l [data-mv-act]', (b) => b.map((x) => `${x.dataset.mvAct}`).sort().join());
+    ok(kinds === 'cancel,poll,poll,recheck,recheck,recover,reclaim,resign,retry'.split(',').sort().join(), `bridgepresses: each row offers the presses the front page's row does (${kinds})`);
+    await press('reclaim', I[0], 'Moving it back');
+    ok((await bp()).calls.some((c) => c[0] === 'reclaim' && c[1] === I[0] && c[2] === 32), 'bridgepresses: a stopped bridge is moved back with the key');
+    await press('recover', I[1], 'back on your Bitcoin address');
+    ok((await bp()).calls.some((c) => c[0] === 'recover' && c[1] === I[1]), 'bridgepresses: a burn that was not recorded is recovered');
+    // cancel takes two presses
+    await r.page.click(`#mine-l [data-mv-act="cancel"][data-id="${I[2]}"]`);
+    await until(r.page, () => /Press “Yes, cancel it”/.test(document.querySelector('#mine-s')?.textContent || ''), null, 30000);
+    ok(!(await bp()).calls.some((c) => c[0] === 'cancelSigned') && /Yes, cancel it/.test(await text(r.page, `#mine-l [data-mv-act="cancel"][data-id="${I[2]}"]`)), 'bridgepresses: the first press of Cancel asks, and sends nothing');
+    await press('cancel', I[2], 'Cancelled\\.');
+    ok((await bp()).calls.some((c) => c[0] === 'cancelSigned' && c[1] === I[2]), 'bridgepresses: the second press cancels it, once Bitcoin is asked again');
+    // the way out
+    await press('retry', O[0], 'Checked');
+    ok((await bp()).calls.some((c) => c[0] === 'retry' && c[1] === O[0]), 'bridgepresses: a rejected Bitcoin step is sent again');
+    await r.page.evaluate(() => { window.__bp.calls.length = 0; });
+    await press('recheck', O[1], 'Checked');
+    ok((await bp()).calls.some((c) => c[0] === 'recheckBurn' && c[1] === `66:390000`), 'bridgepresses: a burn whose claim was not matched is rebuilt from its Ethereum transaction and amount');
+    await press('resign', O[2], 'Checked');
+    ok((await bp()).calls.some((c) => c[0] === 'resign' && c[1] === O[2]), 'bridgepresses: a signed pair Bitcoin keeps rejecting is signed again');
+    if (r.errors.length) { fails++; console.log('FAIL bridgepresses page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

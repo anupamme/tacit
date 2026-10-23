@@ -107,6 +107,20 @@ export function checkNote(cw, now = Date.now()) {
   }
   return '';
 }
+// The presses a bridge in offers its holder, as the front page's row does: [{ kind, label, main }]. They are made with the key, by the page
+// that holds it (mover.js here, the front page otherwise). A bridge that goes on by itself offers none.
+export function inActs(r, due, now = Date.now()) {
+  const failing = !!r.lastError && !['not-recorded', 'stopped', 'recovered', 'minted', 'reclaimed'].includes(r.stage);
+  const acts = [];
+  if (due === 'Burn it') acts.push({ kind: 'burn', label: 'Burn it', main: true });
+  else if (due === 'Mint now') acts.push({ kind: 'mint', label: 'Mint now', main: true });
+  else if (due === 'Move it back') acts.push({ kind: 'reclaim', label: 'Move it back', main: true });
+  else if (due === 'Recover') acts.push({ kind: 'recover', label: 'Recover', main: true }, { kind: 'recheck', label: 'Check again' });
+  else if (due === 'Try again or cancel') acts.push({ kind: 'poll', label: 'Try again', main: true }, { kind: 'cancel', label: 'Cancel this bridge' });
+  else if (failing) acts.push({ kind: 'poll', label: 'Try again' });
+  if (r.stage === 'not-recorded' && r.path === 'reflected' && !acts.some((a) => a.kind === 'recheck')) acts.push({ kind: 'recheck', label: 'Check again' });
+  return acts;
+}
 export function inRow(r, now = Date.now(), plan = null) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.in || ROUTES.tac.in;
@@ -117,7 +131,7 @@ export function inRow(r, now = Date.now(), plan = null) {
     // a bridge that paid someone else ends in a payment to them, not a private note for the key
     at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: r.stealth ? [...route.steps.slice(0, 3), 'Paid privately'] : route.steps, href: route.href, paid: !!r.stealth,
     done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
-    due: done ? '' : inDue(r, now, plan), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
+    due: done ? '' : inDue(r, now, plan), acts: done || r.stage === 'reclaimed' ? [] : inActs(r, inDue(r, now, plan), now), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
     checkNote: r.stage === 'traced' && !r.lastError ? checkNote(r.checkWait, now) : '',
     btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: r.mintedTxHash ? '0x' + lc(r.mintedTxHash) : null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
@@ -135,14 +149,31 @@ export function outDue(r) {
   return '';
 }
 
-export function outRow(r) {
+// The same for a bridge out. Its Bitcoin step is sent by the page's pass, so a covered bridge has a press only when fees held it back.
+export function outActs(r, now = Date.now()) {
+  const unsure = !!r.settle && r.settle.claimIdVerified === false, fund = r.stage === 'covered' && !!r.lastError?.fundWait;
+  const failing = !!r.lastError && !fund, rejected = r.stage === 'mint-rejected', tries = Number(r.errorCount) || 0;
+  const high = failing && /fees are high/i.test(String(r.lastError?.message || ''));
+  const acts = [];
+  if (r.stage === 'minted') return acts;
+  if (unsure) acts.push({ kind: 'recheck', label: 'Check it again', main: true });
+  else if (r.stage === 'settling') acts.push({ kind: 'poll', label: 'Look again' });
+  else if (r.stage === 'covered' && high) acts.push({ kind: 'force', label: 'Send it anyway', main: true });
+  else if (rejected && r.settle?.claimIdVerified !== false && (r.attempts || []).length + 1 < 3) acts.push({ kind: 'retry', label: 'Send it again', main: true });
+  else if (fund) acts.push({ kind: 'poll', label: 'Check again' });
+  else if (failing && !rejected) acts.push({ kind: 'poll', label: 'Try again' });
+  if ((r.stage === 'mint-signed' || r.stage === 'mint-submitted') && failing && tries >= 3) acts.push({ kind: 'resign', label: 'Sign it again' });
+  if (r.stage === 'settling' && now - Number(r.createdAt || now) > 2 * 3600e3) acts.push({ kind: 'cancel', label: 'Cancel' });
+  return acts;
+}
+export function outRow(r, now = Date.now()) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.out || ROUTES.tac.out;
   const done = r.stage === 'minted';
   return {
     id: String(r.id || ''), dir: 'out', asset: key, amount: big(r.source?.amount ?? r.source?.value), stage: r.stage,
     at: done ? 4 : (OUT_AT[r.stage] ?? 0), steps: route.steps, href: route.href,
-    done, back: false, held: r.stage === 'mint-rejected', due: done ? '' : outDue(r), armed: false,
+    done, back: false, held: r.stage === 'mint-rejected', due: done ? '' : outDue(r), acts: outActs(r, now), armed: false,
     ethTx: r.settle?.txHash ? '0x' + lc(r.settle.txHash) : null, ethBlock: num(r.settle?.ethBlock),
     btcTx: lc(r.creditedTxid || r.mint?.revealTxid) || null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), feeWait: !!r.feeWait,
@@ -175,7 +206,7 @@ export function readBridges(storage, now = Date.now()) {
     for (const r of parse(text)) {
       if (!r || typeof r !== 'object' || !r.stage) continue;
       if (dir === 'in' && r.stage === 'reclaimed' && now - Number(r.updatedAt || r.createdAt || 0) > KEEP_DONE_MS) continue;
-      const row = dir === 'in' ? inRow(r, now, plans[k.slice(IN_PREFIX.length)]?.[r.id] || null) : outRow(r);
+      const row = dir === 'in' ? inRow(r, now, plans[k.slice(IN_PREFIX.length)]?.[r.id] || null) : outRow(r, now);
       if (row.done && now - Number(row.doneAt || 0) > KEEP_DONE_MS) continue;
       row.pub = k.slice((dir === 'in' ? IN_PREFIX : OUT_PREFIX).length);        // the key it belongs to (public: it names the journal)
       rows.push(row);
