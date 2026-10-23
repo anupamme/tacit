@@ -10,7 +10,7 @@ import { bestRoute } from '/swap/aggregate.js?cb=5ec6895b';
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 export const CHAIN = { chainId: 1, rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
   keeper: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper', deployBlock: 26069245, confirmations: 3 };
-const ZERO = '0x0000000000000000000000000000000000000000', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4';
+const ZERO = '0x0000000000000000000000000000000000000000', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4', TAC = '0xa1313eb9f3a445606d9583bcac3ebeb56a858279';
 const PLANS_KEY = 'tacit-swap-later-v1', ARTIFACT_CACHE = 'tacit-evm-pool-artifacts-v1';
 const lc = (s) => String(s || '').toLowerCase();
 const word = (a) => lc(a).replace(/^0x/, '').padStart(64, '0');
@@ -33,6 +33,23 @@ export async function routeOut({ ethCall, token, amount, to, slippageBps, deadli
   if (checkZRouterCall(data, { to, tokenIn: ZERO, tokenOut: token, exactOut: false, amount, maxIn: amount, minOut: q.min, deadline }) !== null) return null;
   // `standData`: the route as the nodes saw it, for any later read (a gas estimate) that should not name `to` either
   return { ...q, callData: data, standData: q.callData, to };
+}
+// The route for `amount` wei of ETH into TAC, paid to `to`: the Precision pool or the Tacit pool, as the swap page's own ticket picks between
+// them (`venues`, evm-trade-venues.js), built here as zRouter's own calls with `to` as the recipient, the escrow's ETH as the value and the floor
+// asked. zQuoter does not route TAC, and the guard reads only zRouter's swaps, so this is checked another way: the same calls built for a random
+// stand-in must differ from the real ones in nothing but that address, and the stand-in's copy is what any later read (a gas estimate) sees.
+export async function routeOutTac({ venues, amount, to, slippageBps, deadline, random = (n) => crypto.getRandomValues(new Uint8Array(n)) }) {
+  if (!venues) throw new Error('TAC swaps need the page\'s venues.');
+  const rt = await venues.route({ dir: 'ETH_TO_TAC', amountIn: BigInt(amount) });
+  const q = rt?.single;
+  if (!q || (q.venue !== 'precision' && q.venue !== 'tacit-amm') || BigInt(q.amountIn) !== BigInt(amount)) return null;      // the Tacit pool trims an amount to its unit: dust would stay with zRouter
+  const min = (BigInt(q.amountOut) * BigInt(10000 - slippageBps)) / 10000n;
+  if (min <= 0n) return null;
+  const mk = (rcpt) => venues.build({ quote: q, dir: 'ETH_TO_TAC', account: rcpt, to: rcpt, minOut: min, deadline: BigInt(deadline) });
+  const stand = '0x' + hexOf(random(20)), real = mk(to), copy = mk(stand);
+  if (lc(real.to) !== lc(ZROUTER) || BigInt(real.value || 0) !== BigInt(amount) || real.approval) return null;
+  if (copy.data === real.data || copy.data.split(word(stand)).join(word(to)) !== real.data) return null;
+  return { kind: 'tac', callData: real.data, standData: copy.data, min, out: BigInt(q.amountOut), amountIn: BigInt(q.amountIn), name: q.venue === 'precision' ? 'Precision pool' : 'Tacit pool', to, deadline: BigInt(deadline) };
 }
 // A deposit that is not an amount of its own: the swap, the relay's fee twice and an extra (the slider's share of the swap, drawn at random
 // between three quarters and one and a quarter of it, never under a twentieth), rounded up to two significant figures.
@@ -59,7 +76,8 @@ export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalTh
 // `keyHex()` opens the Tacit key and gives its private key (hex); `signer` sends from the connected wallet ({ address, ready, send, rpc });
 // `ethCall(to, data, block, { gas })` is the page's (zQuoter's scans need a node that allows a large call).
 // `chain` and `prove` are for tests (another chain's nodes and keeper, a prover that needs no worker).
-export function makeLater({ keyHex, signer, ethCall, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null }) {
+// `venues` is the swap page's evm-trade-venues instance, for a swap into TAC.
+export function makeLater({ keyHex, signer, ethCall, venues = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null }) {
   let modsP = null, W = null, Wfor = null, proverP = null, rpc = null;
   const prover = { ms: null, ready: false };
   const mods = () => (modsP ||= (async () => {
@@ -159,7 +177,9 @@ export function makeLater({ keyHex, signer, ethCall, store = globalThis.localSto
   async function offer(plan, { slippageBps = 50 } = {}) {
     if (plan.token === ZERO) return { min: BigInt(plan.swapWei), out: BigInt(plan.swapWei), name: 'ETH itself', at: Date.now() };
     const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
-    const r = await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
+    const r = lc(plan.token) === TAC
+      ? await routeOutTac({ venues, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline })
+      : await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
     if (!r) throw new Error(`No onchain route sells ETH for ${plan.sym} right now. Nothing was sent; try again in a while.`);
     return { ...r, at: Date.now() };
   }

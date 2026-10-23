@@ -533,7 +533,8 @@ function paintQuote() {
     const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.val ?? r.out) / 10 ** get.dec;
     const depth = r.priv && q.pools?.length ? `Pool depth: ${q.pools.map((p) => `${tidy(amtFmt(p.ra, 8))} ${PSYM[p.a]} · ${tidy(amtFmt(p.rb, 8))} ${PSYM[p.b]}`).join(' and ')}` : '';
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`, '', depth]);
-    if (!r.priv || (r.pout && !isEth(S.get))) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
+    if (laterOn(kind)) { /* the swap out is priced again when it is made: its floor is shown then */ }
+    else if (!r.priv || (r.pout && !isEth(S.get))) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
     else if (r.priv && !r.pout) lines.push(['At least', `${tidy(amtFmt(((r.out / E10) * 99n / 100n) * E10, get.dec))} ${get.sym}`]);
     if (r.sell?.rest > 0n) lines.push(['Plus', `about ${tidy(amtFmt(r.sell.rest, 18))} WETH`]);
     if (r.any?.hop || r.sell || r.buy || r.agg || r.pin) lines.push(['Route', r.name, '', r.agg?.quotes?.length ? `Compared with ${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''}` : '']);
@@ -555,7 +556,8 @@ function paintQuote() {
     if (r.pout) lines.push(['Chain sees', `${get.sym} to ${S.to ? shortAddr(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
     else if (r.pin) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} for ETH, then a deposit`]);
     else if (r.priv) lines.push(['Chain sees', isEth(S.pay) ? `your ${tidy(amtFmt(q.wei, 18))} ETH deposited` : 'a swap, not whose']);
-    if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
+    if (laterOn(kind)) { const fu = LATER.fee != null ? usdOf(lc(R.ZERO), LATER.fee) : null; lines.push(['Relay fee', LATER.fee != null ? `${eth2(LATER.fee)} ETH${fu != null ? ` · about ${fu < 1 ? `$${fu.toFixed(2)}` : usd(fu)}` : ''}` : LATER.err ? 'could not be read' : '…', '', 'What the relay charges to send the swap out of the pool, paid from the deposit (set aside twice, for a fee that rises while it waits). The deposit itself pays the wallet\'s network fee.']); }
+    else if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
   rc.hidden = !lines.length;
   rc.innerHTML = lines.map(([k, v, c, t, href]) => `<div${t ? ` title="${esc(t)}"` : ''}><dt>${esc(k)}</dt><dd class="${c || ''}">${href ? `<a href="${esc(href)}">${esc(v)}</a>` : esc(v)}</dd></div>`).join('');
@@ -823,8 +825,9 @@ const plans = () => { try { return (JSON.parse(localStorage.getItem(PLANS_KEY) |
 let LTP = null, LT = null;
 const pageSigner = { get address() { return W.account; }, ready: async () => { if (!W.account) await connect.connect(); await wallet.ensureMainnet(); },
   send: ({ to, data, value }) => wallet.sendTx({ to, data, value: BigInt(value || 0), from: W.account }), rpc: (m, p) => rpc(m, p) };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=539fbfd8').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
-const laterFits = (kind) => kind === 'agg' && isEth(S.pay) && !S.inP && !S.outP;
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=539fbfd8').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+// a wallet ETH swap for a token on the onchain route, or for TAC through the pools the ticket uses
+const laterFits = (kind) => (kind === 'agg' || (kind === 'tac' && S.get === lc(R.TAC))) && isEth(S.pay) && !S.inP && !S.outP;
 const laterOn = (kind) => LATER.on && laterFits(kind);
 // the deposit and its extra as later.js draws them (a random share around the slider's, rounded up), drawn again only when the slider moves
 const laterAmounts = (q) => (q?.wei && LATER.fee != null && LT ? LT.mod.depositFor({ swapWei: q.wei, feeWei: LATER.fee, pct: LATER.pct, rand: () => LATER.rand }) : null);
@@ -897,7 +900,7 @@ function paintSteps() {
     const deposited = !!p.depositedAt, done = p.state === 'done', swapping = p.state === 'swapping', stopped = p.state === 'stopped', waiting = p.state === 'waiting';
     const depDoubt = !deposited && !stopped && (p.state === 'unsure' || Date.now() - p.at > 3 * 60e3);
     const swapDoubt = deposited && !done && (p.state === 'unsure' || (swapping && Date.now() - (p.swapAt || p.at) > 10 * 60e3));
-    const mix = b ? `${ago_(p.depositedAt || p.at)} · ${b.since} new note${b.since === 1 ? '' : 's'} in the pool` : ago_(p.depositedAt || p.at);
+    const mix = b ? `${ago_(p.depositedAt || p.at)} · ${b.since ? `${b.since} new note${b.since === 1 ? '' : 's'} in the pool` : 'no other note in the pool yet'}` : ago_(p.depositedAt || p.at);
     const check = `<button type="button" class="btn sm ghost" data-later-check="${id}">Check it</button>`;
     const s1 = stopped ? stepLi('fail', 1, 'Deposit', 'did not go through') : depDoubt ? stepLi('fail', 1, 'Deposit', 'not confirmed', check)
       : deposited ? stepLi('done', 1, 'Deposit', '', p.depositTx ? link(p.depositTx) : 'in the pool') : stepLi('now', 1, 'Deposit', 'sending…');
@@ -921,8 +924,8 @@ async function laterOffer(id, via = 'relay') {
   if (!p || S.busy) return;
   S.busy = true; paintQuote(); say('Reading the price…');
   try {
-    const lt = await ltLoad(), [o, ks] = await Promise.all([lt.offer(p, { slippageBps: S.slip }), p.token === lc(R.ZERO) ? null : A.kyberOut({ tokenIn: R.ZERO, tokenOut: p.token, amountIn: BigInt(p.swapWei) })]);
-    LATER.offers[id] = { ...o, ks, via };
+    const lt = await ltLoad(), o = await lt.offer(p, { slippageBps: S.slip });
+    LATER.offers[id] = { ...o, via };
     say('');
   } catch (e) { say(esc(e?.message || String(e)), 'err', true); }
   finally { S.busy = false; paint(); paintSteps(); }

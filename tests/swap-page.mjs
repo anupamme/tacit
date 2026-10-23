@@ -145,6 +145,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const out = Number((await page.textContent('#out')).replace(/,/g, ''));
   ok(out > 100, `0.5 ETH quotes ${out} TAC`);
   ok(await page.isVisible('#rows') && (await page.$$('#rows [data-route]')).length >= 2, 'ETH → TAC offers its routes (Precision, Tacit, maybe both)');
+  ok(await page.isVisible('#later') && /Swap privately/.test(await page.textContent('#later')), 'and offers to swap privately through the private ETH pool');
   ok(/At least/.test(await page.textContent('#rcpt')) && /Network fee/.test(await page.textContent('#rcpt')), 'the receipt has the floor and the network fee');
   // Only ETH put into the Precision pool scores: its row says at least what 0.5 ETH earns, the Tacit pool's says nothing, and a split earns on its Precision leg.
   await until(page, () => /points/.test(document.querySelector('#rows [data-route="precision"]')?.textContent || ''));

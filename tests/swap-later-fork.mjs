@@ -22,7 +22,9 @@ const { evmPoolKeys, makeEvmPoolWallet, jsonRpc } = await import('../dapp/evm-po
 const { makeEvmPoolZk } = await import('../dapp/evm-pool-zk.js');
 const { callIntent } = await import('../dapp/evm-pool-gateway.js');
 const { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } = await import('poseidon-lite');
-const { routeOut, POOL, ROUTER, CHAIN } = await import('../dapp/swap/later.js');
+const { routeOut, routeOutTac, POOL, ROUTER, CHAIN } = await import('../dapp/swap/later.js');
+const { makeEvmTradeVenues } = await import('../dapp/evm-trade-venues.js');
+const { keccak_256 } = await import('@noble/hashes/sha3');
 
 const FORK = process.env.FORK || 'https://mainnet.gateway.tenderly.co', UP = process.env.QUOTE_RPC || 'https://mainnet.gateway.tenderly.co';
 const PORT = 24600 + Math.floor(Math.random() * 300), RPC = `http://127.0.0.1:${PORT}`;
@@ -81,6 +83,25 @@ ok(W.summary().balance === extraWei, `the extra stays a private note (${W.summar
 ok((await bal(ZERO, (await import('../dapp/evm-pool-gateway.js')).callEscrowAddress(intent, ROUTER))) === 0n, 'nothing is left in the escrow');
 ok(!(await rpcA('eth_getTransactionByHash', [h2])).input.toLowerCase().includes(FROM.slice(2).toLowerCase()), 'the swap out does not name the wallet that deposited');
 console.log(`  proofs: ${times.map((t) => `${(t / 1000).toFixed(1)} s`).join(', ')}`);
+
+// ── ETH → TAC: the route is the Precision pool or the Tacit pool, built as zRouter's calls with the address as recipient; the TAC lands there ──
+{
+  const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', DEST3 = '0x00000000000000000000000000000000000De573';
+  const venues = makeEvmTradeVenues({ ethCall: (to, data, block) => upCall(to, data, block), keccak256: keccak_256 });
+  const h3 = await W.deposit({ amount: swapWei + extraWei, onStep: () => {} });
+  ok(/^0x[0-9a-f]{64}$/.test(h3), 'a second deposit for a swap into TAC');
+  const dl = BigInt(Number(BigInt((await rpcA('eth_getBlockByNumber', ['latest', false])).timestamp)) + 1200);
+  const rt = await routeOutTac({ venues, amount: swapWei, to: DEST3, slippageBps: 100, deadline: dl });
+  ok(!!rt && rt.callData.toLowerCase().includes(DEST3.slice(2).toLowerCase()) && !rt.standData.toLowerCase().includes(DEST3.slice(2).toLowerCase()) && rt.min > 0n, `the TAC route is built for the address, its copy for a stand-in (${rt ? `${rt.name}, at least ${rt.min}` : 'none'})`);
+  const refund3 = await W.refundBox();
+  const intent3 = callIntent({ calls: [{ target: ZROUTER, value: swapWei, data: rt.callData }], refund: refund3, deadline: dl, nonce: 9n });
+  const t0 = await bal(TAC, DEST3);
+  const h4 = await W.withdrawAndCall({ intent: intent3, amount: swapWei, via: 'self', onStep: () => {} });
+  const rc4 = await rpcA('eth_getTransactionReceipt', [h4]);
+  const got3 = (await bal(TAC, DEST3)) - t0;
+  ok(rc4?.status === '0x1' && got3 >= rt.min, `the withdrawal into the TAC swap runs: the address got ${Number(got3) / 1e18} TAC, at least the ${Number(rt.min) / 1e18} shown`);
+  ok((await bal(ZERO, (await import('../dapp/evm-pool-gateway.js')).callEscrowAddress(intent3, ROUTER))) === 0n, 'nothing is left in that escrow either');
+}
 
 // ── the same through makeLater: what the card calls (plan kept, deposit, wait, a price shown, the swap out, a plan checked) ──
 {
