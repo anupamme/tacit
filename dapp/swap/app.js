@@ -271,15 +271,19 @@ async function quote(my, wei) {
   const stops = from === 'eth' || to === 'eth' ? [to] : ['eth', to];
   const f0 = BigInt(await t.quoteOpFee(POOL_TK[from], 'route')), fee = stops.length > 1 ? twoDigits((f0 * 14n) / 10n) : f0;
   if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay’s fee is ${fmtUnits(fee, 8, 6)}.`, tiny: true });
-  let cur = id(from), amt = units - fee;
+  // each hop's reserves are kept, in the hop's order, so the receipt can say how deep the pool is that the swap is made in
+  let cur = id(from), amt = units - fee, at = from;
+  const pools = [];
   for (const k of stops) {
     const next = id(k);
-    const tiers = await Promise.all([30, 5, 100, 1].map((feeBps) => t.quoteRoute({ asset0: cur, amountIn: amt, path: [{ assetNext: next, feeBps }] }).then((r) => (r && r.amountOut > 0n ? r.amountOut : null), () => null)));
-    const best = tiers.filter(Boolean).reduce((a, c) => (c > a ? c : a), 0n);
+    const tiers = await Promise.all([30, 5, 100, 1].map((feeBps) => t.quoteRoute({ asset0: cur, amountIn: amt, path: [{ assetNext: next, feeBps }] }).then((r) => (r && r.amountOut > 0n ? r : null), () => null)));
+    const best = tiers.filter(Boolean).reduce((a, c) => (!a || c.amountOut > a.amountOut ? c : a), null);
     if (!best) return done({ rows: [], why: 'The Tacit pool has no price for this pair right now.' });
-    cur = next; amt = best;
+    const h = best.hops[0], lo = BigInt(cur) <= BigInt(next);
+    pools.push({ a: at, b: k, ra: BigInt(lo ? h.reserveAPre : h.reserveBPre), rb: BigInt(lo ? h.reserveBPre : h.reserveAPre) });
+    cur = next; amt = best.amountOut; at = k;
   }
-  return done({ rows: [{ k: 'private', name: 'Tacit pool', note: '', out: amt * E10, best: true, priv: true }], fee, feeTick: from });
+  return done({ rows: [{ k: 'private', name: 'Tacit pool', note: '', out: amt * E10, best: true, priv: true }], fee, feeTick: from, pools });
 }
 const PK = { teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]: 'cbtc' };
 const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
@@ -310,7 +314,7 @@ function vsMarket(q = S.q, r = picked(q)) {
 const BAD = -0.03, GATE = -0.1;
 
 function paint() {
-  paintTabs(); paintSides(); paintQuote(); paintRecent(); paintNudge();
+  paintTabs(); paintMajors(); paintSides(); paintQuote(); paintRecent(); paintNudge();
 }
 // What a key last read as bridged to its Taproot address (the front page and the Bitcoin lane keep it, per key, in the browser): tETH or TAC that
 // waits to be moved to the trading address before it can swap on Bitcoin. The Bitcoin switch carries a dot and says so; the lane has the move.
@@ -362,7 +366,7 @@ function paintSides() {
   const bal = !payPriv && W.account ? S.bal[S.pay] : null, wei = parseUnits(S.amt, pay.dec);
   const side = $('#pay-side');
   if (bal != null) side.innerHTML = `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
-  else if (!S.amt) side.innerHTML = `<span class="quick">${(QUICK[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
+  else if (!S.amt) side.innerHTML = `<span class="quick">${((priv ? QUICK_PRIV : QUICK)[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
   else side.textContent = '';
   const getBal = !priv && !to && W.account ? S.bal[S.get] : null;
   $('#get-side').textContent = getBal ? `You have ${amtFmt(getBal, get.dec)}` : '';
@@ -370,6 +374,21 @@ function paintSides() {
   $('#pay-usd').textContent = v != null ? `≈ ${usd(v)}` : '';
 }
 const QUICK = { ETH: ['0.1', '0.5', '1'], TAC: ['500', '1000'], USDC: ['100', '500'], USDT: ['100', '500'], DAI: ['100', '500'], cUSD: ['100', '500'], tacUSD: ['100', '500'], cBTC: ['0.001', '0.01'], tacBTC: ['0.001', '0.01'], WBTC: ['0.005', '0.01'], WETH: ['0.1', '0.5'], wstETH: ['0.1', '0.5'], tETH: ['0.1', '0.5'] };
+// The private pools are young: these are amounts a few times the relay's fee that move the price a few percent, not more.
+const QUICK_PRIV = { ETH: ['0.02', '0.05', '0.1'], tETH: ['0.02', '0.05', '0.1'], TAC: ['500', '2000'], cUSD: ['50', '100'], cBTC: ['0.0005', '0.001'] };
+// Private is shown as the four coins the pool holds; a press picks the one to get.
+const MAJORS = [['teth', 'ETH'], [lc(R.CUSD), 'USD'], [lc(R.CBTC), 'BTC'], [lc(R.TAC), 'TAC']];
+const LEDE = $('#lede').textContent;
+function paintMajors() {
+  const el = $('#maj'), on = S.mode === 'private';
+  el.hidden = !on;
+  $('#lede').textContent = on && !S.btc ? 'Private swaps between ETH, BTC, USD and TAC.' : LEDE;
+  if (on) el.innerHTML = MAJORS.map(([k, name]) => { const t = tokenOf(k); return `<button type="button" role="radio" aria-checked="${S.get === k}" data-major="${esc(k)}">${coin(t)}<b>${name}</b><small>${esc(t.sym)}</small></button>`; }).join('');
+}
+// A pool's side by the name the quote keeps it under (the console's), and the icon its farm row is drawn with.
+const PSYM = { eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' }, PICON = { eth: 'teth', tac: 'tac', cusd: 'cusd', cbtc: 'cbtc' };
+// The private farm on the pool the swap ends in: the way to deepen it.
+const farmOn = (p) => (S.farms || []).find((f) => f.pid != null && [PICON[p.a], PICON[p.b]].every((i) => f.icons.includes(i))) || null;
 const fitSize = (el) => { const n = (el.value || el.textContent || '').length; el.classList.toggle('long', n > 8); el.classList.toggle('longer', n > 11); };
 
 function paintQuote() {
@@ -401,6 +420,7 @@ function paintQuote() {
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
+    for (const p of r.priv ? q.pools || [] : []) lines.push(['Pool', `${tidy(amtFmt(p.ra, 8))} ${PSYM[p.a]} · ${tidy(amtFmt(p.rb, 8))} ${PSYM[p.b]}`]);
     if (r.priv && q.fee != null) { const share = Number(q.fee * E10) / Number(q.wei); lines.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' ? 'tETH' : pay.sym}${share >= 0.02 ? ` · ${(share * 100).toFixed(share >= 0.1 ? 0 : 1)}% of the swap` : ''}`]); }
     if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
@@ -449,7 +469,16 @@ function lineFor(q, r, kind) {
   if (!kind) return kindOf(S.pay, S.get, 'private') ? `Swaps privately: <button type="button" class="link" data-mode-go="private">switch</button>.` : 'No route for this pair.';
   if (q?.err) return `<span class="err">${esc(q.err)}</span>`;
   if (!q?.busy && S.amt && (q?.none || !r) && q?.why) return esc(q.why);
+  if (kind === 'private' && r && !q.busy) return privLine(q, r);
   return '';
+}
+// Private, once priced: where the vault makes cUSD or cBTC for less than this pool asks, the vault; else the farm that deepens the pool it ends in.
+function privLine(q, r) {
+  const m = vsMarket(q, r);
+  if (m != null && m <= BAD && S.get === lc(R.CUSD)) return 'Cheaper at the vault: <a href="/vault/#btc">borrow cUSD at $1</a>.';
+  if (m != null && m <= BAD && S.get === lc(R.CBTC)) return 'Cheaper at the vault: <a href="/vault/#btc">mint cBTC 1:1</a>.';
+  const p = q.pools?.[q.pools.length - 1], f = p && farmOn(p);
+  return f ? `<a href="/#farm/private-${Number(f.pid)}">Deepen ${esc(f.name)} privately${f.apr != null ? ` · ${esc(aprText(f.apr))} APR` : ''} →</a>` : '';
 }
 
 async function go() {
@@ -759,7 +788,10 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('[data-farm-it]')) farmIt();
 });
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
-function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.amt = fitAmt(S.amt); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
+$('#maj').addEventListener('click', (e) => { const b = e.target.closest('[data-major]'); if (b && b.dataset.major !== S.get) choose('get', b.dataset.major); });
+// the farms are read once Private is open: the line under a private quote names the one that deepens its pool
+const farmsSoon = () => { if (!S.farms) readFarms().then(() => { if (S.mode === 'private' && S.q?.pools) paintQuote(); }, () => {}); };
+function setMode(m) { if (S.mode === m) return; if (m === 'private') { warmPrivate(); farmsSoon(); } keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.amt = fitAmt(S.amt); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
 for (const ev of ['pointerenter', 'focus', 'touchstart']) document.querySelector('.mode [data-mode="private"]').addEventListener(ev, warmPrivate, { once: true, passive: true });
 document.querySelector('.mode').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mode]'); if (!b) return;
@@ -800,7 +832,7 @@ function arrows(box, attr) {
     ([...box.querySelectorAll(`[${attr}]`)].find((x) => x.getAttribute(attr) === k) || next).focus();
   });
 }
-arrows(document.querySelector('.mode'), 'data-mode'); arrows($('#rows'), 'data-route'); arrows($('#farms'), 'data-farm');
+arrows(document.querySelector('.mode'), 'data-mode'); arrows($('#maj'), 'data-major'); arrows($('#rows'), 'data-route'); arrows($('#farms'), 'data-farm');
 
 readUrl();
 const FIRST_PAIR = `${S.pay}>${S.get}`;
@@ -824,7 +856,7 @@ if (S.btc) openLane();
 if ([S.pay, S.get].some((k) => { const t = tokenOf(k); return t && !SPRITE.has(t.icon) && !LOGO[k]; })) loadList();
 if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash) $('#amt').focus({ preventScroll: true });
 if (S.tab === 'earn') { paintEarn(); }
-if (S.mode === 'private') { warmPrivate(); if (S.amt) requote(true); }
+if (S.mode === 'private') { warmPrivate(); farmsSoon(); if (S.amt) requote(true); }
 readPrices().then(() => { paint(); if (S.amt && S.mode !== 'private') requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt && S.mode !== 'private') requote(true); });
 gasPrice();
 checkAmmRoute().then(() => {

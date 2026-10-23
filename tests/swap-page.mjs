@@ -205,6 +205,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok((await page.textContent('#go')) === 'Continue privately →', 'private: the button continues in the Tacit app');
   ok(/Relay fee/.test(await page.textContent('#rcpt')), 'private: the relay fee is shown');
   ok(await page.$eval('#f-get', (e) => e.classList.contains('priv')), 'private: the get field is dashed');
+  ok((await page.$$eval('#maj [data-major]', (b) => b.map((x) => x.querySelector('b').textContent))).join(' ') === 'ETH USD BTC TAC', 'private: the four coins the pool holds are shown');
+  ok((await page.getAttribute('#maj [aria-checked="true"]', 'data-major')) === TAC.toLowerCase(), 'private: the coin to get is the pressed one');
+  ok(/Pool[\d.,]+ tETH · [\d.,]+ TAC/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private: the receipt says how deep the pool is');
   await shot(page, 'desktop-private');
   await Promise.all([page.waitForURL(/#card=swap:ether:tac:private&amt=0\.25|\/$/), page.click('#go')]);
   await sleep(1500);
@@ -225,8 +228,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '0.123456789012345678');
   await page.click('[data-mode="private"]');
   ok((await page.inputValue('#amt')) === '0.12345678', `choosing Private cuts a longer amount to 8 decimals (${await page.inputValue('#amt')})`);
-  await pick(page, 'get', 'cUSD');
+  await page.click('#maj [data-major="0x23cacffac2674514a6d4f6cd420b4cc2ac921564"]');
   await quoted(page);
+  ok((await page.textContent('#get-coin')).startsWith('cUSD'), 'pressing USD gets cUSD');
   ok((await page.textContent('#go')) === 'Continue privately →', 'private ETH → cUSD quotes the cut amount');
   // typing past 8 decimals stops at 8
   await typeAmt(page, '0.0035162701');
