@@ -944,18 +944,29 @@ await step('wrapform', async () => {
 });
 
 await step('devsend', async () => {
-  await page.goto(url + '#device');
-  if (await page.$('#eth-dev [data-in="eth"]')) await page.click('#eth-dev [data-in="eth"]');
-  await page.waitForSelector('[data-dev="send"]', { timeout: 60000 });
-  await page.click('[data-dev="receive"]');
-  // The form waits for the pool's replay (in a worker), every pool event read from a cold fork; when it does not come, the line it is stuck on says so.
-  await page.waitForSelector('#d-form [data-copy]', { timeout: 300000 }).catch(async (e) => { console.log('     d-form says: ' + (await page.evaluate(() => (document.querySelector('#d-form')?.textContent || 'no #d-form').replace(/\s+/g, ' ').slice(0, 300)))); throw e; });
-  const recv = await page.evaluate(() => ({ bp1: document.querySelector('#d-form [data-copy^="bp1"]')?.dataset.copy, tacit: document.querySelector('#d-form [data-copy^="tacit1"]')?.dataset.copy, ask: document.querySelector('#d-form a[href^="/pay/eth/#receive"]')?.getAttribute('href') }));
-  ok(/^bp1/.test(recv.bp1 || '') && /^\/pay\/eth\/#receive&chain=\d+$/.test(recv.ask || ''), `devsend: Receive keeps the pool and deposit addresses here, and asks for an amount in tacit pay (${recv.ask}; pool address ${String(recv.bp1).slice(0, 8)}, Tacit address ${String(recv.tacit).slice(0, 8)})`);
-  // Paying from this balance is tacit pay's (tools/pay-check.mjs covers it): the tab opens it on the same chain.
-  await page.click('[data-dev="send"]');
-  const links = await page.$$eval('#d-form a', (as) => as.map((a) => a.getAttribute('href')));
-  ok(links.some((h) => /^\/pay\/eth\/#send&chain=\d+$/.test(h)) && links.some((h) => /^\/pay\/eth\/#link&chain=\d+$/.test(h)), `devsend: Send opens tacit pay on this chain (${links.join(', ')})`);
+  // The step is about the Receive and Send tabs. The sheet opens on Base (its nodes are the real ones, and its history takes minutes to replay) and
+  // syncs the chain it opens on first, in the one worker that serves them all, so Ethereum's pool (the one the fork serves) is chosen before the page
+  // loads; and the chain's event reads are answered empty at once, so the form comes up in seconds.
+  const r = await openPage({ account: A0, key: K0 }), page = r.page;
+  try {
+    await r.ctx.addInitScript(() => { try { localStorage.setItem('tacit-lite-device-chain', '1'); } catch { /* the sheet opens on its own chain */ } });
+    for (const h of RPC_HOSTS) await r.ctx.route(`https://${h}/**`, (route) => {
+      const b = JSON.parse(route.request().postData() || 'null');
+      return b && !Array.isArray(b) && b.method === 'eth_getLogs' ? json(route, { jsonrpc: '2.0', id: b.id, result: [] }) : route.fallback();
+    });
+    await page.goto(r.url + '#device');
+    if (await page.$('#eth-dev [data-in="eth"]')) await page.click('#eth-dev [data-in="eth"]');
+    await page.waitForSelector('[data-dev="send"]', { timeout: 60000 });
+    await page.click('[data-dev="receive"]');
+    await page.waitForSelector('#d-form [data-copy]', { timeout: 240000 }).catch(async (e) => { console.log('     d-form says: ' + (await page.evaluate(() => (document.querySelector('#d-form')?.textContent || 'no #d-form').replace(/\s+/g, ' ').slice(0, 300)))); throw e; });
+    const recv = await page.evaluate(() => ({ bp1: document.querySelector('#d-form [data-copy^="bp1"]')?.dataset.copy, tacit: document.querySelector('#d-form [data-copy^="tacit1"]')?.dataset.copy, ask: document.querySelector('#d-form a[href^="/pay/eth/#receive"]')?.getAttribute('href') }));
+    ok(/^bp1/.test(recv.bp1 || '') && /^\/pay\/eth\/#receive&chain=\d+$/.test(recv.ask || ''), `devsend: Receive keeps the pool and deposit addresses here, and asks for an amount in tacit pay (${recv.ask}; pool address ${String(recv.bp1).slice(0, 8)}, Tacit address ${String(recv.tacit).slice(0, 8)})`);
+    // Paying from this balance is tacit pay's (tools/pay-check.mjs covers it): the tab opens it on the same chain.
+    await page.click('[data-dev="send"]');
+    const links = await page.$$eval('#d-form a', (as) => as.map((a) => a.getAttribute('href')));
+    ok(links.some((h) => /^\/pay\/eth\/#send&chain=\d+$/.test(h)) && links.some((h) => /^\/pay\/eth\/#link&chain=\d+$/.test(h)), `devsend: Send opens tacit pay on this chain (${links.join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL devsend page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 await step('device', async () => {
@@ -2026,38 +2037,52 @@ await step('selfexit', async () => {
 });
 
 await step('selfmore', async () => {
-  const r = await openPage({ account: A0, key: K0 });
   const hex = 'ac5e6'.padEnd(64, '5');
   const want = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
   const TACID = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
-  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
-    import * as real from '/confidential-pool-ux.js?stub=real';
-    export * from '/confidential-pool-ux.js?stub=real';
-    export function makeConfidentialPoolUx(o) {
-      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
-      ux.balance = async (priv) => {
-        const b = await balance(priv);
-        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
-        const w = ux.buildWrap({ walletPriv: hx, amountWei: (30n * 10n ** 18n).toString(), ticker: 'cTAC', index: 0 });
-        const note = ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
-        if (!note) throw new Error('stub note not recovered');
-        b.notes = [...b.notes, note];
-        const g = b.byAsset[note.asset] ||= { asset: note.asset, value: 0n, notes: [] };
-        g.value = BigInt(g.value) + BigInt(note.value); g.notes = [...g.notes, note];
-        return b;
-      };
-      return ux;
-    }` }));
-  try {
+  const opened = [];
+  // A page with the key open on the TAC sheet and a private 30 TAC note (the pool module adds one to every balance read). A send that ends
+  // without the pool taking it keeps its note held until the balance is read again (Activity's "Read my balance again"), so each
+  // scenario starts on a page of its own. `eth`: what the Tacit account holds from then on (as it is when null).
+  const tacPage = async (eth = null) => {
+    const r = await openPage({ account: A0, key: K0 });
+    opened.push(r);
+    await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+      import * as real from '/confidential-pool-ux.js?stub=real';
+      export * from '/confidential-pool-ux.js?stub=real';
+      export function makeConfidentialPoolUx(o) {
+        const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+        ux.balance = async (priv) => {
+          const b = await balance(priv);
+          const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (30n * 10n ** 18n).toString(), ticker: 'cTAC', index: 0 });
+          const note = ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+          if (!note) throw new Error('stub note not recovered');
+          b.notes = [...b.notes, note];
+          const g = b.byAsset[note.asset] ||= { asset: note.asset, value: 0n, notes: [] };
+          g.value = BigInt(g.value) + BigInt(note.value); g.notes = [...g.notes, note];
+          return b;
+        };
+        return ux;
+      }` }));
     await r.page.goto(r.url + '#wallet');
     await r.page.click('#wallet-body [data-in="paste"]');
     await r.page.fill('#ws-hex', hex);
     await r.page.click('#wallet-body [data-in="key"]');
     await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
-    await rpc('anvil_setBalance', [want, '0x0']);
+    if (eth != null) await rpc('anvil_setBalance', [want, eth]);
     await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
-    await r.page.waitForSelector('#ts-to', { timeout: 240000 });
+    await r.page.waitForSelector('#ts-to', { timeout: QUOTE_WAIT });
     await sleep(3000);
+    return r;
+  };
+  // The relay submit of one of these types, once the page has made it: a slow fork takes minutes over the reads before it.
+  const submitted = async (from, ...types) => {
+    for (const end = Date.now() + QUOTE_WAIT; Date.now() < end; await sleep(500)) { const s = submits.slice(from).find((x) => types.includes(x.type)); if (s) return s; }
+    return null;
+  };
+  try {
+    const r = await tacPage('0x0');
     // A private send of the whole note, refused at submit: the offer, the way to fund the account (with its address to copy),
     // then, funded, a proof-only lock job from the paying account.
     await r.page.fill('#ts-to', tacit1('abd'.padEnd(64, '8')));
@@ -2069,38 +2094,37 @@ await step('selfmore', async () => {
     ok(offered, `selfmore: a private send the relay refuses offers to be sent from the Tacit account (${(await text(r.page, '#tac-bal-status')).replace(/\s+/g, ' ').slice(0, 120)})`);
     if (offered) {
       await r.page.click('#tac-bal-status [data-selfdo]');
-      await until(r.page, () => /Add a little ETH|Send a little ETH/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 120000);
+      await until(r.page, () => /Add a little ETH|Send a little ETH/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, QUOTE_WAIT);
       const copyAddr = await r.page.$eval('#tac-bal-status [data-selfcopy]', (b) => b.dataset.selfcopy).catch(() => null);
       ok(copyAddr && copyAddr.toLowerCase() === want.toLowerCase(), `selfmore: an account without ETH shows its address with a copy button (${copyAddr ? copyAddr.slice(0, 10) : 'none'})`);
       await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);
       proveStub = true;
       const n1 = submits.length;
       await r.page.click('#tac-bal-status [data-selfdo]');
-      await until(r.page, () => !/Send a little ETH/.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 60000).catch(() => {});
-      await sleep(4000);
-      const lock = submits.slice(n1).find((x) => x.type === 'stealthlock');
+      const lock = await submitted(n1, 'stealthlock');
       ok(lock?.mode === 'prove', `selfmore: funded, the lock is proved by the relay and settled by the account (${lock ? `${lock.type} ${lock.mode}` : 'no submit'})`);
     }
+    if (r.errors.length) { fails++; console.log('FAIL selfmore page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    await r.browser.close();
     // A partial send to an 0x address (a send-out), refused the same way: it goes out with no relay fee.
-    proveStub = false; refuseSubmits = 1;
-    await until(r.page, () => !!document.querySelector('#ts-to') && !document.querySelector('#ts-go')?.getAttribute('aria-busy'), null, 120000);
-    await sleep(3000);
-    await r.page.fill('#ts-to', '0x000000000000000000000000000000000000dEaD');
-    await r.page.fill('#ts-amt', '15');
-    await until(r.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT);
-    await r.page.click('#ts-go');
-    const offered2 = await until(r.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
-    ok(offered2, `selfmore: a send-out the relay refuses offers the same (balance line: ${(await text(r.page, '#tac-bal-status')).replace(/\s+/g, ' ').slice(0, 140)} | send: ${(await text(r.page, '#ts-status').catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)} | refusals left ${refuseSubmits})`);
+    proveStub = false;
+    const r2 = await tacPage();
+    await r2.page.fill('#ts-to', '0x000000000000000000000000000000000000dEaD');
+    await r2.page.fill('#ts-amt', '15');
+    await until(r2.page, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || '') && !document.querySelector('#ts-go').disabled, null, QUOTE_WAIT);
+    refuseSubmits = 1;
+    await r2.page.click('#ts-go');
+    const offered2 = await until(r2.page, () => !!document.querySelector('#tac-bal-status [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
+    ok(offered2, `selfmore: a send-out the relay refuses offers the same (balance line: ${(await text(r2.page, '#tac-bal-status')).replace(/\s+/g, ' ').slice(0, 140)} | send: ${(await text(r2.page, '#ts-status').catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)} | refusals left ${refuseSubmits})`);
     if (offered2) {
       proveStub = true;
       const n2 = submits.length;
-      await r.page.click('#tac-bal-status [data-selfdo]');
-      await sleep(8000);
-      const out = submits.slice(n2).find((x) => x.type === 'sendunwrap' || x.type === 'unwrap');
+      await r2.page.click('#tac-bal-status [data-selfdo]');
+      const out = await submitted(n2, 'sendunwrap', 'unwrap');
       ok(out?.mode === 'prove' && BigInt(out.op.fee) === 0n, `selfmore: and goes out proof-only with no relay fee (${out ? `${out.type} ${out.mode} fee ${out.op.fee}` : 'no submit'})`);
     }
-    if (r.errors.length) { fails++; console.log('FAIL selfmore page errors: ' + r.errors.slice(0, 3).join(' | ')); }
-  } finally { refuseSubmits = 0; proveStub = false; await r.browser.close(); }
+    if (r2.errors.length) { fails++; console.log('FAIL selfmore page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
+  } finally { refuseSubmits = 0; proveStub = false; for (const x of opened) await x.browser.close().catch(() => {}); }
 });
 
 // The ETH sheet's relayed actions that have no scenario of their own, each refused by the relay and then sent from the
