@@ -863,6 +863,8 @@ try {
     const counted = (await p.textContent('#points-body')).replace(/\s+/g, ' ');
     ok(/\+41,235 points/.test(counted) && /41,235/.test(counted.match(/[\d,]+ ?your points/)?.[0] || ''), `points: once the program counts it, the card shows what it earned and the total (${(counted.match(/\+[\d,]+ points/) || [''])[0]}, ${(counted.match(/[\d,]+ ?your points/) || [''])[0]})`);
     ok(/shared out in \d/.test(counted), `points: today's share counts down to midnight UTC (${(counted.match(/shared out in [^;]*/) || [''])[0]})`);
+    const hold = await p.evaluate(() => { const a = document.querySelector('#points-body #pts-hold'); return a ? { text: a.closest('li').textContent.replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') } : null; });
+    ok(hold && /^ETH you leave in the private pools keeps earning points each day\./.test(hold.text) && hold.href === '/#points', `points: the card says ETH left in the pools keeps earning, and links to where it is counted (${hold?.text}, ${hold?.href})`);
     await p.waitForFunction(() => /0\.01/.test(document.querySelector('#bal .v').textContent), null, { timeout: 120e3 }).catch(() => {});
     ok(/0\.01/.test(await p.textContent('#bal .v')), `private balance: ${await p.textContent('#bal .v')}`);
     await p.click('#tabs [data-tab="send"]');
