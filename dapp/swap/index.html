@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=f710dcd9">
+<link rel="modulepreload" href="/swap/app.js?cb=6022d323">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -112,17 +112,17 @@ img.tk { object-fit: contain; }
 .brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
 .brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
 
-/* the page: a short hero beside the card on a wide screen, the card first on a narrow one */
-.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px 56px; align-items: start; padding: 24px 0 10px; }
-@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); padding-top: 18px; } }
-.hero h1 { font: 400 clamp(48px, 7.4vw, 88px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
+/* the page: one card in the middle, a quiet line under it */
+.stage { display: grid; grid-template-columns: minmax(0, 470px); justify-content: center; gap: 14px; padding: 20px 0 10px; }
+.hero { order: 1; text-align: center; padding-top: 6px; }
+.hero h1 { font: 400 24px/1.15 var(--serif); letter-spacing: -.01em; margin: 0; }
 .hero h1 em { font-style: italic; }
-.hero .lede { margin: 18px 0 0; max-width: 46ch; font-size: 14px; line-height: 1.65; color: var(--mute); text-wrap: pretty; }
+.hero .lede { margin: 0 auto; max-width: 46ch; font-size: 13px; line-height: 1.55; color: var(--mute); text-wrap: pretty; }
 .hero .lede b { color: var(--ink); font-weight: 500; }
-.pxs { display: flex; flex-wrap: wrap; gap: 4px 18px; min-height: 22px; margin: 18px 0 0; font-size: 12px; color: var(--mute); opacity: 0; transition: opacity .3s; }
+.pxs { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; min-height: 22px; margin: 8px 0 0; font-size: 12px; color: var(--mute); opacity: 0; transition: opacity .3s; }
 .pxs.on { opacity: 1; }
 .pxs span { display: inline-flex; align-items: center; gap: 6px; } .pxs b { color: var(--ink); font-weight: 500; }
-@media (max-width: 900px) { .hero { order: 0; } .sw { order: 1; } .hero .lede { margin-top: 12px; } }
+
 
 /* the card: the front page's console, two verbs */
 .sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
@@ -610,8 +610,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
   <div class="stage">
     <section class="hero" aria-labelledby="hero-h">
-      <h1 id="hero-h">Swap into <em>tacit</em></h1>
-      <p class="lede">Any token to any token at the best onchain price. Either side can be private.</p>
+      <h1 id="hero-h" class="sr">Swap</h1>
+      <p class="lede">Any token at the best onchain price. Switch either side to Private to keep it in your private balance or leave no trail.</p>
       <p class="pxs" id="pxs" aria-live="off"></p>
       <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
     </section>
@@ -750,6 +750,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=f710dcd9"></script>
+<script type="module" src="/swap/app.js?cb=6022d323"></script>
 </body>
 </html>

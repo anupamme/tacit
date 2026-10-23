@@ -695,6 +695,41 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 
+// ── a Private Get side takes any token: a coin the pool holds stays in the private balance, any other token is Swap privately ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?amt=0.01&private=to' });
+  const getPrivOn = () => page.getAttribute('.sides[data-side="get"] [data-p="1"]', 'aria-checked');
+  await page.click('#get-coin');
+  ok(await page.isVisible('#pk-q') && await page.isVisible('.pk-r:has(b:text-is("USDC"))') && await page.isVisible('.pk-r:has(b:text-is("tETH"))'), 'with Get private, the list has the pool\'s coins and any token, and can be searched');
+  await page.click('.pk-r:has(b:text-is("USDC"))');
+  await quoted(page);
+  await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 30000).catch(() => {});
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'USDC chosen there: Get stays Private and Swap privately is on');
+  ok(/private=to/.test(page.url()) && /to=USDC/.test(page.url()), `the link keeps it (${page.url().split('?')[1]})`);
+  await page.reload();
+  await quoted(page);
+  await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 30000).catch(() => {});
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'and the link opens on it again');
+  await sidePriv(page, 'get', false);
+  ok((await getPrivOn()) === 'false' && (await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.textContent('#get-coin')).includes('USDC'), 'Get turned to Wallet: the same USDC, bought in the open');
+  await sidePriv(page, 'get', true);
+  ok((await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true' && (await page.textContent('#get-coin')).includes('USDC'), 'and back to Private: Swap privately again, still USDC');
+  await page.click('#later-on');
+  ok((await getPrivOn()) === 'false', 'Swap privately switched off under the receipt turns the Get side to Wallet too');
+  await sidePriv(page, 'get', true);
+  await pick(page, 'get', 'tETH');
+  ok((await page.textContent('#get-coin')).includes('tETH') && (await getPrivOn()) === 'true' && await page.isHidden('#later'), 'a coin the pool holds is a private swap into the balance, with no Swap privately');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private=both' });
+  await pick(page, 'get', 'USDC');
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await page.getAttribute('.sides[data-side="get"] [data-p="0"]', 'aria-checked')) === 'true' && (await page.getAttribute('.sides[data-side="pay"] [data-p="1"]', 'aria-checked')) === 'true', 'paid from the private balance, USDC is paid out of the pool to an address: Pay stays Private, Get reads Wallet');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+
 // ── the first paint needs the HTML alone, the private door's modules wait for someone going to it, the button stays in view, the picker keeps Tab ──
 {
   const { browser, page, errors } = await openPage({ width: 1280, height: 700 });

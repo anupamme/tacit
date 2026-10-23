@@ -144,9 +144,17 @@ function kindOf(pay, get, inP = S.inP, outP = S.outP) {
   const wrapPair = [pay, get].every((k) => isEth(k) || k === lc(R.WETH));
   return isListed(pay) && isListed(get) && !wrapPair && !(tin && tout) ? 'agg' : null;                   // any token to any token
 }
+// A token the pool does not hold can still be got privately: paid out of the private balance to an address ('pout'), or bought from the
+// wallet's ETH through the private ETH pool (Swap privately). Either way the token itself lands at an address, so its side reads Wallet
+// underneath; a Get side shown as Private with such a token is Swap privately switched on.
+const outRoute = (k) => (inPool(k) ? 'pool' : S.inP ? (kindOf(S.pay, k, true, false) === 'pout' ? 'out' : null) : isEth(S.pay) && kindOf(S.pay, k, false, false) === 'agg' ? 'later' : null);
+const hidden = () => LATER.on && !S.inP && !S.outP && !inPool(S.get) && outRoute(S.get) === 'later';
+const getPriv = () => S.outP || hidden();
+const outside = () => listed().map((t) => t.addr).filter((k) => !inPool(k) && outRoute(k));
 const payList = () => (S.inP ? POOL_COINS : listed().map((t) => t.addr));
-const getList = () => (S.outP ? POOL_COINS : listed().map((t) => t.addr));
+const getList = () => (getPriv() ? [...POOL_COINS, ...outside()] : listed().map((t) => t.addr));
 // A pair that goes nowhere is mended from the side that changed: the other side takes the coin most likely to go with it.
+function clearTo() { S.to = null; S.toBad = ''; S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = false; S.toOpen = false; $('#to-in').value = ''; }
 function fit(changed) {
   if (kindOf(S.pay, S.get)) return;
   if (changed === 'pay') S.get = S.outP ? (S.pay === 'teth' || isEth(S.pay) ? lc(R.TAC) : 'teth') : S.inP ? lc(R.ZERO) : isEth(S.pay) ? lc(R.TAC) : tacitKey(S.pay) ? lc(R.ZERO) : lc(R.TAC);
@@ -156,9 +164,12 @@ function fit(changed) {
 // A side turned private or public: its coin becomes the same coin on that side (ETH and tETH trade places; TAC, USD and BTC keep theirs).
 function setSide(side, priv) {
   const k = side === 'pay' ? 'inP' : 'outP';
-  if (S[k] === priv || S.busy) return;
+  if (S.busy) return;
+  if (side === 'get' && !S.outP && (priv ? outRoute(S.get) === 'later' && !LATER.on : hidden())) { LATER.on = priv; if (priv) laterUp(); keepUrl(); paint(); return; }
+  if (S[k] === priv) return;
+  if (side === 'get' && !priv) LATER.on = false;
   const was = side === 'pay' ? S.pay : S.get, now_ = priv ? (isEth(was) ? 'teth' : inPool(was) ? was : 'teth') : was === 'teth' ? lc(R.ZERO) : was;
-  if (side === 'get') { S.to = null; S.toBad = ''; S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = false; S.toOpen = false; $('#to-in').value = ''; }
+  if (side === 'get') clearTo();
   const amt = S.amt;
   keepAmt(() => { S[k] = priv; if (side === 'pay') S.pay = now_; else S.get = now_; fit(side === 'pay' ? 'get' : 'pay'); });
   if (side === 'pay' && (isEth(was) || was === 'teth') && (isEth(S.pay) || S.pay === 'teth')) S.amt = amt;          // ETH and tETH are the same unit: what was typed stands
@@ -446,7 +457,7 @@ function paintTabs() {
   const k = kindOf(S.pay, S.get), slips = k && k !== 'private' && !(k === 'pout' && isEth(S.get));
   $('#p-swap').classList.toggle('btc', S.btc); $('#btc').hidden = !S.btc; $('.sw-foot').hidden = !slips;
   document.querySelectorAll('.mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === 'bitcoin' ? S.btc : !S.btc)));
-  for (const [side, on] of [['pay', S.inP], ['get', S.outP]]) document.querySelectorAll(`.sides[data-side="${side}"] [data-p]`).forEach((b) => b.setAttribute('aria-checked', String((b.dataset.p === '1') === on)));
+  for (const [side, on] of [['pay', S.inP], ['get', getPriv()]]) document.querySelectorAll(`.sides[data-side="${side}"] [data-p]`).forEach((b) => b.setAttribute('aria-checked', String((b.dataset.p === '1') === on)));
 }
 function paintSides() {
   const pay = tokenOf(S.pay), get = tokenOf(S.get);
@@ -842,6 +853,7 @@ const laterGas = () => { if (laterDest().kind === 'address') return 0n; const g 
 const laterAmounts = (q) => (q?.wei && LATER.fee != null && LT ? LT.mod.depositFor({ swapWei: q.wei, feeWei: LATER.fee, pct: LATER.pct, rand: () => LATER.rand, gasWei: laterGas() }) : null);
 const laterExtra = (q) => laterAmounts(q)?.extraWei ?? 0n;
 const laterDeposit = (q) => laterAmounts(q)?.depositWei ?? null;
+function laterUp() { S.toOpen = true; if (LATER.fee == null) readFee(); warmPrivate(); }
 function readFee() {
   LATER.err = null;
   return ltLoad().then((m) => m.mod.relayFee()).then((f) => { LATER.fee = f; LATER.feeAt = Date.now(); paintQuote(); }, (e) => { LATER.err = e?.message || String(e); paintQuote(); });
@@ -871,8 +883,8 @@ function paintLater(q, r, kind) {
 $('#later').addEventListener('click', (e) => {
   if (!e.target.closest('#later-on')) return;
   LATER.on = !LATER.on;
-  if (LATER.on) { S.toOpen = true; if (LATER.fee == null) readFee(); warmPrivate(); }
-  paint();
+  if (LATER.on) laterUp();
+  keepUrl(); paint();
 });
 // the buffer moves the deposit as it is dragged; the random draw around it is made again when it is let go
 $('#later').addEventListener('input', (e) => { if (e.target.id === 'later-x') { LATER.pct = Number(e.target.value); paintQuote(); } });
@@ -1212,20 +1224,21 @@ async function pinGo(r) {
 let pkClose = null;
 function openPicker(side) {
   pkClose?.({ keep: true });
-  if (!(TL.rows.length && Date.now() - TL.at < TL.day)) loadList().then(() => { if (!$('#pk').hidden && side === 'pay' && !$('#pk-q')?.value && TL.rows.length) openPicker(side); });
+  if (!(TL.rows.length && Date.now() - TL.at < TL.day)) loadList().then(() => { if (!$('#pk').hidden && !$('#pk-q')?.value && TL.rows.length) openPicker(side); });
   const pk = $('#pk'), keys = side === 'pay' ? payList() : getList(), cur = side === 'pay' ? S.pay : S.get;
   const row = (k) => {
-    const priv = side === 'pay' ? S.inP : S.outP, t = tokenOf(k, priv);
+    const priv = (side === 'pay' ? S.inP : getPriv()) && inPool(k), t = tokenOf(k, priv);
     if (!t) return '';
     const bal = !priv ? S.bal[k] : null, other = side === 'pay' ? S.get : S.pay;
     const ok = side === 'pay' ? kindOf(k, other) || kindOf(k, defaultFor(k)) : kindOf(other, k) || true;
     return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(k)}" aria-current="${k === cur}">${coin(t)}<span><b>${esc(t.sym)}</b><small>${esc(priv ? 'private' : t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name)}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
   };
-  const groups = (side === 'pay' ? S.inP : S.outP) ? [[null, keys]]
+  const groups = side === 'get' && getPriv() ? [[null, POOL_COINS], ['Any token', keys.filter((k) => !inPool(k))]]
+    : side === 'pay' && S.inP ? [[null, keys]]
     : side === 'pay' ? [[null, keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token', held(keys.filter((k) => !isEth(k) && !tacitKey(k)))]]
     : tacitKey(S.pay) ? [[null, keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token', keys.filter((k) => !isEth(k) && !tacitKey(k))]]
     : [[null, keys]];
-  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${!(side === 'pay' ? S.inP : S.outP) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
+  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${keys.some((k) => !inPool(k)) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
   pk.hidden = false;
   const onKey = (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
@@ -1274,6 +1287,13 @@ const defaultFor = (k) => (isEth(k) ? lc(R.TAC) : tacitKey(k) ? lc(R.ZERO) : lc(
 function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) S.amt = ''; S.note = ''; }
 function choose(side, k) {
   if (S.busy) return;
+  // a Private Get side: a coin the pool holds is kept there; any other token takes the private route there is for it (see outRoute)
+  if (side === 'get' && getPriv()) {
+    const r = outRoute(k);
+    if (!r) return;
+    if (r === 'pool' && !S.outP) { LATER.on = false; S.outP = true; clearTo(); }
+    else if (r !== 'pool' && S.outP) { S.outP = false; clearTo(); if (r === 'later') { LATER.on = true; laterUp(); } }
+  }
   keepAmt(() => { if (side === 'pay') { S.pay = k; fit('pay'); } else { S.get = k; fit('get'); } });
   S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
 }
@@ -1316,7 +1336,7 @@ function keepUrl() {
     if (S.pay !== lc(R.ZERO)) p.set('from', sym(S.pay));
     if (S.get !== lc(R.TAC)) p.set('to', sym(S.get));
     if (S.amt) p.set('amt', S.amt);
-    if (S.inP || S.outP) p.set('private', S.inP && S.outP ? 'both' : S.inP ? 'from' : 'to');
+    if (S.inP || getPriv()) p.set('private', S.inP && S.outP ? 'both' : S.inP ? 'from' : 'to');
   }
   const qs = p.toString();
   history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${S.tab === 'earn' ? '#earn' : S.btc ? '#bitcoin' : ''}`);
@@ -1331,6 +1351,7 @@ function readUrl() {
   const side = (k, priv) => (priv ? (isEth(k) ? 'teth' : k) : k === 'teth' ? lc(R.ZERO) : k);
   if (f) S.pay = side(f, S.inP); else if (S.inP) S.pay = 'teth';
   if (t) S.get = side(t, S.outP); else if (S.outP) S.get = S.pay === 'teth' ? lc(R.TAC) : 'teth';
+  if (S.outP && t && !inPool(S.get)) { const r = outRoute(S.get); if (r) { S.outP = false; if (r === 'later') LATER.on = true; } }
   if (!kindOf(S.pay, S.get)) fit(t ? 'get' : 'pay');
   const a = p.get('amt');
   if (a && (f || !p.get('from')) && parseUnits(a, tokenOf(S.pay).dec)) S.amt = fitAmt(a);
@@ -1463,6 +1484,7 @@ if ([S.pay, S.get].some((k) => { const t = tokenOf(k); return t && !SPRITE.has(t
 if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash) $('#amt').focus({ preventScroll: true });
 if (S.tab === 'earn') { paintEarn(); }
 if (S.inP || S.outP) { warmPrivate(); farmsSoon(); if (S.amt) requote(true); }
+if (hidden()) laterUp();
 readPrices().then(() => { paint(); if (S.amt && !(S.inP || S.outP)) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt && !(S.inP || S.outP)) requote(true); });
 gasPrice();
 checkAmmRoute().then(() => {
