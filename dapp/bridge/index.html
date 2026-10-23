@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=3aa26e9c">
+<link rel="modulepreload" href="/bridge/app.js?cb=7effc850">
 <link rel="modulepreload" href="/bridge/track.js?cb=9bdc3efd">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -150,7 +150,13 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 #mine-t { color: var(--mute); text-transform: none; letter-spacing: 0; }
 #mine-mv, #mine-bell { font: inherit; text-transform: none; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
 #mine-mv[aria-pressed="true"], #mine-bell[aria-pressed="true"] { color: var(--mute); }
-#mine-s { margin: 10px 0 0; color: var(--mute); }
+#mine-s, #lost-s { margin: 10px 0 0; color: var(--mute); }
+#lost-form { margin: 8px 0 0; font-size: 13px; }
+#lost-form[hidden] { display: none; }
+#lost-form summary { cursor: pointer; color: var(--mute); }
+.lf-f { display: grid; gap: 8px; margin-top: 10px; }
+.lf-f input { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--hair-2); border-radius: 10px; padding: 10px 12px; min-height: var(--tap); min-width: 0; }
+.lf-f button { font: inherit; color: var(--paper); background: var(--ink); border: 0; border-radius: 10px; min-height: var(--tap); cursor: pointer; }
 #bt-here { display: block; margin: 10px auto 0; font: inherit; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
 #bt-form { margin-top: 16px; display: grid; gap: 10px; text-align: left; }
 #bt-form[hidden] { display: none; }
@@ -174,7 +180,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .bo-s a { color: var(--ink); }
 button.go { border: 0; cursor: pointer; width: 100%; }
 button.go:disabled { opacity: .45; cursor: default; transform: none; }
-#mine-s a { color: var(--ink); }
+#mine-s a, #lost-s a { color: var(--ink); }
 #mine-l { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .mb { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; }
 .mb.due { border-color: var(--ink); }
@@ -591,7 +597,16 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="pf" aria-live="polite">
         <p id="pf-btc" data-state="off"><i></i><span>Bitcoin, proven on Ethereum to block <b class="num sk" data-live="btc" style="--w:7ch"></b><span id="pf-lag"></span></span></p>
         <p id="pf-eth" data-state="off"><i></i><span>Ethereum, proven for Bitcoin to block <b class="num sk" data-live="eth" style="--w:8ch"></b><span id="pf-elag"></span></span></p>
-        <p class="lost"><span>Can’t see a bridge? It is rebuilt from your key and the chain. <a href="/#bridge">Find it</a></span></p>
+        <p class="lost"><span>Can’t see a bridge? It is rebuilt from your key and the chain. <a href="/#bridge" id="lost-a">Find it</a></span></p>
+        <details id="lost-form" hidden>
+          <summary>A bridge to Bitcoin, from the transaction that burned it</summary>
+          <div class="lf-f">
+            <input id="lf-tx" placeholder="Ethereum transaction hash of the burn" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Ethereum transaction hash of the burn">
+            <input id="lf-amt" inputmode="decimal" placeholder="Amount bridged" autocomplete="off" aria-label="Amount bridged">
+            <button type="button" id="lf-go">Find it</button>
+          </div>
+        </details>
+        <p id="lost-s" role="status" hidden></p>
       </div>
     </section>
 
@@ -994,6 +1009,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=3aa26e9c"></script>
+<script type="module" src="/bridge/app.js?cb=7effc850"></script>
 </body>
 </html>

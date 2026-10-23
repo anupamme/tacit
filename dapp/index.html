@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-k5ucJsqwx5OKCfE7SQNQ5+cfUohRxTW2U21dSgNWvOM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ivtdUqX9dG52g2t9SpZ6qrDuVYK61097b9S1lIHr6ro=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1595,7 +1595,7 @@ import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor } from '/farm-ops.js?cb=4470442d';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
 import { ladder as xoLadder, feeShort as xoFeeShort, makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=3e9b426a';
-import { stepIn, stepOut, advanceOut, outPubs, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=84475d9e';
+import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
 if (window.__tacitAway) await new Promise(() => {});
@@ -7889,28 +7889,16 @@ async function brPublishDue(pub) {
     if (rec && await brPublish(pub, rec, plan)) { BR.at = 0; rerender('tac'); dashSoon(); return; }
   }
 }
-const BR_FOUND = 'tacit-lite-bridge-found-v1', BR_DEEP = 'tacit-lite-bridge-deep-v1';
 let brFindAt = 0, brFinding = false, brLooking = null;
 // A key this browser holds no bridge for (a new browser, or one whose data was cleared) is searched once through a longer stretch of its
-// Bitcoin history, and its first look comes sooner. An address-history page is 25 transactions; a bridge's burn is among them.
-const brUnsearched = (pub) => !!pub && !brList(pub).length && !store.get(BR_DEEP)?.[pub];
+// Bitcoin history (/bridge-tick.js), and its first look comes sooner.
+const brUnsearched = (pub) => unsearched(pub, brList(pub), store);
 async function brDiscover(pub, tab = false) {
   const deep = brUnsearched(pub);
-  if (!pub || brFinding || S.key?.pubHex !== pub || Date.now() - brFindAt < (deep ? 2 : tab ? 10 : 60) * 60e3) return;
+  if (!pub || brFinding || S.key?.pubHex !== pub || Date.now() - brFindAt < discoverEvery(deep, tab)) return;
   brFinding = true; brFindAt = Date.now(); brLooking = deep ? pub : null;
   try {
-    const addr = await withKey((t) => t.wallet.address(), pub);
-    const first = await esplora(`/address/${addr}/txs`);
-    let txs = Array.isArray(first) ? first : [];
-    for (let page = 1, last = txs; page < (deep ? 8 : 2) && last.length >= 25; page++) {
-      const more = await esplora(`/address/${addr}/txs/chain/${last[last.length - 1].txid}`).catch(() => []);
-      last = Array.isArray(more) ? more : [];
-      txs = txs.concat(last);
-    }
-    const seen = new Set(store.get(BR_FOUND)?.[pub] || []);
-    const { found, tried, left } = await withKey((t) => t.bridgeUx().discover({ walletPriv: walletPriv(), txs, skip: [...seen], limit: deep ? 80 : 20 }), pub);
-    if (tried.length) { const m = store.get(BR_FOUND) || {}; m[pub] = [...seen, ...tried].slice(-300); store.set(BR_FOUND, m); }
-    if (deep && !left) { const m = store.get(BR_DEEP) || {}; m[pub] = Date.now(); store.set(BR_DEEP, m); }
+    const { found } = await discoverIn({ pub, listed: brList(pub), esplora, withKey, priv: walletPriv, memory: store });
     if (found.length && S.key?.pubHex === pub) {
       toast(found.length === 1 ? `Found a bridge of ${brAmt(found[0])} that this browser had no record of: it goes on here` : `Found ${found.length} bridges that this browser had no record of: they go on here`);
       BR.at = 0; rerender('tac'); dashSoon(); brTick(true);

@@ -4,9 +4,10 @@
 // the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
-import { stepIn, stepOut, advanceOut, outPubs } from '/bridge-tick.js?cb=84475d9e';
+import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
 import { ROUTES } from '/bridge/track.js?cb=9bdc3efd';
 import { makeRunner } from '/activity.js?cb=532a162f';
+import { parseUnits } from '/trade/util.js?cb=509d6618';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const TACIT_URL = '/tacit.js?cb=c69646c8';
@@ -14,6 +15,16 @@ const PLAN_KEY = 'tacit-lite-bridge-plan-v1', SELF_PROVE = 'tacit-lite-prove-sel
 const API = 'https://api.tacit.finance';
 const EVERY = 75e3;                                                                  // as often as the front page's pass
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const memory = { get: read, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage is a convenience */ } } };
+// Bitcoin's history for an address: mempool.space, then Blockstream (both are in this page's connect-src)
+const EXPLORERS = ['https://mempool.space/api', 'https://blockstream.info/api'];
+async function esplora(path) {
+  let last = null;
+  for (const base of EXPLORERS) {
+    try { const r = await fetch(base + path, { signal: AbortSignal.timeout(12e3) }); if (r.ok) return await r.json(); last = new Error(String(r.status)); } catch (e) { last = e; }
+  }
+  throw new Error(`Bitcoin explorers are unreachable (${last?.message || 'network'})`);
+}
 const refused = (e) => e?.code === 'relay_held' || e?.code === 'relay_paused' || e?.httpStatus === 429 || /relay (4\d\d|held|paused)|can’t take this one|free (relayed )?settles/i.test(String(e?.message || ''));
 const BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'minted'];
 
@@ -43,7 +54,40 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
       }
     } catch { /* a pass that fails is tried again on the next */ } finally { busy = false; }
     repaint();
+    find().catch(() => {});
   }
+  // Bridges this browser has no record of (a new browser, or one whose data was cleared): found from the key's Bitcoin address, a little way back
+  // each time and once through a long stretch. `force` looks now, whatever was looked at lately.
+  let findAt = 0, finding = false;
+  async function find(force = false) {
+    if (finding || !key.unlocked) return null;
+    const pub = key.key.pubHex, T = await TS.load(), listed = T.bridgeUx().list(pub), deep = unsearched(pub, listed, memory);
+    if (!force && Date.now() - findAt < discoverEvery(deep, true)) return null;
+    finding = true; findAt = Date.now();
+    try {
+      if (force) say('Looking through your Bitcoin address…');
+      const { found } = await discoverIn({ pub, listed, esplora, withKey: TS.withKey, priv: () => key.priv(), memory });
+      if (key.key?.pubHex !== pub) return null;
+      if (found.length) { say(found.length === 1 ? 'Found a bridge that this browser had no record of: it goes on here.' : `Found ${found.length} bridges that this browser had no record of: they go on here.`); last = 0; tick(true); }
+      else if (force) say('No bridge turned up for this key. If it was started on another key, open that one.');
+      return found;
+    } catch (e) { if (force) say(txt(e)); return null; } finally { finding = false; repaint(); }
+  }
+  // one bridge to Bitcoin rebuilt from the Ethereum transaction of its burn and the amount bridged
+  async function findOut(hash, amountText) {
+    if (!key.unlocked) return say('Open your Tacit wallet first.');
+    const h = String(hash || '').trim().toLowerCase().replace(/^0x/, ''), v = parseUnits(amountText || '', 8);
+    if (!/^[0-9a-f]{64}$/.test(h)) return say('A transaction hash is 64 characters, 0-9 and a-f.');
+    if (!v) return say('Add the amount you bridged.');
+    try {
+      say('Checking the burn and rebuilding the bridge…');
+      const T = await TS.load();
+      await T.crossoutUx().recoverFromEthTx('0x' + h, key.priv(), { amount: v });
+      say('✓ Found it. It shows under Your bridges.'); last = 0; tick(true);
+      return true;
+    } catch (e) { say(txt(e)); return false; } finally { repaint(); }
+  }
+
   function start() {
     stop();
     timer = setInterval(() => { if (!document.hidden) tick(); }, 15e3);
@@ -150,5 +194,5 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     } finally { busy = false; repaint(); }
   }
 
-  return { toggle, press, tick, armed, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

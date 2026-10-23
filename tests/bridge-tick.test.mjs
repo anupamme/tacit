@@ -2,7 +2,7 @@
 // burn sent only on the holder's plan, a failing Bitcoin step left to rest, and nothing signed for another key.
 //   node tests/bridge-tick.test.mjs
 import assert from 'node:assert/strict';
-import { stepIn, stepOut, advanceOut, outPubs, waitRanOut } from '../dapp/bridge-tick.js';
+import { stepIn, stepOut, advanceOut, outPubs, waitRanOut, discoverIn, unsearched, discoverEvery, FOUND_KEY, DEEP_KEY } from '../dapp/bridge-tick.js';
 
 const PUB = '02' + 'aa'.repeat(32), OTHER = '03' + 'bb'.repeat(32);
 const withKey = async (fn, pub) => { if (pub !== PUB) throw new Error('other key'); return fn(); };
@@ -101,5 +101,33 @@ function outUx(steps) {
   const m = new Map([['tacit-crossout-bridge-v1:mainnet:' + PUB, '[]'], ['tacit-crossout-bridge-v1:mainnet:xyz', '[]'], ['other', '']]);
   const st = { length: m.size, key: (i) => [...m.keys()][i] };
   assert.deepEqual(outPubs(st), [PUB], 'keys are read from the journals\' names, and only well-formed ones');
+}
+// ── bridges with no record ──
+{
+  const m = new Map(), memory = { get: (k) => m.get(k) ?? null, set: (k, v) => m.set(k, v) };
+  const pages = (n) => Array.from({ length: n }, (_, i) => ({ txid: String(i).padStart(64, '0') }));
+  const asked = [], esplora = async (path) => { asked.push(path); return path.includes('/chain/') ? pages(25) : pages(25); };
+  const calls = [];
+  const T = { wallet: { address: () => 'bc1qkey' }, bridgeUx: () => ({ discover: async (o) => { calls.push(o); return { found: [{ id: 'f' }], tried: ['t1', 't2'], left: 0 }; } }) };
+  const withKey = async (fn, p) => { if (p !== PUB) throw new Error('other key'); return fn(T); };
+  assert.equal(unsearched(PUB, [], memory), true); assert.equal(unsearched(PUB, [{}], memory), false, 'a key with a bridge listed has been seen'); assert.equal(unsearched(null, [], memory), false);
+  assert.equal(discoverEvery(true), 2 * 60e3); assert.equal(discoverEvery(false, true), 10 * 60e3); assert.equal(discoverEvery(false), 60 * 60e3);
+  const r = await discoverIn({ pub: PUB, listed: [], esplora, withKey, priv: () => 'PRIV', memory });
+  assert.equal(r.deep, true); assert.equal(r.found.length, 1);
+  assert.equal(asked.length, 8, 'a key never searched is read eight pages deep (the first and seven more)');
+  assert.equal(asked[0], '/address/bc1qkey/txs'); assert.ok(asked[1].startsWith('/address/bc1qkey/txs/chain/'));
+  assert.equal(calls[0].txs.length, 200); assert.equal(calls[0].limit, 80); assert.deepEqual(calls[0].skip, []);
+  assert.deepEqual(memory.get(FOUND_KEY)[PUB], ['t1', 't2'], 'what was tried is not tried again'); assert.ok(memory.get(DEEP_KEY)[PUB] > 0, 'and the long search is done once');
+  asked.length = 0; calls.length = 0;
+  const r2 = await discoverIn({ pub: PUB, listed: [{ id: 'x' }], esplora, withKey, priv: () => 'PRIV', memory });
+  assert.equal(r2.deep, false); assert.equal(asked.length, 2, 'the others look one page back'); assert.equal(calls[0].limit, 20); assert.deepEqual(calls[0].skip, ['t1', 't2']);
+  // a long search that did not finish is done again
+  m.clear(); T.bridgeUx = () => ({ discover: async () => ({ found: [], tried: ['a'], left: 3 }) });
+  await discoverIn({ pub: PUB, listed: [], esplora, withKey, priv: () => 'PRIV', memory });
+  assert.equal(memory.get(DEEP_KEY), null, 'with more left to try, the long search is not marked done');
+  // an explorer that fails on a later page still searches what it read
+  const flaky = async (path) => { if (path.includes('/chain/')) throw new Error('down'); return pages(25); };
+  const r3 = await discoverIn({ pub: PUB, listed: [{}], esplora: flaky, withKey, priv: () => 'PRIV', memory });
+  assert.equal(r3.found.length, 0);
 }
 console.log('bridge-tick: all checks passed');

@@ -5,7 +5,7 @@ import { getUx } from '/trade/poolux.js?cb=e792b253';
 import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=509d6618';
 import { OUT_ASSETS, ladder, feeShort, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=3e9b426a';
 import { notesOf, exactOf, cutPick, cut } from '/farm-ops.js?cb=4470442d';
-import { advanceOut, waitRanOut } from '/bridge-tick.js?cb=84475d9e';
+import { advanceOut, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 
 const API = 'https://api.tacit.finance';
 const outFee = makeOutFee({ api: API });

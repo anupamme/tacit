@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8956,6 +8956,71 @@ await step('bridgepresses', async () => {
     await press('resign', O[2], 'Checked');
     ok((await bp()).calls.some((c) => c[0] === 'resign' && c[1] === O[2]), 'bridgepresses: a signed pair Bitcoin keeps rejecting is signed again');
     if (r.errors.length) { fails++; console.log('FAIL bridgepresses page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// A bridge this browser has no record of, found from the bridge page: "Can't see a bridge?" opens the key and looks through its Bitcoin address
+// at once, through a long stretch because the key has none listed; what turns up is listed and goes on; and a bridge to Bitcoin is rebuilt from
+// the transaction that burned it and the amount, after the hash and amount are checked. tacit.js and the explorer are answered here.
+await step('bridgefindhere', async () => {
+  const TACID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const r = await openPage({ account: A0, key: K0 });
+  const txs = Array.from({ length: 25 }, (_, i) => ({ txid: String(i).padStart(64, 'a') }));
+  await r.page.route(/mempool\.space\/api\/address\//, (route) => { window_asked.push(route.request().url()); return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(txs) }); });
+  const window_asked = [];
+  await r.page.route(/\/tacit\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const S = window.__bf = { discover: [], recovered: [] };
+    export const wallet = { priv: null, pub: null, mode: null, address: () => 'bc1qfindme' };
+    export const invalidateHoldingsCache = () => {};
+    const IN = 'tacit-burndep-bridge-v1:mainnet:';
+    const hex = (u) => [...(u || [])].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const get = (k) => JSON.parse(localStorage.getItem(k) || '[]');
+    export const bridgeUx = () => ({
+      list: (pub) => get(IN + pub), armMint: async () => {}, mintRetryDue: () => false,
+      verify: async (pub, id) => get(IN + pub).find((x) => x.id === id), advance: async (pub, id) => get(IN + pub).find((x) => x.id === id),
+      discover: async (o) => {
+        S.discover.push({ txs: o.txs.length, limit: o.limit, skip: o.skip.length, priv: o.walletPriv.length });
+        const pub = hex(wallet.pub);
+        const rec = { id: 'f1'.repeat(32) + ':0', network: 'mainnet', walletPub: pub, path: 'reflected', stage: 'rburn-mined', createdAt: Date.now() - 1e6,
+          source: { txid: 'f1'.repeat(32), vout: 0, sats: 546, assetId: '0x${TACID}', amount: { __big: '10000000000' }, blinding: { __big: '777' } }, burn: { txid: 'bb'.repeat(32), hex: '00' }, envelope: { destLeaf: '0x' + 'ee'.repeat(32) } };
+        localStorage.setItem(IN + pub, JSON.stringify([rec]));
+        return { found: [rec], tried: ['t1', 't2'], left: 0 };
+      },
+    });
+    export const crossoutUx = () => ({ list: () => [], advance: async () => null,
+      recoverFromEthTx: async (h, p, o) => { S.recovered.push([h, String(o.amount), p.length]); return { id: 'x', stage: 'settled' }; } });` }));
+  const bf = () => r.page.evaluate(() => window.__bf);
+  const said = () => text(r.page, '#lost-s').then((t) => t.replace(/\s+/g, ' ').trim());
+  try {
+    await r.page.goto(r.url + 'bridge/');
+    ok(await r.page.isHidden('#lost-form') && !(await bf()), 'bridgefindhere: nothing of the key or tacit.js is loaded, and no form shown, until asked');
+    await r.page.click('#lost-a');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await until(r.page, () => !!window.__bf?.discover?.length, null, 120000);
+    const d = (await bf()).discover[0];
+    ok(d.limit === 80 && d.skip === 0 && d.txs === 200 && d.priv === 32, `bridgefindhere: a key with none listed is searched through a long stretch of its history, with its key (${JSON.stringify(d)})`);
+    await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
+    ok(await r.page.isVisible('#lost-form') && /Found a bridge that this browser had no record of/.test(await said()), `bridgefindhere: what turns up is listed, and said (${await said()})`);
+    ok(window_asked.length === 8 && /\/address\/bc1qfindme\/txs$/.test(window_asked[0]) && /\/txs\/chain\//.test(window_asked[1]), `bridgefindhere: the key's own Bitcoin address is read, page by page (${window_asked.length} reads)`);
+    // a bridge to Bitcoin, from its burn
+    await r.page.click('#lost-form > summary');
+    await r.page.fill('#lf-tx', '0x12ab');
+    await r.page.fill('#lf-amt', '0.0039');
+    await r.page.click('#lf-go');
+    await until(r.page, () => /64 characters/.test(document.querySelector('#mine-s')?.textContent || document.querySelector('#lost-s')?.textContent || ''), null, 30000);
+    ok(!(await bf()).recovered.length, 'bridgefindhere: a hash that is not 64 characters is refused before anything is asked');
+    await r.page.fill('#lf-tx', '0x' + 'ab'.repeat(32));
+    await r.page.fill('#lf-amt', '');
+    await r.page.click('#lf-go');
+    await until(r.page, () => /Add the amount/.test(document.querySelector('#mine-s')?.textContent || ''), null, 30000);
+    await r.page.fill('#lf-amt', '0.0039');
+    await r.page.click('#lf-go');
+    await until(r.page, () => /Found it/.test(document.querySelector('#mine-s')?.textContent || ''), null, 60000);
+    const rec = (await bf()).recovered;
+    ok(rec.length === 1 && rec[0][0] === '0x' + 'ab'.repeat(32) && rec[0][1] === '390000' && rec[0][2] === 32, `bridgefindhere: the burn's transaction and the amount rebuild the bridge with the key (${JSON.stringify(rec)})`);
+    ok((await r.page.inputValue('#lf-tx')) === '' && (await r.page.inputValue('#lf-amt')) === '', 'bridgefindhere: and the form is emptied');
+    if (r.errors.length) { fails++; console.log('FAIL bridgefindhere page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

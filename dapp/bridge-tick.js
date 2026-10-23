@@ -84,3 +84,28 @@ export function outPubs(storage = localStorage) {
   try { for (let i = 0; i < storage.length; i++) { const k = storage.key(i) || ''; if (k.startsWith(own) && /^[0-9a-f]{66}$/.test(k.slice(own.length))) pubs.push(k.slice(own.length)); } } catch {}
   return pubs;
 }
+
+// ── bridges this browser has no record of ──
+// A key whose bridges this browser never saw (a new browser, or one whose data was cleared) is searched once through a longer stretch of its Bitcoin
+// history, and the others a little way back each time: a bridge's burn is among the transactions of the key's own Bitcoin address, 25 to a page.
+// `memory` is the page's small store ({ get(key), set(key, value) }, JSON): what was tried, and when the long search was done.
+export const FOUND_KEY = 'tacit-lite-bridge-found-v1', DEEP_KEY = 'tacit-lite-bridge-deep-v1';
+export const unsearched = (pub, listed, memory) => !!pub && !listed.length && !memory.get(DEEP_KEY)?.[pub];
+export async function discoverIn({ pub, listed, esplora, withKey, priv, memory }) {
+  const deep = unsearched(pub, listed, memory);
+  const address = await withKey((t) => t.wallet.address(), pub);
+  const first = await esplora(`/address/${address}/txs`);
+  let txs = Array.isArray(first) ? first : [];
+  for (let page = 1, last = txs; page < (deep ? 8 : 2) && last.length >= 25; page++) {
+    const more = await esplora(`/address/${address}/txs/chain/${last[last.length - 1].txid}`).catch(() => []);
+    last = Array.isArray(more) ? more : [];
+    txs = txs.concat(last);
+  }
+  const seen = new Set(memory.get(FOUND_KEY)?.[pub] || []);
+  const { found, tried, left } = await withKey((t) => t.bridgeUx().discover({ walletPriv: priv(), txs, skip: [...seen], limit: deep ? 80 : 20 }), pub);
+  if (tried.length) { const m = memory.get(FOUND_KEY) || {}; m[pub] = [...seen, ...tried].slice(-300); memory.set(FOUND_KEY, m); }
+  if (deep && !left) { const m = memory.get(DEEP_KEY) || {}; m[pub] = Date.now(); memory.set(DEEP_KEY, m); }
+  return { found, deep };
+}
+// how long before the next look: sooner for a key never searched
+export const discoverEvery = (deep, tab = false) => (deep ? 2 : tab ? 10 : 60) * 60e3;

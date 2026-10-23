@@ -321,18 +321,19 @@ function paintHere() {
   FORM?.destroy(); FORM = null; FORM_KEY = '';
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
-  import('/bridge/out-form.js?cb=99d53d09').then((m) => {
+  import('/bridge/out-form.js?cb=69fd081a').then((m) => {
     if (FORM_KEY !== want || !MV?.open) return;
     FORM = m.mountOutForm(box, { asset: want, mover: MV, say: mineSay, repaint: () => { readMine.sig = null; readMine(); } });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
 }
 function mineSay(text, front = false) {
-  const el = $('#mine-s');
+  const el = $('#mine').hidden ? $('#lost-s') : $('#mine-s');           // with no bridge listed there is no list to put it under
+  for (const o of [$('#mine-s'), $('#lost-s')]) if (o && o !== el) { o.hidden = true; o.innerHTML = ''; }
   if (!el) return;
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=ec468a0e').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=af64e0cc').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });
@@ -344,6 +345,18 @@ function wireMove() {
   b.addEventListener('click', async () => {
     try { await (await loadMover()).toggle(); } catch { return; }
     readMine.sig = null; readMine();
+  });
+  // "Can't see a bridge?": the key opened here, a look through its Bitcoin address now, and the way to find a bridge out from its burn
+  $('#lost-a')?.addEventListener('click', async (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    try { const m = await loadMover(); if (!m.open && !(await m.toggle())) return; $('#lost-form').hidden = false; await m.find(true); } catch { /* said on the line */ }
+    readMine.sig = null; readMine();
+  });
+  $('#lf-go')?.addEventListener('click', async () => {
+    const b = $('#lf-go');
+    b.disabled = true;
+    try { if (await MV?.findOut($('#lf-tx').value, $('#lf-amt').value)) { $('#lf-tx').value = ''; $('#lf-amt').value = ''; } } finally { b.disabled = false; readMine.sig = null; readMine(); }
   });
   $('#bt-here')?.addEventListener('click', async () => {
     try { const m = await loadMover(); if (!m.open) await m.toggle(); } catch { return; }
