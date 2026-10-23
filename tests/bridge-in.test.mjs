@@ -3,7 +3,7 @@
 // to one's own address that an older note needs first.
 //   node tests/bridge-in.test.mjs
 import assert from 'node:assert/strict';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf } from '../dapp/bridge-in.js';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf, NO_SATS, isShort, halts, haltText, PREP_KEY, preps, prepAdd, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '../dapp/bridge-in.js';
 
 const say = (e) => `said: ${e?.message || e}`;
 
@@ -160,5 +160,110 @@ assert.match(longReason({ unprovable: true, through: 'shielded' }), /^Its histor
   assert.equal((await toSelf(t, 'id1', [{ txid: 'b2', vout: 1 }], 60n)).amount, 60n, 'a part of one note');
   await assert.rejects(toSelf(t, 'id1', [{ txid: 'zz', vout: 0 }], null, 'TAC note'), /^Error: That TAC note is no longer at this address\. Refresh, then try again\.$/);
   assert.equal(sent.length, 2, 'nothing is sent for a note that is gone');
+}
+
+// ── several notes at once ──────────────────────────────────────────────────────────────────────────────────────────────────
+const memOf = () => { const m = new Map(); return Object.assign({ get: (k) => m.get(k) ?? null, set: (k, v) => m.set(k, JSON.parse(JSON.stringify(v))) }, { m }); };
+// what stops a run for good, and in what words
+assert.ok(isShort(new Error('insufficient plain sats')) && isShort(new Error('no plain-sats utxo')) && !isShort(new Error('boom')));
+assert.ok(halts(new Error('too-long-mempool-chain')) && halts(new Error('could not read your locked coins')) && !halts(new Error('relay down')));
+assert.equal(haltText(new Error('insufficient sats'), say), NO_SATS);
+assert.match(haltText(new Error('ancestor-chain limit'), say), /only so many unconfirmed transactions/);
+assert.equal(haltText(new Error('burndep-ux: nope'), say), 'said: Nope');
+// the sends waiting for Bitcoin's proof: kept by txid, fourteen days
+{
+  const mem = memOf(), now = Date.now();
+  prepAdd(mem, 'p', { txid: 't1', amount: '5', at: now });
+  prepAdd(mem, 'p', { txid: 't2', amount: '6', at: now, plan: { auto: { maxFee: 3000 } } });
+  prepAdd(mem, 'p', { txid: 't1', amount: '7', at: now });
+  assert.deepEqual(preps(mem, 'p', now).map((x) => [x.txid, x.amount]), [['t2', '6'], ['t1', '7']], 'a send is kept once, the latest record of it');
+  assert.equal(preps(mem, 'p', now + 15 * 86400e3).length, 0, 'older than fourteen days: gone'); assert.deepEqual(preps(mem, null, now), []);
+  assert.equal(mem.m.get(PREP_KEY).p.length, 2);
+}
+// a shortage is looked at again only when something has gone in this run
+{
+  let calls = 0, fresh = 0, slept = [];
+  const run = (results, sent) => { calls = 0; const q = [...results]; return tryAgain({ fn: async () => { calls++; const r = q.shift(); if (r instanceof Error) throw r; return r; }, sentBefore: () => sent, fresh: async () => { fresh++; }, sleep: async (ms) => { slept.push(ms); } }); };
+  assert.deepEqual(await run([{ rec: 1 }], false), { rec: 1 }); assert.equal(calls, 1);
+  assert.deepEqual(await run([{ why: NO_SATS }], false), { why: NO_SATS }, 'nothing sent yet: a shortage is a shortage'); assert.equal(calls, 1);
+  assert.deepEqual(await run([{ why: NO_SATS }, { rec: 2 }], true), { rec: 2 }); assert.equal(calls, 2); assert.equal(fresh, 2); assert.deepEqual(slept, [5000]);
+  assert.deepEqual(await run([new Error('insufficient sats'), { rec: 3 }], true), { rec: 3 });
+  await assert.rejects(run([new Error('insufficient sats')], false), /insufficient sats/);
+  await assert.rejects(run([new Error('relay down')], true), /relay down/, 'only a shortage is tried again');
+}
+// a send to one's own address keeps its record, and the plan only when it asks for something
+{
+  const mem = memOf(), sentArgs = [];
+  const withKey = async (fn) => fn({ scanHoldings: async () => new Map([[TAC_BTC_ID, { utxos: [{ utxo: { txid: 'a1', vout: 0 }, amount: 7n }, { utxo: { txid: 'b2', vout: 0 }, amount: 8n }] }]]), wallet: { pub: new Uint8Array([9, 9]) },
+    buildAndBroadcastCXfer: async (o) => { sentArgs.push(o); return { revealTxid: 'tx1' }; } });
+  const r = await mergeSend({ withKey, mem, pub: 'p', notes: [{ txid: 'a1', vout: 0 }, { txid: 'b2', vout: 0 }], now: () => 42 });
+  assert.deepEqual(r, { txid: 'tx1', amount: 15n, n: 2 }); assert.equal(sentArgs[0].amount, 15n);
+  assert.deepEqual(preps(mem, 'p', 42).map((x) => ({ ...x })), [{ txid: 'tx1', amount: '15', at: 42 }], 'no plan stored when none asked for anything');
+  await mergeSend({ withKey, mem, pub: 'p', notes: [{ txid: 'a1', vout: 0 }], plan: { auto: { maxFee: 3000 } }, now: () => 43 });
+  assert.deepEqual(preps(mem, 'p', 43).find((x) => x.at === 43).plan, { auto: { maxFee: 3000 } });
+}
+// one note started: its check, its price, its burn; the plan for a move's burn; a note that fails its check or has no coins is not started
+{
+  const mem = memOf(), calls = [];
+  const note = { txid: 'a1', vout: 0, sats: 546, amount: '100' };
+  const mk = (pf, coins) => {
+    const ux = { preflight: async () => pf, bridgeCost: ({ coins: c }) => ({ fee: 700, need: 900, later: 300, ok: c.some((x) => x.value >= 900), have: c[0]?.value || 0 }), pickFunding: (c, need) => c.find((x) => x.value >= need) || null,
+      startReflected: async () => { calls.push('startReflected'); return { id: 'a1:0', walletPub: 'wp' }; }, start: async () => { calls.push('start'); return { id: 'a1:0', walletPub: 'wp' }; }, advance: async () => ({ id: 'a1:0', stage: 'burn-submitted' }), armMint: async () => {}, list: () => [] };
+    const t = { bridgeUx: () => ux, pickSafeCommitSats: async (c) => c, getUtxos: async () => coins, wallet: { address: () => 'bc1q' }, invalidateHoldingsCache: () => calls.push('fresh') };
+    return { t, withKey: async (fn) => fn(t) };
+  };
+  const go = (pf, coins, o = {}) => { const { t, withKey } = mk(pf, coins); return startNote(t, { withKey, mem, pub: 'p', walletPub: new Uint8Array(33), priv: () => 'PRIV', note, errText: say, ...o }); };
+  let r = await go({ ok: true, path: 'reflected', burnFeeRate: 5 }, [{ value: 5000 }]);
+  assert.equal(r.rec.id, 'a1:0'); assert.deepEqual(calls, ['startReflected', 'fresh']); assert.equal(mem.m.get(PLAN_KEY), undefined, 'a one-step burn needs no plan');
+  calls.length = 0; r = await go({ ok: true, path: 'migrate', migrateFeeRate: 4 }, [{ value: 5000 }], { publicTo: '0xabc' });
+  assert.equal(r.rec.id, 'a1:0'); assert.deepEqual(calls, ['start', 'fresh']);
+  assert.deepEqual(mem.m.get(PLAN_KEY).p['a1:0'].burn, { maxRate: 20 }); assert.equal(mem.m.get(PLAN_KEY).p['a1:0'].publicTo, '0xabc');
+  calls.length = 0; r = await go({ ok: true, path: 'reflected', burnFeeRate: 5 }, [{ value: 100 }]);
+  assert.deepEqual(r, { why: NO_SATS }); assert.deepEqual(calls, [], 'no coins for the fee: nothing signed');
+  r = await go({ ok: false, steps: [{ name: 'source-confirmed', ok: false }] }, [{ value: 5000 }]);
+  assert.match(r.why, /waiting for its Bitcoin confirmation/); assert.deepEqual(calls, []);
+}
+// the cost of a press, at today's rate, against the coins free for fees
+{
+  const ux = { quoteRate: async () => 5, bridgeCost: ({ path, feeRate, coins, noteSats }) => (path === 'deposit' ? { fee: 2000, need: 2500, later: 600, ok: true } : { fee: 1000 + noteSats, need: 900, ok: (coins[0]?.value || 0) >= 900 }) };
+  const t = { bridgeUx: () => ux };
+  const n = (sats) => ({ sats });
+  const bulk = { merge: { groups: [{ notes: [n(546), n(546), n(546)] }] }, all: { burns: [n(546)], sends: [{ notes: [n(546), n(546)] }], privates: [n(546)], checks: [n(546)] } };
+  const m = await bulkFee(t, { bulk, kind: 'merge', coins: [{ value: 5000 }] });
+  assert.deepEqual([m.fee, m.need, m.short, m.later], [1000 + 3 * 546 + 2 * Math.ceil(68 * 5), 900, false, 1546], 'a merge adds an input’s weight per extra note, and the burn that follows');
+  const a = await bulkFee(t, { bulk, kind: 'all', coins: [{ value: 5000 }] });
+  assert.equal(a.need, 900 * 3, 'a burn, a send and a private note’s send, each needing its commit'); assert.equal(a.short, false, 'free coins of 5000 cover 2700');
+  assert.equal(a.later, 2 * 1546 + 600, 'the burns after the two sends, and the burn after a checked note’s move');
+  assert.equal((await bulkFee(t, { bulk, kind: 'merge', coins: [{ value: 100 }] })).short, true, 'coins read and short');
+  assert.equal((await bulkFee(t, { bulk, kind: 'merge', coins: null })).short, false, 'coins not read are not called short');
+  assert.equal(await bulkFee({ bridgeUx: () => ({ quoteRate: async () => { throw new Error('x'); } }) }, { bulk, kind: 'merge', coins: [] }), null, 'no rate: no quote');
+  assert.ok(m.autoMaxFee >= 3000);
+}
+// Merge notes: each pack in turn; a shortage stops the rest; the others are said and the run goes on
+{
+  const said = [], groups = [{ notes: [1, 2] }, { notes: [3, 4, 5] }, { notes: [6, 7] }];
+  const again = (fn, sent) => fn();
+  const sendFrom = (outs) => async (ns) => { const o = outs.shift(); if (o instanceof Error) throw o; return { txid: 't' + ns[0], amount: BigInt(ns.length), n: ns.length }; };
+  let r = await runMerge({ groups, merge: sendFrom([1, 1, 1]), tryAgain: again, say: (m) => said.push(m), errText: say });
+  assert.deepEqual(r.did.map((d) => d.n), [2, 3, 2]); assert.deepEqual(r.left, []); assert.equal(said[1], 'Merging 3 notes (2 of 3)…');
+  r = await runMerge({ groups, merge: sendFrom([1, new Error('relay down'), 1]), tryAgain: again, errText: say });
+  assert.deepEqual(r.did.map((d) => d.n), [2, 2]); assert.deepEqual(r.left, ['said: relay down'], 'a failure that is not a shortage leaves that pack and goes on');
+  r = await runMerge({ groups, merge: sendFrom([1, new Error('insufficient sats'), 1]), tryAgain: again, errText: say });
+  assert.deepEqual(r.did.map((d) => d.n), [2]); assert.deepEqual(r.left, [NO_SATS], 'a shortage stops the run: nothing later could do better');
+}
+// Bridge all: the sends first, then the burns and the checks; what is left is named with its amount
+{
+  const calls = [], again = (fn) => fn();
+  const note = (a) => ({ amount: a });
+  const all = { burns: [note(10), note(20)], sends: [{ notes: [note(1), note(2)] }], privates: [note(3)], checks: [note(30)] };
+  const merge = async (ns) => { calls.push('send' + ns.length); return { txid: 'x', amount: 1n, n: ns.length }; };
+  let r = await runAll({ all, merge, start: async (n) => { calls.push('start' + n.amount); return n.amount === 30 ? { why: 'did not pass its check' } : { rec: {} }; }, tryAgain: again, errText: say, amountText: (n) => `${n.amount} TAC` });
+  assert.deepEqual(calls, ['send2', 'send1', 'start10', 'start20', 'start30']);
+  assert.deepEqual(r.did, { burns: 2, sends: 2, sent: 3 }); assert.deepEqual(r.left, ['30 TAC: did not pass its check']);
+  calls.length = 0;
+  r = await runAll({ all, merge: async () => { throw new Error('too-long-mempool-chain'); }, start: async () => ({ rec: {} }), tryAgain: again, errText: say });
+  assert.deepEqual(r.did, { burns: 0, sends: 0, sent: 0 }); assert.equal(r.left.length, 1); assert.match(r.left[0], /only so many unconfirmed transactions/, 'a full chain stops the run before any burn');
+  r = await runAll({ all, merge, start: async (n) => { if (n.amount === 10) throw new Error('insufficient sats'); return { rec: {} }; }, tryAgain: again, errText: say, amountText: (n) => `${n.amount} TAC` });
+  assert.deepEqual(r.did, { burns: 0, sends: 2, sent: 3 }); assert.deepEqual(r.left, [`10 TAC: ${NO_SATS}`], 'a shortage at a burn stops the burns after it');
 }
 console.log('bridge-in: all checks passed');

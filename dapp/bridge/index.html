@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=64b6c875">
+<link rel="modulepreload" href="/bridge/app.js?cb=3be3cf4a">
 <link rel="modulepreload" href="/bridge/track.js?cb=a6264ed1">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -191,6 +191,10 @@ button.go:disabled { opacity: .45; cursor: default; transform: none; }
 .bi-over { cursor: default; flex-wrap: wrap; justify-content: space-between; align-items: center; }
 .bi-split { display: flex; gap: 8px; align-items: center; }
 .bi-split input { width: 9ch; font: 500 14px var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--hair-2); border-radius: 8px; padding: 6px 8px; min-height: 36px; min-width: 0; }
+.bi-bulk { display: flex; gap: 8px; flex-wrap: wrap; }
+.bi-bulk button { font: inherit; color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 8px; padding: 6px 12px; min-height: 36px; cursor: pointer; }
+.bi-bulk button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.bi-bulk button:disabled { opacity: .5; cursor: default; }
 .bi-split button { font: inherit; color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 8px; padding: 6px 10px; min-height: 36px; cursor: pointer; }
 button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--hair-2); }
 #mine-s a, #lost-s a { color: var(--ink); }
@@ -1023,6 +1027,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=64b6c875"></script>
+<script type="module" src="/bridge/app.js?cb=3be3cf4a"></script>
 </body>
 </html>

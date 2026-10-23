@@ -9225,6 +9225,140 @@ await step('bridgein', async () => {
   } finally { await r.browser.close(); }
 });
 
+// Merge notes and Bridge all on the bridge page (bridge-all.js plans them): the panels say what they will do and what it costs, Merge sends each pack to the
+// key's own address in one transaction, Bridge all sends the older notes first (one pack, and a note received privately on its own), burns each tracked note,
+// starts the one the proof does not track with a move, leaves the recent and empty ones out, names a shortage, and an acknowledgement gates it.
+// tacit.js is a stub that records the calls; the key sheet and the page are the real ones.
+await step('bridgebulk', async () => {
+  const TACID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const r = await openPage({ account: A0, key: K0 });
+  await r.ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\//, (route) => json(route, []));
+  await r.page.route(/\/tacit\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const TAC = '${TACID}', IN = 'tacit-burndep-bridge-v1:mainnet:';
+    const S = window.__bb = { hold: null, calls: [], coins: [{ txid: 'ff'.repeat(32), vout: 1, value: 50000 }], gone: [], extra: [] };
+    export const wallet = { priv: null, pub: null, mode: null, address: () => 'bc1qstubaddress' };
+    export const invalidateHoldingsCache = () => { S.calls.push(['fresh']); };
+    const hex = (u) => [...(u || [])].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const get = (k) => JSON.parse(localStorage.getItem(k) || '[]');
+    const put = (k, l) => localStorage.setItem(k, JSON.stringify(l));
+    const id = (n) => n.repeat(32);
+    // txid, amount (TAC), confirmed, form, tracking
+    const BASE = [['a1', 400, 'tacit', 'tracked'], ['a2', 300, 'tacit', 'tracked'], ['a3', 250, 'old', 'tracked'], ['a4', 120, 'old', 'tracked'], ['a5', 80, 'private', 'tracked'], ['a6', 60, 'tacit', 'untracked'], ['a7', 50, 'tacit', 'new'], ['a8', 0, 'tacit', 'tracked'], ['a9', 2000, 'tacit', 'tracked']];
+    const notes = () => [...BASE.map(([t, a, f, k]) => ({ txid: id(t), vout: 0, amount: BigInt(a) * 100000000n, form: f, tracking: k })), ...S.extra].filter((n) => !S.gone.includes(n.txid + ':' + n.vout));
+    export const scanHoldings = async () => new Map([[TAC, { assetIdHex: TAC, utxos: notes().map((n) => ({ utxo: { txid: n.txid, vout: n.vout, value: 546, status: { confirmed: true, block_height: 900000 } }, amount: n.amount, blinding: 'bb' })) }]]);
+    export const pickSafeCommitSats = async (c) => c;
+    export const getUtxos = async () => S.coins;
+    export const buildAndBroadcastCXfer = async (o) => {
+      S.calls.push(['send-start']);
+      if (S.hold) await S.hold;
+      S.calls.push(['send', String(o.amount), o.forceUtxos.length]);
+      for (const u of o.forceUtxos) S.gone.push(u.utxo.txid + ':' + u.utxo.vout);
+      S.extra.push({ txid: ('e' + S.extra.length).repeat(32), vout: 0, amount: o.amount, form: 'tacit', tracking: 'new' });
+      return { revealTxid: ('d' + S.calls.length).repeat(32).slice(0, 64) };
+    };
+    const made = (n, path) => { const pub = hex(wallet.pub), rec = { id: n.txid + ':' + n.vout, network: 'mainnet', walletPub: pub, path, stage: path === 'reflected' ? 'burn-submitted' : 'migrate-submitted', createdAt: Date.now(),
+      source: { txid: n.txid, vout: n.vout, sats: 546, assetId: '0x' + TAC, amount: { __big: String(n.amount) }, blinding: { __big: '777' } }, burn: { txid: 'bb'.repeat(32), hex: '00' }, migrate: path === 'reflected' ? undefined : { revealTxid: 'ee'.repeat(32) }, envelope: { destLeaf: '0x' + 'ee'.repeat(32) } };
+      put(IN + pub, [...get(IN + pub), rec]); S.gone.push(n.txid + ':' + n.vout); return rec; };
+    export const bridgeUx = () => ({
+      BURNDEP_BETA_CAP_RAW: 100000000000n,
+      list: (pub) => get(IN + pub), armMint: async () => {}, mintRetryDue: () => false, verify: async (pub, i) => get(IN + pub).find((x) => x.id === i) || null,
+      advance: async (pub, i) => get(IN + pub).find((x) => x.id === i),
+      noteForms: async (ns) => new Map(ns.map((n) => [n.txid + ':' + n.vout, (BASE.find((b) => id(b[0]) === n.txid) || [])[2] || 'tacit'])),
+      noteTracking: async (ns) => new Map(ns.map((n) => [n.txid + ':' + n.vout, (BASE.find((b) => id(b[0]) === n.txid) || [])[3] || 'new'])),
+      eligibleNotes: (ns) => ns.map((n) => ({ ...n, eligible: BigInt(n.amount) <= 100000000000n, reason: BigInt(n.amount) > 100000000000n ? 'over the 1,000 TAC beta limit — send part of it to yourself first to split off a smaller note' : null })),
+      preflight: async ({ note }) => { S.calls.push(['preflight', note.txid.slice(0, 2)]); return note.txid === id('a6') ? { ok: true, path: 'migrate', migrateFeeRate: 4, burnRate: 6, steps: [] } : { ok: true, path: 'reflected', burnFeeRate: 5, steps: [] }; },
+      quoteRate: async () => 5,
+      bridgeCost: ({ path, coins }) => (path === 'reflected' ? { fee: 1100, need: 900, ok: (coins[0]?.value || 0) >= 900, have: coins[0]?.value || 0 } : path === 'deposit' ? { fee: 2400, need: 3000, later: 800, ok: true } : { fee: 2400, need: 3000, later: 800, ok: (coins[0]?.value || 0) >= 3000, have: coins[0]?.value || 0 }),
+      pickFunding: (coins, need) => coins.find((c) => c.value >= need) || null,
+      startReflected: async (o) => { S.calls.push(['burn', o.note.txid.slice(0, 2), o.walletPriv.length]); return made(o.note, 'reflected'); },
+      start: async (o) => { S.calls.push(['move', o.note.txid.slice(0, 2), o.walletPriv.length, o.fundingUtxo.value]); return made(o.note, 'migrate'); },
+    });
+    export const crossoutUx = () => ({ list: () => [], advance: async () => null });` }));
+  const bb = () => r.page.evaluate(() => window.__bb);
+  const said = () => text(r.page, '#bi-s').then((t) => t.replace(/\s+/g, ' ').trim());
+  const panel = () => text(r.page, '#bi-bulkp').then((t) => t.replace(/\s+/g, ' ').trim());
+  try {
+    await r.page.goto(r.url + 'bridge/#tac');
+    await r.page.waitForSelector('#bt-here:not([hidden])', { timeout: 60000 });
+    await r.page.click('#bt-here');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#bi-notes .bi-note', { timeout: 120000 });
+    await until(r.page, () => !document.querySelector('#bi-bulk')?.hidden, null, 30000);
+    ok(!(await r.page.isHidden('#bi-merge')) && !(await r.page.isHidden('#bi-all')) && await r.page.isHidden('#bi-bulkp'), 'bridgebulk: with several notes to bridge the list offers Merge notes and Bridge all, and no panel is open');
+    // Merge notes: the tracked notes that are not received privately, packed within the limit, one pack of more than one
+    await r.page.click('#bi-merge');
+    await r.page.waitForSelector('#bi-bulkp #bi-bgo', { timeout: 30000 });
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#bi-bfee')?.textContent || ''), null, 60000);
+    const pm = await panel();
+    ok(/Merge3 notes into 1 note: 950 TAC/.test(pm) && /Bitcoin fee≈ 1,780 sats, and about 1,100 for the burns after/.test(pm) && /bridged here once Bitcoin’s proof/.test(pm) && /1 note too recent for Bitcoin’s proof to have seen stays out of this/.test(pm), `bridgebulk: Merge says what it will do, what it costs and what the recent note does (${pm.slice(0, 280)})`);
+    ok(await r.page.isHidden('#bi-go') && await r.page.isEnabled('#bi-bgo'), 'bridgebulk: the single note’s button steps aside while a panel is open, and Merge can be pressed');
+    await r.page.click('#bi-bgo');
+    await until(r.page, () => /3 notes merged into 1 note: 950 TAC/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    const c0 = (await bb()).calls.filter((c) => c[0] === 'send');
+    ok(c0.length === 1 && c0[0][1] === '95000000000' && c0[0][2] === 3, `bridgebulk: the three notes go to the key's own address in one transaction (${JSON.stringify(c0)})`);
+    const prep = await r.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('tacit-lite-bridge-prep-v1') || '{}'))[0]);
+    ok(prep?.length === 1 && prep[0].amount === '95000000000' && !prep[0].plan, `bridgebulk: the send is kept for the front page's Getting ready, with no plan (${JSON.stringify(prep)})`);
+    // Bridge all
+    await until(r.page, () => !document.querySelector('#bi-bulk')?.hidden && document.querySelectorAll('#bi-notes .bi-note').length > 0, null, 60000);
+    await r.page.evaluate(() => { const g = window.__bb; g.calls.length = 0; g.gone.length = 0; g.extra.length = 0; localStorage.removeItem('tacit-lite-bridge-prep-v1'); });
+    await r.page.click('#bi-re');
+    await until(r.page, () => !document.querySelector('#bi-bulk')?.hidden && document.querySelectorAll('#bi-notes .bi-note').length >= 8, null, 60000);
+    await r.page.click('#bi-all');
+    await r.page.waitForSelector('#bi-bulkp #bi-bgo', { timeout: 30000 });
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#bi-bfee')?.textContent || ''), null, 60000);
+    const pa = await panel();
+    ok(/Bridge1,210 TAC from 6 notes/.test(pa) && /Burned now2 notes, one Bitcoin transaction each/.test(pa) && /Sent first3 notes in 2 sends to your own address; bridge them here once they are ready/.test(pa) && /Checked one by one1 note: a move, then a burn through a miner/.test(pa), `bridgebulk: Bridge all counts what goes now, what is sent first and what is checked one by one (${pa.slice(0, 330)})`);
+    ok(!/Merge notes first would take/.test(pa), 'bridgebulk: merging first would not take fewer transactions here, so it says nothing of it');
+    ok(await r.page.isDisabled('#bi-bgo'), 'bridgebulk: nothing starts until the holder has said they understand a bridge cannot be undone');
+    await r.page.check('#bi-ball');
+    ok(await r.page.isEnabled('#bi-bgo'), 'bridgebulk: acknowledged, it can be pressed');
+    await r.page.click('#bi-bgo');
+    await until(r.page, () => /✓ 3 notes bridging; 3 notes sent to your own address in 2 sends/.test(document.querySelector('#bi-s')?.textContent || ''), null, 90000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await bb()).calls)}`); });
+    const calls = (await bb()).calls.filter((c) => ['send', 'burn', 'move'].includes(c[0])).map((c) => c.join(':'));
+    ok(calls.join(' ') === `send:37000000000:2 send:8000000000:1 burn:a1:32 burn:a2:32 move:a6:32:50000`, `bridgebulk: the older notes are sent first (one pack, then the private one on its own), then each burn, then the move (${calls.join(' ')})`);
+    const plans = await r.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('tacit-lite-bridge-plan-v1') || '{}'))[0] || {});
+    ok(Object.keys(plans).length === 1 && Object.values(plans)[0].burn?.maxRate === 20 && Object.keys(plans)[0].startsWith('a6'.repeat(32)), `bridgebulk: only the moved note has a plan: its burn is sent for the holder (${JSON.stringify(plans)})`);
+    await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
+    ok((await r.page.$$('#mine-l .mb')).length === 3, 'bridgebulk: the three bridges are rows above');
+    // a form closed while a run is under way stops it before its next transaction, and the page's own line says how it ended
+    await r.page.evaluate(() => { const g = window.__bb; g.calls.length = 0; g.gone.length = 0; g.extra.length = 0; g.hold = new Promise((res) => { g.release = res; }); });
+    await r.page.click('#bi-re');
+    await until(r.page, () => !document.querySelector('#bi-bulk')?.hidden && document.querySelectorAll('#bi-notes .bi-note').length >= 8, null, 60000);
+    await r.page.click('#bi-all');
+    await r.page.waitForSelector('#bi-bulkp #bi-bgo', { timeout: 30000 });
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#bi-bfee')?.textContent || ''), null, 60000);
+    await r.page.check('#bi-ball');
+    await r.page.click('#bi-bgo');
+    await until(r.page, () => (window.__bb?.calls || []).some((c) => c[0] === 'send-start'), null, 30000);
+    await r.page.click('#bt-flip');
+    await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'out', null, 30000);
+    await r.page.evaluate(() => { const g = window.__bb; g.release(); g.hold = null; });
+    await until(r.page, () => /form was closed/.test((document.querySelector('#mine-s')?.textContent || '') + (document.querySelector('#lost-s')?.textContent || '')), null, 60000);
+    const cc = (await bb()).calls.filter((c) => ['send', 'burn', 'move'].includes(c[0])).map((c) => c[0]);
+    ok(cc.join() === 'send', `bridgebulk: a form closed during a run lets the transaction in flight finish and sends no other (${cc.join()})`);
+    ok(/sent to your own address in 1 send/.test((await text(r.page, '#mine-s')) + (await text(r.page, '#lost-s'))), 'bridgebulk: and the page’s own line says what was sent and why it stopped');
+    await r.page.click('#bt-flip');
+    await r.page.waitForSelector('#bi-notes .bi-note', { timeout: 60000 });
+    // a shortage of coins is named before anything is sent
+    await r.page.evaluate(() => { const g = window.__bb; g.calls.length = 0; g.coins = [{ txid: 'ee'.repeat(32), vout: 0, value: 400 }]; g.gone.length = 0; g.extra.length = 0; localStorage.removeItem('tacit-burndep-bridge-v1:mainnet:' + Object.keys(localStorage).find((k) => k.startsWith('tacit-burndep-bridge-v1:mainnet:')).split(':')[2]); });
+    await r.page.click('#bi-re');
+    await until(r.page, () => !document.querySelector('#bi-bulk')?.hidden && document.querySelectorAll('#bi-notes .bi-note').length >= 8, null, 60000);
+    await r.page.click('#bi-all').catch(() => {});
+    if (!(await r.page.$('#bi-bulkp #bi-bgo'))) await r.page.click('#bi-all');
+    await until(r.page, () => /short of the about [\d,]+ sats this needs/.test(document.querySelector('#bi-bulkp')?.textContent || ''), null, 60000);
+    await r.page.check('#bi-ball');
+    ok(await r.page.isDisabled('#bi-bgo') && (await bb()).calls.filter((c) => ['send', 'burn', 'move'].includes(c[0])).length === 0, 'bridgebulk: free coins that fall short are said, the button stays off and nothing is sent');
+    // the panel fits a phone
+    await r.page.setViewportSize({ width: 360, height: 760 });
+    await sleep(300);
+    const wide = await r.page.evaluate(() => { const f = document.querySelector('#bt-form'); return [f.scrollWidth, f.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
+    ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `bridgebulk: no sideways scroll at phone width with a panel open (${wide})`);
+    if (r.errors.length) { fails++; console.log('FAIL bridgebulk page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // The other presses a bridge row offers once the key is open on the bridge page (move back, recover, check again, try again, cancel on a second
 // press, and on the way out: send again, check the burn again, sign again): each is one call to the bridge's engine with the key, and each says
 // what came of it. tacit.js is a stub that records the calls and moves the journals; the key sheet and the page are the real ones.

@@ -153,8 +153,13 @@ For TAC it also starts a bridge from Bitcoin to Ethereum: it lists the TAC at th
 cannot go, checks the one picked and prices it against the coins the key has free for fees, asks for the same
 acknowledgement, and sends the burn (one Bitcoin transaction) or, for a note the reflection does not yet track, the move
 that comes first; a note in an older form is first sent to the key's own address, and a note over 1,000 TAC is split.
-Merging notes, bridging them all, minting to someone else's address or as public TAC, proving a burn or a mint yourself,
-and paying the mint from a wallet are on the front page; a press the relay will not take links there.
+With several notes it also offers Merge notes (the tracked notes packed within the limit, each pack sent to the key's own
+address in one transaction) and Bridge all (the older notes sent first, a burn for each tracked note, a move then a burn for
+a note the proof does not track yet), planned by the same rules as the front page, with the fee quoted first and, for Bridge
+all, the same acknowledgement. A note sent first or merged is bridged from this page once it has confirmed and Bitcoin's proof
+has seen it (the front page lists it under Getting ready too). Bridging a note for the holder when it is ready, minting to
+someone else's address or as public TAC, proving a burn or a mint yourself, and paying the mint from a wallet are on the
+front page; a press the relay will not take links there.
 
 ### Following a bridge
 

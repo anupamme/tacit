@@ -1,12 +1,15 @@
 // Starting a bridge from Bitcoin on the bridge page, with the key opened here (mover.js): the TAC at the key's Bitcoin address, what picking one
 // costs and arrives as, the acknowledgement that a burn can't be undone, and the burn itself. A note held in an older form is first sent to
 // the key's own address, and a note over the limit is split. Once started, the bridge is one of the rows above and goes on as any other does.
-// Merging notes, bridging them all, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
+// With several notes it also merges them or bridges them all (bridge-all.js plans it, bridge-in.js runs it, the front page runs the same). Bridging a note
+// for the holder when it is ready, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
 import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=509d6618';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate } from '/bridge-in.js?cb=649f3e31';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=5a42e68b';
+import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const said = (m) => Object.assign(new Error(m), { said: true });
+let RUNNING = false;                                                              // a run of Merge or Bridge all is under way, whichever form began it
 const MEMPOOL = 'https://mempool.space';
 const plainError = (e) => String(e?.message || e || 'Something went wrong').replace(/^(burndep-ux|crossout-ux):\s*/, '').slice(0, 240);
 const FRESH = 5 * 60e3;                                                                  // a check older than this is read again before a press goes on with it
@@ -19,21 +22,23 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
   const { key, TS, esplora } = mover.session, fmt = (v, max = 4) => fmtUnits(v, 8, max);
   // every use of the key goes through here: a key that was locked, or another opened, since the form was drawn stops the step before it signs
   const pub = key.key.pubHex, priv = () => {
-    if (!key.unlocked || key.key.pubHex !== pub) throw said('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.');
+    if (!key.unlocked || key.key.pubHex !== pub) throw Object.assign(said('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.'), { halt: true });
     return key.priv();
   };
-  let notes = null, loadErr = null, loading = null, pick = null, seq = 0, busy = false, gone = false, rv = null, capRaw = 0n;
+  let notes = null, loadErr = null, loading = null, pick = null, seq = 0, busy = false, gone = false, rv = null, capRaw = 0n, act = null, bseq = 0;
   const deep = new Map(), reviews = new Map(), flying = new Map();      // flying: the checks being read now, by note, so a second look at the same note joins the first
 
   el.hidden = false;
   el.innerHTML = `<div class="bo-top"><span>TAC at your Bitcoin address</span><button type="button" id="bi-re">Refresh</button></div>
     <div class="bi-notes" id="bi-notes" role="radiogroup" aria-label="TAC to bridge"><p class="bo-n">Reading your TAC on Bitcoin…</p></div>
+    <div class="bi-bulk" id="bi-bulk" hidden><button type="button" id="bi-merge" aria-pressed="false">Merge notes</button><button type="button" id="bi-all" aria-pressed="false">Bridge all</button></div>
+    <div class="bo-r" id="bi-bulkp" hidden></div>
     <div class="bo-r" id="bi-rcpt" hidden></div>
     <label class="bo-ack" id="bi-ackrow" hidden><input type="checkbox" id="bi-ack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
     <button class="go" type="button" id="bi-go" disabled><span>Bridge to Ethereum</span><span aria-hidden="true">→</span></button>
     <p class="bo-s" id="bi-s" role="status" hidden></p>
-    <p class="bo-n"><a href="/#bridge">Merge notes, bridge them all, or send to someone else: the front page →</a></p>`;
-  const $ = (s) => el.querySelector(s), list = $('#bi-notes'), rc = $('#bi-rcpt'), go = $('#bi-go'), ack = $('#bi-ack'), ackRow = $('#bi-ackrow'), st = $('#bi-s'), re = $('#bi-re');
+    <p class="bo-n"><a href="/#bridge">Make the minted TAC public, or send it to someone else: the front page →</a></p>`;
+  const $ = (s) => el.querySelector(s), bar = $('#bi-bulk'), bulkp = $('#bi-bulkp'), list = $('#bi-notes'), rc = $('#bi-rcpt'), go = $('#bi-go'), ack = $('#bi-ack'), ackRow = $('#bi-ackrow'), st = $('#bi-s'), re = $('#bi-re');
   const status = (h, cls = '') => { st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h; };
   const gate = () => { go.disabled = busy || !rv?.r?.ok || rv.r.short || !ack.checked; };
   const warn = (html) => { rc.hidden = false; rc.insertAdjacentHTML('beforeend', `<p class="bo-n bo-e">${html}</p>`); };
@@ -47,6 +52,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     : /stealth/.test(n.reason || '') ? 'Received privately: <a href="/classic.html" target="_blank" rel="noopener">open it in the classic app</a> first.' : esc(n.reason || ''));
   function paintNotes() {
     if (gone) return;
+    if (!busy) paintBulk();
     if (loadErr) { list.innerHTML = `<p class="bo-n bo-e">${esc(plainError(loadErr))}</p>`; return; }
     if (!notes) { list.innerHTML = '<p class="bo-n">Reading your TAC on Bitcoin…</p>'; return; }
     const ns = open();
@@ -63,6 +69,99 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     }).join('');
   }
 
+  // ── Merge notes and Bridge all (bridge-all.js plans them) ────────────────────────────────────────────────────────────
+  const tac = (v) => `${fmt(BigInt(v))} TAC`;
+  const and = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  const noteCount = (n) => `${n} note${n === 1 ? '' : 's'}`;
+  const bulkPlans = () => {
+    const ns = open();
+    if (!capRaw || ns.filter((n) => n.eligible).length < 2) return null;
+    const all = planAll(ns, { capRaw });
+    return countAll(all) > 1 ? { merge: planMerge(ns, { capRaw }), all } : null;
+  };
+  const recentLine = (skipped) => { const n = skipped.filter((x) => x.why === 'recent').length; return n ? `<p class="bo-n">${noteCount(n)} too recent for Bitcoin’s proof to have seen ${n === 1 ? 'stays' : 'stay'} out of this.</p>` : ''; };
+  const bulkHtml = (kind, bulk) => {
+    if (kind === 'merge') {
+      const g = bulk.merge.groups, count = g.reduce((t, x) => t + x.notes.length, 0);
+      return `<div class="kv"><span>Merge</span><b>${noteCount(count)} into ${noteCount(g.length)}: ${esc(and(g.map((x) => tac(x.total))))}</b></div>
+        <div class="kv"><span>Bitcoin fee</span><b id="bi-bfee">Checking…</b></div>
+        <div class="kv"><span>Then</span><b>Each can be bridged here once Bitcoin’s proof on Ethereum has seen it, usually within a few hours</b></div>
+        ${recentLine(bulk.merge.skipped)}
+        <button class="go" type="button" id="bi-bgo"><span>Merge ${noteCount(count)}</span></button>`;
+    }
+    const a = bulk.all, sent = a.sends.reduce((t, g) => t + g.notes.length, 0) + a.privates.length, nSends = a.sends.length + a.privates.length, count = countAll(a), ops = opsCompared(bulk.merge, a);
+    const total = [...a.burns, ...a.sends.flatMap((g) => g.notes), ...a.privates, ...a.checks].reduce((t, n) => t + BigInt(n.amount), 0n);
+    return `<div class="kv"><span>Bridge</span><b>${esc(tac(total))} from ${noteCount(count)}</b></div>
+      ${a.burns.length ? `<div class="kv"><span>Burned now</span><b>${noteCount(a.burns.length)}, one Bitcoin transaction each</b></div>` : ''}
+      ${nSends ? `<div class="kv"><span>Sent first</span><b>${noteCount(sent)} in ${nSends} send${nSends === 1 ? '' : 's'} to your own address; bridge them here once they are ready</b></div>` : ''}
+      ${a.checks.length ? `<div class="kv"><span>Checked one by one</span><b>${noteCount(a.checks.length)}: a move, then a burn through a miner, sent for you while this page is open</b></div>` : ''}
+      <div class="kv"><span>Bitcoin fee</span><b id="bi-bfee">Checking…</b></div>
+      <div class="kv"><span>Arrives</span><b>Within a few hours of each burn${nSends ? '; the notes sent first take a few hours longer' : ''}</b></div>
+      ${ops.merge < ops.all ? `<p class="bo-n">Merge notes first would take ${ops.merge} Bitcoin transactions in all instead of ${ops.all}, and a few hours longer.</p>` : ''}
+      ${recentLine(a.skipped)}
+      <label class="bo-ack"><input type="checkbox" id="bi-ball"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
+      <button class="go" type="button" id="bi-bgo" disabled><span>Bridge ${noteCount(count)}</span></button>`;
+  };
+  function paintBulk() {
+    const bulk = bulkPlans(), my = ++bseq;
+    if (act && (!bulk || (act === 'merge' && !bulk.merge.groups.length))) act = null;
+    bar.hidden = !bulk;
+    $('#bi-merge').hidden = !bulk?.merge.groups.length;
+    for (const k of ['merge', 'all']) $(`#bi-${k}`).setAttribute('aria-pressed', String(act === k));
+    go.hidden = !!act;
+    if (!bulk || !act) { bulkp.hidden = true; bulkp.innerHTML = ''; return; }
+    if (busy) return;
+    bulkp.hidden = false; bulkp.innerHTML = bulkHtml(act, bulk);
+    const bgo = $('#bi-bgo'), box = $('#bi-ball'), kind = act;
+    let short = false, quotedAt = 0;                                                   // the press waits for the fee, and for a fee read lately
+    const gateB = () => { bgo.disabled = busy || short || !quotedAt || (!!box && !box.checked); };
+    gateB();
+    if (box) box.addEventListener('change', gateB);
+    TS.withKey((t) => freeCoins(t), pub).then(async (coins) => bulkFee(await TS.load(), { bulk, kind, coins })).then((q) => {
+      if (!q || my !== bseq || gone) return;
+      short = q.short; quotedAt = Date.now();
+      const fee = $('#bi-bfee');
+      if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats${q.later ? `, and about ${q.later.toLocaleString('en-US')} for the burns after` : ''}`;
+      if (short) bulkp.insertAdjacentHTML('beforeend', `<p class="bo-n bo-e">This key’s Bitcoin address has ${esc(q.free.toLocaleString('en-US'))} sats free for fees, short of the about ${esc(q.need.toLocaleString('en-US'))} sats this needs. <a href="/#bitcoin/receive">Add bitcoin to it</a></p>`);
+      gateB();
+    }).catch(() => { if (my === bseq) { const fee = $('#bi-bfee'); if (fee) fee.textContent = 'not quoted just now: close this and open it again'; } });
+    bgo.addEventListener('click', () => {
+      if (Date.now() - quotedAt > FRESH) { paintBulk(); return status('The fees were read again. Look them over, then press once more.'); }
+      runBulk(kind, bulk);
+    });
+  }
+  // the transactions of one press, sent under the key one after another; what was sent is said, and what was not, with why
+  async function runBulk(kind, bulk) {
+    if (busy) return;
+    if (RUNNING) return status('A run of Merge or Bridge all is still under way. Wait for it to finish.', 'bo-e');
+    busy = true; RUNNING = true; gate(); re.disabled = true; bar.querySelectorAll('button').forEach((b) => { b.disabled = true; }); $('#bi-bgo').disabled = true;
+    // with the form closed meanwhile, the run stops before its next transaction and says how it ended on the page's own line
+    const textOf = (h) => new DOMParser().parseFromString(h, 'text/html').body.textContent;
+    const out = (h, cls = '') => (gone ? say(textOf(h)) : status(h, cls));
+    const say2 = (m) => { if (!gone) status(esc(m)); }, plan = { at: Date.now() };
+    const live = () => { if (gone) throw Object.assign(said('This form was closed, so the run stopped before its next step.'), { halt: true }); priv(); };
+    const withKey = (fn) => TS.withKey(fn, pub), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const again = (fn, sent) => tryAgain({ fn, sentBefore: sent, fresh: () => withKey((t) => { t.invalidateHoldingsCache?.(); }), sleep });
+    const merge = async (ns) => { live(); return mergeSend({ withKey, mem, pub, notes: ns, plan }); };
+    try {
+      priv();
+      const T = await TS.load();
+      if (kind === 'merge') {
+        const { did, left } = await runMerge({ groups: bulk.merge.groups, merge, tryAgain: again, say: say2, errText: plainError });
+        const n = did.reduce((t, d) => t + d.n, 0);
+        out(`${did.length ? `<span class="bo-ok">✓ ${noteCount(n)} merged into ${noteCount(did.length)}: ${esc(and(did.map((d) => tac(d.amount))))}.</span> They can be bridged from here once they confirm and Bitcoin’s proof on Ethereum has seen them, usually within a few hours.` : ''}${left.length ? `${did.length ? '<br>' : ''}<span class="bo-e">${left.length === 1 ? esc(left[0]) : esc(`${noteCount(left.length)} were not merged: ${left.join('; ')}`)}</span>` : ''}`);
+      } else {
+        const start = async (n) => { live(); return startNote(T, { withKey, mem, pub, walletPub: hexToBytes(pub), priv: () => priv(), note: n, errText: plainError }); };
+        const { did, left } = await runAll({ all: bulk.all, merge, start, tryAgain: again, say: say2, errText: plainError, amountText: (n) => tac(n.amount) });
+        const parts = [did.burns ? `${noteCount(did.burns)} bridging` : '', did.sends ? `${noteCount(did.sent)} sent to your own address in ${did.sends} send${did.sends === 1 ? '' : 's'}, to be bridged from here once ready` : ''].filter(Boolean);
+        out(`${parts.length ? `<span class="bo-ok">✓ ${esc(parts.join('; '))}.</span> The bridges show under Your bridges and finish on their own while this page is open with your key.` : ''}${left.length ? `${parts.length ? '<br>' : ''}<span class="bo-e">${left.length === 1 ? esc(left[0]) : esc(`${noteCount(left.length)} were left: ${left.join('; ')}`)}</span>` : ''}`);
+      }
+      act = null; reviews.clear();
+      mover.tick(true);
+    } catch (e) { out(esc(bridgeError(e, plainError)), 'bo-e'); }
+    finally { busy = false; RUNNING = false; if (!gone) { re.disabled = false; bar.querySelectorAll('button').forEach((b) => { b.disabled = false; }); gate(); repaint(); notes = null; paintNotes(); load(true); } else repaint(); }
+  }
+
   function load(force = false) {
     if (loading) return loading;
     loadErr = null;
@@ -72,7 +171,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
         if (gone) return;
         const ok = open().filter((n) => n.eligible);
         if (pick && !ok.some((n) => noteId(n) === pick)) { pick = null; stale(); rc.hidden = true; }
-        if (!pick && ok.length === 1) pick = noteId(ok[0]);
+        if (!pick && !act && ok.length === 1) pick = noteId(ok[0]);
         paintNotes();
         if (pick && !rv && !flying.has(pick)) check();
       }));
@@ -197,9 +296,16 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     const r = e.target.closest('input[name="bi-note"]');
     if (busy) return paintNotes();                                                   // the receipt on the page is the burn's: the list goes back to the note it is for
     if (!r) return;
+    if (act) { act = null; paintBulk(); }
     pick = r.value; status(''); check();
   });
   list.addEventListener('click', (e) => { const b = e.target.closest('[data-split]'); if (b && !busy) split(b.dataset.split); });
+  for (const k of ['merge', 'all']) $(`#bi-${k}`).addEventListener('click', () => {
+    if (busy) return;
+    act = act === k ? null : k;
+    if (act) { pick = null; stale(); rc.hidden = true; status(''); }
+    paintNotes();
+  });
   ack.addEventListener('change', gate);
   go.addEventListener('click', start);
   re.addEventListener('click', () => { if (busy) return; notes = null; reviews.clear(); stale(); rc.hidden = true; paintNotes(); load(true); });

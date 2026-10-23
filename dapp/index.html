@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-CyJgVmcZpWw5auoDvdOLNYdRJqVOFcqLB6M5dkMdZFo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Daj8yjQxc3FwMM5JDDSNY0vvQd1NDoG906sYab2+bWA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1596,7 +1596,7 @@ import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladde
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
 import { makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=4f5612d0';
-import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver } from '/bridge-in.js?cb=649f3e31';
+import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=5a42e68b';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
@@ -7500,59 +7500,25 @@ async function brSend(run, n, amount, verb, plan = null) {
 // one or the receipt of a single picked note.
 const brNotes = (n) => `${n} note${n === 1 ? '' : 's'}`;
 const brAnd = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-const brShort = (e) => /insufficient (plain )?sats|no plain-sats/i.test(String(e?.message));
-const BR_NO_SATS = 'Not enough BTC for this and its Bitcoin fee.';
-const BR_CHAIN = 'Bitcoin allows only so many unconfirmed transactions in a chain. The rest can go once these confirm: press again then.';
-const brChainFull = (e) => /ancestor-chain limit|too-long-mempool-chain/i.test(String(e?.message));
 // What no later step of the run could do better: a shortage of sats, a full chain of unconfirmed transactions, locks that could not be read.
-const brHalts = (e) => brShort(e) || brChainFull(e) || /read your locked coins/i.test(String(e?.message));
-const brHaltText = (e) => (brShort(e) ? BR_NO_SATS : brChainFull(e) ? BR_CHAIN : brErr(e));
+const brHaltText = (e) => bridgeHaltText(e, errText);
 const brFresh = (pub) => withKey(async (t) => { try { t.invalidateHoldingsCache?.(); } catch {} }, pub);
 // A transaction just sent may not yet show its change among the key's free coins: once something has gone in a run, a shortage is looked
 // at again after a pause, with the coin list read afresh, before it is called one.
-async function brTry(pub, sentBefore, fn) {
-  try { const r = await fn(); if (!(r && r.why === BR_NO_SATS && sentBefore())) return r; }
-  catch (e) { if (!brShort(e) || !sentBefore()) throw e; }
-  await brFresh(pub); await new Promise((res) => setTimeout(res, 5000)); await brFresh(pub);
-  return fn();
-}
+const brTry = (pub, sentBefore, fn) => tryAgain({ fn, sentBefore, fresh: () => brFresh(pub), sleep: (ms) => new Promise((res) => setTimeout(res, ms)) });
 const brTac = (v) => `${fmt(BigInt(v), 8, 4)} TAC`;
 // Notes sent whole to this key's own address in one transaction: several make one note (a merge), and the new note is what gets bridged.
-const brMergeSend = (pub, ns, plan) => toSelf(pub, TAC_BTC_ID, ns).then(({ txid, amount }) => {
-  const r = { txid, amount, n: ns.length };
+const brMergeSend = (pub, ns, plan) => mergeSend({ withKey: (fn) => withKey(fn, pub), mem: store, pub, notes: ns, plan, label: BTC_TOKENS[TAC_BTC_ID] || 'note' }).then((r) => {
   actBtc(r.txid, r.n > 1 ? `Merged ${brNotes(r.n)} (${brTac(r.amount)})` : `Sent ${brTac(r.amount)} to your own address`);
-  brPrepAdd(pub, { txid: r.txid, amount: String(r.amount), at: Date.now(), ...(plan && (plan.auto || plan.publicTo) ? { plan } : {}) });
   return r;
 });
 // One note bridged as the single-note press does it: its own check, then its burn (or its move, with the burn to follow on its own).
-async function brStartNote(pub, n, publicTo) {
-  const ux = await brUx(), pf = await ux.preflight({ note: n, walletPub: hexToBytes(pub) });
-  if (!pf.ok) return { why: brCheckText(pf.steps.find((x) => !x.ok) || { name: '' }) };
-  const one = pf.path === 'reflected';
-  const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
-  const cost = ux.bridgeCost({ path: pf.path, feeRate: one ? pf.burnFeeRate : pf.migrateFeeRate, coins: coins || [], noteSats: n.sats, burnRate: pf.burnRate });
-  if (coins && !cost.ok) return { why: BR_NO_SATS };
-  const mara = pf.slipstreamRates, base = mara ? Math.max(Number(mara.effective_rate) || 0, Number(mara.submit_fee_rate) || 0, 1) * 1.1 : 10;
-  const rec = await brBegin(pub, { note: n, pf, cost });
-  const plan = { at: Date.now(), ...(one ? {} : { burn: { maxRate: Math.ceil(Math.max(10, base * 2)) } }), ...(publicTo ? { publicTo } : {}) };
-  if (plan.burn || plan.publicTo) brPlanSet(pub, rec.id, plan);
-  await brFresh(pub);
-  return { rec };
-}
+const brStartNote = async (pub, n, publicTo) => startNote(await loadTacit(), { withKey: (fn) => withKey(fn, pub), mem: store, pub, walletPub: hexToBytes(pub), priv: () => walletPriv(), note: n, publicTo, errText });
 // What the transactions of a press cost at today's rate, by the estimate the single note's panel uses (a commit and a reveal each, a
 // merge adding an input's weight per extra note), and whether the key's free coins cover them.
 async function brBulkFee(pub, bulk, kind) {
-  const ux = await brUx(), rate = await ux.quoteRate().catch(() => null);
-  if (!rate) return null;
   const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
-  const tx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: ns.reduce((s, n) => s + Number(n.sats || 0), 0) }); return { fee: c.fee + Math.ceil(68 * rate) * (ns.length - 1), need: c.need }; };
-  const txs = kind === 'merge' ? bulk.merge.groups.map((g) => tx(g.notes))
-    : [...bulk.all.burns.map((n) => tx([n])), ...bulk.all.sends.map((g) => tx(g.notes)), ...bulk.all.privates.map((n) => tx([n]))];
-  const need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0), burn = tx([{ sats: 546 }]).fee;
-  // What comes after the first transactions: the burn of each merged or sent note, and for a note the proof does not track its move and its burn.
-  let fee = txs.reduce((s, x) => s + x.fee, 0), later = (kind === 'merge' ? bulk.merge.groups.length : bulk.all.sends.length + bulk.all.privates.length) * burn;
-  if (kind === 'all') for (const n of bulk.all.checks) { const c = ux.bridgeCost({ path: 'deposit', feeRate: rate, coins: coins || [], noteSats: n.sats, burnRate: rate }); fee += c.fee; later += c.later; }
-  return { fee, later, need, free, short: !!coins && free < need, autoMaxFee: Math.max(3000, Math.ceil(burn * 2)) };
+  return bulkFee(await loadTacit(), { bulk, kind, coins });
 }
 const brRecentNote = (skipped) => { const n = skipped.filter((x) => x.why === 'recent').length; return n ? html`<p class="note">${brNotes(n)} too recent for Bitcoin’s proof to have seen ${n === 1 ? 'stays' : 'stay'} out of this.</p>` : ''; };
 function brBulkPanel(kind, bulk) {
@@ -7620,39 +7586,22 @@ const brBulkPlan = (panel, quote, kind) => {
   return plan;
 };
 async function brRunMerge(run, pub, bulk, plan) {
-  const status = $('#br-status'), groups = bulk.merge.groups, did = [], left = [];
+  const status = $('#br-status'), groups = bulk.merge.groups;
   BR.starting = true;
-  try {
-    for (const [i, g] of groups.entries()) {
-      run.say(status, `Merging ${brNotes(g.notes.length)} (${i + 1} of ${groups.length})…`);
-      try { did.push(await brTry(pub, () => did.length > 0, () => brMergeSend(pub, g.notes, plan))); }
-      catch (e) { left.push(brHalts(e) ? brHaltText(e) : brErr(e)); if (brHalts(e)) break; }
-    }
-  } finally { BR.starting = false; }
+  let did, left;
+  try { ({ did, left } = await bridgeRunMerge({ groups, merge: (ns) => brMergeSend(pub, ns, plan), tryAgain: (fn, sent) => brTry(pub, sent, fn), say: (m) => run.say(status, m), errText })); }
+  finally { BR.starting = false; }
   if (did.length) Object.assign(BR, { act: null, allAck: false, pick: null, rv: null, acked: null, at: 0 });
   say(status, html`${did.length ? html`<span class="ok">✓ ${brNotes(did.reduce((s, d) => s + d.n, 0))} merged into ${brNotes(did.length)}: ${brAnd(did.map((d) => brTac(d.amount)))}.</span> ${plan.auto ? 'They are bridged for you' : 'They can be bridged from here'} once they confirm and Bitcoin’s proof on Ethereum has seen them, usually within a few hours${plan.auto ? ', while this page is open with your wallet' : ''}.` : ''}${left.length ? html` <span class="err">${left[0]}${left.length > 1 ? ` (${left.length} failed)` : ''}</span>` : ''}`);
   if (did.length) { toast(`${brNotes(did.reduce((s, d) => s + d.n, 0))} merged`); dashSoon(); }
   Promise.allSettled([loadBridge(true), loadBtc(true)]).then(() => rerender('tac'));
 }
 async function brRunAll(run, pub, bulk, plan) {
-  const status = $('#br-status'), a = bulk.all, left = [], did = { burns: 0, sends: 0, sent: 0 };
-  const sends = [...a.sends, ...a.privates.map((n) => ({ notes: [n] }))], rest = [...a.burns, ...a.checks], total = sends.length + rest.length;
-  let at = 0, stop = false;
+  const status = $('#br-status'), a = bulk.all;
   BR.starting = true;
-  try {
-    for (const g of sends) {
-      run.say(status, `${g.notes.length > 1 ? `Merging ${brNotes(g.notes.length)}` : 'Sending a note to your own address'} (${++at} of ${total})…`);
-      try { await brTry(pub, () => did.sends + did.burns > 0, () => brMergeSend(pub, g.notes, plan)); did.sends++; did.sent += g.notes.length; }
-      catch (e) { left.push(brHalts(e) ? brHaltText(e) : brErr(e)); if (brHalts(e)) { stop = true; break; } }
-    }
-    if (!stop) for (const n of rest) {
-      run.say(status, `Bridging ${brTac(n.amount)} (${++at} of ${total})…`);
-      try {
-        const r = await brTry(pub, () => did.sends + did.burns > 0, () => brStartNote(pub, n, plan.publicTo));
-        if (r.rec) did.burns++; else left.push(`${brTac(n.amount)}: ${r.why}`);
-      } catch (e) { left.push(`${brTac(n.amount)}: ${brHalts(e) ? brHaltText(e) : brErr(e)}`); if (brHalts(e)) break; }
-    }
-  } finally { BR.starting = false; }
+  let did, left;
+  try { ({ did, left } = await bridgeRunAll({ all: a, merge: (ns) => brMergeSend(pub, ns, plan), start: (n) => brStartNote(pub, n, plan.publicTo), tryAgain: (fn, sent) => brTry(pub, sent, fn), say: (m) => run.say(status, m), errText, amountText: (n) => brTac(n.amount) })); }
+  finally { BR.starting = false; }
   const parts = [did.burns ? `${brNotes(did.burns)} bridging` : '', did.sends ? `${brNotes(did.sent)} sent to your own address in ${did.sends} send${did.sends === 1 ? '' : 's'}, to be bridged for you once ready` : ''].filter(Boolean);
   if (parts.length) Object.assign(BR, { act: null, allAck: false, pick: null, rv: null, acked: null, at: 0 });
   say(status, html`${parts.length ? html`<span class="ok">✓ ${parts.join('; ')}.</span> They show under On the way and Getting ready, and finish on their own whenever this page is open with your wallet.` : ''}${left.length ? html`<br><span class="err">${left.length === 1 ? left[0] : `${left.length} not done: ${left.join(' · ')}`}</span> They stay in the list above.` : ''}`);

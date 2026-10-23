@@ -137,3 +137,103 @@ export async function toSelf(t, assetId, ns, amount = null, label = 'note') {
   try { t.invalidateHoldingsCache?.(); } catch { /* the next read is fresh enough */ }
   return { txid: r.revealTxid, amount: v };
 }
+
+// ── several notes at once (Merge notes, Bridge all) ────────────────────────────────────────────────────────────────────────
+export const NO_SATS = 'Not enough BTC for this and its Bitcoin fee.';
+export const CHAIN_FULL = 'Bitcoin allows only so many unconfirmed transactions in a chain. The rest can go once these confirm: press again then.';
+export const isShort = (e) => /insufficient (plain )?sats|no plain-sats/i.test(String(e?.message));
+export const chainFull = (e) => /ancestor-chain limit|too-long-mempool-chain/i.test(String(e?.message));
+// What no later step of a run could do better: a shortage of sats, a full chain of unconfirmed transactions, locks that could not be read.
+export const halts = (e) => !!e?.halt || isShort(e) || chainFull(e) || /read your locked coins|Tacit wallet changed|Tacit key was locked/i.test(String(e?.message));
+export const haltText = (e, errText) => (isShort(e) ? NO_SATS : chainFull(e) ? CHAIN_FULL : bridgeError(e, errText));
+
+// The sends to the key's own address that are waiting to confirm and be seen by Bitcoin's proof, kept beside the journal for 14 days (the front page lists them
+// under Getting ready and, for one that asked for it, bridges the note for the holder once it is ready).
+export const PREP_KEY = 'tacit-lite-bridge-prep-v1';
+export const PREP_DAYS = 14;
+export const preps = (mem, pub, now = Date.now()) => (!pub ? [] : (mem.get(PREP_KEY)?.[pub] || []).filter((p) => p?.txid && now - (p.at || 0) < PREP_DAYS * 86400e3));
+export function prepAdd(mem, pub, p) {
+  const all = mem.get(PREP_KEY) || {}, list = [...preps(mem, pub).filter((x) => x.txid !== p.txid), p];
+  all[pub] = list;
+  mem.set(PREP_KEY, all);
+}
+
+// Notes sent whole to the key's own address in one transaction: several make one note (a merge), and the new note is what gets bridged.
+// `label` names the kind of note in what is said when one is gone. `withKey(fn)` runs fn(t) with the key in the wallet library; `plan` (if it asks for the note to be bridged for the holder or made public) is kept with the send.
+export async function mergeSend({ withKey, mem, pub, notes, plan = null, now = Date.now, label = 'note' }) {
+  const { txid, amount } = await withKey((t) => toSelf(t, TAC_BTC_ID, notes, null, label));
+  prepAdd(mem, pub, { txid, amount: String(amount), at: now(), ...(plan && (plan.auto || plan.publicTo) ? { plan } : {}) });
+  return { txid, amount, n: notes.length };
+}
+
+// One note bridged as the single-note press does it: its own check, then its burn (or its move, with the burn to follow on its own, planned at twice the
+// miner's rate). `walletPub` is the key's public key as bytes, `priv()` its private key (read inside the key's turn), `withKey(fn)` as above.
+// → { rec } or { why } (in words) when the note did not pass its check or the coins fall short.
+export async function startNote(t, { withKey, mem, pub, walletPub, priv, note, publicTo = null, errText }) {
+  const c = await checkNote(t, { note, walletPub });
+  if (!c.ok) return { why: checkText(c.pf.steps.find((x) => !x.ok) || { name: '' }, errText) };
+  const coins = await withKey((k) => freeCoins(k)), r = priceNote(t, { note, pf: c.pf, coins });
+  if (coins && r.short) return { why: NO_SATS };
+  const rec = await withKey((k) => begin(k, { review: r, priv: priv() }));
+  const plan = { at: Date.now(), ...(r.one ? {} : { burn: { maxRate: burnMaxRate(c.pf) } }), ...(publicTo ? { publicTo } : {}) };
+  if (plan.burn || plan.publicTo) planSet(mem, pub, rec.id, plan);
+  try { await withKey((k) => { k.invalidateHoldingsCache?.(); }); } catch { /* the next read is fresh enough */ }
+  return { rec };
+}
+
+// A transaction just sent may not yet show its change among the key's free coins: once something has gone in a run, a shortage is looked at again after a
+// pause, with the coin list read afresh, before it is called one.
+export async function tryAgain({ fn, sentBefore, fresh, sleep }) {
+  try { const r = await fn(); if (!(r && r.why === NO_SATS && sentBefore())) return r; }
+  catch (e) { if (!isShort(e) || !sentBefore()) throw e; }
+  await fresh(); await sleep(5000); await fresh();
+  return fn();
+}
+
+// What the transactions of a press cost at today's rate, by the estimate the single note's panel uses (a commit and a reveal each, a merge adding an input's
+// weight per extra note), and whether the key's free coins cover them. `bulk`: { merge, all } (bridge-all.js); `coins`: null when they could not be read.
+export async function bulkFee(t, { bulk, kind, coins }) {
+  const ux = t.bridgeUx(), rate = await ux.quoteRate().catch(() => null);
+  if (!rate) return null;
+  const tx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: ns.reduce((s, n) => s + Number(n.sats || 0), 0) }); return { fee: c.fee + Math.ceil(68 * rate) * (ns.length - 1), need: c.need }; };
+  const txs = kind === 'merge' ? bulk.merge.groups.map((g) => tx(g.notes))
+    : [...bulk.all.burns.map((n) => tx([n])), ...bulk.all.sends.map((g) => tx(g.notes)), ...bulk.all.privates.map((n) => tx([n]))];
+  const need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0), burn = tx([{ sats: 546 }]).fee;
+  // What comes after the first transactions: the burn of each merged or sent note, and for a note the proof does not track its move and its burn.
+  let fee = txs.reduce((s, x) => s + x.fee, 0), later = (kind === 'merge' ? bulk.merge.groups.length : bulk.all.sends.length + bulk.all.privates.length) * burn;
+  if (kind === 'all') for (const n of bulk.all.checks) { const c = ux.bridgeCost({ path: 'deposit', feeRate: rate, coins: coins || [], noteSats: n.sats, burnRate: rate }); fee += c.fee; later += c.later; }
+  return { fee, later, need, free, short: !!coins && free < need, autoMaxFee: Math.max(3000, Math.ceil(burn * 2)) };
+}
+
+// Merge notes: each pack of tracked notes is sent to the key's own address in one transaction. → { did: [{ txid, amount, n }], left: [what stopped it, in words] }
+export async function runMerge({ groups, merge, tryAgain: again, say = () => {}, errText }) {
+  const did = [], left = [];
+  for (const [i, g] of groups.entries()) {
+    say(`Merging ${g.notes.length} note${g.notes.length === 1 ? '' : 's'} (${i + 1} of ${groups.length})…`);
+    try { did.push(await again(() => merge(g.notes), () => did.length > 0)); }
+    catch (e) { left.push(halts(e) ? haltText(e, errText) : bridgeError(e, errText)); if (halts(e)) break; }
+  }
+  return { did, left };
+}
+
+// Bridge all (bridge-all.js `all`): the notes that must be sent to the key's own address first (packed, so one send covers many; a note received privately
+// on its own), then a burn for each tracked note and a check, one at a time, for each the proof does not track. Stops at what no later step could do better.
+// → { did: { burns, sends, sent }, left: [..] }
+export async function runAll({ all: a, merge, start, tryAgain: again, say = () => {}, errText, amountText = (n) => String(n.amount) }) {
+  const left = [], did = { burns: 0, sends: 0, sent: 0 };
+  const sends = [...a.sends, ...a.privates.map((n) => ({ notes: [n] }))], rest = [...a.burns, ...a.checks], total = sends.length + rest.length;
+  let at = 0, stop = false;
+  for (const g of sends) {
+    say(`${g.notes.length > 1 ? `Merging ${g.notes.length} notes` : 'Sending a note to your own address'} (${++at} of ${total})…`);
+    try { await again(() => merge(g.notes), () => did.sends + did.burns > 0); did.sends++; did.sent += g.notes.length; }
+    catch (e) { left.push(halts(e) ? haltText(e, errText) : bridgeError(e, errText)); if (halts(e)) { stop = true; break; } }
+  }
+  if (!stop) for (const n of rest) {
+    say(`Bridging ${amountText(n)} (${++at} of ${total})…`);
+    try {
+      const r = await again(() => start(n), () => did.sends + did.burns > 0);
+      if (r.rec) did.burns++; else left.push(`${amountText(n)}: ${r.why}`);
+    } catch (e) { left.push(`${amountText(n)}: ${halts(e) ? haltText(e, errText) : bridgeError(e, errText)}`); if (halts(e)) break; }
+  }
+  return { did, left };
+}
