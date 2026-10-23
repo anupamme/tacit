@@ -538,7 +538,11 @@ function createMarket(host, ctx) {
     el.go.textContent = text;
     el.go.disabled = !enabled;
     el.go.dataset.kind = kind;
+    if (kind !== 'fund') S.fundNeed = null;
   }
+  // The button asks for sats: how many the order is short of, and how many the key must hold for it. The page's dialog says both.
+  function needSats(total, have) { S.fundNeed = { sats: Math.max(0, total - have), need: total }; setGo(`Add ${fmtSats(total - have)} more sats`, true, 'fund'); }
+  const fundFor = (o = {}) => ctx.fundSats({ ...(S.fundNeed || {}), fiat: (n) => fmtUsd(usdOf(n)), ...o });
 
   function bidOutcome(o) {
     const unit = restingUnit('buy');
@@ -640,7 +644,7 @@ function createMarket(host, ctx) {
       if (big && o.spendSats != null) html += `<div class="bm-q bm-muted">A cheaper piece (${fmtAmount(big.ask.amount, dec, 4)} ${T} at ${fmtUnit(big.ask.unit)}) needs ${fmtSats(big.ask.sats)} sats.</div>`;
       if (p.needsMaker) html += `<div class="bm-q bm-muted">Some of this fills from offers the seller confirms — usually seconds.</div>`;
       el.quote.innerHTML = html;
-      if (m && m.unlocked && m.sats != null && m.sats < p.sats + p.feesEst) { setGo(`Add ${fmtSats(p.sats + p.feesEst - m.sats)} more sats`, true, 'fund'); return; }
+      if (m && m.unlocked && m.sats != null && m.sats < p.sats + p.feesEst) { needSats(p.sats + p.feesEst, m.sats); return; }
       setGo(`Review buy`, true, 'review');
       return;
     }
@@ -680,7 +684,7 @@ function createMarket(host, ctx) {
       if (p.leftoverBase > 0n) html += `<div class="bm-q bm-note">${fmtAmount(p.leftoverBase, dec, 4)} ${T} has no matching bid and stays in your wallet.</div>`;
       html += `<div class="bm-q bm-muted">${p.needsBidder ? 'Completes when each bidder\'s wallet settles — some may take hours.' : 'Completes in about a minute — keep this tab open until it does.'}</div>`;
       el.quote.innerHTML = html;
-      if (m && m.unlocked && m.sats != null && m.sats < p.feesEst) { setGo(`Add ${fmtSats(p.feesEst - m.sats)} more sats`, true, 'fund'); return; }
+      if (m && m.unlocked && m.sats != null && m.sats < p.feesEst) { needSats(p.feesEst, m.sats); return; }
       setGo('Review sell', true, 'review');
       return;
     }
@@ -702,8 +706,8 @@ function createMarket(host, ctx) {
         html += `<label class="bm-check"><input type="checkbox" data-act="wt"${wt.on ? ' checked' : ''}${wt.ok ? '' : ' disabled'}><span>Fill it while I'm away <em>${wtDetail}</em></span></label>`;
       }
       el.quote.innerHTML = html;
-      const needSats = (nowFill ? nowFill.sats + nowFill.feesEst : 0) + (bidSats > 0 ? bidSats + (wt.on ? 10000 : 0) + 1000 : 0);
-      if (m && m.unlocked && m.sats != null && m.sats < needSats) { setGo(`Add ${fmtSats(needSats - m.sats)} more sats`, true, 'fund'); return; }
+      const need = (nowFill ? nowFill.sats + nowFill.feesEst : 0) + (bidSats > 0 ? bidSats + (wt.on ? 10000 : 0) + 1000 : 0);
+      if (m && m.unlocked && m.sats != null && m.sats < need) { needSats(need, m.sats); return; }
       setGo(nowFill ? 'Review order' : 'Review bid', true, 'review');
       return;
     }
@@ -1136,11 +1140,18 @@ function createMarket(host, ctx) {
   let reviewing = false;
   async function review() {
     if (S.busy || S.destroyed || reviewing || document.querySelector('.bm-modal')) return;
-    const m = me();
-    if (!m) { await ctx.unlock(); refresh({ soft: true }); return; }
+    let m = me();
+    if (!m) {
+      // signing in reads the key's sats before it returns, so the review goes straight on once the key is open: a sats shortfall opens the funding sheet instead
+      try { await ctx.unlock(); } catch (e) { if (!(e?.unlockCancelled || /cancel/i.test(e?.message || ''))) ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
+      if (S.destroyed) return;
+      refresh({ soft: true });
+      m = me();
+      if (!m || el.go.disabled) return;
+    }
     let q = computeQuote();
     if (!q || q.empty) return;
-    if (el.go.dataset.kind === 'fund') { ctx.fundSats(); return; }
+    if (el.go.dataset.kind === 'fund') { fundFor(); return; }
     if (!S.lastOk || Date.now() - S.lastOk > 25_000) {
       reviewing = true;
       el.go.disabled = true; el.go.textContent = 'Checking prices…';
@@ -1486,7 +1497,7 @@ function createMarket(host, ctx) {
     const note = ready[0];
     if (m_sats() != null && m_sats() < MOVE_FEE_SATS) {
       md.set(`<h2>Add sats first</h2><p class="bm-q">Moving ${fmtAmount(note.amount, dec, 4)} ${T} takes about ${fmtSats(MOVE_FEE_SATS)} sats for the Bitcoin fee, paid from your balance here.</p>`);
-      md.buttons([{ label: 'Close', onClick: close }, { label: 'Add sats', primary: true, onClick: () => { md.close(); ctx.fundSats(); } }]);
+      md.buttons([{ label: 'Close', onClick: close }, { label: 'Add sats', primary: true, onClick: () => { md.close(); fundFor({ sats: MOVE_FEE_SATS - m_sats(), need: MOVE_FEE_SATS }); } }]);
       return;
     }
     md.set(`<h2>Move ${fmtAmount(note.amount, dec, 4)} ${T} here</h2>
@@ -1579,11 +1590,15 @@ function createMarket(host, ctx) {
       || (side === 'ask' ? { unit, flag: 'lot', rows: [{ instant: true }] } : { unit, flag: flag === 'manual' ? 'manual' : 'auto', rows: [] });
     return primeLevel(side, lv);
   }
+  // The smallest % choice whose limit reaches `unit`, else that exact price. The limit a % choice gives is also held inside the band around the last
+  // trade (maxBuyUnit / minSellUnit), so a price the band keeps out is set exactly too: a row pressed is a row reached.
   function limitToReach(side, unit) {
     const buy = side === 'buy', best = (buy ? eligibleAsks() : eligibleBids())[0]?.unit || unit;
     const reach = SLIPPAGE_CHOICES.find((p) => (buy ? best * (1 + p / 100) >= unit : best * (1 - p / 100) <= unit));
     S.slip = reach ?? SLIPPAGE_CHOICES[SLIPPAGE_CHOICES.length - 1];
-    S.limitAt = reach == null ? { side, unit } : null;
+    S.limitAt = null;
+    const eff = buy ? maxBuyUnit() : minSellUnit();
+    if (reach == null || (buy ? eff < unit * (1 - 1e-9) : eff > unit * (1 + 1e-9))) S.limitAt = { side, unit };
   }
   function primeLevel(side, lv) {
     if (!lv) return false;
@@ -1694,7 +1709,7 @@ function createMarket(host, ctx) {
     if (act === 'pchip') { const v = Number(t.dataset.v), k = t.dataset.kind; el.price2.value = k === 'ask' && S.side === 'buy' ? plainUnitReach(v, true) : k === 'bid' && S.side === 'sell' ? plainUnitReach(v, false) : plainUnit(v); S.anchorTotal ? el.total.dispatchEvent(new Event('input')) : S.syncTotal(); paintQuote(); return; }
     if (act === 'go') { review(); return; }
     if (act === 'unlock') { ctx.unlock().then(() => refresh({ soft: true })).catch(() => {}); return; }
-    if (act === 'fund') { ctx.fundSats(); return; }
+    if (act === 'fund') { fundFor(); return; }
     if (act === 'moveBridged') { moveBridged(); return; }
     if (act === 'row') {
       if (S.type === 'limit') {

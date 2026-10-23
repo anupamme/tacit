@@ -48,7 +48,7 @@ export async function mk({ listings = listingsFx(), bids = bidsFx(), me = null, 
     btcUsd: () => 100000,
     me: () => state.me,
     unlock: async () => {},
-    fundSats: () => { calls.fund = (calls.fund || 0) + 1; },
+    fundSats: (o) => { calls.fund = (calls.fund || 0) + 1; calls.fundArgs = o || null; },
     takenIds: () => new Set(),
     flags: { varIntents: false, watchtower: { enabled: true, maxSats: 2_000_000 }, ...flags },
     icons: {},
@@ -171,6 +171,47 @@ await run('a ladder price', async () => {
   t.ctl.prime({ side: 'sell', type: 'market', sellBase: 100n * 10n ** 8n, includeManual: true, reachUnit: t.ctl.state.book.bids[2].unit }); await t.settle();
   ok(t.ctl.state.includeManual === true && !/No match|settle automatically/.test(t.quote()), `a sale primed from a plan that took online-only bids quotes them (${t.quote().slice(0, 60)})`);
   t.destroy();
+});
+
+await run('a price the band keeps out', async () => {
+  // the last trade was 100 an hour ago, so a % limit is also held under 200 (twice the last trade): a row at 210, inside +25% of the best ask, is still set exactly
+  const listings = [mkL('l1', 1000, 170000), mkL('l2', 1000, 210000)];
+  const m = await mk({ listings, bids: [], me: meOf({ sats: 50_000_000 }), markUnit: 100 });
+  m.ctl.primeAt('ask', m.ctl.state.book.asks[1].unit); await m.settle();
+  ok(/You get\s*2,000 TAC/.test(m.quote()) && m.ctl.state.limitAt?.unit === 210, `a row press buys everything up to its price, past the band around the last trade (${m.quote().slice(0, 40)}; limit ${JSON.stringify(m.ctl.state.limitAt)})`);
+  m.click('[data-act=row][data-side=ask]'); await m.settle();
+  ok(/You get\s*[12],000 TAC/.test(m.quote()) && !/within your max price/.test(m.quote()), `and so does the sheet's own row (${m.quote().slice(0, 40)})`);
+  const bids = [{ asset_id: AID, bid_id: 'b1', buyer_pubkey: OTHER, amount: String(1000n * 10n ** 8n), price_sats: 60000, watchtower: true, expiry: now() + 86400 * 20, created_at: now() - 100 }, { asset_id: AID, bid_id: 'b2', buyer_pubkey: OTHER, amount: String(1000n * 10n ** 8n), price_sats: 45000, watchtower: true, expiry: now() + 86400 * 20, created_at: now() - 100 }];
+  const s = await mk({ listings: [], bids, me: meOf({ assetBase: 5000n * 10n ** 8n }), markUnit: 100 });
+  s.ctl.primeAt('bid', 45); await s.settle();
+  ok(/You get\s*105,000 sats/.test(s.quote()) && s.ctl.state.limitAt?.unit === 45, `a bid under half the last trade is reached the same way on the sell side (${s.quote().slice(0, 40)})`);
+  m.destroy(); s.destroy();
+});
+
+await run('the funding press carries the amount', async () => {
+  const m = await mk({ listings: [mkL('l1', 1000, 150000)], bids: [], me: meOf({ sats: 1000 }), markUnit: 150 });
+  m.type('amount', '150000'); await m.settle();
+  ok(m.go().kind === 'fund' && /Add 149,800 more sats/.test(m.go().text), `a buy short of sats asks for them (${m.go().text})`);
+  m.click('[data-act=go]'); await m.settle();
+  const f = m.calls.fundArgs;
+  ok(f && f.sats === 149800 && f.need === 150800 && typeof f.fiat === 'function' && f.fiat(100000) === '$100.00', `and the page's dialog is told how many are short, how many the order needs, and what they are worth (${JSON.stringify({ sats: f?.sats, need: f?.need })})`);
+  m.destroy();
+});
+
+await run('signing in goes on into the review', async () => {
+  // no key: the button says Review, and a press signs in and opens the review in one go (the sats read by the sign-in); short of sats it opens the funding sheet instead
+  let me = null;
+  const m = await mk({ listings: [mkL('l1', 1000, 150000)], bids: [], me: null, markUnit: 150 });
+  m.ctx.me = () => me; m.ctx.unlock = async () => { me = meOf({ sats: 1_000_000 }); };
+  m.type('amount', '150000'); await m.settle();
+  m.click('[data-act=go]'); await m.settle(); await m.settle();
+  const modal = document.querySelector('.bm-modal');
+  ok(!!modal && /Buy 1,000 TAC/.test(modal.textContent), `one press signs in and opens the review (${(modal?.textContent || 'no review').replace(/\s+/g, ' ').slice(0, 40)})`);
+  modal?.remove();
+  me = null; m.ctx.unlock = async () => { me = meOf({ sats: 1000 }); }; await m.ctl.refresh({ soft: true }); await m.settle();
+  m.click('[data-act=go]'); await m.settle(); await m.settle();
+  ok(!document.querySelector('.bm-modal') && m.calls.fundArgs?.sats === 149800, `short of sats, the same press signs in and opens the funding sheet with the amount (${JSON.stringify({ sats: m.calls.fundArgs?.sats })})`);
+  m.destroy();
 });
 
 await run('sell sats', async () => {

@@ -1203,7 +1203,7 @@ function paintEarn() {
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';
   if (f.k === 'precision' && !farmUi) {
-    farmUi = import('/trade/farm.js?cb=60987fca').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
+    farmUi = import('/trade/farm.js?cb=0fa1ad1e').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
     $('#privfarm').innerHTML = `<a class="go priv" href="/#farm/private-${f.pid}">Farm ${esc(f.name)} privately →</a>`;
@@ -1307,7 +1307,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=99383137')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=3c634104')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
 }

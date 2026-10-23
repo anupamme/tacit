@@ -5,7 +5,7 @@
 import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=decfee42';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
-const MARKET_URL = '/btc-market.js?cb=1273e437', CSS_URL = '/trade/btc-market.css?cb=359753e6';
+const MARKET_URL = '/btc-market.js?cb=9485445d', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 // The asset a sheet trades: its id, its title, and the line under the market about getting it onto Bitcoin. TAC's, unless the page names another.
 const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
@@ -251,7 +251,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       asset: () => { const a = base.asset(); return { ...a, iconHtml: logo(a.iconHtml), identityHtml: logo(a.identityHtml) }; },
       me: () => meState,
       friendlyError: (...a) => { const m = base.friendlyError?.(...a); return typeof m === 'string' ? m.replace('retry with the Swap tile or pick another row', 'try again or pick another row') : m; },      // the classic app's wording names a tile this sheet does not have
-      unlock, fundSats: fund,
+      unlock, fundSats: (o) => fund({ fiat: (n) => { const px = Number(base.btcUsd?.() || 0); return px > 0 ? `$${((n / 1e8) * px).toFixed(2)}` : ''; }, ...(o || {}) }),
       confirm: confirmDialog,
       toast: (m, k, ms) => notify(m, k, ms),
       onError: (e) => { recovery(e).catch(() => {}); },
@@ -317,7 +317,8 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
   // has to sign in first is waited for, for a minute).
   async function primeWhenReady(opts) {
     for (let i = 0, max = opts.focus === 'orders' ? 400 : 80; i < max; i++) {
-      if (!ctl) return;
+      if (!main) return;
+      if (!ctl) { await sleep(150); continue; }                                                // the sheet is still loading: a press made meanwhile is kept for it
       if (opts.focus === 'orders') { const o = host?.querySelector('[data-k="orders"]'); if (o && !o.hidden) { await bringIntoView(o); return; } }
       else if (ctl.state?.loadedOnce) { const set = opts.atUnit != null && opts.type === 'market' && ctl.primeAt ? ctl.primeAt(opts.side === 'sell' ? 'bid' : 'ask', opts.atUnit, opts.flag) : false; if (set === false) ctl.prime(opts); return; }       // a book with nothing at that price is set by the amount
       await sleep(150);

@@ -176,11 +176,11 @@ export function mountFarm(host, ctx) {
     if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).</p>'; return; }
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
     try {
-      let lp, loss = 0;
+      let lp, loss = 0, used = null;
       if (m === 'pair') {
         const r = await ethCall(LENS, SEL.previewAdd + addr(POOL) + word(wei) + word(tac));
         if (wordAt(r, 0) !== 1n || wordAt(r, 1) === 0n) throw new Error('The pool would refuse this deposit.');
-        lp = wordAt(r, 1);
+        lp = wordAt(r, 1); used = { eth: wordAt(r, 2), tac: wordAt(r, 3) };                  // the pool takes both sides at its ratio and the farm returns the rest at once
       } else {
         const amount = m === 'eth' ? wei : tac;
         const r = await ethCall(LENS, SEL.previewZap + addr(POOL) + addr(m === 'eth' ? ZERO : TAC) + word(amount));
@@ -196,7 +196,8 @@ export function mountFarm(host, ctx) {
       const ackKey = `${m}|${wei}|${tac}|${Math.round(loss)}`;
       F.q = { m, wei, tac, lp, loss, over };
       rc.hidden = false;
-      rc.innerHTML = `${m === 'pair' ? `<div class="kv"><span>Deposit</span><b>${fmt(wei, 18, 5)} ETH + ${fmt(tac, 18, 2)} TAC</b></div>` : ''}
+      const back = used ? [wei - used.eth > wei / 200n ? `${fmt(wei - used.eth, 18, 5)} ETH` : '', tac - used.tac > tac / 200n ? `${fmt(tac - used.tac, 18, 2)} TAC` : ''].filter(Boolean).join(' and ') : '';
+      rc.innerHTML = `${m === 'pair' ? `<div class="kv"><span>Deposit</span><b>${fmt(used.eth, 18, 5)} ETH + ${fmt(used.tac, 18, 2)} TAC</b></div>${back ? `<p class="note">The pool takes both at its ratio: ${back} comes straight back to your wallet.</p>` : ''}` : ''}
         <div class="kv"><span>Earns about</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
         <div class="kv"><span>APR</span><b>${aprTxt(apr)}</b></div>
         ${loss >= 0.5 ? `<div class="kv"><span>Swap price impact</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : ''}

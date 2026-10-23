@@ -11,7 +11,7 @@ import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=e8d21aec';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { takeEarly } from '/trade/rpc.js?cb=63f04503';
-import { mountFarm } from '/trade/farm.js?cb=60987fca';
+import { mountFarm } from '/trade/farm.js?cb=0fa1ad1e';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=c07717c4';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
@@ -49,7 +49,7 @@ function privatePoolId(fee) {
 const PRIV_TIERS = [30, 5, 100, 1];
 
 const D = { gasPrice: null, chainFailed: false, tapeFailed: false, btcFailed: false, bookFailed: false, ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
-const ME = { pub: null, how: '' };
+const ME = { pub: null, how: '', pageKey: null };
 const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: null, log: false, slip: 50, bal: null, busy: false, tf: { eth: null, btc: null }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]] };
 const CHART_KEY = 'tacit-trade-chart-v1';
@@ -473,15 +473,33 @@ function askZq(q) {
   zq(dir, wei).then((v) => { if (S.quote && S.quote.wei === wei && S.quote.dir === dir) { S.quote.zq = v; renderVenues(S.quote); } });
 }
 $('#cmp').addEventListener('toggle', () => { if ($('#cmp').open) askZq(S.quote); });
-$('#venues').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-btc-row]'), q = S.quote;
-  if (!b || !q || !btcOn()) return;
-  const act = b.dataset.btcRow, base = q.wei / E10;
-  const sp = q.book?.sell, bp = q.book?.plan;
-  openBitcoin(act === 'buy' && q.book?.sats >= 546 ? { side: 'buy', type: 'market', spendSats: q.book.sats, reachUnit: bp?.worstUnit || undefined }
+// The Bitcoin market opened on what the ticket holds: a buy as the sats the amount is worth, going as far into the book as its plan went; a sale of the
+// amount into the bids its plan took (the online-only ones too, when it took any); a listing of the amount. With no quote, just the side.
+function openBitcoinFor(act, q = S.quote) {
+  if (!btcOn()) return;
+  if (!q || q.busy || q.err) return openBitcoin(act === 'list' ? { side: 'sell', type: 'limit' } : { side: act, type: 'market' });
+  const base = q.wei / E10, sp = q.book?.sell, bp = q.book?.plan;
+  openBitcoin(act === 'buy' ? (q.book?.sats >= 546 ? { side: 'buy', type: 'market', spendSats: q.book.sats, reachUnit: bp?.worstUnit || undefined } : { side: 'buy', type: 'market' })
     : act === 'sell' ? { side: 'sell', type: 'market', sellBase: base, reachUnit: sp?.fills.length ? sp.worstUnit : undefined, includeManual: !!sp?.fills.some((f) => !f.bid.auto) }
     : { side: 'sell', type: 'limit', sellBase: base });
-});
+}
+$('#venues').addEventListener('click', (e) => { const b = e.target.closest('[data-btc-row]'); if (b && S.quote) openBitcoinFor(b.dataset.btcRow); });
+$('#btc-alt')?.addEventListener('click', (e) => { const b = e.target.closest('[data-btc-alt]'); if (b) openBitcoinFor(b.dataset.btcAlt); });
+// The ticket trades on Ethereum; the same TAC trades for sats on Bitcoin. The line under the ticket says what the order book does with this amount, and opens it there.
+function renderBtcAlt(q = S.quote) {
+  const el = $('#btc-alt'), b = D.book, buy = S.side === 'buy';
+  if (!el) return;
+  if (!btcOn() || !b || !(b.asks.length || b.bids.length)) { el.hidden = true; return; }
+  const bk = q && !q.busy && !q.err ? q.book : null;
+  let text, act;
+  if (buy && bk?.out) { text = html`Or pay <b>${satsFmt(bk.sats)} sats</b> on Bitcoin for about <b>${tacFmt(Number(bk.out) / 1e18)} TAC</b>.`; act = 'buy'; }
+  else if (!buy && bk?.sell?.fills.length) { text = html`Or sell on Bitcoin for <b>${satsFmt(bk.sats)} sats</b>.`; act = 'sell'; }
+  else if (!buy && bk) { text = 'Or list it for sats on Bitcoin.'; act = 'list'; }
+  else { text = `Or ${buy ? 'buy' : 'sell'} TAC for sats on the Bitcoin order book.`; act = buy ? 'buy' : 'sell'; }
+  const label = act === 'list' ? 'List on Bitcoin' : act === 'buy' ? 'Buy on Bitcoin' : 'Sell on Bitcoin';
+  setHtml(el, `<svg class="tk xs" aria-hidden="true"><use href="#tk-btc"/></svg><span>${text} <button type="button" class="linkbtn" data-btc-alt="${act}">${label} →</button></span>`);
+  el.hidden = false;
+}
 const PRESETS = { buy: [['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'], ['1 ETH', '1']], sell: [['1,000 TAC', '1000'], ['5,000 TAC', '5000'], ['20,000 TAC', '20000']] };
 function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''); }
 function lockTicket() {
@@ -501,7 +519,7 @@ function quoteSay(t) {
   s.textContent = t; s.dataset.kind = t ? 'quote' : '';
 }
 function renderQuote(q) {
-  renderChips();
+  renderChips(); renderBtcAlt(q);
   if (!q?.busy) $('.p-ticket').classList.remove('stale');
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
   $('#in-lbl').textContent = 'You pay';
@@ -607,7 +625,7 @@ function notify(msg, kind = '', ms = 5000) {
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=55f893d9').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=185b80ce').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));
@@ -626,9 +644,13 @@ function ethKeyFor(account) {
   for (const id of KNOWN_IDS) { const r = json(id); if (r?.mode === 'eth' && lc(r.address).replace(/^0x/, '') === a) pubs.push(r.pubHex); }
   return pubs.map(lc).find((h) => PUBKEY.test(h)) || null;
 }
+// The Tacit key is locked when the page's wallet moves to another account, as everywhere on the site: but only a key that wallet opened. A key
+// opened another way (the sheet's own sign-in, before a wallet was connected here, or with another wallet) is not the page wallet's to lock.
 function syncMe() {
   const k = bitcoin?.session.unlocked ? bitcoin.session.key : null;
-  if (k?.mode === 'eth' && W.account && lc(k.address) !== lc(W.account)) { bitcoin.lock(); return; }
+  if (!k) ME.pageKey = null;
+  else if (k.mode === 'eth' && W.account && lc(k.address) === lc(W.account)) ME.pageKey = lc(k.pubHex);
+  if (k?.mode === 'eth' && W.account && lc(k.address) !== lc(W.account) && ME.pageKey === lc(k.pubHex)) { ME.pageKey = null; bitcoin.lock(); return; }
   const open = k ? lc(k.pubHex) : null, pub = open || ethKeyFor(W.account), how = open ? 'open' : pub ? 'record' : '';
   if (pub === ME.pub && how === ME.how) { renderBook(); return; }
   ME.pub = pub; ME.how = how; rebuildBook();
@@ -920,6 +942,8 @@ async function readBalances() {
   if (W.account === who) S.bal = { eth, tac };
 }
 const spendable = () => (S.bal ? (S.side === 'buy' ? S.bal.eth : S.bal.tac) : null);
+// ETH a buy must leave for its own network fee: half again the fee at the gas price now (the widest route's gas), and never under 0.004 ETH.
+const gasReserve = (P = null) => { const units = ROUTE_GAS[P?.split ? 'split' : P?.rt?.single?.venue || 'split']?.[0] || ROUTE_GAS.split[0]; const fee = D.gasPrice != null ? (BigInt(units) * D.gasPrice * 3n) / 2n : 0n; return fee > 4n * 10n ** 15n ? fee : 4n * 10n ** 15n; };
 function renderBalance() {
   const b = $('#in-bal'), have = spendable();
   b.hidden = have == null;
@@ -964,8 +988,9 @@ function renderGo() {
   const have = spendable();
   if (have != null && wei > have) { go.textContent = `Not enough ${buy ? 'ETH' : 'TAC'}`; go.disabled = true; return; }
   if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
-  go.textContent = buy ? 'Buy TAC' : 'Sell TAC';
   const P = planOf();
+  if (buy && have != null && wei + gasReserve(P) > have) { go.textContent = 'Leave ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P), 18, 4)} ETH stays for the fee: Max leaves it`; return; }
+  go.textContent = buy ? 'Buy TAC' : 'Sell TAC';
   if (P.impact >= 0.1 && S.ack !== ackKey(P)) { go.disabled = true; go.title = 'Tick the box above to accept the price impact'; }
 }
 function planOf(q = S.quote) {
@@ -1168,7 +1193,7 @@ $('#route').addEventListener('change', (e) => {
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();
   if (have == null || S.busy) return;
-  const v = S.side === 'buy' ? (have > 4n * 10n ** 15n ? have - 4n * 10n ** 15n : 0n) : have;
+  const v = S.side === 'buy' ? (have > gasReserve() ? have - gasReserve() : 0n) : have;
   S.amt = plain(v); $('#amt').value = S.amt; requote();
 });
 S.slip = (() => { try { const v = Number(localStorage.getItem('tacit-trade-slip')); return [50, 100, 300].includes(v) ? v : 50; } catch { return 50; } })();
@@ -1216,7 +1241,7 @@ $('.p-chart').addEventListener('click', (e) => {
   if (b.dataset.kind) S.kind = b.dataset.kind; else if (b.dataset.unit) S.unit = b.dataset.unit; else if (b.dataset.tf) S.tf[S.lane] = Number(b.dataset.tf); else if (b.dataset.range != null) S.range = Number(b.dataset.range); else if (b.dataset.log) S.log = !S.log;
   keepChart(); renderChart();
 });
-function paintAll() { renderHead(); renderLanes(); renderChart(); renderBook(); renderPin(); renderAbout(); farm.paint(); if (S.quote) renderVenues(S.quote); }
+function paintAll() { renderHead(); renderLanes(); renderChart(); renderBook(); renderPin(); renderAbout(); farm.paint(); renderBtcAlt(); if (S.quote) renderVenues(S.quote); }
 renderQuote(null); renderVenues(null); renderControls(); renderAbout(); renderLanes();
 const loads = [loadChain().then(paintAll), loadTapes().then(paintAll), loadBitcoin().then(paintAll), loadBoards().then(paintAll)];
 setTimeout(warmFormatters, 0);
@@ -1227,20 +1252,20 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();
   S.ready = true; retrySoon();
-  openBitcoinFor(params.get('btc'));
+  openBitcoinHash(params.get('btc'));
   if (W.account) ensureTrades();
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
 // #btc=buy, #btc=sell or #btc=list (a link from another page) opens the Bitcoin market on that side
-function openBitcoinFor(how) {
+function openBitcoinHash(how) {
   if (!['buy', 'sell', 'list'].includes(how) || !btcOn()) return;
   openBitcoin(how === 'list' ? { side: 'sell', type: 'limit' } : { side: how, type: 'market' });
 }
 addEventListener('hashchange', () => {
   if (!S.ready || S.busy) return;
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
-  openBitcoinFor(params.get('btc'));
+  openBitcoinHash(params.get('btc'));
   if (!params.has('side') && !params.has('amount')) return;
   const side = params.has('side') ? (params.get('side') === 'sell' ? 'sell' : 'buy') : S.side;
   if (side !== S.side) $(`#side-seg [data-side="${side}"]`).click();

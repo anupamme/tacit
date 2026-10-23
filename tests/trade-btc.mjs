@@ -295,6 +295,19 @@ try {
     ok(on === side, `#btc=${side} opens the Bitcoin market on its ${side} side by itself (${on})`);
     await r.browser.close();
   }
+  // the line under the ticket: the same TAC for sats on Bitcoin, opened on the ticket's side
+  r = await openPage({ width: 1280, height: 900 }, { hash: '' });
+  p = r.page;
+  await until(p, () => !document.querySelector('#btc-alt')?.hidden, null, 120000);
+  const alt = (await text(p, '#btc-alt')).replace(/\s+/g, ' ').trim();
+  ok(/Or buy TAC for sats on the Bitcoin order book\. Buy on Bitcoin →/.test(alt), `the ticket says the same TAC trades for sats on Bitcoin (${alt})`);
+  await p.click('#side-seg [data-side="sell"]');
+  await until(p, () => /Sell on Bitcoin/.test(document.querySelector('#btc-alt')?.textContent || ''), null, 30000);
+  await p.click('#btc-alt [data-btc-alt]');
+  await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="side"][aria-selected="true"]')?.dataset.v === 'sell', null, 180000).catch(() => {});
+  ok((await p.$eval('.bsheet.wide .bm [data-act="side"][aria-selected="true"]', (b) => b.dataset.v).catch(() => 'none')) === 'sell', 'and its press opens the Bitcoin market on the ticket\'s side');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests there (${[...r.errors, ...r.blocked].slice(0, 3).join(' | ')})`);
+  await r.browser.close();
 } catch (e) {
   fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 4).join(' / '));
   if (r) console.log('     errors:', r.errors.slice(0, 4), 'blocked:', r.blocked.slice(0, 3), 'unmatched:', [...r.seen.unmatched].slice(0, 8), 'api:', [...r.seen.api].slice(0, 12), 'explorer:', [...r.seen.explorer].slice(0, 8));
