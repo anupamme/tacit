@@ -9,9 +9,10 @@ import { CFG } from './config.js';
 // of these routes.
 const auth = () => ({ authorization: `Bearer ${CFG.boxToken}` });
 
-async function getJson(path) {
+// `{}` when the API refuses; with `status`, `{ unavailable: <HTTP status> }`, for a caller that must tell a refusal from "nothing to do".
+async function getJson(path, { status = false } = {}) {
   const res = await fetch(`${CFG.workerBase}${path}`, { headers: auth() });
-  if (!res.ok) return {};
+  if (!res.ok) return status ? { unavailable: res.status } : {};
   try { return await res.json(); } catch { return {}; }
 }
 // `timeoutMs` bounds a call that something else is waiting behind. Left out, a call waits as long as the platform lets it
@@ -31,10 +32,10 @@ async function postJson(path, body, { timeoutMs = 0 } = {}) {
 
 // ── Reflection ──
 export async function reflectionJob({ maxBlocks = 0 } = {}) {
-  // { input, jobId(newDigest), attestedTo, blocks, pending } | {}
+  // { input, jobId(newDigest), attestedTo, blocks, pending } | {} when caught up | { unavailable } when the API could not assemble one
   // maxBlocks (> 0) asks for a batch of at most that many blocks, under the API's own cap (lib/block-cap.js).
   const ask = maxBlocks > 0 ? `&maxBlocks=${Math.floor(maxBlocks)}` : '';
-  return getJson(`/reflection/job?network=${encodeURIComponent(CFG.network)}${ask}`);
+  return getJson(`/reflection/job?network=${encodeURIComponent(CFG.network)}${ask}`, { status: true });
 }
 export async function reflectionAck({ attestedTo, txHash, jobId }) {
   try {

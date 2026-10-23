@@ -1652,6 +1652,8 @@ async function reflectionStatusBody(env, network) {
     consumedCount: _statusCount(snap.consumedCount),
     liveNotes: Array.isArray(snap.liveTriples) ? snap.liveTriples.length : null,
     burnDeposits: Array.isArray(snap.pendingDepositRecords) ? snap.pendingDepositRecords.length : null,
+    burnsAwaitingBundle: awaiting.count,
+    oldestAwaitingHeight: awaiting.oldestHeight,
     updatedAt: new Date().toISOString(),
   };
   _reflectionStatusCache.set(network, { at: Date.now(), body });
@@ -8826,7 +8828,7 @@ const UPSTREAM_DEFAULT_TIMEOUT_MS = 8000;
 // client. Name ourselves on every upstream read.
 const UPSTREAM_USER_AGENT = 'tacit-chain-proxy/1 (+https://tacit.finance)';
 function _buildUpstreamInit(opts) {
-  const { cacheTtl, timeoutMs, ...rest } = opts || {};
+  const { cacheTtl, timeoutMs, waitCoolingMs, ...rest } = opts || {};
   const init = { ...rest };
   const hdrs = new Headers(init.headers || {});
   if (!hdrs.has('user-agent')) hdrs.set('user-agent', UPSTREAM_USER_AGENT);
@@ -8892,6 +8894,15 @@ async function _fetchUpstreamWithAbortRetry(url, opts) {
     if (cleanup1) cleanup1();
   }
 }
+// How long every source has left to cool. A caller whose work is minutes of fetches that one refused call would throw away (the
+// reflection job's blocks) passes `waitCoolingMs`: a cooldown no longer than that is slept through and the fetch goes on; a request
+// someone is waiting on leaves it unset and fails at once.
+async function _coolingMs(bases, waitCoolingMs) {
+  const left = _allUpstreamsCoolingMs(bases);
+  if (!(left > 1000) || !(left <= waitCoolingMs)) return left;
+  await new Promise((res) => setTimeout(res, left));
+  return _allUpstreamsCoolingMs(bases);
+}
 // Try each configured BTC source in order, failing over to the next on a
 // transport error or a 5xx/429 from this source. A 2xx or a definitive 4xx
 // (e.g. 404 tx-not-yet-indexed) is a real answer and returns as-is — other
@@ -8911,7 +8922,7 @@ async function apiFetch(env, network, path, opts = {}) {
   const maxPasses = Number.isFinite(opts.retryPasses) ? opts.retryPasses : 2;
   let errs = [];
   for (let pass = 0; pass < maxPasses; pass++) {
-    const allCoolingMs = _allUpstreamsCoolingMs(bases);
+    const allCoolingMs = await _coolingMs(bases, opts.waitCoolingMs);
     if (allCoolingMs > 1000) throw new Error(`${network} all sources cooling for ${Math.ceil(allCoolingMs / 1000)}s`);
     const start = Math.min(Math.max(_apiPref[network] | 0, 0), bases.length - 1);
     errs = [];
@@ -8962,10 +8973,10 @@ async function apiText(env, path, opts = {}, network = 'signet') {
 // Uses apiFetch so it inherits the sticky preferred-source + fail-over-on-connect-error logic (a source
 // unreachable from this host is skipped, and the working one is remembered). A full block is ~1.5MB, so a
 // generous timeout keeps the body read from aborting; cacheTtl lets the edge hold the immutable block.
-async function apiRawBytes(env, path, network = 'signet') {
+async function apiRawBytes(env, path, network = 'signet', opts = {}) {
   const bases = networkApis(env, network);
   const errs = [];
-  const allCoolingMs = _allUpstreamsCoolingMs(bases);
+  const allCoolingMs = await _coolingMs(bases, opts.waitCoolingMs);
   if (allCoolingMs > 1000) throw new Error(`raw ${path} — all sources cooling for ${Math.ceil(allCoolingMs / 1000)}s`);
   const hasHealthy = bases.some(b => _upstreamCooldownMs(b) <= 0);
   for (const base of bases) {

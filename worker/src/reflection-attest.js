@@ -338,9 +338,12 @@ export function buildScanReflectionAttester(env, { deps, api, apiRawBytes, netwo
     const r = await fetch(env.REFLECTION_SUBMIT_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicValues, proofBytes }) });
     return r.ok ? (await r.json()).txHash : null;
   };
+  // A job is minutes of block fetches from public explorers that throttle us in turn; one call refused because every source is
+  // cooling would throw all of it away, so these ride out a cooldown of up to a minute (a request someone waits on does not).
+  const RIDE_OUT = { waitCoolingMs: 60_000 };
   const getHeaders = async (heights) => Promise.all(heights.map(async (h) => {
-    const hash = (await api(env, `/block-height/${h}`, {}, network)).trim();
-    return '0x' + (await api(env, `/block/${hash}/header`, {}, network)).trim();
+    const hash = (await api(env, `/block-height/${h}`, RIDE_OUT, network)).trim();
+    return '0x' + (await api(env, `/block/${hash}/header`, RIDE_OUT, network)).trim();
   }));
   // EVERY tx of the block (in order) with its raw bytes, vins, and protocol classification — the
   // full-scan completeness input. For the pilot's small blocks the per-tx fetch is fine; a mainnet
@@ -350,8 +353,8 @@ export function buildScanReflectionAttester(env, { deps, api, apiRawBytes, netwo
   // /block/<hash>/raw ONCE (immutable, edge-cached) and walk the bytes instead.
   const _dsha = (b) => deps.sha256(deps.sha256(b));
   const getBlockTxs = async (h) => {
-    const hash = (await api(env, `/block-height/${h}`, {}, network)).trim();
-    const blockBytes = await apiRawBytes(env, `/block/${hash}/raw`, network);
+    const hash = (await api(env, `/block-height/${h}`, RIDE_OUT, network)).trim();
+    const blockBytes = await apiRawBytes(env, `/block/${hash}/raw`, network, RIDE_OUT);
     const txs = splitBlockTxs(blockBytes, _dsha).map((t) => ({
       ...t, decode: classifyTx ? classifyTx({ txid: t.txidDisplay, rawHex: t.rawHex }) : null,
     }));

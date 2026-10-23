@@ -50,6 +50,12 @@ const heldProof = makeHeldProof();
 
 async function cycle() {
   const job = await reflectionJob({ maxBlocks: blockCap || 0 });
+  // The API could not put a batch together (its block sources throttling, a restart): not the same as caught up, and said so.
+  if (job?.unavailable) {
+    log(`the API could not assemble a batch (HTTP ${job.unavailable}) — asking again next cycle`);
+    await heartbeat('reflection', `no batch from the API (HTTP ${job.unavailable})`);
+    return false;
+  }
   if (!job || !job.input) return false; // caught up
   const attestedTo = Number(job.attestedTo) | 0;
   const newDigest = job.jobId || job.input.newDigest;
