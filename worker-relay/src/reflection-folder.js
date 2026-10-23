@@ -29,6 +29,7 @@ import { awaitAttestLanding, digestDeepEnough } from './lib/attest-wait.js';
 import { recoverLostAck } from './lib/reflection-reconcile.js';
 import { proveReflection } from './lib/prover.js';
 import { nextBlockCap } from './lib/block-cap.js';
+import { makeHeldProof } from './lib/held-proof.js';
 import { relayWallet, publicClient, verifyClient, readPool, readReflectionDigest, POOL, POOL_ABI, gasAboveCap, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 import { withNonceRetry } from './lib/nonce-retry.js';
@@ -44,6 +45,8 @@ const ATTEST_CONFIRMATIONS = Math.max(1, parseInt(process.env.ATTEST_CONFIRMATIO
 // The most blocks this lane asks the API to put in one job; null = the API's own cap. Lowered when the network
 // refuses a batch it cannot execute, raised again as batches prove (lib/block-cap.js). Memory only.
 let blockCap = null;
+// The proof bought for the batch in hand, kept until the batch lands (lib/held-proof.js).
+const heldProof = makeHeldProof();
 
 async function cycle() {
   const job = await reflectionJob({ maxBlocks: blockCap || 0 });
@@ -72,6 +75,7 @@ async function cycle() {
       await heartbeat('reflection', `re-ack refused status=${reack?.status} attestedTo=${attestedTo}`);
       return false;
     }
+    heldProof.clear();
     return true;
   }
 
@@ -96,6 +100,7 @@ async function cycle() {
       return false;
     }
     if (rec.recovered) {
+      heldProof.clear();
       log(`RECOVERED lost ack: pool digest ${onchain} was a landed batch the API still held — cursor advanced to attestedTo=${rec.attestedTo}`);
       await heartbeat('reflection', `recovered lost ack at ${rec.attestedTo}`);
       return true;
@@ -160,25 +165,30 @@ async function cycle() {
     await heartbeat('reflection', `mode_b required (crossOuts=${crossOuts}) but job is forward-only — eth-state candidate missing?`);
     return false;
   }
-  log(`job attestedTo=${attestedTo} pending=${job.pending ?? '?'} blocks=${job.blocks ?? '?'} ask=${blockCap ?? 'none'} — proving (network groth16)...`);
-  await heartbeat('reflection', `proving ${newDigest}`);
-  let proved;
-  try {
-    proved = await proveReflection(job.input);
-  } catch (e) {
-    // The network refusing to run the request (the batch costs more gas than REFLECT_GAS_LIMIT allows) repeats
-    // for as long as the same batch is served, so the next job is asked for at half the blocks.
-    const next = nextBlockCap(blockCap, { unexecutable: e?.unexecutable, blocks: job.blocks });
-    if (next !== blockCap) {
-      log(`the network would not run a ${job.blocks}-block batch (over its gas or cycle limit) — asking for at most ${next} block(s) per job from here`);
-      await heartbeat('reflection', `batch of ${job.blocks} block(s) refused as unexecutable; now asking for at most ${next}`);
+  let proved = heldProof.take(newDigest);
+  if (proved) {
+    log(`job attestedTo=${attestedTo} blocks=${job.blocks ?? '?'} — the proof bought for this batch is still held, not buying another`);
+  } else {
+    log(`job attestedTo=${attestedTo} pending=${job.pending ?? '?'} blocks=${job.blocks ?? '?'} ask=${blockCap ?? 'none'} — proving (network groth16)...`);
+    await heartbeat('reflection', `proving ${newDigest}`);
+    try {
+      proved = await proveReflection(job.input);
+    } catch (e) {
+      // The network refusing to run the request (the batch costs more gas than REFLECT_GAS_LIMIT allows) repeats
+      // for as long as the same batch is served, so the next job is asked for at half the blocks.
+      const next = nextBlockCap(blockCap, { unexecutable: e?.unexecutable, blocks: job.blocks });
+      if (next !== blockCap) {
+        log(`the network would not run a ${job.blocks}-block batch (over its gas or cycle limit) — asking for at most ${next} block(s) per job from here`);
+        await heartbeat('reflection', `batch of ${job.blocks} block(s) refused as unexecutable; now asking for at most ${next}`);
+      }
+      blockCap = next;
+      throw e;
     }
-    blockCap = next;
-    throw e;
+    heldProof.keep(newDigest, proved);
+    const grown = nextBlockCap(blockCap, { proved: true, blocks: job.blocks });
+    if (grown !== blockCap) { log(`proved at the full ask of ${blockCap} block(s) — raising it to ${grown ?? 'the API cap'}`); blockCap = grown; }
   }
   const { publicValues, proofBytes } = proved;
-  const grown = nextBlockCap(blockCap, { proved: true, blocks: job.blocks });
-  if (grown !== blockCap) { log(`proved at the full ask of ${blockCap} block(s) — raising it to ${grown ?? 'the API cap'}`); blockCap = grown; }
 
   // Make the proof available to any wallet before this one tries to land it: a proof that cannot be submitted from
   // here (the wallet is short, the node is down) is still good for as long as the pool sits on its prior.
@@ -186,22 +196,30 @@ async function cycle() {
     const published = await reflectionProofPublish({ priorDigest: job.priorDigest, newDigest, attestedTo, publicValues, proof: proofBytes });
     if (!published) log('could not publish the proof for other wallets (continuing)');
   }
+  // The funds check before buying was made at that moment's gas; the send needs the wallet to hold its worst-case fee at
+  // this one. A wallet that is short now keeps the proof and waits for a top-up: failing the cycle instead would back the
+  // lane off for longer than a top-up takes.
+  const late = await attestFunds();
+  if (late.short) {
+    log(`relay wallet holds ${eth(late.have)} ETH, under the ${eth(late.need)} ETH the attest can cost now — keeping the proof, waiting for a top-up`);
+    await heartbeat('reflection', `proof kept; relay wallet holds ${eth(late.have)} ETH, an attest needs ${eth(late.need)}`);
+    return false;
+  }
   log('proved — submitting attestBitcoinStateProven...');
   // A bare estimate leaves no headroom if state moves between estimating and inclusion, and a revert here costs the
   // whole proof. Unused gas is refunded, so the pad only insures.
   const attestCall = { address: POOL, abi: POOL_ABI, functionName: 'attestBitcoinStateProven', args: [publicValues, proofBytes] };
-  // The proof above is already paid for. SETTLE_KEY is unset in production, so the settle service, the
-  // header cron and this one all sign from RELAY_KEY — and settles go out privately, so a public RPC's
-  // pending nonce does not see one in flight and a collision here is routine. A bare write throws the whole
-  // proof away and re-proves next cycle; retrying the submission costs a few seconds. The same holds after
-  // submission: a tx whose nonce a private settle took is dropped, and the proof is simply sent again, for as
-  // long as the estimate says it still lands (the pool still sits on this batch's prior).
+  // The proof above is already paid for and held until its batch lands. SETTLE_KEY is unset in production, so the settle
+  // service, the header cron and this one all sign from RELAY_KEY — and settles go out privately, so a public RPC's
+  // pending nonce does not see one in flight and a collision here is routine; retrying the submission costs a few
+  // seconds. The same holds after submission: a tx whose nonce a private settle took is dropped, and the proof is simply
+  // sent again, for as long as the estimate says it still lands (the pool still sits on this batch's prior).
   for (let attempt = 1; ; attempt++) {
     const attestGas = await publicClient.estimateContractGas({ ...attestCall, account: relayWallet.account });
     const txHash = await withNonceRetry('attest', () => relayWallet.writeContract({ ...attestCall, gas: (attestGas * 125n) / 100n }), { log });
     await reflectionSubmitted({ newDigest, txHash, attestedTo });
     const outcome = await landAttest({ txHash, newDigest, attestedTo, nonce: await nonceOf(txHash) });
-    if (outcome !== 'dropped') return outcome === 'acked';
+    if (outcome !== 'dropped') { if (outcome === 'acked') heldProof.clear(); return outcome === 'acked'; }
     if (attempt >= CFG.reflectionResubmits) return false;
     log(`sending the same proof again (${attempt + 1}/${CFG.reflectionResubmits})`);
   }
