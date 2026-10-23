@@ -53,11 +53,12 @@ export async function routeOutTac({ venues, amount, to, slippageBps, deadline, r
 }
 // A deposit that is not an amount of its own: the swap, the relay's fee twice and an extra (the slider's share of the swap, drawn at random
 // between three quarters and one and a quarter of it, never under a twentieth), rounded up to two significant figures.
-export function depositFor({ swapWei, feeWei, pct, rand = Math.random }) {
-  const swap = BigInt(swapWei), share = Math.max(5, Math.round(pct * (0.75 + rand() * 0.5)));
-  const total = swap + 2n * BigInt(feeWei) + (swap * BigInt(share)) / 100n;
+// `gasWei`: for a swap into a private balance, the gas the key's own account is handed with the TAC, to make it private from there.
+export function depositFor({ swapWei, feeWei, pct, rand = Math.random, gasWei = 0n }) {
+  const swap = BigInt(swapWei), share = Math.max(5, Math.round(pct * (0.75 + rand() * 0.5))), fixed = 2n * BigInt(feeWei) + BigInt(gasWei);
+  const total = swap + fixed + (swap * BigInt(share)) / 100n;
   const unit = 10n ** BigInt(Math.max(0, total.toString().length - 2)), dep = ((total + unit - 1n) / unit) * unit;
-  return { depositWei: dep, extraWei: dep - swap - 2n * BigInt(feeWei) };
+  return { depositWei: dep, extraWei: dep - swap - fixed };
 }
 const randomNonce = () => BigInt('0x' + hexOf(crypto.getRandomValues(new Uint8Array(16))));
 // What the relay's answer leaves open: the swap out may have been sent (no answer, or no receipt in time), so it is checked before another.
@@ -76,9 +77,22 @@ export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalTh
 // `keyHex()` opens the Tacit key and gives its private key (hex); `signer` sends from the connected wallet ({ address, ready, send, rpc });
 // `ethCall(to, data, block, { gas })` is the page's (zQuoter's scans need a node that allows a large call).
 // `chain` and `prove` are for tests (another chain's nodes and keeper, a prover that needs no worker).
-// `venues` is the swap page's evm-trade-venues instance, for a swap into TAC.
-export function makeLater({ keyHex, signer, ethCall, venues = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null }) {
+// `venues` is the swap page's evm-trade-venues instance, for a swap into TAC; `ux()` gives the pool module (confidential-pool-ux.js) and
+// `sendPrivate` the page's send of a private note to a Tacit address (swap/private.js), both for a swap that ends in a private balance.
+export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, sendPrivate = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null }) {
   let modsP = null, W = null, Wfor = null, proverP = null, rpc = null;
+  // A plan's destination: { kind: 'address' } pays `to`; { kind: 'me' } pays the key's own Tacit account and makes the TAC private there;
+  // { kind: 'tacit', pubHex, name } does that and sends the note on to that Tacit address. Only TAC is a pool asset this flow makes private.
+  const poolDest = (plan) => !!plan?.dest && plan.dest.kind !== 'address';
+  // The key's own Tacit account: the Ethereum account the pool module derives from the key alone (nothing but the key knows it), from which it
+  // deposits into the private pool. The TAC lands there first, with the gas to make it private.
+  async function tacitAccount() {
+    if (!ux) throw new Error('A private destination needs the pool module.');
+    const t = await ux(), priv = hexToBytes(await keyHex());
+    const tk = t.assetByTicker.TAC ? 'TAC' : 'cTAC', meta = t.assetByTicker[tk];
+    if (!meta?.assetId) throw new Error('TAC is not a pool asset on this network.');
+    return { t, priv, acct: t.account(priv), tk, meta };
+  }
   const prover = { ms: null, ready: false };
   const mods = () => (modsP ||= (async () => {
     const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=cc1570cb'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
@@ -131,14 +145,18 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, store = glob
 
 
   // The deposit: a plan is kept before anything is sent, so a closed tab finds it again; the prover starts loading at once.
-  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, depositWei, onStep = () => {} }) {
+  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, depositWei, dest = { kind: 'address' }, gasWei = 0n, onStep = () => {} }) {
     if (!signer.address) throw new Error('Connect a wallet to deposit from.');
+    if (dest.kind !== 'address') {
+      if (lc(token) !== TAC) throw new Error(`Only TAC can go to a private balance from here: ${sym} is not a pool asset.`);
+      to = (await tacitAccount()).acct.address;
+    }
     if (lc(to) === lc(signer.address)) throw new Error('Send it to another address: the wallet that deposits would tie the two together.');
     const w = await wallet();
     warm().catch(() => {});
     const s0 = await w.sync();
     const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), from: lc(signer.address), swapWei: String(swapWei), extraWei: String(extraWei),
-      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), state: 'depositing', leaves0: s0.leaves };
+      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), dest, gasWei: String(gasWei), state: 'depositing', leaves0: s0.leaves };
     keepPlans([plan, ...readPlans(store)], store);
     try {
       plan.depositTx = await w.deposit({ amount: BigInt(depositWei), onStep });
@@ -155,6 +173,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, store = glob
   // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a new note of exactly its amount; its swap out
   // spent the swap's ETH, so the balance is at least that much under what it was before.
   async function check(plan) {
+    if (poolDest(plan) && (plan.state === 'shielding' || plan.state === 'held')) return plan;        // its swap is done: what is left is the making private, pressed again
     const w = await wallet(), s = await w.sync(), notes = w.notes();
     if (!plan.depositedAt) {
       // a note of exactly its amount that the pool made after the plan began: an older note of the same size is some other money
@@ -187,9 +206,9 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, store = glob
   async function swapOut(plan, { shown, slippageBps = 50, via = 'relay', onStep = () => {} } = {}) {
     if (!shown) throw new Error('Read the price first.');
     if (via === 'self' && plan.from && lc(signer.address) === plan.from) throw new Error('Not from the wallet that deposited: that would tie the deposit to the swap. Connect another wallet, or let the relay send it.');
-    const w = await wallet(), amount = BigInt(plan.swapWei);
+    const w = await wallet(), amount = BigInt(plan.swapWei), gas = BigInt(plan.gasWei || 0);
     const s = await w.sync();
-    if (s.balance < amount) throw new Error('The deposit is not in the pool yet, or was spent. Check it on the private ETH page.');
+    if (s.balance < amount + gas) throw new Error('The deposit is not in the pool yet, or was spent. Check it on the private ETH page.');
     let r = shown;
     if (plan.token !== ZERO && (Date.now() - shown.at > 60e3 || !shown.callData)) {
       onStep('reading the price again');
@@ -203,15 +222,20 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, store = glob
       if (plan.token === ZERO) h = await w.withdraw({ to: plan.to, amount, via: via === 'self' ? 'self' : null, onStep });
       else {
         const m = await mods(), refund = await w.refundBox();
-        const intent = m.gw.callIntent({ calls: [{ target: ZROUTER, value: amount, data: r.callData }], refund, deadline: r.deadline, nonce: randomNonce() });
+        // a swap into a private balance pays the key's own account, and hands it the gas to make the TAC private from there, in the same withdrawal
+        const calls = [{ target: ZROUTER, value: amount, data: r.callData }, ...(gas > 0n ? [{ target: plan.to, value: gas }] : [])];
+        if (poolDest(plan)) { const { t, acct } = await tacitAccount(); plan.tacBefore = String(BigInt(await t.ethCall(TAC, '0x70a08231' + word(acct.address)) || '0x0')); }
+        const intent = m.gw.callIntent({ calls, refund, deadline: r.deadline, nonce: randomNonce() });
         // the relay is paid for the gas it buys: the withdrawal and its escrow, and the route as sent from the pool (which holds the ETH), estimated
         // with the stand-in still in it, so the node never sees where the tokens go
         const multi = r.standData.startsWith('0xac9650d8');
         const routeGas = BigInt(await rpc('eth_estimateGas', [{ from: POOL, to: ZROUTER, value: '0x' + amount.toString(16), data: r.standData }]).catch(() => (multi ? '0xaae60' : '0x61a80')));
         plan.min = String(r.min); plan.route = r.name;
-        h = await w.withdrawAndCall({ intent, amount, gas: Number(BASE_GAS + (routeGas * 3n) / 2n), via, onStep });
+        h = await w.withdrawAndCall({ intent, amount: amount + gas, gas: Number(BASE_GAS + (routeGas * 3n) / 2n + (gas > 0n ? 40_000n : 0n)), via, onStep });
       }
-      plan.state = 'done'; plan.swapTx = h; plan.doneAt = Date.now(); plan.proveMs = prover.ms; delete plan.from;
+      plan.swapTx = h; plan.proveMs = prover.ms; delete plan.from;
+      if (poolDest(plan)) { plan.state = 'shielding'; plan.swapDoneAt = Date.now(); }
+      else { plan.state = 'done'; plan.doneAt = Date.now(); }
       return plan;
     } catch (e) {
       plan.state = unsure(e) ? 'unsure' : 'waiting'; plan.refused = refused(e); plan.err = String(e?.message || e).slice(0, 200);
@@ -219,5 +243,42 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, store = glob
     } finally { save(plan); }
   }
 
-  return { start, blend, offer, swapOut, check, forget, warm, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
+  // After the swap: the TAC it paid the key's own account is made private from there (the pool's wrap, signed by that account with the gas the
+  // swap handed it; no wallet is asked), and for a Tacit address the new note is then sent on with a stealth send. Only what this swap paid is
+  // taken (what the account held before stays), rounded down to the pool's unit.
+  async function shield(plan, { onStep = () => {}, waitOpts } = {}) {
+    if (!poolDest(plan)) throw new Error('This swap pays an address.');
+    if (!plan.swapTx) throw new Error('The swap out has not been made yet.');
+    const { t, priv, acct, tk, meta } = await tacitAccount();
+    if (lc(acct.address) !== lc(plan.to)) throw new Error('Another Tacit key is open than the one this swap pays. Open that one and press again.');
+    const held = async () => BigInt(await t.ethCall(TAC, '0x70a08231' + word(acct.address)) || '0x0');
+    const before = BigInt(plan.tacBefore || 0), least = BigInt(plan.min || 1);
+    onStep('waiting for the TAC');
+    let got = (await held()) - before;
+    for (let i = 0; i < 30 && got < least; i++) { await sleep(4000); got = (await held()) - before; }
+    if (got <= 0n) throw new Error('The TAC has not reached your Tacit account yet. Press again in a minute.');
+    const scale = BigInt(meta.unitScale || 10n ** 10n), amount = got - (got % scale);
+    if (amount <= 0n) throw new Error('Too little TAC to make private.');
+    plan.state = 'shielding'; plan.err = null; save(plan);
+    try {
+      onStep('making it private');
+      const w = await t.routerWrap({ walletPriv: priv, amountWei: amount.toString(), ticker: tk });
+      onStep('waiting for it to be mined');
+      if (w?.txHash) await t.waitReceipt(w.txHash);
+      plan.shieldTx = w?.txHash || null; plan.shielded = String(amount); save(plan);
+      if (plan.dest.kind === 'tacit') {
+        if (!sendPrivate) throw new Error('Private now, in your balance; sending it on needs the page.');
+        onStep('sending it on');
+        const r = await sendPrivate({ asset: String(meta.assetId).toLowerCase(), units: amount / scale, ticker: tk, sendTo: { pubHex: plan.dest.pubHex, name: plan.dest.name || null }, label: `Send ${plan.sym} privately`, say: (k) => onStep(k === 'send' ? 'the relay is sending it on' : k === 'note' ? 'finding the note' : k), waitOpts });
+        plan.sendTx = r?.sent?.txHash || null;
+      }
+      plan.state = 'done'; plan.doneAt = Date.now();
+      return plan;
+    } catch (e) {
+      // wrapped already: a stop in the send-on leaves the TAC private, in the balance
+      plan.state = 'held'; plan.err = String(e?.message || e).slice(0, 220); throw e;
+    } finally { save(plan); }
+  }
+
+  return { start, blend, offer, swapOut, shield, check, forget, warm, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
 }

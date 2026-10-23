@@ -323,8 +323,16 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
   // The key as hex for the private ETH pool's wallet (swap/later.js), opened first if it is not: one key sheet for both kinds of private swap.
   const keyHex = async () => { await open(); return bytesToHex(key.priv()); };
 
+  // A note of `units` of `asset` (cut to size if none is) sent on to a Tacit address, as a private swap's result is: for a swap made elsewhere on
+  // the page whose TAC was just made private. → { sent: { to, txHash } }.
+  async function sendPrivate({ asset, units, ticker, sendTo, label, say = () => {} }) {
+    await open();
+    const note = await exactNote({ asset, units: BigInt(units), ticker, say });
+    return sendOn({ plan: { path: [], asset, minOut: BigInt(units), sendTo, label, outTicker: ticker }, made: { made: BigInt(units) }, before: null, say, direct: note });
+  }
+
   return {
-    open, lock, read, swap, swapOut, exitCalls, of, most, keyHex,
+    open, lock, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate,
     // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
     relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },

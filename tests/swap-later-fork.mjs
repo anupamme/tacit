@@ -101,6 +101,20 @@ console.log(`  proofs: ${times.map((t) => `${(t / 1000).toFixed(1)} s`).join(', 
   const got3 = (await bal(TAC, DEST3)) - t0;
   ok(rc4?.status === '0x1' && got3 >= rt.min, `the withdrawal into the TAC swap runs: the address got ${Number(got3) / 1e18} TAC, at least the ${Number(rt.min) / 1e18} shown`);
   ok((await bal(ZERO, (await import('../dapp/evm-pool-gateway.js')).callEscrowAddress(intent3, ROUTER))) === 0n, 'nothing is left in that escrow either');
+
+  // into a private balance: the same route pays the key's own Tacit account, and the withdrawal hands it the gas to make the TAC private from there
+  const ACCT = '0x00000000000000000000000000000000000ACc70', gasWei = 15n * 10n ** 14n;
+  const h5 = await W.deposit({ amount: swapWei + gasWei + extraWei, onStep: () => {} });
+  ok(/^0x[0-9a-f]{64}$/.test(h5), 'a deposit for a swap that ends private, the gas for the wrap inside it');
+  const dl2 = BigInt(Number(BigInt((await rpcA('eth_getBlockByNumber', ['latest', false])).timestamp)) + 1200);
+  const rt2 = await routeOutTac({ venues, amount: swapWei, to: ACCT, slippageBps: 100, deadline: dl2 });
+  const refund4 = await W.refundBox();
+  const intent4 = callIntent({ calls: [{ target: ZROUTER, value: swapWei, data: rt2.callData }, { target: ACCT, value: gasWei }], refund: refund4, deadline: dl2, nonce: 11n });
+  const [tacc0, eth0] = [await bal(TAC, ACCT), await bal(ZERO, ACCT)];
+  const h6 = await W.withdrawAndCall({ intent: intent4, amount: swapWei + gasWei, via: 'self', onStep: () => {} });
+  const rc6 = await rpcA('eth_getTransactionReceipt', [h6]);
+  ok(rc6?.status === '0x1' && (await bal(TAC, ACCT)) - tacc0 >= rt2.min && (await bal(ZERO, ACCT)) - eth0 === gasWei, `one withdrawal pays the account ${Number((await bal(TAC, ACCT)) - tacc0) / 1e18} TAC and ${Number(gasWei) / 1e18} ETH for the wrap`);
+  ok((await bal(ZERO, (await import('../dapp/evm-pool-gateway.js')).callEscrowAddress(intent4, ROUTER))) === 0n, 'and leaves nothing in its escrow');
 }
 
 // ── the same through makeLater: what the card calls (plan kept, deposit, wait, a price shown, the swap out, a plan checked) ──

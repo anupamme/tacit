@@ -33,3 +33,11 @@ test('a zero share is not offered: the floor keeps the deposit from being the sw
   const { depositWei } = depositFor({ swapWei: 10n ** 17n, feeWei: 10n ** 14n, pct: 0, rand: () => 0 });
   assert.ok(depositWei >= 10n ** 17n + 2n * 10n ** 14n + 5n * 10n ** 15n);
 });
+
+test('a swap into a private balance sets aside the gas to make it private, on top of the fee and the extra', () => {
+  const swap = 10n ** 17n, fee = 10n ** 14n, gas = 15n * 10n ** 14n;
+  const a = depositFor({ swapWei: swap, feeWei: fee, pct: 25, rand: () => 0.5 }), b = depositFor({ swapWei: swap, feeWei: fee, pct: 25, rand: () => 0.5, gasWei: gas });
+  assert.ok(b.depositWei >= a.depositWei + gas - 10n ** 16n, 'the deposit grows by about the gas');
+  assert.strictEqual(b.depositWei, swap + 2n * fee + gas + b.extraWei, 'the parts, with the gas, add up to the deposit');
+  assert.ok(b.extraWei * 100n >= swap * 5n, 'the extra still keeps its floor');
+});

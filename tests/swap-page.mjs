@@ -146,6 +146,14 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(out > 100, `0.5 ETH quotes ${out} TAC`);
   ok(await page.isVisible('#rows') && (await page.$$('#rows [data-route]')).length >= 2, 'ETH → TAC offers its routes (Precision, Tacit, maybe both)');
   ok(await page.isVisible('#later') && /Swap privately/.test(await page.textContent('#later')), 'and offers to swap privately through the private ETH pool');
+  await page.click('#later-on');
+  await until(page, () => /Private/.test(document.querySelector('#later .pre')?.textContent || ''), null, 10000);
+  ok(/Private/.test(await page.textContent('#later .pre')) && (await page.textContent('#get-where')).trim() === 'to your private balance', `switched on, TAC ends in the private balance: a fourth step and the link says so (${(await page.textContent('#get-where')).trim()})`);
+  await page.fill('#to-in', '0x' + '22'.repeat(20));
+  await until(page, () => /0x2222/.test(document.querySelector('#get-where')?.textContent || ''), null, 10000);
+  ok(!/Private/.test(await page.textContent('#later .pre')), 'a 0x address typed instead pays that address: three steps again');
+  await page.fill('#to-in', '');
+  await page.click('#later-on');
   ok(/At least/.test(await page.textContent('#rcpt')) && /Network fee/.test(await page.textContent('#rcpt')), 'the receipt has the floor and the network fee');
   // Only ETH put into the Precision pool scores: its row says at least what 0.5 ETH earns, the Tacit pool's says nothing, and a split earns on its Precision leg.
   await until(page, () => /points/.test(document.querySelector('#rows [data-route="precision"]')?.textContent || ''));
