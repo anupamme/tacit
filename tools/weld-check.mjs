@@ -3797,7 +3797,7 @@ await step('xbring', async () => {
   await r.page.evaluate(([k, v]) => { localStorage.setItem(k, v); localStorage.setItem('tacit-teth-btc', 'true'); }, [`tacit-crossout-bridge-v1:mainnet:${pub}`, JSON.stringify([jr(NA), jr(NB), jr(NC), jr(ND)])]);   // the journal and the setting the check above cleared
   for (const f of ['f2', 'f3']) coins.push({ txid: f.repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 960000 } });   // the explorer here shows no change from a burn, so each burn gets a coin of its own
   await go(r.page, '#private/bitcoin/back');
-  await sleep(11000);                                                                 // the page keeps an address's coins for ten seconds
+  await sleep(16000);                                                                 // the page keeps an address's coins for fifteen seconds (tacit.js _UTXO_LIGHT_FRESH_TTL_MS), and a burn it sent starts that clock again
   await r.page.click('#xb-re');
   await until(r.page, () => !!document.querySelector('#eth-v1 input[name="xb-note"][value="all"]'), null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#eth-v1')).replace(/\s+/g, ' ').slice(-500)}`); });
