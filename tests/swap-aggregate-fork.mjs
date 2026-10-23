@@ -5,8 +5,13 @@
 //
 //   node tests/swap-aggregate-fork.mjs        (FORK=<rpc url> to fork another node)
 import { spawn } from 'node:child_process';
-import { bestRoute, legsOf } from '../dapp/swap/aggregate.js';
-import { ZROUTER, ZERO, encApprove } from '../dapp/swap/route.js';
+import { register } from 'node:module';
+
+// aggregate.js imports by site path (/swap/route.js?cb=…): answered from dapp/ here
+register('data:text/javascript,' + encodeURIComponent(`const D = ${JSON.stringify(new URL('../dapp', import.meta.url).href)};
+export async function resolve(spec, ctx, next) { if (spec.startsWith('/') && !spec.startsWith('//')) return next(D + spec.split('?')[0], ctx); return next(spec, ctx); }`));
+const { bestRoute, legsOf } = await import('../dapp/swap/aggregate.js');
+const { ZROUTER, ZERO, encApprove } = await import('../dapp/swap/route.js');
 
 const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com';
 const PORT = 23900 + Math.floor(Math.random() * 90), RPC = `http://127.0.0.1:${PORT}`;

@@ -3,7 +3,7 @@ import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venue
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, RPCS, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=35ce60db';
-import * as A from '/swap/aggregate.js?cb=9d477e38';
+import * as A from '/swap/aggregate.js?cb=ae3f1d1c';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -848,7 +848,7 @@ const plans = () => { try { return (JSON.parse(localStorage.getItem(PLANS_KEY) |
 let LTP = null, LT = null;
 const pageSigner = { get address() { return W.account; }, ready: async () => { if (!W.account) await connect.connect(); await wallet.ensureMainnet(); },
   send: ({ to, data, value }) => wallet.sendTx({ to, data, value: BigInt(value || 0), from: W.account }), rpc: (m, p) => rpc(m, p) };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=a7f714d6').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=62d298f4').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // a wallet ETH swap for a token on the onchain route, or for TAC through the pools the ticket uses
 const laterFits = (kind) => (kind === 'agg' || (kind === 'tac' && S.get === lc(R.TAC))) && isEth(S.pay) && !S.inP && !S.outP;
 const laterOn = (kind) => LATER.on && laterFits(kind);
@@ -861,7 +861,8 @@ const laterGas = () => { if (laterDest().kind === 'address') return 0n; const g 
 const laterAmounts = (q) => (q?.wei && LATER.fee != null && LT ? LT.mod.depositFor({ swapWei: q.wei, feeWei: LATER.fee, pct: LATER.pct, rand: () => LATER.rand, gasWei: laterGas() }) : null);
 const laterExtra = (q) => laterAmounts(q)?.extraWei ?? 0n;
 const laterDeposit = (q) => laterAmounts(q)?.depositWei ?? null;
-function laterUp() { S.toOpen = true; if (LATER.fee == null) readFee(); warmPrivate(); }
+// Swap privately warms what it uses: the private ETH pool (its fee read loads it); the Tacit pool's module only for TAC into the private balance
+function laterUp() { S.toOpen = true; if (LATER.fee == null) readFee(); if (laterPool()) warmPrivate(); }
 function readFee() {
   LATER.err = null;
   return ltLoad().then((m) => m.mod.relayFee()).then((f) => { LATER.fee = f; LATER.feeAt = Date.now(); paintQuote(); }, (e) => { LATER.err = e?.message || String(e); paintQuote(); });

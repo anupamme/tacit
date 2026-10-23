@@ -4,8 +4,9 @@
 // gas to find than a public node allows a call.) Each answer is held to the terms asked by zrouter-guard (it takes the asked token, pays
 // the asked recipient, spends exactly the amount and pays at least its claimed output less the slippage) before it may be offered; the best
 // that passes is the route. All of it is views on the chain: nothing here leaves the page.
-import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '../zrouter-guard.js';
-import { ZQUOTER, ZERO, SOURCES } from './route.js';
+// by the same paths the page imports them by, so the page holds one copy of each
+import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '/zrouter-guard.js';
+import { ZQUOTER, ZERO, SOURCES } from '/swap/route.js?cb=35ce60db';
 
 const SEL = { viaEth: 'e453166e', split: '892af013', hybrid: '85f86a90', quotes: 'e1fd10bc' };
 const HEAVY = '0x11E1A300';                                          // 300M gas: a split's scan of every pool is far over a default call
