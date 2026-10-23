@@ -145,7 +145,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
 
 
   // The deposit: a plan is kept before anything is sent, so a closed tab finds it again; the prover starts loading at once.
-  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, depositWei, dest = { kind: 'address' }, gasWei = 0n, onStep = () => {} }) {
+  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, toName = null, depositWei, dest = { kind: 'address' }, gasWei = 0n, onStep = () => {} }) {
     if (!signer.address) throw new Error('Connect a wallet to deposit from.');
     if (dest.kind !== 'address') {
       if (lc(token) !== TAC) throw new Error(`Only TAC can go to a private balance from here: ${sym} is not a pool asset.`);
@@ -156,7 +156,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     warm().catch(() => {});
     const s0 = await w.sync();
     const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), from: lc(signer.address), swapWei: String(swapWei), extraWei: String(extraWei),
-      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), dest, gasWei: String(gasWei), state: 'depositing', leaves0: s0.leaves };
+      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), dest, gasWei: String(gasWei), state: 'depositing', leaves0: s0.leaves };
     keepPlans([plan, ...readPlans(store)], store);
     try {
       plan.depositTx = await w.deposit({ amount: BigInt(depositWei), onStep });

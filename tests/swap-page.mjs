@@ -413,7 +413,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.reload();
   await until(page, () => !document.querySelector('#steps').hidden);
   const t = (await page.textContent('#steps')).replace(/\s+/g, ' ');
-  ok(/0\.02 ETH → USDC\s*to 0x2222…2222/.test(t) && /Deposit/.test(t) && /Wait\s*30 min/.test(t) && /Swap now/.test(t), `a kept swap shows its deposit, how long it has waited and a way to swap it out (${t.slice(0, 160)})`);
+  ok(/0\.02 ETH → USDC\s*to 0x2222…2222/.test(t) && /Deposit/.test(t) && /In the pool\s*30 min so far/.test(t) && /Swap now/.test(t), `a kept swap shows its deposit, how long it has been in the pool and a way to swap it out (${t.slice(0, 160)})`);
+  ok(/0\.026 ETH is in the private pool, yours and hidden\. Swap it out when you like\./.test(t), 'and one line says where the ETH is now');
   ok((await page.$$eval('#steps .st li', (l) => l.map((x) => x.className))).join(',') === 'done,now,todo' && (await page.getAttribute('#steps .st li.now', 'aria-current')) === 'step', 'its steps read done, now, to do, the current one marked for a screen reader');
   ok(!!(await page.$('#steps use[href="#tk-peth"]')), 'drawn with the private ETH mark');
   // Swap now reads the price and shows it; nothing is sent until it is confirmed, and Cancel drops it
@@ -435,10 +436,10 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const tx = (c) => '0x' + c.repeat(32);
   const plans = [
     { ...base, id: 'dep', at: T - 20e3, state: 'depositing' },
-    { ...base, id: 'wait', at: T - 42 * 60e3, depositedAt: T - 42 * 60e3, state: 'waiting', depositTx: tx('ab') },
+    { ...base, id: 'wait', at: T - 42 * 60e3, depositedAt: T - 42 * 60e3, state: 'waiting', depositTx: tx('ab'), toName: 'alice.eth' },
     { ...base, id: 'swp', at: T - 50 * 60e3, depositedAt: T - 50 * 60e3, swapAt: T - 30e3, state: 'swapping', depositTx: tx('ab') },
     { ...base, id: 'uns', at: T - 50 * 60e3, depositedAt: T - 50 * 60e3, state: 'unsure', depositTx: tx('ab'), err: 'The relay did not answer, and it may still have sent your payment.' },
-    { ...base, id: 'don', at: T - 70 * 60e3, depositedAt: T - 70 * 60e3, doneAt: T - 60e3, state: 'done', depositTx: tx('ab'), swapTx: tx('cd') },
+    { ...base, id: 'don', at: T - 70 * 60e3, depositedAt: T - 70 * 60e3, doneAt: T - 60e3, state: 'done', depositTx: tx('ab'), swapTx: tx('cd'), min: '1190000000' },
     { ...base, id: 'stp', at: T - 5 * 60e3, state: 'stopped', err: 'Cancelled in your wallet. Nothing was sent.' },
   ];
   await page.evaluate((v) => localStorage.setItem('tacit-swap-later-v1', JSON.stringify(v)), plans);
@@ -451,6 +452,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok((await cls(3)) === 'done,done,now' && /sending…/.test(await plan(3).textContent()) && (await plan(3).locator('button').count()) === 0, 'a swap being sent offers nothing to press');
   ok((await cls(4)) === 'done,done,fail' && (await plan(4).locator('[data-later-check]').count()) === 1 && (await plan(4).locator('.note.err').count()) === 1 && /may still have sent/.test(await plan(4).locator('.note').textContent()), 'a swap in doubt says so in its own note and offers Check it, not Swap now');
   ok((await cls(5)) === 'done,done,done' && (await plan(5).locator('a[href*="etherscan.io/tx/"]').count()) === 2, 'a finished swap shows both transactions');
+  ok(/In the pool\s*1 h 9 min(?! so far)/.test(await plan(5).textContent()) && /In the pool\s*42 min so far/.test(await plan(2).textContent()), 'a finished swap says how long it was in the pool, a waiting one how long so far');
+  ok(/1,190 USDC or more/.test(await plan(5).textContent()) && (await plan(5).locator('.now a[href="/pay/eth/"]').count()) === 1, 'what it paid at least, and the rest of the deposit is pointed to where it stays private');
+  ok(/to alice\.eth/.test(await plan(2).locator('header').textContent()), 'a swap kept for a name shows the name');
   ok((await cls(6)) === 'fail,todo,todo' && (await plan(6).locator('.x').count()) === 1 && (await plan(6).locator('.note.err').count()) === 1, 'a deposit that did not go through says so and can be removed');
   { const over = await page.evaluate(() => { const c = document.querySelector('#sw').getBoundingClientRect(); return [...document.querySelectorAll('#steps *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > c.right + 0.5 || r.left < c.left - 0.5); }).length; });
     ok(over === 0 && (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)), `nothing in the steps runs off the card or the page at 390 px (${over} elements)`); }
@@ -682,6 +686,20 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await quoted(page);
   ok(/LUSD/.test(await page.textContent('#rcpt')) && /LUSD/.test(await page.textContent('#get-coin')), `the quote is for LUSD, the token the link named (${(await page.textContent('#rcpt')).replace(/\s+/g, ' ').slice(0, 80)})`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 2).join(' | ') : ''}`);
+  await browser.close();
+}
+
+// ── a name where an address goes: alice.eth (ENS), alice.wei or alice.gwei looked up as the rest of the app looks one up ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?to=USDC&amt=0.01' });
+  await page.click('#get-where');
+  await page.fill('#to-in', 'vitalik.eth');
+  await until(page, () => /0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045/.test(document.querySelector('#to-note')?.textContent || ''), null, 60000).catch(() => {});
+  ok(/0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045/.test(await page.textContent('#to-note')) && (await page.textContent('#get-where')).trim() === 'to vitalik.eth', `an ENS name is looked up: the address it points at is shown, and the swap goes to the name (${(await page.textContent('#get-where')).trim()}; ${await page.textContent('#to-note')})`);
+  await page.fill('#to-in', 'no-such-name-zz9q7.eth');
+  await until(page, () => document.querySelector('#to-note')?.className === 'err', null, 60000).catch(() => {});
+  ok((await page.getAttribute('#to-note', 'class')) === 'err' && /Check the address|Finding the address/.test(await page.textContent('#go')), `a name that points nowhere is refused in words (${await page.textContent('#to-note')}; ${await page.textContent('#go')})`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
 
