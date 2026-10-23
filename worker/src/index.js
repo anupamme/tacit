@@ -1547,10 +1547,14 @@ async function handleReflectionState(req, env, url, cors) {
   if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
   if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 500, cors);
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
-  const raw = await env.REGISTRY_KV.get(`reflection:scan:${network}`);
+  const [raw, tipRaw] = await Promise.all([env.REGISTRY_KV.get(`reflection:scan:${network}`), env.REGISTRY_KV.get(`reflection:tip:${network}`)]);
   if (!raw) return jsonResponse({ network, attestedHeight: null, tipHeight: null }, 200, { ...cors, 'Cache-Control': 'no-store' });
   let s;
   try { s = JSON.parse(raw); } catch { return jsonResponse({ error: 'corrupt state' }, 500, cors); }
+  // The live tip has its own record; the snapshot's copy only moves when a batch is acked, so it alone would show a
+  // stalled attester as caught up. Whichever is higher, as the attester itself reads it and /reflection/status does.
+  const tipRec = tipRaw == null ? NaN : parseInt(tipRaw, 10);
+  const tipHeight = Number.isInteger(tipRec) && !(s.tipHeight > tipRec) ? tipRec : (s.tipHeight ?? null);
   // The persisted record nests the ledger arrays under `.snapshot` (the dump route returns this same record
   // verbatim, and its consumers read `.snapshot.noteLeaves`). Reading them off the top level reports zero
   // for every count while `bytes` looks right, which is exactly the shape of a bug nothing complains about.
@@ -1559,7 +1563,7 @@ async function handleReflectionState(req, env, url, cors) {
   return jsonResponse({
     network,
     attestedHeight: s.attestedHeight ?? null,
-    tipHeight: s.tipHeight ?? null,
+    tipHeight,
     capacity: {
       bytes: raw.length,
       // Append-only: these never shrink, and together they set the floor on snapshot size forever.

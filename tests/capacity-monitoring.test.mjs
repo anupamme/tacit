@@ -58,10 +58,13 @@ test('capacity reports every field the growth model needs', () => {
 });
 
 test('capacity is free — it reuses the parse the handler already does', () => {
-  // The handler reads and parses the snapshot to answer at all. If someone adds a second KV read to
-  // compute sizes, this endpoint stops being safe to poll on a cron.
+  // The handler reads and parses the snapshot to answer at all. If someone adds a second read of it to
+  // compute sizes, this endpoint stops being safe to poll on a cron. The one other read is the live tip: a few
+  // bytes in its own record, which the monitor's stall check needs (see the tip case below).
+  const snapshotReads = stateHandler.match(/REGISTRY_KV\.get\(`reflection:scan:/g) || [];
+  ok(snapshotReads.length === 1, `expected exactly 1 read of the snapshot record, found ${snapshotReads.length}`);
   const gets = stateHandler.match(/REGISTRY_KV\.get\(/g) || [];
-  ok(gets.length === 1, `expected exactly 1 KV read, found ${gets.length}`);
+  ok(gets.length === 2, `expected the snapshot and the small tip record, found ${gets.length} KV reads`);
 });
 
 test('the monitor reads the same field names the worker writes', () => {
@@ -182,6 +185,24 @@ await asyncTest('capacity counts are read from the nested snapshot, not the reco
   const flat = JSON.stringify({ noteLeaves: ['a'], spentLinks: [] });
   const out2 = await handler({}, { REGISTRY_KV: { get: async () => flat } }, new URL('https://x/reflection/state'), {});
   ok(out2.capacity.noteLeaves === 1, 'flat record shape no longer read');
+});
+
+// The monitor's stall check reads tipHeight from this route. The live tip has its own record and the snapshot's copy
+// only moves when a batch is acked, so the route reports the higher of the two.
+await asyncTest('/reflection/state reports the live tip, not the snapshot\'s copy of it', async () => {
+  const src = stateHandler.replace(/^async function handleReflectionState/, 'return async function handleReflectionState');
+  const handler = new Function('checkConfidentialAuth', 'jsonResponse', src)(() => true, (body) => body);
+  const url = new URL('https://x/reflection/state?network=mainnet');
+  const kv = (snapshotTip, tipRecord) => ({
+    get: async (k) => (k === 'reflection:scan:mainnet'
+      ? JSON.stringify({ attestedHeight: 972646, tipHeight: snapshotTip, snapshot: {} })
+      : k === 'reflection:tip:mainnet' ? tipRecord : null),
+  });
+  const read = async (snapshotTip, tipRecord) => (await handler({}, { REGISTRY_KV: kv(snapshotTip, tipRecord) }, url, {})).tipHeight;
+  ok(await read(972646, '972725') === 972725, 'a tip record ahead of the snapshot must win');
+  ok(await read(972730, '972725') === 972730, 'a snapshot ahead of the tip record must win (as the attester reads it)');
+  ok(await read(972646, null) === 972646, 'no tip record falls back to the snapshot');
+  ok(await read(972646, 'not a number') === 972646, 'an unreadable tip record falls back to the snapshot');
 });
 
 await asyncTest('the live snapshot still has the arrays the model is built on', async () => {
