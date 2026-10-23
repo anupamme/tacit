@@ -56,3 +56,13 @@ test('without the simulation the guard refuses a pool it does not list, as befor
   const { ethCall } = node(() => '0x');
   assert.strictEqual(await ask(ethCall), null);
 });
+
+test('Swap privately\'s swap out takes the same route: written for the real address, it is checked with the Curve pool the simulation let through', async () => {
+  const { routeOut } = await import('../dapp/swap/later.js');
+  const { ethCall } = node();
+  const real = '0x' + '77'.repeat(20);
+  // the stand-in is the address the recorded answers were asked for, so the recorded node answers them
+  const r = await routeOut({ ethCall, token: USDC, amount: BigInt(F.amountIn), to: real, slippageBps: 50, deadline: BigInt(F.deadline), random: () => Uint8Array.from(Buffer.from(F.to.slice(2), 'hex')) });
+  assert.ok(r, 'a route to swap out on');
+  assert.ok(r.callData.includes('77'.repeat(20)) && !r.callData.includes(F.to.slice(2)), 'written for the real address');
+});

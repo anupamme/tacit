@@ -93,7 +93,7 @@ export async function bestRoute({ ethCall, to, refundTo = to, tokenIn, tokenOut,
   // a Curve pool the guard does not list is taken as anon.wei takes a route it cannot cross-check: only when the route, run as it stands
   // from an address given the ETH, pays the recipient at least its floor (and only when it beats every route the guard knows)
   const known = ok.reduce((m, c) => (c.out > m ? c.out : m), 0n);
-  for (const { c, want } of unknown) if (c.out > known && !ok.some((x) => x.callData === c.callData) && checkZRouterCall(c.callData, want) === null && await paysFloor(ethCall, c, block)) ok.push(c);
+  for (const { c, want } of unknown) if (c.out > known && !ok.some((x) => x.callData === c.callData) && checkZRouterCall(c.callData, want) === null && await paysFloor(ethCall, c, block)) { c.curvePools = want.curvePools; ok.push(c); }
   if (!ok.length) return null;
   const best = ok.reduce((x, y) => (y.out > x.out ? y : x));
   const quotes = [];
@@ -102,7 +102,8 @@ export async function bestRoute({ ethCall, to, refundTo = to, tokenIn, tokenOut,
     for (let i = 0; i < n; i++) { const q = quoteAt(qs, o + 1 + i * 4); if (q.amountOut > 0n) quotes.push({ name: nameOf(q), out: q.amountOut }); }
     quotes.sort((x, y) => (y.out > x.out ? 1 : y.out < x.out ? -1 : 0));
   }
-  return { out: best.out, min: best.min, callData: best.callData, value: best.value, name: best.name, kind: best.kind, legs: best.legs, quotes, tokenIn, tokenOut, amountIn: amt, to, deadline: dl };
+  // `curvePools`: the unlisted Curve pools a simulation let through, for a caller that checks the route again (later.js writes another recipient in)
+  return { out: best.out, min: best.min, callData: best.callData, value: best.value, name: best.name, kind: best.kind, legs: best.legs, quotes, tokenIn, tokenOut, amountIn: amt, to, deadline: dl, curvePools: best.curvePools || [] };
 }
 
 // What KyberSwap's public router says it would pay for the same trade: a reference beside the onchain route, never a way the page swaps.

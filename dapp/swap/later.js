@@ -5,7 +5,7 @@
 // signer can send it instead. What is left of the deposit stays a private note in the pool. Each swap's plan is kept in this browser until done.
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 import { checkZRouterCall } from '/zrouter-guard.js';
-import { bestRoute } from '/swap/aggregate.js?cb=ae3f1d1c';
+import { bestRoute } from '/swap/aggregate.js?cb=ba695973';
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 export const CHAIN = { chainId: 1, rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
@@ -15,6 +15,8 @@ const PLANS_KEY = 'tacit-swap-later-v1', ARTIFACT_CACHE = 'tacit-evm-pool-artifa
 const lc = (s) => String(s || '').toLowerCase();
 const word = (a) => lc(a).replace(/^0x/, '').padStart(64, '0');
 const hexOf = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 // How long the swap's route may take to run once quoted, and the gas the relay is asked to price beyond the route's own: the withdrawal and its escrow.
 const DEADLINE_S = 1200, BASE_GAS = 520_000n;
 
@@ -30,7 +32,7 @@ export async function routeOut({ ethCall, token, amount, to, slippageBps, deadli
   if (!q) return null;
   const data = q.callData.split(word(stand)).join(word(to));
   if (data === q.callData) return null;
-  if (checkZRouterCall(data, { to, tokenIn: ZERO, tokenOut: token, exactOut: false, amount, maxIn: amount, minOut: q.min, deadline }) !== null) return null;
+  if (checkZRouterCall(data, { to, tokenIn: ZERO, tokenOut: token, exactOut: false, amount, maxIn: amount, minOut: q.min, deadline, curvePools: q.curvePools || [] }) !== null) return null;
   // `standData`: the route as the nodes saw it, for any later read (a gas estimate) that should not name `to` either
   return { ...q, callData: data, standData: q.callData, to };
 }
@@ -180,7 +182,8 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
       if (notes.some((n) => BigInt(n.v) === BigInt(plan.depositWei) && Number(n.index) >= Number(plan.leaves0 || 0))) { plan.state = 'waiting'; plan.depositedAt = plan.at; plan.err = null; }
       else { plan.state = 'stopped'; plan.err = 'The deposit is not in the pool. If it was sent, it did not land.'; }
     } else if (plan.balBefore != null && s.balance + BigInt(plan.swapWei) <= BigInt(plan.balBefore)) {
-      plan.state = 'done'; plan.doneAt = Date.now(); plan.err = null; delete plan.from;
+      if (poolDest(plan)) { plan.state = 'shielding'; plan.swapDoneAt = Date.now(); } else { plan.state = 'done'; plan.doneAt = Date.now(); }
+      plan.err = null; delete plan.from;
     } else { plan.state = 'waiting'; plan.err = null; }
     save(plan);
     return plan;
@@ -251,21 +254,41 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     if (!plan.swapTx) throw new Error('The swap out has not been made yet.');
     const { t, priv, acct, tk, meta } = await tacitAccount();
     if (lc(acct.address) !== lc(plan.to)) throw new Error('Another Tacit key is open than the one this swap pays. Open that one and press again.');
-    const held = async () => BigInt(await t.ethCall(TAC, '0x70a08231' + word(acct.address)) || '0x0');
-    const before = BigInt(plan.tacBefore || 0), least = BigInt(plan.min || 1);
-    onStep('waiting for the TAC');
-    let got = (await held()) - before;
-    for (let i = 0; i < 30 && got < least; i++) { await sleep(4000); got = (await held()) - before; }
-    if (got <= 0n) throw new Error('The TAC has not reached your Tacit account yet. Press again in a minute.');
-    const scale = BigInt(meta.unitScale || 10n ** 10n), amount = got - (got % scale);
-    if (amount <= 0n) throw new Error('Too little TAC to make private.');
+    const scale = BigInt(meta.unitScale || 10n ** 10n);
+    await wallet();
+    // a wrap sent before: mined, it stands and only the send-on is left; reverted, it is made again; not mined yet, nothing is sent twice
+    if (plan.shieldTx) {
+      const rc = await rpc('eth_getTransactionReceipt', [plan.shieldTx]).catch(() => null);
+      if (!rc) throw new Error('Making it private is still being mined. Press again in a minute.');
+      if (rc.status !== '0x1') { plan.shieldTx = null; plan.shielded = null; save(plan); }
+    }
+    let amount = plan.shieldTx ? BigInt(plan.shielded || 0) : 0n;
+    if (!plan.shieldTx) {
+      // what the swap paid the account, read from its own transaction: other TAC the account holds or receives is not this plan's
+      const rc = await rpc('eth_getTransactionReceipt', [plan.swapTx]).catch(() => null);
+      const paid = (rc?.logs || []).filter((l) => lc(l.address) === TAC && l.topics?.[0] === TRANSFER && lc('0x' + String(l.topics[2] || '').slice(26)) === lc(acct.address))
+        .reduce((a, l) => a + BigInt(l.data), 0n);
+      const held = async () => BigInt(await t.ethCall(TAC, '0x70a08231' + word(acct.address)) || '0x0');
+      // known what it paid, the account need only hold that much (another swap's wrap may have moved the balance since); else what came in since the swap
+      const before = paid ? 0n : BigInt(plan.tacBefore || 0), least = paid || BigInt(plan.min || 1);
+      onStep('waiting for the TAC');
+      let got = (await held()) - before;
+      for (let i = 0; i < 30 && got < least; i++) { await sleep(4000); got = (await held()) - before; }
+      if (got <= 0n || (paid && got < paid)) throw new Error('The TAC has not reached your Tacit account yet. Press again in a minute.');
+      const take = paid || got;
+      amount = take - (take % scale);
+      if (amount <= 0n) throw new Error('Too little TAC to make private.');
+    }
     plan.state = 'shielding'; plan.err = null; save(plan);
     try {
-      onStep('making it private');
-      const w = await t.routerWrap({ walletPriv: priv, amountWei: amount.toString(), ticker: tk });
-      onStep('waiting for it to be mined');
-      if (w?.txHash) await t.waitReceipt(w.txHash);
-      plan.shieldTx = w?.txHash || null; plan.shielded = String(amount); save(plan);
+      if (!plan.shieldTx) {
+        onStep('making it private');
+        const w = await t.routerWrap({ walletPriv: priv, amountWei: amount.toString(), ticker: tk });
+        // kept before the wait, so a wait that runs out is followed by a check of this transaction, not by a second wrap
+        plan.shieldTx = w?.txHash || null; plan.shielded = String(amount); save(plan);
+        onStep('waiting for it to be mined');
+        if (w?.txHash) await t.waitReceipt(w.txHash);
+      }
       if (plan.dest.kind === 'tacit') {
         if (!sendPrivate) throw new Error('Private now, in your balance; sending it on needs the page.');
         onStep('sending it on');

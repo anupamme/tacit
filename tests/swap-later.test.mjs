@@ -41,3 +41,63 @@ test('a swap into a private balance sets aside the gas to make it private, on to
   assert.strictEqual(b.depositWei, swap + 2n * fee + gas + b.extraWei, 'the parts, with the gas, add up to the deposit');
   assert.ok(b.extraWei * 100n >= swap * 5n, 'the extra still keeps its floor');
 });
+
+// ── making a swap's TAC private (shield): only what the swap paid, and a wrap already sent is never sent twice ──
+const { makeLater } = await import('../dapp/swap/later.js');
+const TAC = '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', ACCT = '0x' + 'ac'.repeat(20), SCALE = 10n ** 10n, TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const SWAP_TX = '0x' + '5a'.repeat(32), WRAP_TX = '0x' + 'a7'.repeat(32);
+// a node that knows the swap (paying the account `paid` TAC) and, once mined, the wrap (`wrapStatus`: null = not mined yet)
+function chainWith({ paid, wrapStatus = '0x1' }) {
+  globalThis.fetch = async (_url, init) => {
+    const j = JSON.parse(init.body), one = (x) => {
+      if (x.method !== 'eth_getTransactionReceipt') return { jsonrpc: '2.0', id: x.id, result: null };
+      const h = x.params[0];
+      if (h === SWAP_TX) return { jsonrpc: '2.0', id: x.id, result: { status: '0x1', logs: [{ address: TAC, topics: [TRANSFER, '0x' + '0'.repeat(64), '0x' + ACCT.slice(2).padStart(64, '0')], data: '0x' + paid.toString(16) }] } };
+      if (h === WRAP_TX) return { jsonrpc: '2.0', id: x.id, result: wrapStatus ? { status: wrapStatus, logs: [] } : null };
+      return { jsonrpc: '2.0', id: x.id, result: null };
+    };
+    return new Response(JSON.stringify(Array.isArray(j) ? j.map(one) : one(j)), { headers: { 'content-type': 'application/json' } });
+  };
+}
+function setup({ paid, held, wrapStatus, plan: over = {}, sendFails = false }) {
+  chainWith({ paid, wrapStatus });
+  const mem = new Map(), store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+  const M = { wraps: [], sends: [], held };
+  const t = { assetByTicker: { TAC: { assetId: '0x' + '7a'.repeat(32), unitScale: String(SCALE) } }, account: () => ({ address: ACCT }),
+    ethCall: async () => '0x' + M.held.toString(16), routerWrap: async ({ amountWei }) => { M.wraps.push(BigInt(amountWei)); M.held -= BigInt(amountWei); return { txHash: WRAP_TX }; }, waitReceipt: async () => {} };
+  const sendPrivate = async (o) => { M.sends.push(o); if (sendFails) throw new Error('the relay is busy'); return { sent: { txHash: '0x' + 'ee'.repeat(32) } }; };
+  const L = makeLater({ keyHex: async () => '11'.repeat(32), signer: { address: '0x' + '01'.repeat(20) }, ethCall: async () => '0x', ux: async () => t, sendPrivate, store, chain: { chainId: 1, rpc: ['http://node.test'], keeper: null, deployBlock: 0, confirmations: 0 } });
+  const plan = { id: 'p', at: Date.now(), swapWei: '1', depositWei: '2', token: TAC, sym: 'TAC', dec: 18, to: ACCT, dest: { kind: 'tacit', pubHex: '02' + 'cd'.repeat(32), name: 'bob.wei' }, state: 'shielding', swapTx: SWAP_TX, tacBefore: '0', min: '1', ...over };
+  return { L, M, plan };
+}
+
+test('the wrap takes what the swap paid the account, not other TAC that arrived there meanwhile', async () => {
+  const paid = 123n * SCALE + 7n, { L, M, plan } = setup({ paid, held: paid + 999n * SCALE });
+  const done = await L.shield(plan);
+  assert.deepStrictEqual(M.wraps, [123n * SCALE], 'exactly the swap\'s TAC, rounded down to the pool\'s unit');
+  assert.strictEqual(done.state, 'done');
+  assert.strictEqual(M.sends[0].units, 123n, 'and that note is what is sent on');
+});
+
+test('a send-on that stopped after the wrap is pressed again: the wrap is not made twice, the note is sent', async () => {
+  const paid = 50n * SCALE, s1 = setup({ paid, held: paid, sendFails: true });
+  await assert.rejects(s1.L.shield(s1.plan), /relay is busy/);
+  assert.strictEqual(s1.plan.state, 'held');
+  assert.strictEqual(s1.plan.shieldTx, WRAP_TX, 'the wrap is kept on the plan');
+  const s2 = setup({ paid, held: 0n, plan: { ...s1.plan } });
+  const done = await s2.L.shield(s2.plan);
+  assert.strictEqual(s2.M.wraps.length, 0, 'no second wrap');
+  assert.strictEqual(s2.M.sends[0].units, 50n);
+  assert.strictEqual(done.state, 'done');
+});
+
+test('a wrap not mined yet is waited for, never sent again; one that reverted is made again', async () => {
+  const paid = 9n * SCALE, base = { shieldTx: WRAP_TX, shielded: String(paid), state: 'held' };
+  const a = setup({ paid, held: paid, wrapStatus: null, plan: base });
+  await assert.rejects(a.L.shield(a.plan), /still being mined/);
+  assert.strictEqual(a.M.wraps.length, 0);
+  const b = setup({ paid, held: paid, wrapStatus: '0x0', plan: base });
+  const done = await b.L.shield(b.plan);
+  assert.deepStrictEqual(b.M.wraps, [paid], 'reverted: wrapped again');
+  assert.strictEqual(done.state, 'done');
+});

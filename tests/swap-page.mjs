@@ -741,6 +741,22 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 {
+  // with Swap privately on, the address it goes to is never in a read a node sees: the quote is asked with a stand-in
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?amt=0.01&to=USDC&private=to' });
+  const bodies = [];
+  page.on('request', (q) => { if (q.method() === 'POST') bodies.push(q.postData() || ''); });
+  await quoted(page);
+  await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 30000).catch(() => {});
+  ok((await page.textContent('#get-where')).trim() === 'to an address', `with no address yet it says it goes to an address, not to the wallet (${(await page.textContent('#get-where')).trim()})`);
+  const DEST = '0x' + '3c'.repeat(20);
+  await page.fill('#to-in', DEST);
+  await typeAmt(page, '0.02');
+  await quoted(page);
+  ok(!bodies.some((b) => b.toLowerCase().includes('3c'.repeat(20))), `no node is sent the destination (${bodies.length} reads)`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+{
   const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private=both' });
   await pick(page, 'get', 'USDC');
   ok((await page.textContent('#get-coin')).includes('USDC') && (await page.getAttribute('.sides[data-side="get"] [data-p="0"]', 'aria-checked')) === 'true' && (await page.getAttribute('.sides[data-side="pay"] [data-p="1"]', 'aria-checked')) === 'true', 'paid from the private balance, USDC is paid out of the pool to an address: Pay stays Private, Get reads Wallet');
