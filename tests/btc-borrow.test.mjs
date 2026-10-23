@@ -3,7 +3,7 @@
 // The pool module is a stand-in that records what it is asked: its own maths is tested elsewhere.
 //   node tests/btc-borrow.test.mjs
 import assert from 'node:assert/strict';
-import { makeLoans, exactNotes, bondGap, bondCall, ESCROW, lockPad } from '../dapp/btc-borrow.js';
+import { makeLoans, exactNotes, bondGap, bondCall, ESCROW, lockPad, loanHealth, borrowAt, SAFE_RATIOS } from '../dapp/btc-borrow.js';
 import * as secp from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';
@@ -108,4 +108,24 @@ assert.deepEqual(order, [['sync', 'PRIV'], ['make', 'PRIV', '0xcbtc', 'bc', 'p1:
   'reservations read, then a lock maker that spends neither a lock nor an unconfirmed coin, then the lock, then its outpoint protected');
 assert.equal(said.length, 2, 'and it says what it is doing');
 assert.deepEqual({ ...got.record, at: 0 }, { lockTxid: 'aa'.repeat(32), lockVout: 1, vBtc: '50000', anchor: { txid: 'bb'.repeat(32), vout: 0 }, at: 0 }, 'the record minting it needs');
+// ── how safe a loan is ──
+{
+  const E = { usdBtc: 100000, floor: 150, liq: 130 };
+  // 0.01 cBTC is worth $1,000 at $100,000
+  const h = (debt, o = {}) => loanHealth({ sats: 1_000_000n, debt: BigInt(Math.round(debt * 1e8)), ...E, ...o });
+  assert.deepEqual([h(400).ratio, h(400).level], [250, ''], '$1,000 against 400 cUSD is 250%, comfortable');
+  assert.equal(h(500).ratio, 200); assert.equal(h(500).level, '');
+  assert.equal(h(600).level, 'warn', 'under 175% it says so (166.7%)'); assert.ok(Math.abs(h(600).ratio - 166.666) < 0.01);
+  assert.equal(h(700).level, 'err', 'under the 150% floor it is an error (142.9%)');
+  assert.ok(Math.abs(h(500).liqAt - 65000) < 1e-6, '500 cUSD against 0.01 BTC is liquidated below $65,000 a bitcoin (500 / 0.01 x 1.30)');
+  assert.deepEqual(h(0), { ratio: null, liqAt: null, level: '' }); assert.deepEqual(h(5, { usdBtc: 0 }), { ratio: null, liqAt: null, level: '' }); assert.deepEqual(loanHealth({ sats: 0n, debt: 5n, ...E }), { ratio: null, liqAt: null, level: '' });
+  assert.equal(h(500, { liq: 0 }).liqAt, null, 'no liquidation ratio read: no price named');
+  // the amounts the chips fill: rounded down to the cent, so the loan lands at or above the ratio
+  assert.deepEqual(SAFE_RATIOS, [250, 200, 175]);
+  assert.equal(borrowAt({ sats: 1_000_000n, usdBtc: 100000, pct: 250 }), 400); assert.equal(borrowAt({ sats: 1_000_000n, usdBtc: 100000, pct: 200 }), 500);
+  assert.equal(borrowAt({ sats: 1_000_000n, usdBtc: 100000, pct: 175 }), 571.42, '571.428… rounded down');
+  assert.equal(borrowAt({ sats: 1_000_000n, usdBtc: 100000, pct: 150 }), 666.66);
+  for (const pct of [250, 200, 175, 150]) assert.ok(h(borrowAt({ sats: 1_000_000n, usdBtc: 100000, pct })).ratio >= pct, `at ${pct}% the amount filled keeps at least ${pct}%`);
+  assert.equal(borrowAt({ sats: 0n, usdBtc: 100000, pct: 200 }), 0); assert.equal(borrowAt({ sats: 5n, usdBtc: NaN, pct: 200 }), 0);
+}
 console.log('btc-borrow: all checks passed');

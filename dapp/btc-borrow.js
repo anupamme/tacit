@@ -25,6 +25,24 @@ export function exactNotes(notes, debt) {
   return null;
 }
 
+// ── how safe a loan is ──
+// The ratios a loan is offered at, safest first; the engine's floor is the least it accepts, and a loan can be liquidated below its own liquidation ratio.
+export const SAFE_RATIOS = [250, 200, 175];
+// A loan's collateral ratio (the collateral's worth over what is owed, in percent) and the price of a bitcoin below which it can be liquidated.
+// `sats` and `debt` are 8-decimal amounts (cBTC and cUSD), `usdBtc` the engine's price of one bitcoin in dollars, `floor` and `liq` its ratios in percent.
+// `level` is '' while the loan is comfortable, 'warn' under 175%, and 'err' under the floor.
+export function loanHealth({ sats, debt, usdBtc, floor, liq }) {
+  const coll = Number(sats) / 1e8, owed = Number(debt) / 1e8;
+  if (!(coll > 0) || !(owed > 0) || !(usdBtc > 0)) return { ratio: null, liqAt: null, level: '' };
+  const ratio = (coll * usdBtc / owed) * 100;
+  return { ratio, liqAt: liq > 0 ? (owed / coll) * (liq / 100) : null, level: floor && ratio < floor ? 'err' : ratio < 175 ? 'warn' : '' };
+}
+// What can be borrowed against `sats` of cBTC to land at a collateral ratio of `pct` percent, rounded down to a cent (0 when it cannot be worked out).
+export function borrowAt({ sats, usdBtc, pct }) {
+  const v = (Number(sats) / 1e8) * usdBtc / (pct / 100);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v * 100) / 100 : 0;
+}
+
 // ── a lock's bond and its mint ──
 export const ESCROW = '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA', POST_ESCROW_WITH_ETH = 'c0e2d9a1';
 // the pool's key for a lock's outpoint (its txid in the pool's byte order)

@@ -8470,6 +8470,15 @@ await step('vaultborrow', async () => {
     await r.page.waitForSelector('#bm-note', { timeout: 300000 });
     ok((await r.page.$$eval('#bm-note option', (o) => o.map((x) => x.textContent))).join() === '0.0002 cBTC' && /Up to about [\d.,]+ cUSD at the \d+% floor/.test(await text(r.page, '#btc-mine')),
       `vaultborrow: a key holding a cBTC note is offered a loan against it, with the most the floor allows (${(await text(r.page, '#btc-mine .bm-form')).replace(/\s+/g, ' ').slice(0, 120)})`);
+    // safer ratios are offered, and the loan being typed says how it would stand
+    const chips = await r.page.$$eval('#btc-mine .bm-chips button', (b) => b.map((x) => x.textContent));
+    ok(chips.join() === '250%,200%,175%', `vaultborrow: the form offers the safer ratios (${chips})`);
+    await r.page.click('#btc-mine .bm-chips button:nth-child(2)');
+    const filled = Number(await r.page.inputValue('#bm-amt')), health = (await text(r.page, '#bm-health')).replace(/\s+/g, ' ');
+    ok(filled > 0 && /Collateral ratio 2\d\d%; liquidated below \$[\d,]+ a bitcoin\./.test(health) && !/borrow less/.test(health), `vaultborrow: choosing 200% fills the amount and says how the loan would stand (${filled} cUSD: ${health})`);
+    await r.page.fill('#bm-amt', String(Math.ceil(filled * 4)));
+    await until(r.page, () => /borrow less/.test(document.querySelector('#bm-health')?.textContent || ''), null, 10000);
+    ok(await r.page.evaluate(() => !!document.querySelector('#bm-health b.err')), 'vaultborrow: an amount under the floor is said to be, in the error colour');
     // refused by the relay: nothing is remembered, and the holder is sent to the front page, which can send it from the Tacit account
     await r.page.evaluate(() => { window.__vb.refuse = true; });
     const s0 = await store();
@@ -8487,6 +8496,7 @@ await step('vaultborrow', async () => {
     ok((await store()).length > s0.length, 'vaultborrow: and remembered once it is in, as the front page remembers it');
     await until(r.page, () => !!document.querySelector('#btc-mine [data-mine="repay"]'), null, 120000);
     ok(/Loan5 cUSD/.test(await text(r.page, '#btc-mine')), 'vaultborrow: the loan is listed, with Repay');
+    ok(/Collateral ratio \d+%.*liquidated below \$[\d,]+ a bitcoin/.test((await text(r.page, '#btc-mine')).replace(/\s+/g, ' ')), 'vaultborrow: and says how safe it is: its ratio and the price of a bitcoin it is liquidated below');
     // repaid with the cUSD note the loan made
     const s1 = await store();
     await r.page.click('#btc-mine [data-mine="repay"]');

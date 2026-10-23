@@ -6,7 +6,7 @@ import { sha256, hmac, secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.m
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=e792b253';
 import { readLocks, readLoans, readHeld, readEngine, lockStep, ENGINE, WSTETH } from '/cbtc/read.js?cb=c51b1e58';
-import { makeLoans, exactNotes, bondGap, bondCall, outpointOf, lockPad } from '/btc-borrow.js?cb=f3355397';
+import { makeLoans, exactNotes, bondGap, bondCall, outpointOf, lockPad, loanHealth, borrowAt, SAFE_RATIOS } from '/btc-borrow.js?cb=13923518';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { relayRefused, relayWords } from '/relay-outcome.js?cb=26298b8e';
 import { esc, short, grp, parseUnits, word, wordAt } from '/trade/util.js?cb=509d6618';
@@ -214,15 +214,31 @@ export function mountMine(root, { pick, wallet = null, W = null, connect = null 
     finally { if (D?.pub === mine.pub) D.busy = null; if (key.unlocked) read(); }
   }
 
+  // the cBTC note the form is set to put up
+  const chosenNote = () => { const notes = D.held?.cbtc.list || []; return notes.find((x) => noteId(x) === D.form.note) || notes[0] || null; };
+  // How the loan being typed would stand: its collateral ratio (said in a warning colour under 175% and as an error under the floor) and the price of
+  // a bitcoin below which it can be liquidated.
+  function healthHtml(n, amtText) {
+    const e = D.engine, debt = parseUnits(amtText || '', 8);
+    if (!n || !debt || !e?.usdBtc) return '';
+    const h = loanHealth({ sats: n.value, debt, usdBtc: e.usdBtc, floor: e.ratio, liq: e.liq });
+    if (h.ratio == null) return '';
+    return `Collateral ratio <b class="${h.level}">${esc(String(Math.round(h.ratio)))}%</b>${h.liqAt ? `; liquidated below $${esc(Math.round(h.liqAt).toLocaleString('en-US'))} a bitcoin` : ''}.${h.level === 'err' ? ` That is under the ${esc(String(e.ratio))}% floor: borrow less.` : ''}`;
+  }
+  function updateHealth() { const el = root.querySelector('#bm-health'); if (el && D?.form) el.innerHTML = healthHtml(chosenNote(), D.form.amt); }
   function form() {
     const notes = D.held?.cbtc.list || [];
     if (!notes.length) return '';
-    const f = D.form, n = notes.find((x) => noteId(x) === f.note) || notes[0], e = D.engine;
-    const max = e?.ratio && e?.usdBtc && n ? Number(n.value) / 1e8 * e.usdBtc / (e.ratio / 100) : null;
+    const f = D.form, n = chosenNote(), e = D.engine, sats = n ? big(n.value) : 0n;
+    const max = e?.ratio && e?.usdBtc && n ? borrowAt({ sats, usdBtc: e.usdBtc, pct: e.ratio }) : 0;
+    const chips = e?.usdBtc && n ? SAFE_RATIOS.map((r) => [r, borrowAt({ sats, usdBtc: e.usdBtc, pct: r })]).filter(([, v]) => v > 0) : [];
+    const half = max ? String(Math.floor(max / 2 * 100) / 100) : '0.00';
     return `<div class="bm-form">
       <div class="kv"><span>Put up</span><b><select id="bm-note" aria-label="cBTC note to put up"${D.busy ? ' disabled' : ''}>${notes.map((x) => `<option value="${esc(noteId(x))}"${x === n ? ' selected' : ''}>${esc(btcTxt(x.value))} cBTC</option>`).join('')}</select></b></div>
-      <div class="kv"><span>Borrow</span><b><input id="bm-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="cUSD to borrow" value="${esc(f.amt || '')}"${D.busy ? ' disabled' : ''}> cUSD</b></div>
-      ${max ? `<p class="note">Up to about ${esc(grp(max, max >= 100 ? 0 : 2))} cUSD at the ${esc(String(e.ratio))}% floor.</p>` : ''}
+      <div class="kv"><span>Borrow</span><b><input id="bm-amt" inputmode="decimal" placeholder="${esc(half)}" autocomplete="off" aria-label="cUSD to borrow" value="${esc(f.amt || '')}"${D.busy ? ' disabled' : ''}> cUSD</b></div>
+      ${chips.length ? `<div class="seg sub bm-chips" role="group" aria-label="Collateral ratio">${chips.map(([r, v]) => `<button type="button" data-mine="ratio" data-v="${v}" aria-label="Borrow ${v} cUSD, a ${r}% collateral ratio"${D.busy ? ' disabled' : ''}>${r}%</button>`).join('')}</div>` : ''}
+      <p class="note bm-health" id="bm-health">${healthHtml(n, f.amt)}</p>
+      ${max ? `<p class="note">Up to about ${esc(grp(max, max >= 100 ? 0 : 2))} cUSD at the ${esc(String(e.ratio))}% floor.${e.liq ? ` A loan can be liquidated below ${esc(String(e.liq))}%.` : ''}</p>` : ''}
       <button class="btn" type="button" data-mine="borrow"${D.busy ? ' disabled' : ''}>${D.busy === 'borrow' ? 'Borrowing…' : 'Borrow cUSD'}</button>
     </div>`;
   }
@@ -250,7 +266,10 @@ export function mountMine(root, { pick, wallet = null, W = null, connect = null 
         rows.push(`<div class="kv"><span>cBTC, private</span><b class="num">${esc(btcTxt(held.cbtc.value))}</b></div>`);
         if (held.cusd.value > 0n) rows.push(`<div class="kv"><span>cUSD, private</span><b class="num">${esc(cusdTxt(held.cusd.value))}</b></div>`);
       } else rows.push(`<p class="note err">Could not read your balance: ${esc(errs.held)}</p>`);
-      if (loans) loans.forEach((l, i) => rows.push(`<div class="kv"><span>Loan</span><b class="num">${esc(cusdTxt(l.debt))} cUSD<small>against ${esc(btcTxt(l.cbtc))} cBTC · <button class="linkbtn" type="button" data-mine="repay" data-i="${i}"${D.busy ? ' disabled' : ''}>${D.busy === `repay:${i}` ? 'Repaying…' : 'Repay'}</button></small></b></div>`));
+      if (loans) loans.forEach((l, i) => {
+        const e = D.engine, hh = e?.usdBtc ? loanHealth({ sats: l.cbtc, debt: l.debt, usdBtc: e.usdBtc, floor: e.ratio, liq: e.liq }) : null;
+        rows.push(`<div class="kv"><span>Loan</span><b class="num">${esc(cusdTxt(l.debt))} cUSD<small>against ${esc(btcTxt(l.cbtc))} cBTC · <button class="linkbtn" type="button" data-mine="repay" data-i="${i}"${D.busy ? ' disabled' : ''}>${D.busy === `repay:${i}` ? 'Repaying…' : 'Repay'}</button></small>${hh?.ratio != null ? `<small class="bm-health">Collateral ratio <b class="${hh.level}">${esc(String(Math.round(hh.ratio)))}%</b>${hh.liqAt ? ` · liquidated below $${esc(Math.round(hh.liqAt).toLocaleString('en-US'))} a bitcoin` : ''}</small>` : ''}</b></div>`);
+      });
       else rows.push(`<p class="note err">Could not read your loans: ${esc(errs.loans)}</p>`);
       if (locks) locks.forEach((l, i) => {
         const step = lockStep(l), [a, what] = NEXT[step] || [], busy = D.busy === `${what}:${i}`;
@@ -261,10 +280,16 @@ export function mountMine(root, { pick, wallet = null, W = null, connect = null 
       const s = D.said, said = s?.text ? `<p class="note${s.kind === 'ok' ? ' ok' : s.kind ? ' err' : ''}" role="status" id="bm-status">${esc(s.text)}${s.kind === 'front' ? ` ${FRONT}` : ''}</p>` : '<p class="note" role="status" id="bm-status"></p>';
       h = `<div class="rows flat">${rows.join('')}</div>${form()}${lockForm()}${said}<p class="note"><button class="linkbtn" type="button" data-mine="again"${D.busy ? ' disabled' : ''}>Read again</button> · <button class="linkbtn" type="button" data-mine="lock"${D.busy ? ' disabled' : ''}>Lock your key</button></p>`;
     }
-    if (root.__h !== h) { root.__h = h; root.innerHTML = h; }
+    if (root.__h !== h) {
+      // the field being typed in keeps its place through a repaint
+      const at = document.activeElement, id = at && root.contains(at) ? at.id : '', s0 = at?.selectionStart, s1 = at?.selectionEnd;
+      root.__h = h; root.innerHTML = h;
+      const el = id && root.querySelector(`#${CSS.escape(id)}`);
+      if (el) { el.focus({ preventScroll: true }); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch { /* a field with no selection */ } }
+    }
   }
 
-  root.addEventListener('input', (e) => { if (!D?.form) return; if (e.target.id === 'bm-amt') D.form.amt = e.target.value.trim(); if (e.target.id === 'bm-lock') D.form.lock = e.target.value.trim(); });
+  root.addEventListener('input', (e) => { if (!D?.form) return; if (e.target.id === 'bm-amt') { D.form.amt = e.target.value.trim(); updateHealth(); } if (e.target.id === 'bm-lock') D.form.lock = e.target.value.trim(); });
   root.addEventListener('change', (e) => { if (D?.form && e.target.id === 'bm-note') { D.form.note = e.target.value; paint(); } });
   root.addEventListener('click', (e) => {
     const b = e.target.closest('[data-mine]');
@@ -272,6 +297,7 @@ export function mountMine(root, { pick, wallet = null, W = null, connect = null 
     const what = b.dataset.mine;
     if (what === 'lock') return forget();
     if (what === 'again') return read();
+    if (what === 'ratio') { D.form.amt = b.dataset.v; const i = root.querySelector('#bm-amt'); if (i) i.value = D.form.amt; updateHealth(); return; }
     if (what === 'borrow') return act('borrow', borrow);
     if (what === 'repay') { const i = Number(b.dataset.i); return act(`repay:${i}`, () => repay(i)); }
     if (what === 'bond') { const i = Number(b.dataset.i); return act(`bond:${i}`, () => bond(i)); }
