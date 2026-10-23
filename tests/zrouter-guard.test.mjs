@@ -131,4 +131,21 @@ assert.throws(() => decodeZRouterCall('0x12345678'), /not a swap/);
   const b = readFileSync(new URL('../worker-relay/src/lib/zrouter-guard.js', import.meta.url), 'utf8');
   ok(a === b, 'worker-relay/src/lib/zrouter-guard.js is identical to dapp/zrouter-guard.js');
 }
+
+// A split: side-by-side exact-in swaps, each to the recipient, adding up to the input and to the least it pays.
+{
+  const sp = fixtures.find((f) => f.label.startsWith('USDC->WBTC split'));
+  const legs = decodeZRouterCall(sp.callData);
+  ok(legs.length === 2 && legs.every((l) => !l.exactOut && l.amount > 0n), 'a split decodes to two exact-in legs that spend amounts of their own');
+  ok(checkZRouterCall(sp.callData, { ...sp.want, amount: BigInt(sp.want.amount) + 1n }) !== null, 'refuses a split whose legs do not add up to the amount');
+  ok(checkZRouterCall(sp.callData, { ...sp.want, maxIn: BigInt(sp.want.maxIn) - 1n }) !== null, 'refuses a split that spends more than allowed');
+  ok(checkZRouterCall(sp.callData, { ...sp.want, minOut: BigInt(sp.want.minOut) + 1n }) !== null, 'refuses a split whose limits add up to less than the least it may pay');
+  ok(checkZRouterCall(sp.callData, { ...sp.want, exactOut: true }) !== null, 'refuses a split asked for as exact-out');
+  // one leg sent elsewhere: no longer a split, and as a chain its middle swap leaves the router
+  const amt0 = legs[0].amount.toString(16).padStart(64, '0'), bent = sp.callData.replace(pad(sp.want.to), pad(OTHER));
+  ok(bent !== sp.callData && checkZRouterCall(bent, sp.want) !== null, 'refuses a split with one leg paying another address');
+  const zeroed = sp.callData.replace(amt0, '0'.repeat(64));
+  ok(zeroed !== sp.callData && checkZRouterCall(zeroed, { ...sp.want, amount: undefined, maxIn: undefined }) !== null, 'refuses a split leg that spends nothing of its own');
+}
+
 console.log(`${n} checks`);

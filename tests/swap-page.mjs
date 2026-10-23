@@ -125,6 +125,8 @@ const ackIf = async (page) => {
     await sleep(250);
   }
 };
+// Each side's Wallet / Private switch.
+const sidePriv = (page, side, on) => page.click(`.sides[data-side="${side}"] [data-p="${on ? 1 : 0}"]`);
 const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pay-coin' : '#get-coin'); await page.click(`.pk-r:has(b:text-is("${sym}"))`); };
 
 // ── no wallet: the page, the quotes, the gate, a private swap's receipt ──
@@ -202,8 +204,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   }
   await shot(page, 'desktop-cusd');
 
-  // Private: priced here, made on the card.
-  await page.click('[data-mode="private"]');
+  // Private: priced here, made on the card. The get side private: what is bought lands in the private balance.
+  await sidePriv(page, 'get', true);
   await page.click('#get-coin');
   ok(await page.$('.pk-r:has(b:text-is("cUSD"))') && await page.$('.pk-r:has(b:text-is("cBTC"))') && !(await page.$('.pk-r:has(b:text-is("tacUSD"))')), 'private: the picker names the notes cUSD and cBTC');
   await page.click('.pk-x');
@@ -218,17 +220,20 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(/Seen on chainyour 0\.25 ETH going in/.test(rc), `private from the wallet: the receipt says what the chain sees (${rc})`);
     ok(/Pool[\d.,]+ tETH · [\d.,]+ TAC/.test(rc), 'private: the receipt says how deep the pool is'); }
   await shot(page, 'desktop-private');
-  // paid from the private balance: the card offers to read it, and the chain sees a swap, not whose
+  // paid from the private balance too: the card offers to read it, and the chain sees a swap, not whose
+  await sidePriv(page, 'pay', true);
+  ok((await page.textContent('#pay-coin')).includes('tETH'), 'the pay side made private: the wallet\'s ETH becomes private tETH');
   await pick(page, 'pay', 'cUSD');
   await typeAmt(page, '50');
   await quoted(page);
   ok(await page.isVisible('#pv-open'), 'private balance: the card offers to read it');
   ok(/Seen on chaina swap, not who made it/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private balance: the chain sees a swap, not who made it');
   ok(!/Deposit tip/.test(await page.textContent('#rcpt')), 'private balance: no deposit, no deposit tip');
-  // out of the pool to an address: private cBTC to USDC, through an exit recipe; the address is asked for, and never taken from the address bar
+  // out of the pool to an address: private cBTC to USDC, through an exit recipe; with no wallet here the address is asked for, and never taken from the address bar
   await pick(page, 'pay', 'cBTC');
+  await sidePriv(page, 'get', false);
   await page.click('#get-coin');
-  ok(/Out to an address/.test(await page.textContent('#pk')) && !!(await page.$('.pk-r:has(b:text-is("USDC"))')), 'private: coins that leave the pool are offered, to an address');
+  ok(!!(await page.$('.pk-r:has(b:text-is("USDC"))')) && !!(await page.$('.pk-r:has(b:text-is("ETH"))')), 'the get side public: any token is offered, out of the pool');
   await page.click('.pk-r:has(b:text-is("USDC"))');
   await typeAmt(page, '0.001');
   await quoted(page);
@@ -244,6 +249,27 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(/Pool[\d.,]+ cBTC · [\d.,]+ tETH/.test(rc), 'out of the pool: routed through the cBTC pool to tETH first'); }
   ok(!/0x5a5a/.test(page.url()), 'the address is not put in the address bar');
   await shot(page, 'desktop-private-out');
+  // a wallet token into the private balance: swapped for ETH on the best onchain route, that ETH made private, then swapped in the pool
+  await sidePriv(page, 'pay', false);
+  await sidePriv(page, 'get', true);
+  await pick(page, 'pay', 'USDC');
+  await pick(page, 'get', 'TAC');
+  await typeAmt(page, '100');
+  await quoted(page);
+  { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
+    ok(/Made privateabout [\d.]+ ETH/.test(rc) && /Relay fee[\d.]+ tETH/.test(rc) && /Deposit tip/.test(rc), `USDC into private TAC: the ETH made private, the relay's fee in tETH, the deposit's tip (${rc})`);
+    ok(/Seen on chainyour 100 USDC, swapped for ETH going in/.test(rc) && /Route.* → Tacit pool/.test(rc), 'and the chain sees the USDC swapped for ETH going in, then the pool'); }
+  ok((await page.textContent('#go')) === 'Connect wallet', 'it needs the wallet');
+  // any token to any token: zQuoter's best onchain route, compared with each pool
+  await sidePriv(page, 'get', false);
+  await pick(page, 'pay', 'ETH');
+  await pick(page, 'get', 'USDC');
+  await typeAmt(page, '1');
+  await quoted(page);
+  { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
+    ok(/Route(Uniswap|Sushi|Curve|zAMM)/.test(rc) && /Compared\d+ pools? · /.test(rc) && /At least[\d.,]+ USDC/.test(rc), `ETH → USDC: the route, how it compares with each pool, the least it pays (${rc})`);
+    ok(!/Seen on chain/.test(rc), 'a public swap needs no line on what the chain sees: all of it'); }
+  ok(await page.isVisible('.sw-foot'), 'a public swap has its slippage row');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
@@ -256,9 +282,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.click('#wallet-chip');
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   const settled = () => until(page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });
-  // an amount typed for a public swap that is longer than a private one can be is cut when Private is chosen
+  // an amount typed for a public swap that is longer than a private one can be is cut when the get side turns private
   await typeAmt(page, '0.123456789012345678');
-  await page.click('[data-mode="private"]');
+  await sidePriv(page, 'get', true);
   ok((await page.inputValue('#amt')) === '0.12345678', `choosing Private cuts a longer amount to 8 decimals (${await page.inputValue('#amt')})`);
   await pick(page, 'get', 'cUSD');
   await quoted(page);
@@ -306,10 +332,32 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(/Relay fee[\d.]+ tETH · \d+% of the swap/.test(rc), `a small private swap says what share of it the relay's fee is (${rc || await u.page.textContent('#go')})`);
     ok(impact < 10, `and its price impact is the pool's, not the fee's (${impact}%)`); }
   ok(await u.page.isHidden('.sw-foot'), 'Private has no slippage row: there is nothing to set');
-  await u.page.click('[data-mode="wallet"]');
+  await sidePriv(u.page, 'get', false);
   ok(await u.page.isVisible('.sw-foot'), 'and a public swap has it');
   await u.browser.close();
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+}
+
+// ── a wallet: any token to any token on zQuoter's best route, sent on the fork: ETH → USDC, then USDC → DAI with its permit ahead of the swaps ──
+{
+  const w = await fundedWallet();
+  const { browser, page, errors, walletLog } = await openPage({ width: 1280, height: 900 }, { wallet: w });
+  const DAI = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
+  await page.click('#wallet-chip');
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  const swapped = async (what) => { await page.click('#go'); await until(page, () => /Done|failed|would fail|Nothing was sent/i.test(document.querySelector('#q').textContent), null, 180000); return (await page.textContent('#q')).trim(); };
+  await pick(page, 'get', 'USDC');
+  await typeAmt(page, '0.1'); await quoted(page); await ackIf(page);
+  ok((await page.textContent('#go')).trim() === 'Buy USDC', `ETH → USDC is a buy of USDC (${(await page.textContent('#go')).trim()})`);
+  { const u0 = await bal(USDC, w.account), said = await swapped(), u1 = await bal(USDC, w.account);
+    ok(/Done/.test(said) && u1 > u0, `ETH → USDC landed on the best route: ${Number(u1 - u0) / 1e6} USDC (${said.slice(0, 80)})`); }
+  await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'DAI');
+  await typeAmt(page, '50'); await quoted(page); await ackIf(page);
+  { const d0 = await bal(DAI, w.account), u0 = await bal(USDC, w.account), signs = walletLog.signs, said = await swapped(), d1 = await bal(DAI, w.account), u1 = await bal(USDC, w.account);
+    ok(/Done/.test(said) && d1 > d0 && u0 - u1 === 50n * 10n ** 6n, `USDC → DAI: exactly 50 USDC spent, ${Number(d1 - d0) / 1e18} DAI got (${said.slice(0, 80)})`);
+    ok(walletLog.signs > signs || walletLog.sends.length >= 2, 'the USDC reached zRouter by its permit or an allowance'); }
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
 }
 
 // ── a wallet: ETH → TAC, USDC → TAC by permit, TAC → ETH by permit, then the farm ──
@@ -508,8 +556,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
 {
   const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?to=cusd' });
   ok((await page.textContent('#get-coin')).includes('tacUSD'), 'an old ?to=cusd link opens on tacUSD');
-  await page.click('[data-mode="private"]');
-  ok((await page.textContent('#get-coin')).includes('cUSD') && !(await page.textContent('#get-coin')).includes('tacUSD'), 'in private the same token is the cUSD note');
+  await sidePriv(page, 'get', true);
+  ok((await page.textContent('#get-coin')).includes('cUSD') && !(await page.textContent('#get-coin')).includes('tacUSD'), 'on a private side the same token is the cUSD note');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
@@ -521,7 +569,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const res = () => page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name));
   ok(!(await res()).some((u) => /\/chrome\.css/.test(u)) && (await page.evaluate(() => getComputedStyle(document.querySelector('footer.sf')).display)) === 'flex', 'the shared header and footer styles are in the page, not a request the first paint waits for');
   ok(!(await res()).some((u) => /confidential-pool-ux|confidential-pool\.js/.test(u)), 'the private door\'s modules are not fetched by a page that stays public');
-  await page.hover('[data-mode="private"]');
+  await page.hover('.sides[data-side="get"] [data-p="1"]');
   await until(page, () => performance.getEntriesByType('resource').some((e) => /confidential-pool-ux/.test(e.name)) && performance.getEntriesByType('resource').some((e) => /confidential-pool\.js/.test(e.name)), null, 60000);
   ok(true, 'going toward Private fetches its modules, all at once');
   await page.click('[data-slip="100"]');
@@ -557,11 +605,12 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
 {
   const { browser, page, errors } = await openPage({ width: 1440, height: 900 });
   await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
-  await page.focus('[data-mode="wallet"]');
+  const G = '.sides[data-side="get"]';
+  await page.focus(`${G} [data-p="0"]`);
   await page.keyboard.press('ArrowRight');
-  ok((await page.getAttribute('[data-mode="private"]', 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.mode === 'private'), 'the arrow keys move from "To your wallet" to "Private", the focus with them');
+  ok((await page.getAttribute(`${G} [data-p="1"]`, 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.p === '1'), 'the arrow keys move a side from Wallet to Private, the focus with them');
   await page.keyboard.press('ArrowLeft');
-  ok((await page.getAttribute('[data-mode="wallet"]', 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.mode === 'wallet'), 'and back');
+  ok((await page.getAttribute(`${G} [data-p="0"]`, 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.p === '0'), 'and back');
   await typeAmt(page, '1');
   await quoted(page);
   if ((await page.$$('#rows [data-route]')).length >= 2) {

@@ -223,7 +223,7 @@ export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account,
 //   { kind: 'permit2', nonce, deadline, signature } a Permit2 transfer of `maxIn` into zRouter, the unspent part swept back
 //   { kind: 'approved' }                           zRouter already holds an allowance for `maxIn`
 // The leg (if any) that lets zRouter take `maxIn` of `token` from the sender, by how the wallet gave access (see buildAnyToTac).
-function accessLegs(access, token, maxIn, who) {
+export function accessLegs(access, token, maxIn, who) {
   if (access.kind === 'permit') return ['0x' + SEL.permit + addr(token) + word(access.value) + word(access.deadline) + word(access.v) + b32(access.r) + b32(access.s)];
   if (access.kind === 'dai') return ['0x' + SEL.permitDAI + word(access.nonce) + word(access.expiry) + word(access.v) + b32(access.r) + b32(access.s)];
   if (access.kind === 'permit2') return ['0x' + SEL.permit2From + addr(token) + word(maxIn) + word(access.nonce) + word(access.deadline) + word(160) + dyn(access.signature)];
