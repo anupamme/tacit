@@ -175,6 +175,7 @@ function paintTile() {
   const cost = costLine(PICK.asset, PICK.dir, COST);
   $('#bt-cost').textContent = cost;
   $('#bt-cost').hidden = !cost;
+  paintHere();
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
 }
@@ -306,22 +307,45 @@ function paintAge() {
   if (t && LIVE.at) t.textContent = `checked ${ago(LIVE.at)}`;
 }
 
+// Starting a bridge to Bitcoin from here (out-form.js): offered for the assets that go, once the key is open; the door above stays the front page's.
+let FORM = null, FORM_KEY = '';
+const canHere = () => PICK.dir === 'out' && (PICK.asset === 'tac' || PICK.asset === 'teth');
+function paintHere() {
+  const b = $('#bt-here'), box = $('#bt-form');
+  if (!b || !box) return;
+  const want = canHere() && MV?.open ? PICK.asset : '';
+  b.hidden = !canHere() || !!want;
+  if (want === FORM_KEY) return;
+  FORM?.destroy(); FORM = null; FORM_KEY = '';
+  if (!want) { box.hidden = true; return; }
+  FORM_KEY = want;
+  import('/bridge/out-form.js?cb=99d53d09').then((m) => {
+    if (FORM_KEY !== want || !MV?.open) return;
+    FORM = m.mountOutForm(box, { asset: want, mover: MV, say: mineSay, repaint: () => { readMine.sig = null; readMine(); } });
+  }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
+}
 function mineSay(text, front = false) {
   const el = $('#mine-s');
   if (!el) return;
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=7d0ea648').then((m) => {
+  const b = $('#mine-mv');
+  MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
+    onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });
+  return MV;
+}).catch((e) => { MVP = null; mineSay(String(e?.message || e).slice(0, 160)); throw e; }));
 function wireMove() {
   const b = $('#mine-mv');
   if (!b) return;
-  const load = () => (MVP ||= import('/bridge/mover.js?cb=25be3a55').then((m) => {
-    MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay, onState: (on) => { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } });
-    return MV;
-  }).catch((e) => { MVP = null; mineSay(String(e?.message || e).slice(0, 160)); throw e; }));
   b.addEventListener('click', async () => {
-    try { await (await load()).toggle(); } catch { return; }
+    try { await (await loadMover()).toggle(); } catch { return; }
     readMine.sig = null; readMine();
+  });
+  $('#bt-here')?.addEventListener('click', async () => {
+    try { const m = await loadMover(); if (!m.open) await m.toggle(); } catch { return; }
+    paintHere();
   });
   $('#mine-l').addEventListener('click', (e) => {
     const a = e.target.closest('[data-mv-act]');

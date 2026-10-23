@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-F54T2DC03K7z0ZYRyrDiO9zck56qepI7uBFougVH1Gg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-k5ucJsqwx5OKCfE7SQNQ5+cfUohRxTW2U21dSgNWvOM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1594,6 +1594,7 @@ import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor } from '/farm-ops.js?cb=4470442d';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
+import { ladder as xoLadder, feeShort as xoFeeShort, makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=3e9b426a';
 import { stepIn, stepOut, advanceOut, outPubs, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=84475d9e';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
@@ -4927,13 +4928,7 @@ const xoDue = (r) => (r.stage === 'mint-rejected' ? (xoCanRetry(r) ? 'Send it ag
   : r.lastError?.fundWait ? 'Add bitcoin'
   : r.lastError ? (r.stage === 'covered' && /fees are high/i.test(r.lastError.message || '') ? 'Send it anyway' : 'Try again') : '');
 const xoAmtRaw = (r) => { const a = xaOf(r); return `${fmt(brRaw(r.source.amount ?? r.source.value), 8, a?.dp ?? 6)} ${a?.ticker ?? 'tETH'}`; };
-const xoFundingText = (pf) => {
-  const k = pf.pending || 0, coin = pf.haveSats ? `${fmt(BigInt(pf.haveSats), 8, 8)} BTC` : null, need = `${pf.needSats.toLocaleString('en-US')} sats`;
-  if (!k) return coin ? `The largest free coin on this key’s Bitcoin address holds ${coin}; the Bitcoin step, a few hours from now, needs one coin of ${need}, kept there until the bridge arrives.`
-    : `This key’s Bitcoin address has no free coin yet; the Bitcoin step, a few hours from now, needs one coin of ${need}, kept there until the bridge arrives.`;
-  return `${k === 1 ? 'A bridge under way takes a coin' : `${k} bridges under way take a coin each`} from this key’s Bitcoin address for ${k === 1 ? 'its' : 'their'} Bitcoin step. `
-    + (coin ? `The next free coin holds ${coin}; this one needs a coin of ${need}, kept there until it arrives.` : `No other coin is free; this one needs a coin of ${need}, kept there until it arrives.`);
-};
+const xoFundingText = (pf) => fundingText(pf, (sats) => fmt(BigInt(sats), 8, 8));
 // Where to send the sats: the address whole, ready to copy. The Tacit address (tacit1…) takes nothing from an ordinary wallet or an exchange.
 const addrLine = (a) => (a ? html`<span class="addrline"><code>${a}</code> <button class="link" type="button" data-copy-addr="${a}">Copy</button></span>` : '');
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-copy-addr]'); if (b) copy(b.dataset.copyAddr, 'Bitcoin address copied'); });
@@ -4991,20 +4986,7 @@ function xoBtcLine(pub) {
   if (!(h?.v > 0n) && !(way > 0n)) return '';
   return html`<a class="xb-line" href="#private/bitcoin/back" data-link="private/bitcoin/back">${h?.v > 0n ? html`<b class="num">${fmt(h.v, 8, 6)}</b> on Bitcoin` : ''}${h?.v > 0n && way > 0n ? ' · ' : ''}${way > 0n ? html`<b class="num">${fmt(way, 8, 6)}</b> on the way` : ''}</a>`;
 }
-const XFLOOR = {};
-async function xoFee(t, a) {
-  const own = BigInt(await t.quoteOpFee(a.pool, 'bridgeburn'));
-  if (!a.floor) return own;
-  if (!XFLOOR[a.key] || Date.now() - XFLOOR[a.key].at > 300e3) {
-    const entry = XFLOOR[a.key] = { at: Date.now(), v: fetch(`${API}/confidential/quote?asset=${a.pool}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null))
-      .then((j) => (/^\d+$/.test(String(j?.staticFloorUnits)) ? BigInt(j.staticFloorUnits) : 0n), () => 0n) };
-    entry.v.then((v) => { if (!v && XFLOOR[a.key] === entry) delete XFLOOR[a.key]; });
-  }
-  const published = await XFLOOR[a.key].v;
-  return published > own ? published : own;
-}
-const xoLadder = (v) => { const x = BigInt(v), d = x.toString().length; if (d <= 2) return x; const s = 10n ** BigInt(d - 2); return ((x + s - 1n) / s) * s; };
-const xoFeeShort = (e) => /fee below the current floor|feeGate|below the marginal cost/i.test(String(e?.message || e || ''));
+const xoFee = makeOutFee({ api: API });
 function xoErr(e) {
   const m = String(e?.message || e || '').replace(/^crossout-ux:\s*/, '');
   if (/another tab/i.test(m)) return 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.';
@@ -5164,8 +5146,7 @@ async function xoDiscover(pub, daily = false) {
     xoTick(true); for (const a of Object.values(XA)) rerender(a.sheet); dashSoon();
   })().catch(() => {}).finally(() => { XD.loading = null; }));
 }
-const xoWarn = (w, lag) => w.name === 'reflection-behind' ? `Bitcoin’s proof on Ethereum is ${w.detail} behind (about ${Math.max(1, Math.round(lag / 6))} hours), so this will take longer than usual. Nothing is lost by waiting.`
-  : w.name === 'coverage-behind' ? 'The proof’s view of Ethereum is further behind than usual, so this will take longer than usual. Nothing is lost by waiting.' : '';
+const xoWarn = proofWarn;
 const XBS = {};
 const xbOf = (a) => (XBS[a.key] ||= { pub: null, notes: null, at: 0, loading: null, err: null, pick: null, rv: null, asked: null, unread: 0 });
 const xbId = (n) => `${n.txid}:${n.vout}`;
@@ -5463,9 +5444,8 @@ function xoOut(el, status, a) {
         ${a.floor && xoLadder(fee * 2n) * 2n < units ? html`<p class="note">If the relay’s floor has moved by the time it takes the burn, its fee is ${fmt(xoLadder(fee * 2n), 8, 8)} ${a.ticker} and ${fmt(xoLadder(fee * 2n) - fee, 8, 8)} ${a.ticker} less arrives.</p>` : ''}`);
       const problem = pf.problems[0], noCoin = pf.warnings.some((w) => w.name === 'funding');
       let ok = true;
-      if (units < min) { warn(rc, `Bridge at least ${fmt(min, 8, 8)} ${a.ticker}: below that the fees take too much of it.`); ok = false; }
-      else if (units > lim.capRaw) { warn(rc, `One bridge takes at most ${fmt(lim.capRaw, 8, 8)} ${a.ticker} while this is new. Bridge less, then again.`); ok = false; }
-      else if (units <= fee) { warn(rc, `Bridge more than ${fmt(fee, 8, 6)} ${a.ticker}: the relay fee comes out of it.`); ok = false; }
+      const limit = limitText({ units, fee, min, cap: lim.capRaw, ticker: a.ticker, fmt: (v, max = 8) => fmt(v, 8, max) });
+      if (limit) { warn(rc, limit); ok = false; }
       else if (a.redeem && REDEEM.plan?.plan?.short != null && units - fee !== REDEEM.plan.plan.short) { warn(rc, `Bridge exactly ${fmt(REDEEM.plan.plan.short + fee, 8, 8)} ${a.ticker}: after the relay fee of ${fmt(fee, 8, 8)} that is the ${fmt(REDEEM.plan.plan.short, 8, 8)} the lock needs to arrive, no more and no less.`); ok = false; }
       else if (units + size > held) { warn(rc, feeRoom(units, size, held, P.scan?.[a.k].notes, (v) => `${fmt(v, 8, 6)} ${a.ticker}`) || overBalance()); ok = false; }
       if (problem) {

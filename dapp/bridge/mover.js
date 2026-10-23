@@ -5,10 +5,12 @@
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, outPubs } from '/bridge-tick.js?cb=84475d9e';
+import { makeRunner } from '/activity.js?cb=532a162f';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const TACIT_URL = '/tacit.js?cb=c69646c8';
 const PLAN_KEY = 'tacit-lite-bridge-plan-v1', SELF_PROVE = 'tacit-lite-prove-self-v1:';
+const API = 'https://api.tacit.finance';
 const EVERY = 75e3;                                                                  // as often as the front page's pass
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const refused = (e) => e?.code === 'relay_held' || e?.code === 'relay_paused' || e?.httpStatus === 429 || /relay (4\d\d|held|paused)|can’t take this one|free (relayed )?settles/i.test(String(e?.message || ''));
@@ -18,7 +20,9 @@ const BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'mint
 export function mountMover({ pick, repaint = () => {}, say = () => {}, onState = () => {} } = {}) {
   const key = makeKeySession({ moved: (why) => { stop(); key.lock(); say(why); } });
   const TS = makeTacitSession({ url: TACIT_URL, key: () => (key.unlocked ? { pubHex: key.key.pubHex, priv: bytesToHex(key.priv()) } : null), secp, bytesToHex, hexToBytes });
-  let timer = null, busy = false, last = 0;
+  let timer = null, busy = false, last = 0, runner = null;
+  // the relay's jobs this page starts, named and followed in the activity journal it shares with the other pages
+  const run = () => (runner ||= makeRunner({ api: API, base: async () => (await import('/confidential-deployments.js')).getConfidentialDeployment('mainnet')?.relayBase || API, pub: () => key.key?.pubHex || null }));
 
   const journaledIn = (pub) => { try { return /"stage":"(?!minted"|reclaimed")/.test(localStorage.getItem(`tacit-burndep-bridge-v1:mainnet:${pub}`) || ''); } catch { return false; } };
   const planOf = (pub) => (rec) => read(PLAN_KEY)?.[pub]?.[rec.id] || null;
@@ -89,5 +93,5 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     } finally { busy = false; repaint(); }
   }
 
-  return { toggle, press, tick, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

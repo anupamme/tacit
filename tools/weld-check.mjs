@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -8778,6 +8778,99 @@ await step('bridgemove', async () => {
     await until(r.page, () => document.querySelector('#mine-mv')?.getAttribute('aria-pressed') === 'false' && !document.querySelector('#mine-l [data-mv-act]'), null, 30000);
     ok(true, 'bridgemove: pressing it again locks the key, and the presses are links again');
     if (r.errors.length) { fails++; console.log('FAIL bridgemove page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Starting a bridge to Bitcoin from the bridge page: the form is offered once the key is open, the receipt takes the relay's published floor when
+// it is the higher, the least and the acknowledgement gate the button, an amount no note fits is cut to size by the relay first, the burn is
+// proved with the note of exactly that amount, a floor that moved is met once at the next rung, and a relay that refuses says so, with the
+// intent dropped and the way to the front page. tacit.js and the pool's balance and relay calls are answered here.
+await step('bridgeout', async () => {
+  const TACID = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/api\.tacit\.finance\/confidential\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ staticFloorUnits: '250000' }) }));
+  await r.page.route(/\/tacit\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const S = window.__bo = { calls: [], starts: [], refuse: false, floorOnce: false };
+    export const wallet = { priv: null, pub: null, mode: null };
+    export const invalidateHoldingsCache = () => {};
+    export const bridgeUx = () => ({ list: () => [], armMint: async () => {}, mintRetryDue: () => false, verify: async () => null, advance: async () => null });
+    export const crossoutUx = () => ({
+      list: () => [],
+      assetOf: (id) => (String(id).toLowerCase() === '${TACID}' ? { assetId: id, capRaw: 100000000000n, minRaw: 2000000000n } : null),
+      preflight: async () => ({ ok: true, problems: [], warnings: [{ name: 'funding', detail: 'no free coin' }], feeRate: 3, needSats: 1882, estSats: 1214, haveSats: 0, pending: 0, address: 'bc1q6pm2t5wjvnv9glmaj8qggflx4526jnslqnrsaj', reflection: { lagBlocks: 2 }, coverage: {} }),
+      start: async (o) => {
+        S.starts.push([String(o.note.value), String(o.fee), o.walletPriv.length, typeof o.waitOpts?.onJob]);
+        if (S.refuse) throw Object.assign(new Error('relay 429: the relay can’t take this one right now'), { code: 'relay_held', httpStatus: 429 });
+        if (S.floorOnce) { S.floorOnce = false; throw new Error('relay: fee below the current floor'); }
+        o.waitOpts?.onJob?.('bo-j', 'bridgeburn');
+        return { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)) } };
+      },
+      cancelIntent: async (pub, id) => { S.calls.push(['cancel', id]); return false; },
+      advance: async (pub, id) => ({ id, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true } }),
+    });` }));
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o);
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      const note = (value, i) => ({ asset: '${TACID}', value: String(value), nullifier: h(0xb00 + i), leaf: h(0xe0e000 + i), leafIndex: 720000 + i, cx: h(0x400 + i), cy: h(2), owner: h(3), secret: h(0x6300 + i), blinding: h(0x8a00 + i), root: h(1), path: [] });
+      const S = window.__bo;
+      ux.balance = async () => ({ notes: S.cut ? [note(6000000000n, 1), note(3999000000n, 2)] : [note(10000000000n, 3)] });
+      ux.quoteOpFee = async (tk, op) => (op === 'bridgeburn' ? 100000n : 1000000n);
+      ux.transfer = async (a) => { S.calls.push(['cut', String(a.amount), String(a.fee), a.notes.map((n) => n.value).join('+')]); a.waitOpts?.onJob?.('bo-c', 'transfer'); S.cut = true; return { jobId: 'bo-c', txHash: h(0xd1) }; };
+      return ux;
+    }` }));
+  const bo = () => r.page.evaluate(() => window.__bo);
+  const said = () => text(r.page, '#bo-s').then((t) => t.replace(/\s+/g, ' ').trim());
+  const typed = async (v) => { await r.page.fill('#bo-amt', v); };
+  try {
+    await r.page.goto(r.url + 'bridge/#tac/out');
+    await r.page.waitForSelector('#bt-here:not([hidden])', { timeout: 60000 });
+    ok(await r.page.isHidden('#bt-form') && !(await bo()), 'bridgeout: to Bitcoin offers to bridge from here, and nothing of the key or tacit.js is loaded until asked');
+    await r.page.click('#bt-here');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#bo-amt', { timeout: 120000 });
+    ok(await r.page.isHidden('#bt-here') && /Use the most \(100 TAC\)/.test(await text(r.page, '#bo-max')), `bridgeout: with the key open the form takes the place of the offer, and says what is private (${await text(r.page, '#bo-max')})`);
+    // under the least
+    await typed('10');
+    await until(r.page, () => /Bridge at least/.test(document.querySelector('#bo-rcpt')?.textContent || ''), null, 60000);
+    ok(await r.page.isDisabled('#bo-go') && await r.page.isHidden('#bo-ackrow'), 'bridgeout: under the least it is refused with the least named, and there is nothing to acknowledge');
+    // a bridge no note fits
+    await typed('60');
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    const rcpt = (await text(r.page, '#bo-rcpt')).replace(/\s+/g, ' ');
+    ok(/You get59\.9975 TAC on your Bitcoin address/.test(rcpt) && /Relay fee0\.0025 TAC/.test(rcpt) && /Relay fee to cut a note to size0\.01 TAC/.test(rcpt) && /bc1q6pm2t5wjvnv9glmaj8qggflx4526jnslqnrsaj/.test(rcpt),
+      `bridgeout: the receipt takes the published floor over the relay's own quote, and says what the cut and the address are (${rcpt.slice(0, 260)})`);
+    ok(await r.page.isDisabled('#bo-go'), 'bridgeout: until it is acknowledged the button waits');
+    await r.page.check('#bo-ack');
+    ok(!(await r.page.isDisabled('#bo-go')), 'bridgeout: acknowledged, it can be pressed');
+    // the floor has moved by the time the burn is proved: met once at the next rung
+    await r.page.evaluate(() => { window.__bo.floorOnce = true; });
+    await r.page.click('#bo-go');
+    await until(r.page, () => /Burned on Ethereum/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await bo()).calls)} ${JSON.stringify((await bo()).starts)}`); });
+    const b1 = await bo();
+    ok(b1.calls.length === 1 && b1.calls[0].join() === 'cut,6000000000,1000000,10000000000', `bridgeout: no note fits, so the relay cuts one of exactly the amount first (${JSON.stringify(b1.calls)})`);
+    ok(b1.starts.length === 2 && b1.starts[0][0] === '6000000000' && b1.starts[0][1] === '250000' && b1.starts[1][0] === '6000000000' && b1.starts[1][1] === '500000' && b1.starts[1][2] === 32,
+      `bridgeout: the burn spends that note whole, and a floor that moved is met once at the next rung (${JSON.stringify(b1.starts)})`);
+    ok((await r.page.inputValue('#bo-amt')) === '' && !!(await r.page.$('#bo-s a[href^="https://etherscan.io/tx/0x"]')), 'bridgeout: the form is emptied and the burn is linked');
+    // a relay that refuses: said, the intent dropped, nothing burned
+    await r.page.evaluate(() => { window.__bo.refuse = true; window.__bo.calls.length = 0; });
+    await typed('60');
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.check('#bo-ack');
+    await r.page.click('#bo-go');
+    await until(r.page, () => /can’t take this burn/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
+    const b2 = await bo();
+    ok((await r.page.getAttribute('#bo-s a', 'href')) === '/#bridge/out' && b2.calls.some((c) => c[0] === 'cancel'), `bridgeout: a burn the relay refuses says so, drops its intent and points to the front page (${await said()})`);
+    // the other asset has its own form; the way in has none
+    await r.page.click('#bt-flip');
+    await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'in' && document.querySelector('#bt-form')?.hidden, null, 30000);
+    ok(await r.page.isHidden('#bt-here'), 'bridgeout: the way in from Bitcoin has no form here');
+    if (r.errors.length) { fails++; console.log('FAIL bridgeout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

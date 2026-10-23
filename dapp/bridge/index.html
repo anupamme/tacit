@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=be709d47">
+<link rel="modulepreload" href="/bridge/app.js?cb=0623619f">
 <link rel="modulepreload" href="/bridge/track.js?cb=cb34691b">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -151,6 +151,29 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 #mine-mv, #mine-bell { font: inherit; text-transform: none; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
 #mine-mv[aria-pressed="true"], #mine-bell[aria-pressed="true"] { color: var(--mute); }
 #mine-s { margin: 10px 0 0; color: var(--mute); }
+#bt-here { display: block; margin: 10px auto 0; font: inherit; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
+#bt-form { margin-top: 16px; display: grid; gap: 10px; text-align: left; }
+#bt-form[hidden] { display: none; }
+.bo-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; color: var(--mute); font-size: 12px; }
+.bo-top button { font: inherit; color: var(--ink); background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
+.bo-top button:disabled { color: var(--mute); text-decoration: none; cursor: default; }
+.bo-amt { display: flex; align-items: center; gap: 10px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 12px; padding: 0 14px; min-height: 52px; }
+.bo-amt input { flex: 1; min-width: 0; font: 500 18px var(--mono); color: var(--ink); background: none; border: 0; outline: none; }
+.bo-amt span { color: var(--mute); }
+.bo-r { display: grid; gap: 6px; font-size: 13px; }
+.bo-r > div { display: flex; justify-content: space-between; gap: 14px; }
+.bo-r > div > span { color: var(--mute); }
+.bo-r > div > b { font-weight: 500; text-align: right; }
+.bo-n { margin: 0; color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }
+.bo-n code { font-size: 11px; user-select: all; }
+.bo-e, .bo-n.bo-e { color: var(--err); }
+.bo-ok { color: var(--ok); }
+.bo-ack { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.bo-ack input { margin-top: 4px; }
+.bo-s { margin: 0; font-size: 13px; color: var(--mute); }
+.bo-s a { color: var(--ink); }
+button.go { border: 0; cursor: pointer; width: 100%; }
+button.go:disabled { opacity: .45; cursor: default; transform: none; }
 #mine-s a { color: var(--ink); }
 #mine-l { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .mb { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; }
@@ -560,6 +583,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <p class="bt-w bt-l" id="bt-limit">Up to 1,000 TAC a bridge while it is new</p>
         <p class="bt-w bt-l" id="bt-cost" hidden></p>
         <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC to Ethereum</span><span aria-hidden="true">→</span></a>
+        <button type="button" id="bt-here" hidden>Or bridge from here</button>
+        <div id="bt-form" hidden></div>
       </div>
 
       <div class="pf" aria-live="polite">
@@ -968,6 +993,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=be709d47"></script>
+<script type="module" src="/bridge/app.js?cb=0623619f"></script>
 </body>
 </html>
