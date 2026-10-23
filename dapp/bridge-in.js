@@ -74,16 +74,39 @@ export async function listNotes(t, { force = false, esplora, assetId = TAC_BTC_I
 }
 
 // ── what it costs ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-// The check of a note (preflight) and the cost of its path against the coins the key has free for fees. `short`: coins were read and fall short.
-export async function review(t, { note, walletPub, onProgress = null, coins: known }) {
-  const ux = t.bridgeUx(), pf = await ux.preflight({ note, walletPub, onProgress });
-  if (!pf.ok) return { note, pf, ok: false };
-  const coins = known !== undefined ? known : await freeCoins(t);
+// The check of a note (preflight): its history read from Bitcoin, which can take minutes, and the rates it was read at. Its price against the coins free
+// for fees is a separate step (priceNote), taken afresh each time, since the coins change while a long history is being read.
+export async function checkNote(t, { note, walletPub, onProgress = null }) {
+  const pf = await t.bridgeUx().preflight({ note, walletPub, onProgress });
+  return { note, pf, ok: !!pf.ok };
+}
+// What a checked note costs against the coins the key has free for fees (`coins`: null when they could not be read). `short`: coins were read and fall short.
+export function priceNote(t, { note, pf, coins }) {
   const one = pf.path === 'reflected', rate = one ? pf.burnFeeRate : pf.migrateFeeRate;
-  const cost = ux.bridgeCost({ path: pf.path, feeRate: rate, coins: coins || [], noteSats: note.sats, burnRate: pf.burnRate });
+  const cost = t.bridgeUx().bridgeCost({ path: pf.path, feeRate: rate, coins: coins || [], noteSats: note.sats, burnRate: pf.burnRate });
   return { note, pf, cost, one, ok: true, short: !!coins && !cost.ok };
 }
 export const freeCoins = (t) => Promise.resolve().then(async () => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address()))).catch(() => null);
+// Both together, with the coins read after the check.
+export async function review(t, { note, walletPub, onProgress = null, coins: known }) {
+  const c = await checkNote(t, { note, walletPub, onProgress });
+  if (!c.ok) return c;
+  return priceNote(t, { note, pf: c.pf, coins: known !== undefined ? known : await freeCoins(t) });
+}
+
+// The plans a bridge carries, kept beside the journal in `mem` ({ get(k), set(k, v) } over JSON): what the page does for the holder after the start.
+export const PLAN_KEY = 'tacit-lite-bridge-plan-v1';
+export function planSet(mem, pub, id, plan) {
+  const all = mem.get(PLAN_KEY) || {}, mine = { ...(all[pub] || {}) };
+  if (plan) mine[id] = plan; else delete mine[id];
+  all[pub] = Object.fromEntries(Object.entries(mine).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 50));
+  mem.set(PLAN_KEY, all);
+}
+// The highest rate the page sends a move's burn at on its own: twice the miner's rate (a tenth over it), and never under 10.
+export const burnMaxRate = (pf) => {
+  const m = pf.slipstreamRates, base = m ? Math.max(Number(m.effective_rate) || 0, Number(m.submit_fee_rate) || 0, 1) * 1.1 : 10;
+  return Math.ceil(Math.max(10, base * 2));
+};
 
 // ── starting it ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // Signs and sends the burn (one Bitcoin transaction, when the note is tracked) or the move to the burn address (when it is not), and goes on with it a step.

@@ -324,7 +324,7 @@ function paintHere() {
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
   const repaint = () => { readMine.sig = null; readMine(); };
-  (dir === 'in' ? import('/bridge/in-form.js?cb=ee1859a8') : import('/bridge/out-form.js?cb=392de59f')).then((m) => {
+  (dir === 'in' ? import('/bridge/in-form.js?cb=0d33a322') : import('/bridge/out-form.js?cb=392de59f')).then((m) => {
     if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
     FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });

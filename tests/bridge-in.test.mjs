@@ -3,7 +3,7 @@
 // to one's own address that an older note needs first.
 //   node tests/bridge-in.test.mjs
 import assert from 'node:assert/strict';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, begin, toSelf } from '../dapp/bridge-in.js';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf } from '../dapp/bridge-in.js';
 
 const say = (e) => `said: ${e?.message || e}`;
 
@@ -84,6 +84,31 @@ assert.match(longReason({ unprovable: true, through: 'shielded' }), /^Its histor
   assert.equal(given.short, false, 'coins read already are used as they are');
 }
 
+// the check and the price are two steps: the check can take minutes, the coins are read after it each time
+{
+  const note = { txid: 'a1', vout: 0, sats: 546, amount: '100' };
+  const ux = { preflight: async ({ onProgress }) => { onProgress?.(3); return { ok: true, path: 'reflected', burnFeeRate: 5 }; },
+    bridgeCost: ({ coins }) => ({ fee: 700, need: 900, ok: coins.some((c) => c.value >= 900), have: coins[0]?.value || 0 }) };
+  const t = { bridgeUx: () => ux };
+  const seen = [], c = await checkNote(t, { note, walletPub: new Uint8Array(33), onProgress: (n) => seen.push(n) });
+  assert.deepEqual([c.ok, c.pf.path, seen], [true, 'reflected', [3]]);
+  assert.equal(priceNote(t, { note, pf: c.pf, coins: [{ value: 100 }] }).short, true, 'coins read and short');
+  assert.equal(priceNote(t, { note, pf: c.pf, coins: [{ value: 5000 }] }).short, false);
+  assert.equal(priceNote(t, { note, pf: c.pf, coins: null }).short, false, 'coins not read are not called short');
+  assert.equal((await checkNote({ bridgeUx: () => ({ preflight: async () => ({ ok: false, steps: [] }) }) }, { note, walletPub: new Uint8Array(33) })).ok, false);
+}
+// the plans kept beside the journal, newest fifty per key, and the rate a move's burn may go out at on its own
+{
+  const m = new Map(), mem = { get: (k) => m.get(k) ?? null, set: (k, v) => m.set(k, JSON.parse(JSON.stringify(v))) };
+  planSet(mem, 'pubA', 'id1', { at: 2, burn: { maxRate: 20 } }); planSet(mem, 'pubA', 'id2', { at: 3 }); planSet(mem, 'pubB', 'idx', { at: 1 });
+  assert.deepEqual(Object.keys(m.get(PLAN_KEY).pubA), ['id2', 'id1'], 'newest first'); assert.deepEqual(m.get(PLAN_KEY).pubB, { idx: { at: 1 } });
+  planSet(mem, 'pubA', 'id1', null); assert.deepEqual(Object.keys(m.get(PLAN_KEY).pubA), ['id2'], 'a plan is dropped by naming none');
+  for (let i = 0; i < 60; i++) planSet(mem, 'pubC', `n${i}`, { at: 100 + i });
+  assert.equal(Object.keys(m.get(PLAN_KEY).pubC).length, 50); assert.ok(m.get(PLAN_KEY).pubC.n59 && !m.get(PLAN_KEY).pubC.n0);
+  assert.equal(burnMaxRate({}), 20, 'no miner rates read: twice the 10 floor');
+  assert.equal(burnMaxRate({ slipstreamRates: { effective_rate: 12, submit_fee_rate: 9 } }), 27, 'twice a tenth over the miner’s rate');
+  assert.equal(burnMaxRate({ slipstreamRates: { effective_rate: 1, submit_fee_rate: 1 } }), 10, 'never under 10');
+}
 // starting: one transaction for a tracked note (and the relay asked to finish the mint), a move for the rest, a fee paid from a coin that is free
 {
   const calls = [];

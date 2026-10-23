@@ -3,7 +3,7 @@
 // the key's own address, and a note over the limit is split. Once started, the bridge is one of the rows above and goes on as any other does.
 // Merging notes, bridging them all, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
 import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=509d6618';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, listNotes, review, freeCoins, begin, toSelf } from '/bridge-in.js?cb=cb97cdc8';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate } from '/bridge-in.js?cb=649f3e31';
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const said = (m) => Object.assign(new Error(m), { said: true });
@@ -37,8 +37,10 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
   const status = (h, cls = '') => { st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h; };
   const gate = () => { go.disabled = busy || !rv?.r?.ok || rv.r.short || !ack.checked; };
   const warn = (html) => { rc.hidden = false; rc.insertAdjacentHTML('beforeend', `<p class="bo-n bo-e">${html}</p>`); };
-  // the review and its acknowledgement are void as soon as another note is picked, not when the new one has been read
-  const stale = () => { rv = null; ack.checked = false; ackRow.hidden = true; gate(); };
+  // the review and its acknowledgement are void as soon as another note is picked, not when the new one has been read; a check still being read for
+  // the note before is void with them (it would otherwise show an acknowledgement for a receipt that is no longer on the page)
+  const stale = () => { seq++; rv = null; ack.checked = false; ackRow.hidden = true; gate(); };
+  const mem = { get: (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* the plan is a convenience */ } } };
   const open = () => (notes || []).filter((n) => n.reason !== 'already bridging').map((n) => marked(n, deep));
 
   const reasonHtml = (n) => (n.reason === 'unconfirmed' ? 'Waiting for its Bitcoin confirmation'
@@ -77,8 +79,8 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
   }
 
   async function check() {
-    const my = ++seq, id = pick;
     stale(); rc.innerHTML = '';
+    const my = ++seq, id = pick;
     const n = open().find((x) => noteId(x) === id && x.eligible);
     if (!n) { rc.hidden = true; return; }
     rc.hidden = false; rc.innerHTML = '<p class="bo-n">Checking this TAC and Bitcoin’s fees…</p>';
@@ -90,31 +92,34 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
         // a long history is read in parts over a minute or more: the line says how far it has got, and a second look at the note joins the reading
         let p = flying.get(id);
         if (!p) {
-          p = (async () => review(T, { note: n, walletPub: hexToBytes(pub), coins: await TS.withKey((t) => freeCoins(t), pub),
-            onProgress: (read) => { if (pick === id && !gone && !rc.querySelector('.kv, .bo-e')) rc.innerHTML = `<p class="bo-n">Reading this TAC’s history from Bitcoin: ${Number(read).toLocaleString('en-US')} transfers so far…</p>`; } }))()
+          p = checkNote(T, { note: n, walletPub: hexToBytes(pub),
+            onProgress: (read) => { if (pick === id && !gone && !rc.querySelector('.kv, .bo-e')) rc.innerHTML = `<p class="bo-n">Reading this TAC’s history from Bitcoin: ${Number(read).toLocaleString('en-US')} transfers so far…</p>`; } })
             .finally(() => { if (flying.get(id) === p) flying.delete(id); });
           flying.set(id, p);
         }
-        const got = await p;
-        r = { at: Date.now(), r: got };
-        if (got.ok) reviews.set(id, r);
+        const checked = await p;
+        r = { at: Date.now(), r: checked };
+        if (checked.ok) reviews.set(id, r);
       }
-      if (my !== seq || gone) return;
-      const got = r.r;
+      if (my !== seq || gone || pick !== id) return;
+      if (!r.r.ok) { rc.innerHTML = ''; return notOk(n, r.r, my); }
+      // the coins free for fees are read after the check, every time: they change while a long history is read, and while the receipt sits on the page
+      const got = priceNote(T, { note: n, pf: r.r.pf, coins: await TS.withKey((t) => freeCoins(t), pub) });
+      if (my !== seq || gone || pick !== id) return;
       rc.innerHTML = '';
-      if (!got.ok) return notOk(n, got, my);
       const one = got.one, c = got.cost;
       rc.innerHTML = `<div class="kv"><span>You get</span><b>${esc(fmt(BigInt(n.amount)))} private TAC on Ethereum</b></div>
         <div class="kv"><span>Bitcoin fee</span><b>≈ ${esc(sats(c.fee))}${one ? '' : `, and about ${esc(sats(c.later))} for the burn later`}</b></div>
         <div class="kv"><span>Relay fee</span><b>None</b></div>
         <div class="kv"><span>How</span><b>${one ? 'One Bitcoin transaction' : 'A move, then a burn through a miner'}</b></div>
-        <div class="kv"><span>Arrives</span><b>${one ? 'Usually within a few hours, once Bitcoin’s proof on Ethereum records the burn' : 'A move, then a burn, each waiting for Bitcoin’s proof on Ethereum: usually within a day'}</b></div>`;
+        <div class="kv"><span>Arrives</span><b>${one ? 'Usually within a few hours, once Bitcoin’s proof on Ethereum records the burn' : 'A move, then a burn, each waiting for Bitcoin’s proof on Ethereum: usually within a day'}</b></div>
+        ${one ? '' : '<label class="bo-ack"><input type="checkbox" id="bi-selfburn" checked><span>Send the burn for me once the move is ready. This page must be open with my key.</span></label>'}`;
       if (got.short) {
         const have = BigInt(c.have || 0);
         warn(one ? `This key’s Bitcoin address has ${esc(fmtUnits(have, 8, 8))} BTC free for fees, short of the ${esc(sats(c.need))} this needs. <a href="/#bitcoin/receive">Add bitcoin to it</a>`
           : `The move spends one coin whole: the largest free coin on this key’s Bitcoin address holds ${esc(fmtUnits(have, 8, 8))} BTC, and this needs one of ${esc(sats(c.need))}. <a href="/#bitcoin/receive">Add bitcoin to it</a>`);
       }
-      rv = { at: r.at, r: got, id };
+      rv = { at: r.at, r: got, id };                                                   // `at`: when the rates were read, which is what goes stale
       ackRow.hidden = false; gate();
     } catch (e) { if (my === seq && !gone) { rc.innerHTML = ''; warn(esc(bridgeError(e, plainError))); } }
   }
@@ -172,11 +177,13 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     try {
       priv();
       status(one ? 'Signing the burn and sending it to Bitcoin…' : 'Signing the move to its burn address and sending it to Bitcoin…');
+      const selfBurn = !one && !!$('#bi-selfburn')?.checked;
       const rec = await TS.withKey((t) => begin(t, { review: x.r, priv: priv() }), pub);
+      if (selfBurn) planSet(mem, pub, rec.id, { at: Date.now(), burn: { maxRate: burnMaxRate(x.r.pf) } });
       const tx = rec.burn?.txid || rec.migrate?.revealTxid, sent = !/-signed$/.test(rec.stage);
       pick = null; reviews.clear(); stale(); rc.innerHTML = ''; rc.hidden = true;
       status(sent
-        ? `<span class="bo-ok">✓ ${one ? 'Burn' : 'Move'} sent.</span>${tx ? ` <a href="${MEMPOOL}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 6))} ↗</a>` : ''} ${esc(amount)} shows under Your bridges and ${one ? 'finishes on its own, even if you close this page' : 'goes on from there: its burn is sent from its row once Bitcoin’s proof reaches the move'}.`
+        ? `<span class="bo-ok">✓ ${one ? 'Burn' : 'Move'} sent.</span>${tx ? ` <a href="${MEMPOOL}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 6))} ↗</a>` : ''} ${esc(amount)} shows under Your bridges and ${one ? 'finishes on its own, even if you close this page' : `goes on from there: ${selfBurn ? 'its burn is sent for you once Bitcoin’s proof reaches the move, while this page is open with your key' : 'its burn is sent from its row once Bitcoin’s proof reaches the move'}`}.`
         : `<span class="bo-e">Signed, but Bitcoin did not take it yet.</span> Try again from its row under Your bridges.`);
       mover.tick(true);
     } catch (e) {
@@ -188,13 +195,14 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
 
   list.addEventListener('change', (e) => {
     const r = e.target.closest('input[name="bi-note"]');
-    if (!r || busy) return;
+    if (busy) return paintNotes();                                                   // the receipt on the page is the burn's: the list goes back to the note it is for
+    if (!r) return;
     pick = r.value; status(''); check();
   });
   list.addEventListener('click', (e) => { const b = e.target.closest('[data-split]'); if (b && !busy) split(b.dataset.split); });
   ack.addEventListener('change', gate);
   go.addEventListener('click', start);
-  re.addEventListener('click', () => { if (busy) return; notes = null; reviews.clear(); paintNotes(); load(true); });
+  re.addEventListener('click', () => { if (busy) return; notes = null; reviews.clear(); stale(); rc.hidden = true; paintNotes(); load(true); });
   load();
   return { destroy() { gone = true; seq++; el.hidden = true; el.innerHTML = ''; } };
 }
