@@ -154,7 +154,10 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
         if (my !== seq) return;
         L.q = q ? { ...q, din } : { kind: 'none', error: 'no pool', din };
       } catch (e) { if (my !== seq) return; L.q = { kind: 'none', error: e?.message || String(e), din }; }
-      L.ack = false; paint();
+      // a box ticked for this amount, pair and slippage stands through the lane's own refresh, unless the quote got worse
+      const key = `${L.pay}>${L.get}:${din}:${slip}`, worse = L.ackFor && (L.q.kind !== 'direct' || L.q.minOut < L.ackFor.minOut || impact(L.q) > L.ackFor.impact + 1e-9);
+      if (L.ackFor?.key !== key || worse) { L.ack = false; L.ackFor = null; }
+      paint();
     };
     paint();
     if (now) run(); else qTimer = setTimeout(run, 300);
@@ -305,7 +308,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
   const setAmt = (v) => { L.amt = v; if (L.cls === 'err' && !L.busy) say(''); requote(); };
   host.addEventListener('input', (e) => { if (e.target.id === 'b-amt') setAmt(e.target.value.trim()); });
   host.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'b-amt' && !$('b-go').disabled) $('b-go').click(); });
-  host.addEventListener('change', (e) => { if (e.target.id === 'b-ackbox') { L.ack = e.target.checked; paint(); } });
+  host.addEventListener('change', (e) => { if (e.target.id === 'b-ackbox') { L.ack = e.target.checked; L.ackFor = L.ack && L.q ? { key: `${L.pay}>${L.get}:${L.q.din}:${slip}`, minOut: L.q.minOut, impact: impact(L.q) } : null; paint(); } });
   host.addEventListener('click', (e) => {
     const t = e.target;
     if (t.closest('#b-flip')) { [L.pay, L.get] = [L.get, L.pay]; L.amt = ''; $('b-amt').value = ''; L.q = null; L.ack = false; if (L.cls === 'err' && !L.busy) say(''); paint(); return; }

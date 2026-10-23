@@ -44,6 +44,7 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
   }
 
   // What the key holds, by pool asset id: its unspent notes and their sum. Read again after every swap.
+  let readFailed = false;                                                             // the last read threw: the page offers another
   function read(force = false) {
     if (!key.unlocked) return Promise.resolve(null);
     if (held && !force) return Promise.resolve(held);
@@ -51,8 +52,9 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
     return (heldP ||= (async () => {
       const t = await getUx(), r = await t.balance(key.priv(), { bridge: false });
       if (key.key?.pubHex !== pub) return null;
+      readFailed = false;
       return (held = { pub, at: Date.now(), byAsset: r.byAsset || {}, pending: r.diag?.wrap?.pending || [] });
-    })().finally(() => { heldP = null; }));
+    })().catch((e) => { readFailed = true; throw e; }).finally(() => { heldP = null; }));
   }
   // What the key holds of an asset, less the notes a step still in flight may spend.
   const of = (id) => { const g = held?.byAsset?.[lc(id)]; const notes = (g?.notes || []).filter(free); return { value: notes.reduce((a, n) => a + BigInt(n.value), 0n), notes }; };
@@ -271,7 +273,10 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
 
   return {
     open, lock, read, swap, swapOut, exitCalls, of, most, keyHex,
+    // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
+    relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },
     get held() { return held; },
+    get readFailed() { return readFailed; },
   };
 }

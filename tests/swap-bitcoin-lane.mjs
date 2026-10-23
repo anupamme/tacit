@@ -94,7 +94,7 @@ console.log('the switch');
 {
   const { page, errs, csp } = await fresh();
   const radios = await page.$$eval('.mode [role=radio]', (els) => els.map((e) => [e.dataset.mode, e.getAttribute('aria-checked')]));
-  ok(radios.length === 3 && radios[2][0] === 'bitcoin' && radios[0][1] === 'true', `a Bitcoin switch sits after To your wallet and Private (${JSON.stringify(radios)})`);
+  ok(radios.length === 2 && radios[1][0] === 'bitcoin' && radios[0][1] === 'true', `a Bitcoin switch sits after To your wallet (Private is each side's own switch since 5f915905) (${JSON.stringify(radios)})`);
   ok(await page.getAttribute('[data-mode=bitcoin]', 'aria-label') === 'On Bitcoin', 'it is named "On Bitcoin" for a screen reader');
   ok(!(await visible(page, '#btc')) && await visible(page, '#f-pay'), 'the wallet card is shown and the lane is not');
   await page.click('[data-mode=bitcoin]');
@@ -131,6 +131,15 @@ console.log('a quote, a price warning, the key, the balances');
   ok(/83%/.test(await text(page, '#b-rcpt')) && await visible(page, '#b-ack') && await page.$eval('#b-go', (e) => e.disabled), 'a swap 83% under the pool’s price asks to be accepted, and waits for it');
   await page.check('#b-ackbox');
   ok(!(await page.$eval('#b-go', (e) => e.disabled)), 'accepting enables the swap');
+  // the lane reads the pool again every 45 s and re-quotes: the same quote keeps the box ticked and the button ready
+  await page.waitForTimeout(47000);
+  ok((await page.$eval('#b-ackbox', (e) => e.checked)) && !(await page.$eval('#b-go', (e) => e.disabled)), 'the acceptance stands through the lane\'s own refresh when the quote is unchanged');
+  await type(page, '0.002');
+  await page.waitForFunction(() => !document.querySelector('#b-out').classList.contains('ph'), null, { timeout: 8000 });
+  ok(!(await page.$eval('#b-ackbox', (e) => e.checked)) && (await page.$eval('#b-go', (e) => e.disabled)), 'a new amount asks again');
+  await type(page, '0.001');
+  await page.waitForFunction(() => !document.querySelector('#b-out').classList.contains('ph'), null, { timeout: 8000 });
+  await page.check('#b-ackbox');
   await type(page, '0.5');
   ok(/Move your bridged tETH first/.test(await text(page, '#b-go')) && !(await page.$eval('#b-go', (e) => e.disabled)), 'more than the trading address holds, with a bridged note waiting, leads to the move and not to a dead end (TAC the key does not hold is still refused, below)');
   await page.click('[data-quick="0.0125"]');

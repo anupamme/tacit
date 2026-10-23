@@ -623,6 +623,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 
+// ── a shared link whose Get token is on the onchain list: the card follows the list, not only the Pay side ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?from=TAC&to=LUSD&amt=100' });
+  await until(page, () => /LUSD/.test(document.querySelector('#get-coin')?.textContent || ''), null, 90000);
+  ok((await page.inputValue('#amt')) === '100' && (await page.textContent('#pay-coin')).includes('TAC'), 'a link to sell 100 TAC for LUSD opens on TAC → LUSD once the list is in, with its amount');
+  await quoted(page);
+  ok(/LUSD/.test(await page.textContent('#rcpt')) && /LUSD/.test(await page.textContent('#get-coin')), `the quote is for LUSD, the token the link named (${(await page.textContent('#rcpt')).replace(/\s+/g, ' ').slice(0, 80)})`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 2).join(' | ') : ''}`);
+  await browser.close();
+}
+
 // ── an old link's ?to=cusd still opens on the same token, now named tacUSD ──
 {
   const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?to=cusd' });

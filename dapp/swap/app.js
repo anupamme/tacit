@@ -156,7 +156,9 @@ function setSide(side, priv) {
   const k = side === 'pay' ? 'inP' : 'outP';
   if (S[k] === priv || S.busy) return;
   const was = side === 'pay' ? S.pay : S.get, now_ = priv ? (isEth(was) ? 'teth' : inPool(was) ? was : 'teth') : was === 'teth' ? lc(R.ZERO) : was;
+  const amt = S.amt;
   keepAmt(() => { S[k] = priv; if (side === 'pay') S.pay = now_; else S.get = now_; fit(side === 'pay' ? 'get' : 'pay'); });
+  if (side === 'pay' && (isEth(was) || was === 'teth') && (isEth(S.pay) || S.pay === 'teth')) S.amt = amt;          // ETH and tETH are the same unit: what was typed stands
   if (priv) { warmPrivate(); farmsSoon(); }
   S.amt = fitAmt(S.amt); S.q = null; S.pick = null; S.hold = false; S.ack = false; keepUrl(); paint(); requote(true);
 }
@@ -451,7 +453,8 @@ function paintSides() {
   $('#get-coin').setAttribute('aria-label', `Get ${get.sym}. Choose another`);
   const payPriv = S.inP, out = kindOf(S.pay, S.get) === 'pout', inPriv = S.outP;
   // out of the pool with no wallet connected here there is no address to default to: the field opens to ask for one
-  if (out && !S.to && !S.toBad && !W.account) S.toOpen = true;
+  if (out && !S.to && !S.toBad && !W.account && !S.toAsked) { S.toOpen = true; S.toAsked = true; }
+  if (!out) S.toAsked = false;
   $('#f-pay').classList.toggle('priv', payPriv); $('#f-get').classList.toggle('priv', inPriv);
   const to = S.inP ? outTo() : recipient(), gw = $('#get-where');
   gw.className = `where${inPriv ? ' priv' : ''}`; gw.textContent = inPriv ? 'private on Ethereum' : S.to && to ? `to ${shortAddr(to)}` : out && !W.account ? 'to an address' : 'to your wallet';
@@ -464,7 +467,7 @@ function paintSides() {
   $('#flip').disabled = !kindOf(S.get, S.pay);
   const bal = payPriv ? privBal(S.pay) : W.account ? S.bal[S.pay] : null, wei = parseUnits(S.amt, pay.dec);
   const side = $('#pay-side');
-  if (payPriv && bal == null) side.innerHTML = PV?.unlocked ? '<span>Reading your private balance…</span>' : '<button type="button" id="pv-open">Your private balance</button>';
+  if (payPriv && bal == null) side.innerHTML = PV?.unlocked ? `<span>Reading your private balance…${PV.readFailed ? ' <button type="button" id="pv-read">Read again</button>' : ''}</span>` : '<button type="button" id="pv-open">Your private balance</button>';
   else if (bal != null) side.innerHTML = `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
   else if (!S.amt) side.innerHTML = `<span class="quick">${((poolUnits() ? QUICK_PRIV : QUICK)[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
   else side.textContent = '';
@@ -523,6 +526,7 @@ function paintQuote() {
     const depth = r.priv && q.pools?.length ? `Pool depth: ${q.pools.map((p) => `${tidy(amtFmt(p.ra, 8))} ${PSYM[p.a]} · ${tidy(amtFmt(p.rb, 8))} ${PSYM[p.b]}`).join(' and ')}` : '';
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`, '', depth]);
     if (!r.priv || (r.pout && !isEth(S.get))) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
+    else if (r.priv && !r.pout) lines.push(['At least', `${tidy(amtFmt(((r.out / E10) * 99n / 100n) * E10, get.dec))} ${get.sym}`]);
     if (r.sell?.rest > 0n) lines.push(['Plus', `about ${tidy(amtFmt(r.sell.rest, 18))} WETH`]);
     if (r.any?.hop || r.sell || r.buy || r.agg || r.pin) lines.push(['Route', r.name, '', r.agg?.quotes?.length ? `Compared with ${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''}` : '']);
     // what the route adds over the best single pool, and how KyberSwap's figure for the same trade compares (a reference: the swap itself goes
@@ -706,7 +710,8 @@ async function prepare(P, from) {
     tx = R.buildAnyToTac({ quote: q, account: from, to: dest, minOut: floor, keccak256: keccak_256, access });
   } else if (P.kind === 'out') {
     const q = await within(R.quoteTacitToToken({ ethCall, venues, tokenIn: P.pay, tokenOut: P.get, amountIn: P.wei, account: from, to: dest, slippageBps: S.slip, deadline: dl }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
-    if (!q || q.out < P.floor) return moved();
+    // the hop's calldata carries its own limit, which the builder cannot raise: it is sent only when that limit still pays at least what was shown
+    if (!q || q.out < P.floor || q.min < (P.r.min ?? P.floor)) return moved();
     tx = R.buildTacitToToken({ quote: q, account: from, to: dest, venues, access: await tacitAccess(P.pay, q.amountIn, from, dl) });
   } else if (P.kind === 'in') {
     { const live = await R.ammRouteLive({ ethCall }); if (live !== true) { if (live === false) S.ammRoute = false; say(live === false ? 'That swap is not available right now. Nothing was sent.' : 'Could not check that swap right now. Nothing was sent; try again.', '', true); S.busy = false; paint(); return null; } }
@@ -1081,6 +1086,9 @@ async function pinGo(r) {
     idsOf(t);
     await pv.open();
     say('Reading the price again…');
+    // the relay's state and the pool's price are asked before the token is sold for ETH: a held relay or a price past the quote stops it here, with the token still in the wallet
+    await pv.relayOpen();
+    if (getKey !== 'teth') await pv.priceOk(IDS.eth, q.ethIn / E10, (q.pools || []).map((p) => ({ assetNext: IDS[p.b], feeBps: p.feeBps })), q.fee ?? 0n, (r.out / E10) * 99n / 100n);
     const r1 = await within(A.bestRoute({ ethCall, to: from, refundTo: from, tokenIn: payKey, tokenOut: R.ZERO, amountIn: q.wei, slippageBps: S.slip, deadline: chainDeadline(1200) }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
     if (!r1 || r1.min < q.ethIn) { say('The price moved below what was quoted. Nothing was sent; the quote above is the new one.', '', true); return; }
     const tx = await aggTx(r1, from);
@@ -1123,7 +1131,9 @@ async function pinGo(r) {
   }
 }
 
+let pkClose = null;
 function openPicker(side) {
+  pkClose?.({ keep: true });
   if (!(TL.rows.length && Date.now() - TL.at < TL.day)) loadList().then(() => { if (!$('#pk').hidden && side === 'pay' && !$('#pk-q')?.value && TL.rows.length) openPicker(side); });
   const pk = $('#pk'), keys = side === 'pay' ? payList() : getList(), cur = side === 'pay' ? S.pay : S.get;
   const row = (k) => {
@@ -1146,9 +1156,10 @@ function openPicker(side) {
     if (!f.length) return;
     if (e.shiftKey ? a === f[0] || !pk.contains(a) : a === f[f.length - 1] || !pk.contains(a)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
   };
-  const close = () => { document.removeEventListener('keydown', onKey, true); pk.hidden = true; pk.innerHTML = ''; $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
+  const close = ({ keep = false } = {}) => { document.removeEventListener('keydown', onKey, true); if (pkClose === close) pkClose = null; if (keep) return; pk.hidden = true; pk.innerHTML = ''; $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
   document.addEventListener('keydown', onKey, true);
-  pk.querySelector('.pk-x').onclick = close;
+  pkClose = close;
+  pk.querySelector('.pk-x').onclick = () => close();
   pk.onclick = (e) => {
     if (e.target === pk) return close();
     const b = e.target.closest('[data-k]');
@@ -1285,6 +1296,7 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('[data-watch]')) { const t = tokenOf(e.target.closest('[data-watch]').dataset.watch); if (t) wallet.watchAsset({ address: t.addr, symbol: t.sym, decimals: t.dec }); return; }
   if (e.target.closest('[data-farm-it]')) farmIt();
   if (e.target.closest('#pv-open')) openPrivate().catch(() => {});
+  if (e.target.closest('#pv-read')) { PV?.read(true).then(paint, () => paint()); return; }
   const xr = e.target.closest('[data-exit-run], [data-exit-back]');
   if (xr) exitAct(xr.dataset.exitRun || xr.dataset.exitBack, !!xr.dataset.exitBack).catch(() => {});
 });
@@ -1307,7 +1319,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=3c634104')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=4588a5e5')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">The Bitcoin lane could not be loaded: ${esc(e?.message || e)}</p>`; lane = null; }
 }
@@ -1340,7 +1352,7 @@ readUrl();
 const FIRST_PAIR = `${S.pay}>${S.get}`;
 {
   const q = new URLSearchParams(location.search), named = [q.get('from'), q.get('to')].filter((v) => v && !/^0x/i.test(v));
-  if (named.some((v) => !listed().some((t) => nameIs(t, lc(v))) && lc(v) !== 'teth')) loadList().then(() => { const was = S.pay; readUrl(); if (S.pay !== was) { S.q = null; paint(); if (S.amt) requote(true); } });
+  if (named.some((v) => !listed().some((t) => nameIs(t, lc(v))) && lc(v) !== 'teth')) loadList().then(() => { const was = `${S.pay}>${S.get}:${S.inP}${S.outP}`; readUrl(); if (`${S.pay}>${S.get}:${S.inP}${S.outP}` !== was) { S.q = null; paint(); readBalances().then(paintSides); if (S.amt) requote(true); } });
 }
 {
   const f = new URLSearchParams(location.search).get('from');
@@ -1376,7 +1388,8 @@ const tick = () => {
   ticked = now();
   readPrices().catch(() => {});
   if (now() - routeAt > 300) { routeAt = now(); checkAmmRoute(); }
-  if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (['any', 'out', 'in', 'pout'].includes(S.q.kind) ? 55 : 25)) requote(true);
+  if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (['any', 'out', 'in', 'pout', 'agg', 'pin'].includes(S.q.kind) ? 55 : 25)) requote(true);
+  if (S.inP && PV?.unlocked && !PV.held && !S.busy) PV.read(true).then(paint, () => {});                 // a private balance whose read failed is read again
 };
 setInterval(tick, 30e3);
 setInterval(() => { if (!document.hidden) readBlend(); }, 30e3);
