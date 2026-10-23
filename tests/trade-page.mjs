@@ -429,7 +429,7 @@ try {
       await w2.browser.close();
     }
     await q.click('#in-bal'); await until(q, () => document.querySelector('#amt').value !== '', null, 10000);
-    ok(Number(await q.inputValue('#amt')) > 9.9 && Number(await q.inputValue('#amt')) < 10, `Max leaves 0.004 ETH for the network fee (${await q.inputValue('#amt')})`);
+    ok(Number(await q.inputValue('#amt')) > 9.9 && Number(await q.inputValue('#amt')) < 10, `Max leaves the network fee behind (${await q.inputValue('#amt')})`);
     await q.fill('#amt', '99');
     await until(q, () => /Not enough ETH/.test(document.querySelector('#go')?.textContent || ''), null, 120000);
     ok(await q.$eval('#go', (b) => b.disabled), 'more ETH than the wallet holds says so and cannot be sent');
@@ -529,6 +529,22 @@ try {
     await until(rf.page, () => /Cancelled in your wallet/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(/Nothing was sent/.test(await text(rf.page, '#status')) && (await tacBal(refuser.account)) === 0n && (await ethBal(refuser.account)) === 5n * E18, 'a wallet that refuses the transaction ends with Cancelled, nothing sent, nothing spent');
     await rf.browser.close();
+
+    // a small balance: the fee row says about two cents, so 0.0013 ETH buys 0.0001 ETH of TAC and is not told to leave 0.004 ETH behind
+    const small = await fundedWallet(13n * 10n ** 14n, 1000n * E18), sm = await openPage({ width: 1280, height: 900 }, small);
+    await until(sm.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+    await sm.page.click('#go'); await until(sm.page, () => /Balance/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
+    await sm.page.fill('#amt', '0.0001'); await until(sm.page, () => /Buy TAC|Leave ETH/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    ok((await text(sm.page, '#go')) === 'Buy TAC' && !(await sm.page.$eval('#go', (b) => b.disabled)), `0.0001 ETH from a 0.0013 ETH balance can be sent (${await text(sm.page, '#go')})`);
+    await sm.page.click('#in-bal'); await until(sm.page, () => Number(document.querySelector('#amt').value) > 0 && Number(document.querySelector('#amt').value) < 0.0013, null, 10000);
+    await until(sm.page, () => /Buy TAC|Leave ETH/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
+    ok(Number(await sm.page.inputValue('#amt')) > 0.001 && (await text(sm.page, '#go')) === 'Buy TAC', `Max keeps back about the fee, not 0.004 ETH, and what it fills in can be sent (${await sm.page.inputValue('#amt')}, ${await text(sm.page, '#go')})`);
+    await sm.page.fill('#amt', '0.0013'); await until(sm.page, () => /Leave ETH|Not enough/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    ok((await text(sm.page, '#go')) === 'Leave ETH for the network fee' && (await sm.page.$eval('#go', (b) => b.disabled)), 'all of the balance leaves nothing for the fee and says so');
+    await sm.page.click('[data-side="sell"]'); await sm.page.fill('#amt', '100');
+    await until(sm.page, () => /Sell TAC|Add ETH/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
+    ok((await text(sm.page, '#go')) === 'Sell TAC' && !(await sm.page.$eval('#go', (b) => b.disabled)), `a sale needs ETH for the approval and the swap, not 0.0005 ETH (${await text(sm.page, '#go')})`);
+    await sm.browser.close();
 
     // the card's link: the side and the amount both arrive
     const dl = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500');

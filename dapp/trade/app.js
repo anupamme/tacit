@@ -942,8 +942,9 @@ async function readBalances() {
   if (W.account === who) S.bal = { eth, tac };
 }
 const spendable = () => (S.bal ? (S.side === 'buy' ? S.bal.eth : S.bal.tac) : null);
-// ETH a buy must leave for its own network fee: half again the fee at the gas price now (the widest route's gas), and never under 0.004 ETH.
-const gasReserve = (P = null) => { const units = ROUTE_GAS[P?.split ? 'split' : P?.rt?.single?.venue || 'split']?.[0] || ROUTE_GAS.split[0]; const fee = D.gasPrice != null ? (BigInt(units) * D.gasPrice * 3n) / 2n : 0n; return fee > 4n * 10n ** 15n ? fee : 4n * 10n ** 15n; };
+// ETH a trade must leave for its own network fee: twice the route's gas at the gas price now (room for a price that rises before it is signed and for the wallet's padding), and for a sale the approval sent first. The fee row says what the trade costs, so a balance that covers both is not held back.
+const APPROVE_GAS = 60000;
+const gasReserve = (P = null, buy = true) => { const at = buy ? 0 : 1, units = ROUTE_GAS[P?.split ? 'split' : P?.rt?.single?.venue || 'split']?.[at] || ROUTE_GAS.split[at]; return BigInt(units + (buy ? 0 : APPROVE_GAS)) * (D.gasPrice ?? 3n * 10n ** 9n) * 2n; };
 function renderBalance() {
   const b = $('#in-bal'), have = spendable();
   b.hidden = have == null;
@@ -987,9 +988,9 @@ function renderGo() {
   if (!routeOf(q) || !D.perEth) { go.textContent = S.shown && !q ? 'Updating the quote…' : 'Reading the pools…'; go.disabled = true; return; }
   const have = spendable();
   if (have != null && wei > have) { go.textContent = `Not enough ${buy ? 'ETH' : 'TAC'}`; go.disabled = true; return; }
-  if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
   const P = planOf();
-  if (buy && have != null && wei + gasReserve(P) > have) { go.textContent = 'Leave ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P), 18, 4)} ETH stays for the fee: Max leaves it`; return; }
+  if (!buy && S.bal && S.bal.eth != null && S.bal.eth < gasReserve(P, false)) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P, false), 18, 5)} ETH is needed for the fee`; return; }
+  if (buy && have != null && wei + gasReserve(P) > have) { go.textContent = 'Leave ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P), 18, 5)} ETH stays for the fee: Max leaves it`; return; }
   go.textContent = buy ? 'Buy TAC' : 'Sell TAC';
   if (P.impact >= 0.1 && S.ack !== ackKey(P)) { go.disabled = true; go.title = 'Tick the box above to accept the price impact'; }
 }
