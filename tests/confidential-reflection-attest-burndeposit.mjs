@@ -194,6 +194,49 @@ const run = async () => {
     eq(j3.input.depositCompletions.length, 0, 'late bundle: a completed deposit is not completed again');
   }
 
+  // ── 6. A batch carries provenance hops only up to its allowance (maxBatchHops): a bundle that does not fit is left out, its
+  //      burn is recorded pending like an unregistered one, and it completes in a later batch. The first bundle is always taken. ──
+  {
+    const BURN2 = dtx(0x21);
+    const twoBurns = { txs: [
+      { txidDisplay: dtx(0x01), rawHex: coinbase, vins: [], decode: null },
+      { txidDisplay: BURN_TXID, rawHex: 'bb'.repeat(40), vins: [{ prevTxidDisplay: dtx(0xb1), vout: 0 }], decode: { type: 'burn', assetId, nullifier: v(0x17ad), dest: v(0xde57), target: TARGET } },
+      { txidDisplay: BURN2, rawHex: 'bc'.repeat(40), vins: [{ prevTxidDisplay: dtx(0xb2), vout: 0 }], decode: { type: 'burn', assetId, nullifier: v(0x17ae), dest: v(0xde58), target: TARGET } },
+    ] };
+    const deep = (nu, dest, prev, hops) => { const b = mkBundle(); b.nu = v(nu); b.dest = v(dest); b.burnedInput = { prevTxid: v(prev), prevVout: 0 }; b.cxfers = Array.from({ length: hops }, () => b.cxfers[0]); return b; };
+    const registry = new Map([[BURN_TXID, deep(0x17ad, 0xde57, 0xb117, 3)], [BURN2, deep(0x17ae, 0xde58, 0xb118, 3)]]);
+    const lookup = async (txids) => { const m = new Map(); for (const t of txids) if (registry.has(t)) m.set(t, registry.get(t)); return m; };
+    let leaf = 0;
+    const kit = { assembler: makeBurnDepositAssembler({ dsha256, cat, bytesToHex }), admitBurnDeposit: () => ({ admitted: true, reason: 'stub', burnedTxid: null, burnedVout: 0, burnedNoteLeaf: v(0x1eaf + leaf++) }) };
+    const make = (maxBatchHops) => makeScanReflectionAttester({
+      deps, storage: freshStore(), prove: async () => ({}), submit: async () => '0x',
+      getBlockTxs: async (h) => (h === GENESIS + 1 ? twoBurns : plainBlock), getHeaders, genesisHeight: GENESIS, batchSize: 1,
+      burnDepositKit: kit, getBurnDeposits: lookup, maxBatchHops,
+    });
+
+    const free = make(0);
+    await free.setTip(GENESIS + 1);
+    const jf = await free.assembleJob();
+    eq(jf.newSnapshot.noteLeaves.length, 2, 'allowance 0: both bundles are taken');
+
+    const tight = make(4);          // 3 + 3 hops against an allowance of 4
+    await tight.setTip(GENESIS + 2);
+    const j1 = await tight.assembleJob();
+    eq(j1.newSnapshot.noteLeaves.length, 1, 'allowance 4: only the first bundle is taken');
+    eq(j1.pendingBurnDeposits.length, 1, 'allowance 4: the second burn is recorded pending');
+    const second = j1.input.blocks[0].txs[2].burnDeposit;
+    eq(second && second.blob, '0x', 'allowance 4: the second burn carries no blob, as an unregistered one');
+    await tight.ackJob(j1.attestedTo, j1.newSnapshot);
+    const j2 = await tight.assembleJob();
+    eq(j2.input.depositCompletions.length, 1, 'allowance 4: the next batch completes the burn that was left out');
+    eq(j2.newSnapshot.noteLeaves.length, 2, 'allowance 4: both burns are onboarded across the two batches');
+
+    const one = make(1);            // smaller than any bundle: the first is still taken
+    await one.setTip(GENESIS + 1);
+    const j3 = await one.assembleJob();
+    eq(j3.newSnapshot.noteLeaves.length, 1, 'allowance 1: the first bundle is always taken, so a batch always progresses');
+  }
+
   if (failures) { console.error(`\n${failures} FAILED`); process.exit(1); }
   console.log('\nall reflection-attest burn-deposit injection checks passed');
 };

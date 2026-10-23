@@ -11,6 +11,29 @@ import { SWAP_BATCH_VK } from '../../dapp/confidential-swapbatch-vk.js';
 import { splitBlockTxs } from './bitcoin-block-parse.js';
 import { makeBurndepAdmission } from './burndep-admission.js';
 
+// The provenance hops a burn-deposit bundle asks the prover to verify: its transfers and cmint authorizations. Proving
+// cost grows with this count (about 20M gas per hop), not with the number of blocks.
+export const bundleHops = (b) => (Array.isArray(b && b.cxfers) ? b.cxfers.length : 0) + (Array.isArray(b && b.cmints) ? b.cmints.length : 0);
+
+// A per-batch allowance of provenance hops. Bundles are taken in the order they are offered (pending completions first,
+// then the batch's blocks in order) until the allowance is used; the first one is always taken, so a batch with any bundle
+// makes progress however deep it is. A bundle left out is treated as unregistered: its burn is recorded pending and
+// completes in a later batch. A limit of 0 takes every bundle.
+export function makeHopBudget(limit) {
+  if (!(limit > 0)) return (m) => m;
+  let left = limit, took = 0;
+  return (m) => {
+    if (!m) return m;
+    const out = new Map();
+    for (const [k, b] of m) {
+      const hops = bundleHops(b);
+      if (took > 0 && hops > left) continue;
+      out.set(k, b); left -= hops; took++;
+    }
+    return out;
+  };
+}
+
 // ── Full-scan reflection attester (the worker's Bitcoin-state relay) ──
 // The canonical state is a SNAPSHOT (the full-scan ScanReflection: live set + accumulators +
 // coords) persisted at the ATTESTED height. A cycle assembles the un-attested block range by
@@ -33,7 +56,7 @@ import { makeBurndepAdmission } from './burndep-admission.js';
 //                   lookup also covers burns an earlier batch recorded pending, so a bundle registered after
 //                   the burn's block was attested still completes the deposit.
 //   prove/submit as above. batchSize caps blocks per cycle (a huge backlog proves in chunks).
-export function makeScanReflectionAttester({ deps, storage, prove, submit, getBlockTxs, getHeaders, genesisHeight, batchSize = 16, burnDepositKit, getBurnDeposits, listBurnDepositTxids, ethBundleSource, streamBlocks = false, streamWindow = 4 , chainBinding = null }) {
+export function makeScanReflectionAttester({ deps, storage, prove, submit, getBlockTxs, getHeaders, genesisHeight, batchSize = 16, burnDepositKit, getBurnDeposits, listBurnDepositTxids, ethBundleSource, streamBlocks = false, streamWindow = 4 , chainBinding = null, maxBatchHops = 0 }) {
   // Pending burn-deposits whose bundle has been registered. Anyone can add a pending record with a junk 0x2B
   // envelope, so a batch looks up bundles only for records a listing says exist rather than one read per record.
   const norm = (t) => String(t).replace(/^0x/, '').toLowerCase();
@@ -112,6 +135,9 @@ export function makeScanReflectionAttester({ deps, storage, prove, submit, getBl
     // for the attest to land. Returned with the job so the prover can pre-flight it against the chain and
     // refuse to buy a proof that cannot possibly settle (see reflection-folder's drift guard).
     const priorDigest = idx.digest();
+    // Bundle lookups for this batch draw on one hop allowance (maxBatchHops; 0 = unlimited).
+    const hopBudget = makeHopBudget(maxBatchHops);
+    const takeBundles = getBurnDeposits ? async (txids, h) => hopBudget(await getBurnDeposits(txids, h)) : null;
     const headers = await getHeaders(heights);
     let input;
     if (streamBlocks) {
@@ -128,7 +154,7 @@ export function makeScanReflectionAttester({ deps, storage, prove, submit, getBl
       // after the block scan.
       if (burnDeposits) {
         const pendingTxids = await registeredPending(idx);
-        const bd = pendingTxids.length ? await getBurnDeposits(pendingTxids, from - 1) : null;
+        const bd = pendingTxids.length ? await takeBundles(pendingTxids, from - 1) : null;
         if (bd) for (const [k, v] of bd) burnDeposits.set(k, v);
       }
       const cache = new Map();
@@ -141,7 +167,7 @@ export function makeScanReflectionAttester({ deps, storage, prove, submit, getBl
           const blk = await cache.get(i);
           cache.delete(i); ensure(i + streamWindow);
           if (burnDeposits) {
-            const bd = await getBurnDeposits((blk.txs || []).map((t) => t.txidDisplay), from - 1);
+            const bd = await takeBundles((blk.txs || []).map((t) => t.txidDisplay), from - 1);
             if (bd) for (const [k, v] of bd) burnDeposits.set(k, v);
           }
           return blk;
@@ -169,7 +195,7 @@ export function makeScanReflectionAttester({ deps, storage, prove, submit, getBl
       let burnDeposits;
       if (burnDepositKit && getBurnDeposits) {
         const txids = blocks.flatMap((b) => (b.txs || []).map((t) => t.txidDisplay));
-        burnDeposits = await getBurnDeposits([...new Set([...txids, ...(await registeredPending(idx))])], from - 1);
+        burnDeposits = await takeBundles([...new Set([...(await registeredPending(idx)), ...txids])], from - 1);
       }
       // Mode-B reverse reflection (ETH→BTC): if an eth-reflection bundle source is wired, fetch the eth
       // proof's attested sets for this range (+ the resolved Bitcoin source note per consumed ν) and assemble
@@ -349,6 +375,9 @@ export function buildScanReflectionAttester(env, { deps, api, apiRawBytes, netwo
   const streamBlocks = env.REFLECTION_STREAM === '1';
   const cap = streamBlocks ? Math.max(1, parseInt(env.REFLECTION_MAX_BATCH || '64', 10)) : MAX_BATCH;
   const batchSize = Math.min(cap, Math.max(1, parseInt(env.REFLECTION_BATCH_SIZE || '6', 10)));
+  // Provenance hops one batch may carry (REFLECTION_MAX_BATCH_HOPS, 0 = no limit): the prover's gas for a batch grows with
+  // them, and a bundle that does not fit waits for the next batch (see makeHopBudget).
+  const maxBatchHops = Math.max(0, parseInt(env.REFLECTION_MAX_BATCH_HOPS || '400', 10) || 0);
   const listBurnDepositTxids = async () => {
     const prefix = `reflection:burndep:${network}:`;
     const out = [];
@@ -360,7 +389,7 @@ export function buildScanReflectionAttester(env, { deps, api, apiRawBytes, netwo
     } while (cursor);
     return out;
   };
-  const att = makeScanReflectionAttester({ deps, storage, prove, submit, getBlockTxs, getHeaders, genesisHeight, batchSize, burnDepositKit: kit, getBurnDeposits, listBurnDepositTxids, ethBundleSource, streamBlocks , chainBinding: env.REFLECTION_CHAIN_BINDING || null });
+  const att = makeScanReflectionAttester({ deps, storage, prove, submit, getBlockTxs, getHeaders, genesisHeight, batchSize, burnDepositKit: kit, getBurnDeposits, listBurnDepositTxids, ethBundleSource, streamBlocks , chainBinding: env.REFLECTION_CHAIN_BINDING || null, maxBatchHops });
   // Exposed so callers outside the fold path (the cron's header-cache warm-up, POST /reflection/burndep/check)
   // can reuse the exact same admission logic + blockWitness cache without constructing a second kit/instance.
   return { ...att, admission };
