@@ -931,7 +931,8 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-connect]')) { connectWallet(); return; }
   if (e.target.closest('[data-cancel]')) { run('cancel'); return; }
   const m = e.target.closest('[data-mine]');
-  if (m && !m.closest('#btc-mine')) { e.preventDefault(); const p = params(); p.delete('a'); history.replaceState(null, '', location.pathname + (p.toString() ? `#${p}` : '')); S.view = null; refresh(); }
+  // (the Bitcoin panel re-draws its buttons as it handles a press, so by now the one pressed is out of the page: the path the press took says where it was)
+  if (m && !e.composedPath().some((n) => n.id === 'btc-mine')) { e.preventDefault(); const p = params(); p.delete('a'); history.replaceState(null, '', location.pathname + (p.toString() ? `#${p}` : '')); S.view = null; refresh(); }
 });
 addEventListener('hashchange', () => { if (onBtc()) { showSide(); return; } readHash(); if (!showSide()) refresh(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && side === 'tac') refresh(); });

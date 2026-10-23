@@ -4169,16 +4169,17 @@ await step('xtring', async () => {
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
   await go(r.page, '#bridge/out');
-  // A key this browser has no record of is looked for once, on its own (xbDiscover), so its bridged TAC is listed without a press.
-  await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
-    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
-  ok(!(await r.page.$('#xc-look')), 'xtring: bridged TAC is listed on its own for a key this browser has no record of, with no press to look for it');
+  await r.page.waitForSelector('#xc-look', { timeout: 120000 });
+  ok(/Look for it/.test(await text(r.page, '#bridge-body')), 'xtring: bridged TAC is listed on request, so a key that has bridged nothing loads nothing');
   // A key with no private TAC at all is told so, and where to get some, rather than that the amount is "more than your private balance".
   await r.page.fill('#xt-amt', '25');
   await until(r.page, () => /You have no private TAC yet\./.test(document.querySelector('#xt-rcpt')?.textContent || ''), null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(/Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin/.test(await text(r.page, '#xt-rcpt')), 'xtring: a key with no private TAC is told where to get some');
   await r.page.fill('#xt-amt', '');
+  await r.page.click('#xc-look');
+  await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
   const items = await r.page.$$eval('#bridge-body label.brn', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off') })));
   ok(items.length === 2 && items.some((x) => /40 TAC/.test(x.text) && !x.off) && items.some((x) => /30 TAC/.test(x.text) && x.off && /Waiting for Bitcoin’s proof on Ethereum to reach its block/.test(x.text)),
     `xtring: both notes are found with their amounts (the 30 TAC one, past the search's reach, from the note spent to make it); the one the proof has recorded can be chosen, the other says why not (${items.map((x) => x.text).join(' | ')})`);
@@ -8909,7 +8910,7 @@ await step('bridgeout', async () => {
     await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
     await r.page.check('#bo-ack');
     await r.page.click('#bo-go');
-    await until(r.page, () => /can’t take this burn/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
+    await until(r.page, () => /can’t take this one right now/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
     const b2 = await bo();
     ok((await r.page.getAttribute('#bo-s a', 'href')) === '/#bridge/out' && b2.calls.some((c) => c[0] === 'cancel') && /Nothing was burned\./.test(await said()), `bridgeout: a burn the relay refuses says so, drops its intent, says nothing was burned once the chain showed none, and points to the front page (${await said()})`);
