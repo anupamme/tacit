@@ -10,8 +10,7 @@ const SEL = {
   claim: '0x4e71d92d', stake: '0xa694fc3a', stakeWithPermit: '0xecd9ba82', exitAndRemove: '0xbccbe38a', withdrawAndRemove: '0xbd8196a9', exitTo: '0x6ae36ea7', withdrawTo: '0x47d1eebd', nonces: '0x7ecebe00',
 };
 const REWARD_PAID = '0xe2403640ba68fed3a2f88b7557551d1993f84b99bb10ff833f0cf8db0c5e0486';
-const GAS = 3n * 10n ** 15n;
-const FEE_MIN = 10n ** 15n;
+const FARM_GAS = 500000n, GAS_FALLBACK = 3n * 10n ** 9n;     // a deposit's gas, approval and swap included, and the gas price taken when it could not be read
 const strip = (h) => String(h).replace(/^0x/, '');
 const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const addr = (a) => strip(a).toLowerCase().padStart(64, '0');
@@ -63,10 +62,10 @@ export function mountFarm(host, ctx) {
     ];
     if (who) calls.push({ to: FARM, data: SEL.staked + addr(who) }, { to: FARM, data: SEL.earned + addr(who) }, { to: TAC, data: SEL.balanceOf + addr(who) },
       { to: TAC, data: SEL.allowance + addr(who) + addr(FARM) }, { to: POOL, data: SEL.balanceOf + addr(who) }, { to: POOL, data: SEL.allowance + addr(who) + addr(FARM) });
-    const [r, bal] = await Promise.all([batch(calls), who ? ctx.rpc('eth_getBalance', [who, 'latest']).then(BigInt, () => null) : null]);
+    const [r, bal, gp] = await Promise.all([batch(calls), who ? ctx.rpc('eth_getBalance', [who, 'latest']).then(BigInt, () => null) : null, who ? ctx.rpc('eth_gasPrice', []).then(BigInt, () => null) : null]);
     if (!r[0] || !r[2] || !r[4]) throw new Error('the farm did not answer');
     const w = (i) => (r[i] ? wordAt(r[i], 0) : 0n);
-    const x = { who, r0: w(0), r1: w(1), supply: w(2), sp: w(3), totalStaked: w(4), rate: w(5), finish: Number(w(6)), t: Number(w(7)) || now(), staked: w(8), earned: w(9), tac: w(10), allowance: w(11), lp: w(12), lpAllow: w(13), bal, at: now() };
+    const x = { who, r0: w(0), r1: w(1), supply: w(2), sp: w(3), totalStaked: w(4), rate: w(5), finish: Number(w(6)), t: Number(w(7)) || now(), staked: w(8), earned: w(9), tac: w(10), allowance: w(11), lp: w(12), lpAllow: w(13), bal, gp, at: now() };
     const s = Number(x.sp) / 1e18;
     x.live = x.t < x.finish;
     x.perDay = x.live ? x.rate * 86400n : 0n;
@@ -147,7 +146,7 @@ export function mountFarm(host, ctx) {
     go.disabled = false;
     if (!W.account) { go.textContent = 'Connect wallet'; return; }
     go.textContent = { eth: 'Farm with ETH', tac: 'Farm with TAC', pair: 'Farm with ETH + TAC' }[F.mode];
-    if (x && mineX(x) && x.bal != null && x.bal < FEE_MIN) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
+    if (x && mineX(x) && x.bal != null && x.bal < feeMin(x)) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
     go.disabled = !q || q.over || !x || !accepted('fm-ack', q.loss);
   }
   const ackBox = (id, loss, what, prior) => {
@@ -162,7 +161,9 @@ export function mountFarm(host, ctx) {
   };
   const up = (v, dp) => { const u = 10n ** BigInt(18 - dp); return ((v + u - 1n) / u) * u; };
   const mineX = (x) => !!W.account && x?.who === W.account;
-  const spendEth = (x) => (x.bal != null && x.bal > GAS ? x.bal - GAS : 0n);
+  // ETH a deposit leaves for its own fee: twice its gas at the gas price now (Max keeps it), and the fee alone, half again, is the least that lets one go
+  const reserve = (x) => 2n * FARM_GAS * (x?.gp ?? GAS_FALLBACK), feeMin = (x) => (3n * FARM_GAS * (x?.gp ?? GAS_FALLBACK)) / 2n;
+  const spendEth = (x) => (x.bal != null && x.bal > reserve(x) ? x.bal - reserve(x) : 0n);
   const capTac = (v, x) => (mineX(x) && v > x.tac ? x.tac : v), capEth = (v, x) => (mineX(x) && x.bal != null && v > spendEth(x) ? spendEth(x) : v);
   const tacFor = (wei, x) => (x.r0 > 0n ? (wei * x.r1 + x.r0 - 1n) / x.r0 : 0n);
   const ethFor = (tac, x) => (x.r1 > 0n ? (tac * x.r0 + x.r1 - 1n) / x.r1 : 0n);
