@@ -86,7 +86,8 @@ async function fundedWallet() {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false } = {}) {
+async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false, keeperDown = false } = {}) {
+  const keeper = { down: keeperDown };
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
@@ -103,6 +104,8 @@ async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'li
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: r });
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
   });
+  // The private ETH pool's keeper quotes its fee for a withdrawal into a swap: stubbed, so a pass does not depend on a service that may be asleep.
+  await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/quote/, (route) => route.fulfill(keeper.down ? { status: 503, headers: { 'access-control-allow-origin': '*' }, body: '{}' } : { status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ fee: '300000000000000', relayer: '0x' + '00'.repeat(20) }) }));
   // The points program's terms, stubbed so a pass shows they are read: ETH swapped into TAC pays 1,000 points an ETH.
   await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
     body: JSON.stringify({ day: 1, programDay: 1, programDays: 90, program: { startDay: 1, days: 90, dayBudgetWei: '1111111111111111111111', rates: { zswapeth: 1000 }, weights: [{ fromDay: 1, weights: {} }] }, totalPoints: 0, dayBudgetWei: '1111111111111111111111', taking: 0, rows: [] }) }));
@@ -110,7 +113,7 @@ async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'li
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
   await page.goto(`http://127.0.0.1:${WEB}${path}`);
-  return { browser, page, errors, blocked, walletLog };
+  return { browser, page, errors, blocked, walletLog, keeper };
 }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true }); };
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -223,6 +226,20 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok((await rowTips(page)).some((t) => /Pool depth: [\d.,]+ tETH · [\d.,]+ TAC/.test(t)), 'private: the price row keeps how deep the pool is');
     ok(!/Pool/.test(rc) && (await page.$$('#rcpt div')).length <= 6, `private: the receipt stays short (${(await page.$$('#rcpt div')).length} rows)`); }
   await shot(page, 'desktop-private');
+  // to another Tacit address: the get side's link opens a field for one, and the button waits for it to be one
+  ok(/to your private balance/.test(await page.textContent('#get-where')), 'private get: it says the swap lands in your private balance');
+  await page.click('#get-where');
+  ok(await page.isVisible('#to-in') && /Tacit address/.test(await page.getAttribute('#to-in', 'placeholder')), 'its link opens a field for a Tacit address or a name');
+  await page.fill('#to-in', '0x' + '11'.repeat(20));
+  await until(page, () => /Ethereum account address/.test(document.querySelector('#to-note')?.textContent || ''), null, 30000);
+  ok((await page.textContent('#go')) === 'Check the address', 'an Ethereum account address is refused in words, and the button waits');
+  await page.fill('#to-in', '0x02' + 'ab'.repeat(32));
+  await until(page, () => /→ tacit1…/.test(document.querySelector('#go')?.textContent || ''), null, 30000);
+  ok(/Swap privately → tacit1…ababab/.test(await page.textContent('#go')) && /claim it in their Tacit wallet/.test(await page.textContent('#to-note')), 'a Tacit key is accepted: the button names where it goes and the note says they claim it');
+  ok(!/02abab/.test(page.url()), 'the recipient is not put in the address bar');
+  await page.fill('#to-in', '');
+  await until(page, () => /to your private balance/.test(document.querySelector('#get-where')?.textContent || ''), null, 10000);
+  ok((await page.textContent('#go')) === 'Swap privately', 'cleared, it goes back to your own balance');
   // paid from the private balance too: the card offers to read it, and the chain sees a swap, not whose
   await sidePriv(page, 'pay', true);
   ok((await page.textContent('#pay-coin')).includes('tETH'), 'the pay side made private: the wallet\'s ETH becomes private tETH');
@@ -252,6 +269,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(/Chain seesUSDC to 0x5a5a…5a5a, not from whom/.test(rc), 'out of the pool: the chain sees USDC arriving, not from whom');
     ok(tips.some((t) => /Pool depth: [\d.,]+ cBTC · [\d.,]+ tETH/.test(t)), 'out of the pool: routed through the cBTC pool to tETH first'); }
   ok(!/0x5a5a/.test(page.url()), 'the address is not put in the address bar');
+  // its nudge is a row of the receipt, not a line under the button
+  ok((await page.textContent('#q')).trim() === '', 'out of the pool: nothing is said under the swap button');
+  await until(page, () => !!document.querySelector('#rcpt a[href^="/#farm/private-"], #rcpt a[href^="/vault/"]'), null, 60000).then(() => ok(true, 'out of the pool: the receipt points to the farm that deepens the pool (or the vault)'), () => ok(false, 'out of the pool: the receipt points to the farm that deepens the pool (or the vault)'));
   await shot(page, 'desktop-private-out');
   // a wallet token into the private balance: swapped for ETH on the best onchain route, that ETH made private, then swapped in the pool
   await sidePriv(page, 'pay', false);
@@ -279,7 +299,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok((await page.getAttribute('#later-on', 'role')) === 'switch' && (await page.getAttribute('#later-on', 'aria-checked')) === 'false', 'Swap privately is a switch, off to start');
   await page.click('#later-on');
   ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && /Deposit/.test(await page.textContent('#later .pre')) && /Wait/.test(await page.textContent('#later .pre')) && /Swap/.test(await page.textContent('#later .pre')), 'turned on, it shows the three steps it takes');
-  await until(page, () => /ETH$|unavailable/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  await until(page, () => /ETH$/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
   { const d0 = await page.textContent('#later-dep');
     ok(/^[\d.]+ ETH$/.test(d0) && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')) && !/\d\.\d{4,}/.test(await page.textContent('#later-xv')), `the deposit is the swap, the relay's fee and a buffer a slider sets, shown in two figures (${d0}, ${await page.textContent('#later-xv')})`);
     await page.$eval('#later-x', (el) => { el.value = '80'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -353,6 +373,28 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(await u.page.isVisible('.sw-foot'), 'and a public swap has it');
   await u.browser.close();
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+}
+
+// ── Swap privately with the relay's fee unreadable: the button says so and Try again reads it again, nothing is sent meanwhile ──
+{
+  const w = await fundedWallet();
+  const { browser, page, errors, walletLog, keeper } = await openPage({ width: 1280, height: 900 }, { wallet: w, keeperDown: true, path: '/swap/?to=USDC&amt=0.1' });
+  await page.click('#wallet-chip');
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  await quoted(page); await ackIf(page);
+  await page.click('#later-on');
+  await page.fill('#to-in', '0x' + '5a'.repeat(20));
+  await until(page, () => /unavailable/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  await until(page, () => document.querySelector('#go').textContent === 'Try again', null, 30000);
+  ok((await page.textContent('#go')) === 'Try again' && !(await page.isDisabled('#go')), 'the relay\'s fee cannot be read: the button says Try again');
+  keeper.down = false;
+  const sent = walletLog.sends.length;
+  await page.click('#go');
+  await until(page, () => /^Deposit [\d.]+ ETH$/.test(document.querySelector('#go').textContent), null, 30000);
+  ok(/^[\d.]+ ETH$/.test(await page.textContent('#later-dep')) && walletLog.sends.length === sent, `Try again reads the fee again, and the deposit is offered (${await page.textContent('#go')}); nothing was sent meanwhile`);
+  { const own = errors.filter((e) => !/status of 503/.test(e));                 // the browser logs the 503 this block returns on purpose
+    ok(!own.length, `no page errors${own.length ? ': ' + own.slice(0, 3).join(' | ') : ''}`); }
+  await browser.close();
 }
 
 // ── a swap kept for later: its deposit, its wait and its swap out, drawn again from this browser on a later visit ──

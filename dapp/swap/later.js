@@ -5,7 +5,7 @@
 // signer can send it instead. What is left of the deposit stays a private note in the pool. Each swap's plan is kept in this browser until done.
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 import { checkZRouterCall } from '/zrouter-guard.js';
-import { bestRoute } from '/swap/aggregate.js?cb=79df325d';
+import { bestRoute } from '/swap/aggregate.js?cb=5ec6895b';
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 export const CHAIN = { chainId: 1, rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
@@ -134,12 +134,13 @@ export function makeLater({ keyHex, signer, ethCall, store = globalThis.localSto
   }
   function save(plan) { keepPlans([plan, ...readPlans(store).filter((p) => p.id !== plan.id)], store); }
   const forget = (id) => keepPlans(readPlans(store).filter((p) => p.id !== id), store);
-  // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a note of exactly its amount; its swap out
+  // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a new note of exactly its amount; its swap out
   // spent the swap's ETH, so the balance is at least that much under what it was before.
   async function check(plan) {
     const w = await wallet(), s = await w.sync(), notes = w.notes();
     if (!plan.depositedAt) {
-      if (notes.some((n) => BigInt(n.v) === BigInt(plan.depositWei))) { plan.state = 'waiting'; plan.depositedAt = plan.at; plan.err = null; }
+      // a note of exactly its amount that the pool made after the plan began: an older note of the same size is some other money
+      if (notes.some((n) => BigInt(n.v) === BigInt(plan.depositWei) && Number(n.index) >= Number(plan.leaves0 || 0))) { plan.state = 'waiting'; plan.depositedAt = plan.at; plan.err = null; }
       else { plan.state = 'stopped'; plan.err = 'The deposit is not in the pool. If it was sent, it did not land.'; }
     } else if (plan.balBefore != null && s.balance + BigInt(plan.swapWei) <= BigInt(plan.balBefore)) {
       plan.state = 'done'; plan.doneAt = Date.now(); plan.err = null; delete plan.from;

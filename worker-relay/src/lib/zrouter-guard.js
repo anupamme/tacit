@@ -1,7 +1,7 @@
 // What zQuoter may hand back for zRouter to run, read against the terms that were asked for. A quoter answers with ready-made
-// calldata, and zRouter runs each call as the sender. The answer is accepted only when it is a swap, a short chain of swaps, or a
-// split of the input across side-by-side swaps, through zRouter's own routes, that takes the asked token from the sender and pays
-// the asked recipient: no executor call, no sweep, no permit, no other function. worker-relay/src/lib/zrouter-guard.js is the same file (tests/zrouter-guard.test.mjs).
+// calldata, and zRouter runs each call as the sender. The answer is accepted only when it is a swap, a short chain of swaps, a split of
+// the input across side-by-side swaps, or a mix of those (paths side by side, each a swap or a chain), through zRouter's own routes,
+// that takes the asked token from the sender and pays the asked recipient: no executor call, no sweep, no permit, no other function. worker-relay/src/lib/zrouter-guard.js is the same file (tests/zrouter-guard.test.mjs).
 
 export const ZROUTER = '0x000000000000fb114709235f1ccbffb925f600e4';
 export const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
@@ -82,6 +82,9 @@ export function decodeZRouterCall(callData) {
 //   A chain is exact-in swaps, each after the first with an amount of 0 (it spends what the one before paid): an amount of its own would make the router pull the difference from the sender.
 //   A split is exact-in swaps side by side, each taking the asked token and paying the asked token to the asked recipient: its
 //   amounts add up to what is spent and its limits to the least it pays.
+//   A mix is paths side by side: each path starts with an exact-in swap of the asked token (an amount of its own), goes on in swaps that
+//   each take what the one before left with the router (an amount of 0), and ends paying the asked token to the asked recipient; the
+//   amounts of the paths' first swaps add up to what is spent and the limits of their last swaps to the least it pays.
 //   maxIn   the most the sender may be made to spend on the first swap (its amount when exact-in, its limit when exact-out).
 //   minOut  the least the last swap may pay (its limit when exact-in, its amount when exact-out).
 // → null when the call is acceptable, else the reason it is refused.
@@ -92,6 +95,8 @@ export function checkZRouterCall(callData, want) {
   const first = legs[0], last = legs[legs.length - 1];
   const split = legs.length > 1 && legs.every((l) => lc(l.tokenIn) === lc(want.tokenIn) && lc(l.tokenOut) === lc(want.tokenOut) && lc(l.to) === lc(want.to));
   if (split) return checkSplit(legs, want, pools);
+  // a chain leaves each swap's output with the router; a swap that pays elsewhere before the last is a path of its own: paths side by side
+  if (legs.length > 1 && !legs.slice(0, -1).every((l) => lc(l.to) === router)) return checkPaths(legs, want, pools, router);
   if (lc(first.tokenIn) !== lc(want.tokenIn)) return 'the swap does not take the asked token';
   if (lc(last.tokenOut) !== lc(want.tokenOut)) return 'the swap does not pay the asked token';
   if (lc(last.to) !== lc(want.to)) return 'the swap does not pay the asked recipient';
@@ -118,6 +123,40 @@ export function checkZRouterCall(callData, want) {
     const paid = last.exactOut ? last.amount : last.limit;
     if (paid < BigInt(want.minOut)) return 'the swap can pay less than allowed';
   }
+  return null;
+}
+function checkPaths(legs, want, pools, router) {
+  const paths = [];
+  for (const l of legs) {
+    if (l.exactOut) return 'a multi-path swap holds an exact-out swap';
+    const cur = paths[paths.length - 1], end = cur && cur[cur.length - 1];
+    if (l.amount === 0n) {
+      // it goes on from the swap before it: that one left its output with the router, and this one takes exactly that token
+      if (!end || lc(end.to) !== router || lc(end.tokenOut) !== lc(l.tokenIn)) return 'a later swap does not follow the one before it';
+      cur.push(l);
+    } else {
+      if (end && lc(end.to) === router) return 'a swap left its output with the router';
+      paths.push([l]);
+    }
+  }
+  const tail = paths[paths.length - 1];
+  if (lc(tail[tail.length - 1].to) === router) return 'a swap left its output with the router';
+  let spent = 0n, paid = 0n;
+  for (const p of paths) {
+    const a = p[0], z = p[p.length - 1];
+    if (lc(a.tokenIn) !== lc(want.tokenIn)) return 'the swap does not take the asked token';
+    if (lc(z.tokenOut) !== lc(want.tokenOut)) return 'the swap does not pay the asked token';
+    if (lc(z.to) !== lc(want.to)) return 'the swap does not pay the asked recipient';
+    for (const l of p) {
+      if (l.pools) for (const q of l.pools) if (!pools.has(q)) return 'the curve route uses a pool that is not allowed';
+      if (want.deadline != null && l.deadline !== BigInt(want.deadline)) return 'the swap has another deadline';
+    }
+    spent += a.amount; paid += z.limit;
+  }
+  if (want.exactOut) return 'the swap is not the asked kind';
+  if (want.amount != null && spent !== BigInt(want.amount)) return 'the swap has another amount';
+  if (want.maxIn != null && spent > BigInt(want.maxIn)) return 'the swap can spend more than allowed';
+  if (want.minOut != null && paid < BigInt(want.minOut)) return 'the swap can pay less than allowed';
   return null;
 }
 function checkSplit(legs, want, pools) {

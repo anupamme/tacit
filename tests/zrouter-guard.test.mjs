@@ -148,4 +148,30 @@ assert.throws(() => decodeZRouterCall('0x12345678'), /not a swap/);
   ok(zeroed !== sp.callData && checkZRouterCall(zeroed, { ...sp.want, amount: undefined, maxIn: undefined }) !== null, 'refuses a split leg that spends nothing of its own');
 }
 
+
+// A mix: paths side by side, a direct swap paying the recipient and a chain through the router, each ending at the recipient.
+{
+  const hy = fixtures.find((f) => f.label.startsWith('UNI->USDT hybrid'));
+  const legs = decodeZRouterCall(hy.callData);
+  ok(legs.length === 3 && legs[0].amount > 0n && legs[1].amount > 0n && legs[2].amount === 0n && legs[1].to.toLowerCase() === ZROUTER, 'a mix decodes to a direct swap, a first hop that stays with the router and a second hop that spends what it paid');
+  ok(checkZRouterCall(hy.callData, hy.want) === null, 'a real mix of a direct swap and a chain through ETH is accepted');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, amount: BigInt(hy.want.amount) + 1n }) !== null, 'refuses a mix whose paths do not spend exactly the amount');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, maxIn: BigInt(hy.want.maxIn) - 1n }) !== null, 'refuses a mix that spends more than allowed');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, minOut: BigInt(hy.want.minOut) + 1n }) !== null, 'refuses a mix whose last limits add up to less than the least it may pay');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, exactOut: true }) !== null, 'refuses a mix asked for as exact-out');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, deadline: 1 }) !== null, 'refuses a mix with another deadline');
+  ok(checkZRouterCall(hy.callData, { ...hy.want, to: OTHER }) !== null && checkZRouterCall(hy.callData, { ...hy.want, tokenOut: OTHER }) !== null && checkZRouterCall(hy.callData, { ...hy.want, tokenIn: OTHER }) !== null, 'refuses a mix asked for another recipient, output or input');
+  // the direct swap sent elsewhere, or the chain's last swap: a path that does not end at the recipient
+  const direct = hy.callData.replace(pad(hy.want.to), pad(OTHER));
+  ok(direct !== hy.callData && checkZRouterCall(direct, hy.want) !== null, 'refuses a mix whose direct swap pays another address');
+  const last = hy.callData.split(pad(hy.want.to)); const lastBent = last.slice(0, -1).join(pad(hy.want.to)) + pad(OTHER) + last[last.length - 1];
+  ok(lastBent !== hy.callData && checkZRouterCall(lastBent, hy.want) !== null, 'refuses a mix whose chain ends at another address');
+  // the first hop paying the recipient instead of the router: the second hop then follows a swap that left nothing with the router
+  const hop = hy.callData.replaceAll(pad(ZROUTER), pad(hy.want.to));
+  ok(hop !== hy.callData && checkZRouterCall(hop, hy.want) !== null, 'refuses a second hop that does not follow a swap that stayed with the router');
+  // a leg's own amount zeroed: a path that takes nothing of the asked token
+  const hopAmt = legs[1].amount.toString(16).padStart(64, '0'), zeroed = hy.callData.replace(hopAmt, '0'.repeat(64));
+  ok(zeroed !== hy.callData && checkZRouterCall(zeroed, { ...hy.want, amount: undefined, maxIn: undefined }) !== null, 'refuses a first hop with no amount of its own');
+}
+
 console.log(`${n} checks`);

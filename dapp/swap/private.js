@@ -8,10 +8,23 @@ import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b7
 import { forgetUx } from '/trade/poolux.js?cb=e792b253';
 import { wrapEth, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=efa4f7eb';
 import { wrapQuote } from '/teth/read.js?cb=b2a110d0';
-import { bytesToHex } from '/vendor/tacit-deps.min.js';
+import { secp, keccak_256, sha256, bytesToHex } from '/vendor/tacit-deps.min.js';
 import { makeRunner } from '/activity.js?cb=532a162f';
 
 export { Cancelled, relayWords };
+
+// A Tacit address, a shielded pubkey or a name (name.wei, .gwei, .eth) as the key a private payment is made to. → { pubHex, name? }; throws with a
+// sentence for the person when it is none of them (an Ethereum account address is refused: a private payment needs a Tacit address).
+let namesP = null;
+const names = () => (namesP ||= import('/confidential-names.js').then(({ makeConfidentialNames, makeMainnetCall }) => makeConfidentialNames({ call: makeMainnetCall(), secp, keccak256: keccak_256 })).catch((e) => { namesP = null; throw e; }));
+export async function resolveTacit(raw) {
+  const n = await names();
+  const local = (s) => {
+    try { const d = n.decodeTacitAddress(s); return d.key ? { pubHex: d.key } : { error: 'This Tacit address has no Ethereum-lane key, so it cannot receive a private payment. Ask for their pool address (bp1…) instead.' }; }
+    catch (e) { return /^0x0[23][0-9a-fA-F]{64}$/.test(s) ? { pubHex: s } : { error: e.message }; }
+  };
+  return n.resolveRecipient(String(raw || '').trim(), { local });
+}
 const API = 'https://api.tacit.finance';
 const lc = (s) => String(s || '').toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -230,7 +243,9 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
   async function swap(plan, { wallet, from, say = () => {} }) {
     await open();
     await relayOpen();
-    let note = null;
+    // a payment to the key's own address is refused before anything is sent: it would be a swap into the same balance, by a longer way
+    if (plan.sendTo && lc(plan.sendTo.pubHex) === lc(key.key.pubHex)) throw new Error('That is your own address. Leave it empty to keep the swap in your private balance.');
+    let note = null, before = new Set();
     if (plan.wallet) {
       // priced before the ETH leaves the wallet, so a price already past the quote stops here and not after the deposit
       if (plan.path?.length) await price(plan.asset, plan.units, plan.path, plan.fee, plan.minOut);
@@ -238,7 +253,7 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
       // wrapEth throws with `deposit` once the ETH has left the wallet: the page says where it is and how to finish it
       const { hash, built } = await wrapEth({ priv: () => key.priv(), wei: plan.wei, tip: tq.tip, to: tq.to, from, wallet, say, ux: t });
       held = null;
-      if (!plan.path?.length) return { made: plan.units, txHash: hash };
+      if (!plan.path?.length && !plan.sendTo) return { made: plan.units, txHash: hash };
       say('note');
       for (let i = 0; i < 10 && !note; i++) {
         const h = await read(true).catch(() => null);
@@ -246,15 +261,52 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
         if (!note) await sleep(5000);
       }
       if (!note) throw kept('Your ETH is private now as tETH, but its note is not showing yet. Press again in a minute to swap it.');
+      if (!plan.path?.length) return sendOn({ plan, made: { made: plan.units, txHash: hash }, before, say, direct: note });
     } else {
       await price(plan.asset, plan.units, plan.path, plan.fee, plan.minOut);
       note = await exactNote({ asset: plan.asset, units: plan.units, ticker: plan.ticker, say });
     }
-    try { return await route({ note, ...plan, say }); }
+    // the notes the swap's own asset has now, so the one the route makes is told from them
+    const outAsset = plan.path?.length ? plan.path[plan.path.length - 1].assetNext : plan.asset;
+    before = new Set((held?.byAsset?.[lc(outAsset)]?.notes || []).map((n) => lc(n.leaf)));
+    let made;
+    try { made = await route({ note, ...plan, say }); }
     catch (e) {
       if (pending(e)) throw Object.assign(new Error(`${relayWords(e)} Your swap may still go through: check your private balance in a few minutes before swapping again.`), { pending: true, cause: e });
       if (plan.wallet) throw kept(`Your ETH is private now as tETH, but the swap stopped: ${e.moved ? 'the price moved past what was quoted.' : relayWords(e)}`, e);
       throw e;
+    }
+    return plan.sendTo ? sendOn({ plan, made, before, say }) : made;
+  }
+
+  // What the swap made, sent on to another Tacit address: the note it paid into the balance, locked for the recipient (a stealth payment they claim
+  // in their Tacit wallet, or the sender takes back after ninety days), the lock kept in this browser as the front page keeps it. A stop here leaves
+  // the swap done: its note is in the balance.
+  async function sendOn({ plan, made, before, say, direct = null }) {
+    const outAsset = plan.path?.length ? plan.path[plan.path.length - 1].assetNext : plan.asset;
+    say('note');
+    const note = direct || await newNote(outAsset, before, plan.minOut);
+    const stay = (why) => Object.assign(new Error(`Swapped, and it is in your private balance, but it was not sent on: ${why}`), { stayed: true, made });
+    if (!note) throw stay('its note is not showing yet. Press again in a minute to send it.');
+    const t = await getUx();
+    try {
+      say('send');
+      let built = null;
+      const r = await t.stealthSend({ walletPriv: key.priv(), recipientPubHex: plan.sendTo.pubHex, notes: [note], amount: BigInt(note.value), onBuilt: (b) => { built = b; },
+        waitOpts: { ...run().wait(`${plan.label} to ${plan.sendTo.name || 'a Tacit address'}`, 15 * 60e3), intervalMs: 4000, viaRelay: true } });
+      busy.set(lc(note.leaf), Date.now()); held = null;
+      if (built) {
+        try {
+          const { makeStealthSendStore } = await import('/confidential-secret-store.js');
+          await makeStealthSendStore({ sha256 }).add(key.priv(), { lockLeaf: built.lockLeaf, asset: built.asset, ticker: plan.outTicker || plan.ticker, dec: 8, amount: built.amount, deadline: built.deadline,
+            lCx: built.lCx, lCy: built.lCy, ownerPub: built.ownerPub, lBlinding: built.lBlinding, refundPriv: built.refundPriv, refundPub: built.refundPub,
+            recipientPubHex: built.recipientPubHex, txHash: r?.txHash, createdAt: Date.now(), recipientName: plan.sendTo.name || undefined });
+        } catch { /* the take-back scan finds a lock from the key alone */ }
+      }
+      return { ...made, sent: { to: plan.sendTo.name || null, txHash: r?.txHash || null } };
+    } catch (e) {
+      if (pending(e)) { busy.set(lc(note.leaf), Date.now()); throw Object.assign(new Error(`${relayWords(e)} It may still go through: check your private balance in a few minutes before sending it again.`), { pending: true, made }); }
+      throw stay(relayWords(e));
     }
   }
 

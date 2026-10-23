@@ -19,7 +19,11 @@ const STUBS = {
     export const relayWords = (e) => 'relay: ' + (e?.message || e);`,
   '/teth/read.js': 'export const wrapQuote = async (wei) => { globalThis.M.quoted.push(wei); return { tip: 7n, to: "0xtip" }; };',
   '/activity.js': 'export function makeRunner() { return { wait: (label, ms) => ({ timeoutMs: ms, label, onJob() {} }) }; }',
-  '/vendor/tacit-deps.min.js': 'export const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");',
+  '/vendor/tacit-deps.min.js': 'export const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join(""); export const secp = {}; export const keccak_256 = () => new Uint8Array(32); export const sha256 = () => new Uint8Array(32);',
+  '/confidential-secret-store.js': 'export const makeStealthSendStore = () => ({ add: async (priv, rec) => { globalThis.M.stored.push(rec); } });',
+  '/confidential-names.js': `export const makeMainnetCall = () => ({});
+    export const makeConfidentialNames = () => ({ decodeTacitAddress: (s) => { if (s === 'tacit1good') return { key: '02' + 'cd'.repeat(32) }; throw new Error('not a Tacit address'); },
+      resolveRecipient: async (raw, { local }) => { if (/^0x[0-9a-fA-F]{40}$/.test(raw)) throw new Error('That is an Ethereum account address, and a private send needs a Tacit address.'); if (raw === 'bob.wei') return { pubHex: '02' + 'ab'.repeat(32), name: 'bob.wei' }; const r = local(raw); if (r.error) throw new Error(r.error); return { pubHex: r.pubHex }; } });`,
 };
 const hooks = `const S = ${JSON.stringify(STUBS)};
 export async function resolve(spec, ctx, next) {
@@ -32,8 +36,8 @@ register('data:text/javascript,' + encodeURIComponent(hooks));
 const ETH = '0xeth', TAC = '0xtac';
 const note = (leaf, value, asset = ETH) => ({ leaf, value: BigInt(value), asset, root: '0xroot' });
 
-function setup({ notes = [], deposit = null, quote = 900n, quotes = null, routeErr = [], cutErr = [], fee = 20n, cutFee = 5n, submitErr = [], activation = 'done', routeOut = null } = {}) {
-  const M = globalThis.M = { sheets: 0, forgot: 0, quoted: [], relay: { state: 'ok' }, cancel: false, wraps: [], routes: [], cuts: [], reads: 0, unwraps: [], submits: [] };
+function setup({ notes = [], deposit = null, quote = 900n, quotes = null, routeErr = [], cutErr = [], fee = 20n, cutFee = 5n, submitErr = [], activation = 'done', routeOut = null, stealthErr = null } = {}) {
+  const M = globalThis.M = { sheets: 0, forgot: 0, quoted: [], relay: { state: 'ok' }, cancel: false, wraps: [], routes: [], cuts: [], reads: 0, unwraps: [], submits: [], stealths: [], stored: [] };
   let byAsset = {};
   const put = (ns) => { byAsset = {}; for (const n of ns) { const g = (byAsset[n.asset] ||= { value: 0n, notes: [] }); g.value += n.value; g.notes.push(n); } };
   put(notes);
@@ -47,7 +51,7 @@ function setup({ notes = [], deposit = null, quote = 900n, quotes = null, routeE
       if (BigInt(a.inNote.value) !== BigInt(a.amountIn)) throw new Error('route: partial-spend change is not yet implemented in buildRoute');
       const e = routeErr.shift(); if (e) throw new Error(e);
       // the route's output note: tETH, worth what the swap paid
-      if (routeOut) { notes = [...notes.filter((n) => n.leaf !== a.inNote.leaf), note('0xrouted', routeOut, ETH)]; put(notes); }
+      if (routeOut) { notes = [...notes.filter((n) => n.leaf !== a.inNote.leaf), note('0xrouted', routeOut, a.path?.length ? a.path[a.path.length - 1].assetNext : ETH)]; put(notes); }
       return { txHash: '0xswap' };
     },
     // the exit: a fee of the floor asked (or 1% if more), the rest paid to the recipient
@@ -71,6 +75,14 @@ function setup({ notes = [], deposit = null, quote = 900n, quotes = null, routeE
       return { txHash: '0xcuttx' };
     },
     identity: () => ({ pubHex: '02aa' }),
+    // a stealth lock of the one note to the recipient: the note goes, nothing comes back to the balance
+    stealthSend: async (a) => {
+      M.stealths.push(a);
+      if (stealthErr) throw new Error(stealthErr);
+      notes = notes.filter((n) => !a.notes.some((m) => m.leaf === n.leaf)); put(notes);
+      a.onBuilt?.({ lockLeaf: '0xlock', asset: a.notes[0].asset, amount: String(a.amount), deadline: '1900000000', lCx: '1', lCy: '2', ownerPub: '03aa', lBlinding: '3', refundPriv: '4', refundPub: '5', recipientPubHex: a.recipientPubHex });
+      return { txHash: '0xlocktx' };
+    },
     quoteOpFee: async (tk, kind) => (kind === 'transfer' ? cutFee : fee),
     ladderFee: (v) => v,
   };
@@ -291,4 +303,49 @@ test('an exit the relay refuses after the route: the tETH stays private and the 
 test('the calls a wallet can send for a stuck exit: the swap, or the ETH on to the address', async () => {
   const { ux } = setup();
   assert.deepStrictEqual(await (await load(ux)).exitCalls({}), { router: '0xrouter', activate: '0xact', reclaim: '0xback' });
+});
+
+// ── to another Tacit address ──
+const BOB = { pubHex: '02' + 'ab'.repeat(32), name: 'bob.wei' };
+test('a Tacit address or a name resolves to its key; an Ethereum account address and a stranger are refused in words', async () => {
+  const { resolveTacit } = await import('../dapp/swap/private.js');
+  assert.deepStrictEqual(await resolveTacit(' bob.wei '), BOB);
+  assert.strictEqual((await resolveTacit('tacit1good')).pubHex, '02' + 'cd'.repeat(32));
+  await assert.rejects(resolveTacit('0x' + '11'.repeat(20)), /needs a Tacit address/);
+  await assert.rejects(resolveTacit('nonsense'), /not a Tacit address/);
+});
+
+test('a swap made to a Tacit address: routed, the new note found, locked for them, the lock kept', async () => {
+  const { M, ux } = setup({ notes: [note('0xin', 1000)], routeOut: 880 });
+  const steps = [], r = await (await load(ux)).swap(plan({ sendTo: BOB, outTicker: 'cTAC', path: [{ assetNext: TAC, feeBps: 30 }], minOut: 800n }), { wallet: {}, from: '0xme', say: (k) => steps.push(k) });
+  assert.strictEqual(M.routes.length, 1); assert.strictEqual(M.stealths.length, 1);
+  assert.strictEqual(M.stealths[0].recipientPubHex, BOB.pubHex); assert.strictEqual(M.stealths[0].amount, 880n);
+  assert.strictEqual(M.stealths[0].notes[0].leaf, '0xrouted', 'the note the swap made is the one sent');
+  assert.deepStrictEqual(r.sent, { to: 'bob.wei', txHash: '0xlocktx' });
+  assert.strictEqual(M.stored[0].recipientName, 'bob.wei'); assert.strictEqual(M.stored[0].ticker, 'cTAC', 'the lock is kept under the asset that was sent');
+  assert.deepStrictEqual(steps.filter((k) => ['route', 'note', 'send'].includes(k)), ['route', 'note', 'send']);
+});
+
+test('wallet ETH made private and sent on: the deposit note itself is locked for them, no route', async () => {
+  const { M, ux } = setup({ deposit: note('0xnew', 1000) });
+  const r = await (await load(ux)).swap(plan({ wallet: true, path: [], sendTo: BOB, outTicker: 'cETH' }), { wallet: {}, from: '0xme' });
+  assert.strictEqual(M.routes.length, 0); assert.strictEqual(M.stealths[0].notes[0].leaf, '0xnew'); assert.strictEqual(r.sent.to, 'bob.wei');
+});
+
+test('your own address is refused before anything is sent', async () => {
+  const { M, ux } = setup({ notes: [note('0xin', 1000)], routeOut: 880 });
+  await assert.rejects((await load(ux)).swap(plan({ sendTo: { pubHex: '02aa', name: null } }), { wallet: {}, from: '0xme' }), /your own address/);
+  assert.strictEqual(M.routes.length + M.stealths.length + M.wraps.length, 0);
+});
+
+test('a send that stops after the swap says the swap is done and the note is in the balance', async () => {
+  const { M, ux } = setup({ notes: [note('0xin', 1000)], routeOut: 880, stealthErr: 'relay 400: fee below the current floor' });
+  await assert.rejects((await load(ux)).swap(plan({ sendTo: BOB, path: [{ assetNext: TAC, feeBps: 30 }], minOut: 800n }), { wallet: {}, from: '0xme' }), (e) => e.stayed && /in your private balance, but it was not sent on/.test(e.message) && e.made.txHash === '0xswap');
+  assert.strictEqual(M.stored.length, 0, 'no lock is kept for a payment that was not made');
+});
+
+test('a swap with no recipient sends nothing on', async () => {
+  const { M, ux } = setup({ notes: [note('0xin', 1000)], routeOut: 880 });
+  const r = await (await load(ux)).swap(plan({ path: [{ assetNext: TAC, feeBps: 30 }], minOut: 800n }), { wallet: {}, from: '0xme' });
+  assert.strictEqual(M.stealths.length, 0); assert.strictEqual(r.sent, undefined);
 });

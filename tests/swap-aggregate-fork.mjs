@@ -63,6 +63,27 @@ for (const [label, tokenIn, tokenOut, amountIn] of [['USDC → WBTC', T.USDC, T.
   ok((await bal(tokenOut, ZROUTER)) === 0n || tokenOut === ZERO, `${label}: nothing of it is left at zRouter`);
 }
 
+// ── a mix: a direct swap beside a chain through ETH, found for mid-cap tokens at size, then executed ──
+{
+  const MID = { UNI: ['0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', 37500n * 10n ** 18n], AAVE: ['0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9', 1200n * 10n ** 18n], wstETH: ['0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0', 103n * 10n ** 18n] };
+  const OUT = { UNI: ['USDT', '0xdAC17F958D2ee523a2206206994597C13D831ec7'], AAVE: ['USDC', T.USDC], wstETH: ['USDT', '0xdAC17F958D2ee523a2206206994597C13D831ec7'] };
+  const kinds = [];
+  for (const [sym, [token, amountIn]] of Object.entries(MID)) {
+    const [osym, out] = OUT[sym];
+    await rpc('anvil_dealERC20', [WHO, token, '0x' + amountIn.toString(16)]);
+    const q = await bestRoute({ ethCall: upCall, block: BLOCK, to: WHO, refundTo: WHO, tokenIn: token, tokenOut: out, amountIn, slippageBps: 50, deadline: BigInt(now + 1200) });
+    ok(!!q && q.min > 0n && q.min <= q.out, `${sym} → ${osym} at size: a route that passes the guard (${q ? `${q.kind}: ${q.name}, ${q.out} at least ${q.min}` : 'none'})`);
+    if (!q) continue;
+    kinds.push(q.kind);
+    ok((await send(token, encApprove(ZROUTER, amountIn))).status === '0x1', `${sym}: zRouter may spend exactly the amount`);
+    const in0 = await bal(token, WHO), out0 = await bal(out, WHO), rc = await send(ZROUTER, q.callData, q.value);
+    const got = (await bal(out, WHO)) - out0, spent = in0 - (await bal(token, WHO));
+    ok(rc.status === '0x1' && got >= q.min && spent === amountIn, `${sym}: it runs (${BigInt(rc.gasUsed)} gas), pays ${got} (at least ${q.min}) and spends exactly ${amountIn}`);
+    ok((await bal(out, ZROUTER)) === 0n && (await bal('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', ZROUTER)) === 0n, `${sym}: nothing of the output or the hub's WETH is left at zRouter`);
+  }
+  ok(kinds.includes('hybrid'), `at least one of these pairs is answered with a mix at this block (${kinds.join(', ')})`);
+}
+
 console.log(`\n${n} passed, ${fails} failed`);
 anvil.kill('SIGKILL');
 process.exit(fails ? 1 : 0);

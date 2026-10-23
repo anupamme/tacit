@@ -3,7 +3,7 @@ import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venue
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, RPCS, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=35ce60db';
-import * as A from '/swap/aggregate.js?cb=79df325d';
+import * as A from '/swap/aggregate.js?cb=5ec6895b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -29,6 +29,7 @@ const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blan
 const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon: 'teth', priv: true };
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
+  toTacit: null, toTacitBad: '', toTacitBusy: false,
   tab: 'swap', inP: false, outP: false, btc: false, pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '', ammRoute: null,
 };
@@ -112,6 +113,7 @@ function recipientOf(text) {
   return { addr: lc(t), bad: '' };
 }
 const shortAddr = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const tacitName = (t) => t.name || `tacit1…${String(t.pubHex).slice(-6)}`;
 const recipient = () => (S.to && !S.inP && !S.outP && lc(S.to) !== lc(W.account || '') ? S.to : null);
 // Where a swap out of the private pool goes: the address typed, else the wallet connected here (never taken from the address bar).
 const outTo = () => (kindOf(S.pay, S.get) === 'pout' ? S.to || (W.account ? lc(W.account) : null) : null);
@@ -156,6 +158,7 @@ function setSide(side, priv) {
   const k = side === 'pay' ? 'inP' : 'outP';
   if (S[k] === priv || S.busy) return;
   const was = side === 'pay' ? S.pay : S.get, now_ = priv ? (isEth(was) ? 'teth' : inPool(was) ? was : 'teth') : was === 'teth' ? lc(R.ZERO) : was;
+  if (side === 'get') { S.to = null; S.toBad = ''; S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = false; S.toOpen = false; $('#to-in').value = ''; }
   const amt = S.amt;
   keepAmt(() => { S[k] = priv; if (side === 'pay') S.pay = now_; else S.get = now_; fit(side === 'pay' ? 'get' : 'pay'); });
   if (side === 'pay' && (isEth(was) || was === 'teth') && (isEth(S.pay) || S.pay === 'teth')) S.amt = amt;          // ETH and tETH are the same unit: what was typed stands
@@ -244,7 +247,7 @@ async function signTyped(typed, from) {
 }
 
 const PREVIEW = '0x0000000000000000000000000000000000000001';           // who a quote pays before a wallet is connected
-const GAS = { single: 160000n, twohop: 260000n, tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n };
+const GAS = { single: 160000n, twohop: 260000n, hybrid: 480000n, tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n };
 const picked = (q = S.q) => (q?.rows || []).find((r) => r.k === S.pick) || q?.rows?.find((r) => r.best) || q?.rows?.[0] || null;
 
 let qTimer = 0;
@@ -457,11 +460,16 @@ function paintSides() {
   if (!out) S.toAsked = false;
   $('#f-pay').classList.toggle('priv', payPriv); $('#f-get').classList.toggle('priv', inPriv);
   const to = S.inP ? outTo() : recipient(), gw = $('#get-where');
-  gw.className = `where${inPriv ? ' priv' : ''}`; gw.textContent = inPriv ? 'private on Ethereum' : S.to && to ? `to ${shortAddr(to)}` : out && !W.account ? 'to an address' : 'to your wallet';
-  gw.disabled = inPriv; gw.setAttribute('aria-expanded', String(S.toOpen && !inPriv));
-  $('#to').hidden = inPriv || !S.toOpen; $('#to-in').setAttribute('aria-invalid', String(!!S.toBad));
-  $('#to-in').placeholder = LATER.on || (out && !W.account) ? 'Address it goes to, 0x…' : 'Send to another address, 0x…';
-  $('#to-note').textContent = S.toBad || (to && $('#to-in').value.trim() !== checksum(to) ? checksum(to) : ''); $('#to-note').className = S.toBad ? 'err' : '';
+  gw.className = `where${inPriv ? ' priv' : ''}`; gw.textContent = inPriv ? (S.toTacit ? `to ${tacitName(S.toTacit)}` : 'to your private balance') : S.to && to ? `to ${shortAddr(to)}` : out && !W.account ? 'to an address' : 'to your wallet';
+  gw.disabled = false; gw.setAttribute('aria-expanded', String(S.toOpen));
+  $('#to').hidden = !S.toOpen; $('#to-in').setAttribute('aria-invalid', String(inPriv ? !!S.toTacitBad : !!S.toBad));
+  $('#to-in').placeholder = inPriv ? 'Send to a Tacit address: tacit1… or name.wei' : LATER.on || (out && !W.account) ? 'Address it goes to, 0x…' : 'Send to another address, 0x…';
+  if (inPriv) {
+    $('#to-note').textContent = S.toTacitBad || (S.toTacitBusy ? 'Looking it up…' : S.toTacit ? (S.toTacit.name ? `Sent to ${S.toTacit.name}: they claim it in their Tacit wallet` : 'They claim it in their Tacit wallet') : '');
+    $('#to-note').className = S.toTacitBad ? 'err' : '';
+  } else {
+    $('#to-note').textContent = S.toBad || (to && $('#to-in').value.trim() !== checksum(to) ? checksum(to) : ''); $('#to-note').className = S.toBad ? 'err' : '';
+  }
   const a = $('#amt'); if (a.value !== S.amt) a.value = S.amt;
   fitSize(a);
   $('#flip').disabled = !kindOf(S.get, S.pay);
@@ -543,13 +551,14 @@ function paintQuote() {
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null && (!(r.agg || r.pin) || Math.abs(m) >= 0.01)) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
     if (r.priv) lines.push(...feeLines(q, r));
+    { const nudge = r.priv && privRow(q, r); if (nudge) lines.push(nudge); }
     if (r.pout) lines.push(['Chain sees', `${get.sym} to ${S.to ? shortAddr(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
     else if (r.pin) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} for ETH, then a deposit`]);
     else if (r.priv) lines.push(['Chain sees', isEth(S.pay) ? `your ${tidy(amtFmt(q.wei, 18))} ETH deposited` : 'a swap, not whose']);
     if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
   rc.hidden = !lines.length;
-  rc.innerHTML = lines.map(([k, v, c, t]) => `<div${t ? ` title="${esc(t)}"` : ''}><dt>${esc(k)}</dt><dd class="${c || ''}">${esc(v)}</dd></div>`).join('');
+  rc.innerHTML = lines.map(([k, v, c, t, href]) => `<div${t ? ` title="${esc(t)}"` : ''}><dt>${esc(k)}</dt><dd class="${c || ''}">${href ? `<a href="${esc(href)}">${esc(v)}</a>` : esc(v)}</dd></div>`).join('');
   paintLater(q, r, kind);
   const gate = r && !q.busy && m != null && m <= GATE;
   if (busy) { } else if (gate) {
@@ -575,13 +584,17 @@ function button(q, r, kind, gate) {
   if (!S.amt || !parseUnits(S.amt, pay.dec)) return ['Enter an amount', false];
   if (q?.busy) return ['Finding the best price…', false];
   if (!r) return [q?.err ? 'Try again' : q?.tiny ? 'Amount too small' : 'No route', !!q?.err];
+  // a private side's address field, once something is typed in it: the swap waits for it to be a Tacit address
+  const tTyped = S.outP && S.toOpen && $('#to-in').value.trim() !== '', tLabel = S.toTacit ? ` → ${esc(tacitName(S.toTacit))}` : '';
   if (kind === 'pin') {
     if (!W.account) return ['Connect wallet', true];
+    if (tTyped && S.toTacitBad) return ['Check the address', false];
+    if (tTyped && !S.toTacit) return ['Finding their address…', false];
     const bal = S.bal[S.pay], eth = S.bal[lc(R.ZERO)], tip = q.tip || 0n;
     if (bal != null && q.wei > bal) return [`Not enough ${pay.sym}`, false];
     if (eth != null && tip + 2n * gasKeep() > eth) return ['Keep some ETH for the network fees', false];
     if (gate && !S.ack) return ['Accept the price above to swap', false];
-    return ['Swap privately', true, 'priv'];
+    return [`Swap privately${tLabel}`, true, 'priv'];
   }
   if (kind === 'pout') {
     const pb = privBal(S.pay);
@@ -599,7 +612,9 @@ function button(q, r, kind, gate) {
     if (bal != null && q.wei + tip + gasKeep() > bal) return ['Leave some ETH for the network fee', false];
     if (pb != null && q.wei > pb) return [`Not enough private ${pay.sym}`, false];
     if (gate && !S.ack) return ['Accept the price above to swap', false];
-    return [S.get === 'teth' && isEth(S.pay) ? 'Make it private' : 'Swap privately', true, 'priv'];
+    if (tTyped && S.toTacitBad) return ['Check the address', false];
+    if (tTyped && !S.toTacit) return ['Finding their address…', false];
+    return [S.get === 'teth' && isEth(S.pay) ? (S.toTacit ? `Send privately${tLabel}` : 'Make it private') : `Swap privately${tLabel}`, true, 'priv'];
   }
   if (S.toBad) return ['Check the address', false];
   if (!W.account) return ['Connect wallet', true];
@@ -623,16 +638,16 @@ function lineFor(q, r, kind) {
   if (!kind) return S.inP && S.outP && S.pay === S.get ? 'Pick another coin to get.' : S.inP && tacitKey(S.get) && !S.outP ? `To take it out as ${esc(tokenOf(S.get).sym)}, <a href="/">use the Tacit app</a>.` : !S.inP && S.outP && tacitKey(S.pay) ? `To make ${esc(tokenOf(S.pay).sym)} private, <a href="/">use the Tacit app</a>.` : 'No route for this pair.';
   if (q?.err) return `<span class="err">${esc(q.err)}</span>`;
   if (!q?.busy && S.amt && (q?.none || !r) && q?.why) return esc(q.why);
-  if ((kind === 'private' || kind === 'pout') && r && !q.busy) return privLine(q, r);
   return '';
 }
-// Private, once priced: where the vault makes cUSD or cBTC for less than this pool asks, the vault; else the farm that deepens the pool it ends in.
-function privLine(q, r) {
+// Private, once priced, one receipt row that points somewhere better: the vault where it makes cUSD or cBTC for less than this pool asks, else the
+// private farm that deepens the pool the swap ends in. → [label, text, class, tooltip, href] or null.
+function privRow(q, r) {
   const m = vsMarket(q, r);
-  if (m != null && m <= BAD && S.get === lc(R.CUSD)) return 'Cheaper at the vault: <a href="/vault/#btc">borrow cUSD at $1</a>.';
-  if (m != null && m <= BAD && S.get === lc(R.CBTC)) return 'Cheaper at the vault: <a href="/vault/#btc">mint cBTC 1:1</a>.';
+  if (m != null && m <= BAD && S.get === lc(R.CUSD)) return ['Cheaper', 'borrow cUSD at $1 →', '', 'The vault makes cUSD for a dollar', '/vault/#btc'];
+  if (m != null && m <= BAD && S.get === lc(R.CBTC)) return ['Cheaper', 'mint cBTC 1:1 →', '', 'The vault makes cBTC against bitcoin', '/vault/#btc'];
   const p = q.pools?.[q.pools.length - 1], f = p && farmOn(p);
-  return f ? `<a href="/#farm/private-${Number(f.pid)}">Deepen ${esc(f.name)} privately${f.apr != null ? ` · ${esc(aprText(f.apr))} APR` : ''} →</a>` : '';
+  return f ? ['Earn', `${f.apr != null ? `${aprText(f.apr)} on ` : ''}${f.name} →`, '', `Deepen ${f.name} privately: add liquidity and farm it`, `/#farm/private-${Number(f.pid)}`] : null;
 }
 
 async function go() {
@@ -641,7 +656,11 @@ async function go() {
   if (!r) { if (S.q?.err) requote(true); return; }
   S.note = '';
   if (kind === 'private' || kind === 'pout' || kind === 'pin') { await privateGo(r, kind); return; }
-  if (laterOn(kind)) { if (!W.account) { await connect.connect(); return; } await laterGo(); return; }
+  if (laterOn(kind)) {
+    if (!W.account) { await connect.connect(); return; }
+    if (LATER.fee == null) { await readFee(); return; }                       // the relay's fee could not be read: Try again reads it again
+    await laterGo(); return;
+  }
   if (!W.account) { await connect.connect(); return; }
   const from = W.account, P = { kind, r, wei: S.q.wei, floor: (r.out * BigInt(10000 - S.slip)) / 10000n, pay: S.pay, get: S.get, to: recipient() };
   if (S.toBad) return;
@@ -804,7 +823,7 @@ const plans = () => { try { return (JSON.parse(localStorage.getItem(PLANS_KEY) |
 let LTP = null, LT = null;
 const pageSigner = { get address() { return W.account; }, ready: async () => { if (!W.account) await connect.connect(); await wallet.ensureMainnet(); },
   send: ({ to, data, value }) => wallet.sendTx({ to, data, value: BigInt(value || 0), from: W.account }), rpc: (m, p) => rpc(m, p) };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=df9e8dec').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=539fbfd8').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 const laterFits = (kind) => kind === 'agg' && isEth(S.pay) && !S.inP && !S.outP;
 const laterOn = (kind) => LATER.on && laterFits(kind);
 // the deposit and its extra as later.js draws them (a random share around the slider's, rounded up), drawn again only when the slider moves
@@ -950,7 +969,7 @@ $('#steps').addEventListener('click', (e) => {
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
-const pvLoad = () => (PVP ||= import('/swap/private.js?cb=2c395717').then((m) => {
+const pvLoad = () => (PVP ||= import('/swap/private.js?cb=1cf5b7bd').then((m) => {
   PV = m.makePrivate({ getUx, pick: pickWallet, onKey: (why) => { if (why) say(esc(why), 'err', true); else PV.read().then(paint, () => {}); paint(); } });
   PV.mod = m;
   return PV;
@@ -1016,7 +1035,7 @@ async function privateGo(r, kind = 'private') {
     prepare: 'Preparing the deposit…', confirm: 'Confirm the deposit in your wallet…', sent: `Deposit sent ${h ? txLink(h) : ''}. Waiting for it to land…`,
     proving: `Deposited ${h ? txLink(h) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…',
     split: 'The relay is cutting a note to the amount first, about a minute…', combine: 'The relay is combining your notes into one of the amount first, about a minute…',
-    route: 'The relay is proving your private swap, about a minute…',
+    route: 'The relay is proving your private swap, about a minute…', send: 'The relay is sending it on to them, about a minute…',
     exit: 'The relay is sending it out of the pool, about a minute…', exitswap: 'The relay is sending it out of the pool to be swapped, about a minute…',
     activate: `Out of the pool ${h ? txLink(h) : ''}. The relay is running the swap…`,
   }[k] || '');
@@ -1045,18 +1064,21 @@ async function privateGo(r, kind = 'private') {
     const k0 = fromWallet ? 'eth' : PK[S.pay];
     const plan = { wallet: fromWallet, wei: units * E10, units, asset: IDS[k0], ticker: POOL_TK[k0], fee: q.fee ?? 0n,
       path: S.get === 'teth' && fromWallet ? [] : (q.pools || []).map((p) => ({ assetNext: IDS[p.b], feeBps: p.feeBps })),
-      minOut: (r.out / E10) * 99n / 100n, label: `Swap ${what} for ${get.sym} privately` };
+      minOut: (r.out / E10) * 99n / 100n, label: `Swap ${what} for ${get.sym} privately`, sendTo: S.toTacit, outTicker: POOL_TK[PK[S.get]] };
     const res = await pv.swap(plan, { wallet, from: W.account, say: step });
     const got = res.made != null ? `${tidy(plain(res.made, 8))} tETH` : `${tidy(amtFmt(res.out * E10, 18))} ${get.sym}`;
     if (res.txHash) remember(res.txHash, res.made != null ? `Made ${what} private` : `Swapped ${what} for ${got} privately`);
     if (S.pay === payKey) { S.amt = ''; S.q = null; }
-    say(`<span class="ok">Done.</span> ${res.made != null ? '' : 'About '}${esc(got)} is in your private balance.${res.txHash ? ` <a href="https://etherscan.io/tx/${esc(res.txHash)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>` : ''}`, 'ok', true);
+    const where = res.sent ? `was sent to ${esc(res.sent.to || tacitName(S.toTacit))}. They claim it in their Tacit wallet.` : 'is in your private balance.';
+    if (res.sent) { S.toTacit = null; S.toTacitBad = ''; S.toOpen = false; $('#to-in').value = ''; }
+    say(`<span class="ok">Done.</span> ${res.made != null ? '' : 'About '}${esc(got)} ${where}${res.txHash ? ` <a href="https://etherscan.io/tx/${esc(res.txHash)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>` : ''}`, 'ok', true);
   } catch (e) {
     const m = PV?.mod;
     if (e?.unlockCancelled) say('');
     else if (e instanceof UserStopped || e?.userStopped || e?.code === 4001) say('Nothing was sent.', '', true);
     else if (e?.code === 'short') say(`Not enough private ${esc(pay.sym)}${e.most ? `: at most ${esc(tidy(plain(e.most, 8)))}, after the relay’s fee to cut a note to the amount` : ''}.`, 'err', true);
     else if (e?.stuck) say(exitLine(e.stuck), 'err', true);
+    else if (e?.stayed) say(esc(e.message), 'err', true);
     else if (e?.pending) say(esc(e.message), 'err', true);
     else if (e?.kept) { if (S.pay === payKey) { S.inP = true; S.pay = 'teth'; S.amt = fitAmt(S.amt, true); S.q = null; if (!kindOf(S.pay, S.get)) fit('pay'); } say(`${esc(e.message)} Press Swap privately to swap it from there.`, 'err', true); }
     else if (e?.deposit && !e.deposit.landed) say(`${esc(m ? m.relayWords(e) : e.message)} Your deposit was sent ${e.deposit.hash ? txLink(e.deposit.hash) : ''} and is not confirmed yet. There is no need to send it again: once it lands, <a href="/teth/">finish it on the tETH page →</a>`, 'err', true);
@@ -1102,14 +1124,16 @@ async function pinGo(r) {
     remember(h, `${what} → ETH, to be made private`);
     const plan = { wallet: true, wei: q.ethIn, units: q.ethIn / E10, asset: IDS.eth, ticker: 'cETH', fee: q.fee ?? 0n,
       path: getKey === 'teth' ? [] : (q.pools || []).map((p) => ({ assetNext: IDS[p.b], feeBps: p.feeBps })),
-      minOut: (r.out / E10) * 99n / 100n, label: `Swap ${what} for ${get.sym} privately` };
+      minOut: (r.out / E10) * 99n / 100n, label: `Swap ${what} for ${get.sym} privately`, sendTo: S.toTacit, outTicker: POOL_TK[PK[getKey]] };
     const step = (k, x) => say({ prepare: 'Swapped to ETH. Preparing the deposit…', confirm: 'Confirm the deposit in your wallet…', sent: `Deposit sent ${x ? txLink(x) : ''}. Waiting for it to land…`,
-      proving: `Deposited ${x ? txLink(x) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…', route: 'The relay is proving your private swap, about a minute…' }[k] || '');
+      proving: `Deposited ${x ? txLink(x) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…', route: 'The relay is proving your private swap, about a minute…', send: 'The relay is sending it on to them, about a minute…' }[k] || '');
     const res = await pv.swap(plan, { wallet, from, say: step });
     const got = res.made != null ? `${tidy(plain(res.made, 8))} tETH` : `about ${tidy(amtFmt(res.out * E10, 18))} ${get.sym}`;
     if (res.txHash) remember(res.txHash, `Swapped ${what} for ${got} privately`);
     if (S.pay === payKey) { S.amt = ''; S.q = null; }
-    say(`<span class="ok">Done.</span> ${esc(got)} is in your private balance.${res.txHash ? ` <a href="https://etherscan.io/tx/${esc(res.txHash)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>` : ''}`, 'ok', true);
+    const where = res.sent ? `was sent to ${esc(res.sent.to || tacitName(S.toTacit))}. They claim it in their Tacit wallet.` : 'is in your private balance.';
+    if (res.sent) { S.toTacit = null; S.toTacitBad = ''; S.toOpen = false; $('#to-in').value = ''; }
+    say(`<span class="ok">Done.</span> ${esc(got)} ${where}${res.txHash ? ` <a href="https://etherscan.io/tx/${esc(res.txHash)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>` : ''}`, 'ok', true);
   } catch (e) {
     const m = PV?.mod, why = esc(m ? m.relayWords(e) : e?.message || String(e));
     // after the swap to ETH the card is turned to what is now held, so a second press never swaps the token again
@@ -1117,6 +1141,7 @@ async function pinGo(r) {
     if (e?.unlockCancelled) say('');
     else if ((e instanceof UserStopped || e?.userStopped) && !swapped) say('Nothing was sent.', '', true);
     else if (e?.html && !swapped) say(e.message, 'err', true);
+    else if (e?.stayed) say(esc(e.message), 'err', true);
     else if (e?.kept) { turn(true, 'teth', tidy(plain(q.ethIn / E10, 8))); say(`${esc(e.message)} Press Swap privately to swap it from there.`, 'err', true); }
     else if (e?.deposit && !e.deposit.landed) { turn(false, lc(R.ZERO), ''); say(`${why} Your deposit was sent ${e.deposit.hash ? txLink(e.deposit.hash) : ''} and is not confirmed yet. There is no need to send it again: once it lands, <a href="/teth/">finish it on the tETH page →</a>`, 'err', true); }
     else if (e?.deposit) { turn(false, lc(R.ZERO), ''); say(`${why} Your ETH is in the Tacit pool ${e.deposit.hash ? txLink(e.deposit.hash) : ''}, not lost: <a href="/teth/">finish it on the tETH page →</a>`, 'err', true); }
@@ -1273,8 +1298,21 @@ $('#flip').addEventListener('click', () => {
   [S.pay, S.get] = [S.get, S.pay]; S.note = '';
   S.amt = out ? tidy(out.replace(/(\.\d{8})\d+$/, '$1')) : S.amt; S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
 });
-$('#get-where').addEventListener('click', () => { if (S.outP) return; S.toOpen = !S.toOpen; paintSides(); if (S.toOpen) $('#to-in').focus(); });
-$('#to-in').addEventListener('input', (e) => { const r = recipientOf(e.target.value); S.to = r.addr; S.toBad = r.bad; S.note = ''; paint(); });
+$('#get-where').addEventListener('click', () => { S.toOpen = !S.toOpen; paintSides(); if (S.toOpen) $('#to-in').focus(); });
+// a Tacit address or a name typed for a private side is looked up once the typing pauses, and only the last thing typed is kept
+let tacitT = 0;
+$('#to-in').addEventListener('input', (e) => {
+  S.note = '';
+  if (!S.outP) { const r = recipientOf(e.target.value); S.to = r.addr; S.toBad = r.bad; paint(); return; }
+  const raw = e.target.value.trim();
+  clearTimeout(tacitT); S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = !!raw;
+  if (raw) tacitT = setTimeout(async () => {
+    try { const r = await (await pvLoad()).mod.resolveTacit(raw); if ($('#to-in').value.trim() === raw) S.toTacit = { raw, pubHex: r.pubHex, name: r.name || null }; }
+    catch (err) { if ($('#to-in').value.trim() === raw) S.toTacitBad = String(err?.message || err).slice(0, 200); }
+    finally { if ($('#to-in').value.trim() === raw) { S.toTacitBusy = false; paint(); } }
+  }, 400);
+  paint();
+});
 $('#to-in').addEventListener('keydown', (e) => { if (e.key === 'Escape') { S.toOpen = false; paintSides(); $('#get-where').focus(); } });
 $('#go').addEventListener('click', go);
 $('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.hold = true; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });

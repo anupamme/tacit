@@ -1,13 +1,13 @@
 // zQuoter's onchain routes for any token to any token, read the way zSwap reads them: the best single swap or two-hop chain through ETH
-// (buildBestSwapViaETHMulticall) and a split of the input across two pools (buildSplitSwap), with every pool's own quote (getQuotes) for the
-// summary under the card. (A hybrid split, a direct swap beside a two-hop one, is neither a split nor a chain to the guard, so it is not
-// read.) Each answer is held to the terms asked by zrouter-guard (it takes the asked token, pays the asked recipient, spends exactly the
-// amount and pays at least its claimed output less the slippage) before it may be offered; the best that passes is the route. All of it is
-// views on the chain: nothing here leaves the page.
+// (buildBestSwapViaETHMulticall), a split of the input across two pools (buildSplitSwap) and a mix of a direct swap beside a two-hop one
+// (buildHybridSplit), with every pool's own quote (getQuotes) for the summary under the card. (Three hops, build3HopMulticall, takes more
+// gas to find than a public node allows a call.) Each answer is held to the terms asked by zrouter-guard (it takes the asked token, pays
+// the asked recipient, spends exactly the amount and pays at least its claimed output less the slippage) before it may be offered; the best
+// that passes is the route. All of it is views on the chain: nothing here leaves the page.
 import { checkZRouterCall, decodeZRouterCall } from '../zrouter-guard.js';
 import { ZQUOTER, ZERO, SOURCES } from './route.js';
 
-const SEL = { viaEth: 'e453166e', split: '892af013', quotes: 'e1fd10bc' };
+const SEL = { viaEth: 'e453166e', split: '892af013', hybrid: '85f86a90', quotes: 'e1fd10bc' };
 const HEAVY = '0x11E1A300';                                          // 300M gas: a split's scan of every pool is far over a default call
 const lc = (s) => String(s || '').toLowerCase();
 const strip = (h) => String(h || '').replace(/^0x/, '');
@@ -45,30 +45,32 @@ export async function bestRoute({ ethCall, to, refundTo = to, tokenIn, tokenOut,
   const amt = BigInt(amountIn), dl = BigInt(deadline), ethIn = lc(tokenIn) === ZERO;
   const terms = (s) => [addr(to), addr(tokenIn), addr(tokenOut), word(amt), word(s), word(dl)].join('');
   const fail = [];
-  const [v, sp, qs] = await Promise.all([
+  const [v, sp, hy, qs] = await Promise.all([
     read(ethCall, SEL.viaEth + addr(to) + addr(refundTo) + word(0) + addr(tokenIn) + addr(tokenOut) + word(amt) + word(slip) + word(dl), block, fail),
     read(ethCall, SEL.split + terms(slip), block, fail),
+    read(ethCall, SEL.hybrid + terms(slip), block, fail),
     read(ethCall, SEL.quotes + word(0) + addr(tokenIn) + addr(tokenOut) + word(amt), block, []),
   ]);
-  if (!v && !sp && fail.length >= 2) throw fail[0];
+  if (!v && !sp && !hy && fail.length >= 3) throw fail[0];
   const cands = [];
   if (v) {
     const a = quoteAt(v, 0), b = quoteAt(v, 4), two = b.amountOut > 0n;
     cands.push({ kind: two ? 'twohop' : 'single', out: two ? b.amountOut : a.amountOut, callData: bytesAt(v, 9), value: at(v, 10), slip, name: two ? `${nameOf(a)} → ${nameOf(b)}` : nameOf(a), legs: [a, ...(two ? [b] : [])] });
   }
-  if (sp) {
-    const l0 = quoteAt(sp, 0), l1 = quoteAt(sp, 4), both = l0.amountOut > 0n && l1.amountOut > 0n;
+  for (const [h, kind] of [[sp, 'split'], [hy, 'hybrid']]) {
+    if (!h) continue;
+    const l0 = quoteAt(h, 0), l1 = quoteAt(h, 4), both = l0.amountOut > 0n && l1.amountOut > 0n;
     const legs = [l0, l1].filter((l) => l.amountOut > 0n), share = (l) => Number((l.amountIn * 100n) / amt);
-    cands.push({ kind: both ? 'split' : 'single', out: l0.amountOut + l1.amountOut, callData: bytesAt(sp, 8), value: at(sp, 9), slip, legs,
-      name: both ? legs.map((l) => `${nameOf(l)} ${share(l)}%`).join(' + ') : nameOf(legs[0] || l0) });
+    cands.push({ kind: both ? kind : 'single', out: l0.amountOut + l1.amountOut, callData: bytesAt(h, 8), value: at(h, 9), slip, legs,
+      name: both ? legs.map((l, i) => `${nameOf(l)}${kind === 'hybrid' && i === 1 ? ' via a hub' : ''} ${share(l)}%`).join(' + ') : nameOf(legs[0] || l0) });
   }
   // held to the terms: the asked tokens and recipient, exactly the amount, sent exactly the ETH it spends, and paying at least what it claims less its slippage
   const ok = cands.filter((c) => {
     if (c.out <= 0n || c.value !== (ethIn ? amt : 0n)) return false;
     let legs;
     try { legs = decodeZRouterCall(c.callData); } catch { return false; }
-    const single = legs.length === 1 || legs.every((l) => lc(l.tokenIn) === lc(tokenIn));
-    c.min = single ? legs.reduce((s, l) => s + l.limit, 0n) : legs[legs.length - 1].limit;
+    // the least it pays: the limits of the swaps that pay the recipient (the one swap, a split's swaps, a chain's last, a mix's direct and last)
+    c.min = legs.filter((l) => lc(l.to) === lc(to)).reduce((s, l) => s + l.limit, 0n);
     const floor = (c.out * (10000n - c.slip - 1n)) / 10000n;
     return checkZRouterCall(c.callData, { to, tokenIn, tokenOut, exactOut: false, amount: amt, maxIn: amt, minOut: floor, deadline: dl }) === null;
   });

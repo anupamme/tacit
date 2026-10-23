@@ -115,8 +115,14 @@ console.log(`  proofs: ${times.map((t) => `${(t / 1000).toFixed(1)} s`).join(', 
   ok(chk.state === 'done', `a plan left in doubt is read against the pool and found done (${chk.state})`);
   const stuck = await L.check({ ...done, state: 'unsure', balBefore: String(depositWei - swap), swapAt: Date.now() });
   ok(stuck.state === 'waiting', 'and one whose swap did not spend the pool\'s ETH goes back to waiting, not done');
-  const gone = await L.check({ id: 'x', at: Date.now(), state: 'depositing', depositWei: String(7n * 10n ** 15n), swapWei: String(swap), to: DEST2 });
+  const NEWER = 10 ** 9;                                       // a plan begun after every note the pool has
+  const gone = await L.check({ id: 'x', at: Date.now(), state: 'depositing', depositWei: String(7n * 10n ** 15n), swapWei: String(swap), to: DEST2, leaves0: NEWER });
   ok(gone.state === 'stopped', 'a deposit that never reached the pool is found stopped');
+  const change = depositWei - swap;                            // the note the swap out left in the pool
+  const old = await L.check({ id: 'y', at: Date.now(), state: 'depositing', depositWei: String(change), swapWei: String(swap), to: DEST2, leaves0: NEWER });
+  ok(old.state === 'stopped', 'a note of the same size that the pool made before the plan began is not its deposit');
+  const fresh = await L.check({ id: 'z', at: Date.now(), state: 'depositing', depositWei: String(change), swapWei: String(swap), to: DEST2, leaves0: Number(done.leaves0) });
+  ok(fresh.state === 'waiting' && fresh.depositedAt, 'and one it made after is');
 }
 async function assert_rejects(fn, re, label) { let err = null; try { await fn(); } catch (e) { err = e; } ok(!!err && re.test(String(err.message)), label + (err ? '' : ' (it did not throw)')); }
 
