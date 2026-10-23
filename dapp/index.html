@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-//HKPRyTxuQKL2ruMOpyx0ylqdDS2Jq3ElcTxbVoMlo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9d26+DoVv2JZgiDeExcp4OsvlcllZzDz+12A988aEw8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8625,7 +8625,7 @@ async function loadPrecision() {
   const s = Number(x.sp) / 1e18;
   x.value = Number(x.r0) + (s > 0 ? Number(x.r1) / (s * s) : 0);
   x.tacEth = s > 0 ? 1 / (s * s) : 0;
-  if (who) x.bal = await rpc('eth_getBalance', [who, 'latest']).then(BigInt).catch(() => null);
+  if (who) [x.bal, x.gp] = await Promise.all([rpc('eth_getBalance', [who, 'latest']).then(BigInt).catch(() => null), gasNow()]);
   if (my !== precisionSeq) return FARM.precision;
   if (S.address !== who) return loadPrecision();
   FARM.precision = x;
@@ -9083,7 +9083,8 @@ function renderPrecision(el) {
   }
 
   const ethIn = $('#pf-amt'), tacIn = $('#pf-tac'), go = $('#pf-go'), rc = $('#pf-rcpt'), ackBox = $('#pf-ack');
-  const GAS = 3n * 10n ** 15n, spendable = x.bal != null && x.bal > GAS ? x.bal - GAS : 0n;
+  // what Max leaves for the deposit's fee: twice its gas (500k, approval and swap included) at the gas price now
+  const GAS = 2n * 500000n * (x.gp ?? 3n * 10n ** 9n), spendable = x.bal != null && x.bal > GAS ? x.bal - GAS : 0n;
   const tacFor = (wei) => (x.r0 > 0n ? (wei * x.r1 + x.r0 - 1n) / x.r0 : 0n);
   const ethFor = (tac) => (x.r1 > 0n ? (tac * x.r0 + x.r1 - 1n) / x.r1 : 0n);
   let q = null, seq = 0;
