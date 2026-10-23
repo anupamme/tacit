@@ -289,6 +289,25 @@ test('stats reading: private ETH is the V1 pool and the device pools on every ch
   assert.equal(privateEth(r.eth, r.dev.map(({ series, ...d }) => d)).series.ins.length, 3);
 });
 
+test('stats reading: a deposit the explorer lists leave out is in what is held over time, once, from its Wrap log', async () => {
+  const sum = (r) => r.eth.series.flows.reduce((s, [, v]) => s + v, 0n);
+  const whole = world(); populate(whole, 1);
+  const full = (await makeStatsReader({ fetchImpl: whole.fetchImpl, gapMs: 0 }).read({})).reading;
+  assert.equal(sum(full), full.eth.held, 'with complete lists the moves add up to the balance');
+  // One direct deposit and one forwarded deposit are missing from the lists (the nodes still have both logs).
+  const gap = world(); populate(gap, 1);
+  gap.txs.splice(gap.txs.findIndex((t) => BigInt(t.value) === 5n * 10n ** 17n), 1);
+  gap.internal.splice(gap.internal.findIndex((t) => BigInt(t.value) === 10n ** 18n && t.to === lc(A.pool)), 1);
+  const { reading: r, keep } = await makeStatsReader({ fetchImpl: gap.fetchImpl, gapMs: 0 }).read({});
+  assert.equal(sum(r), r.eth.held, 'the deposits the lists missed are added, and the moves still add up to the balance');
+  assert.equal(r.eth.series.flows.length, full.eth.series.flows.length, 'each is there once');
+  assert.equal(r.eth.inWei, full.eth.inWei);
+  // A later reading from what this one kept gives the same history.
+  populate(gap, 2);
+  const next = (await makeStatsReader({ fetchImpl: gap.fetchImpl, gapMs: 0 }).read(keep)).reading;
+  assert.equal(sum(next), next.eth.held);
+});
+
 test('stats reading: a node that dates every log 0 gets its logs dated from their blocks', async () => {
   const x = world(); populate(x, 1);
   const normal = await makeStatsReader({ fetchImpl: x.fetchImpl, gapMs: 0 }).read({});

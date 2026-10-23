@@ -35,11 +35,11 @@ function renderHead() {
   const bits = [`<span title="Put in ETH, take out ETH: the pool gives one for one"><b class="num">1 tETH</b> = 1 ETH, private</span>`];
   if (P) {
     bits.push(`<span><b class="num">${esc(grp(toEth(P.held), 2))} ETH</b>${px != null ? ` (${compact(toEth(P.held) * px)})` : ''} held in the pool</span>`);
-    bits.push(`<span>${grp(P.deposits, 0)} deposits${P.wallets ? ` · ${grp(P.wallets, 0)} wallets` : ''}</span>`);
+    bits.push(`<span>${P.inWei > 0n ? `<b class="num">${esc(ethTxt(P.inWei))} ETH</b> made private in ` : ''}${grp(P.deposits, 0)} deposits${P.wallets ? ` · ${grp(P.wallets, 0)} wallets` : ''}</span>`);
   }
   if (D.hist) {
     const m = movedSince(D.hist.pts, 86400);
-    if (m.in > 0n || m.out > 0n) bits.push(`<span class="chgs"><span class="chg up"><i>24h in</i> ${esc(ethTxt(m.in))} ETH</span><span class="chg down"><i>out</i> ${esc(ethTxt(m.out))} ETH</span></span>`);
+    if (m.in > 0n || m.out > 0n) bits.push(`<span>24h: <b class="num">${esc(ethTxt(m.in + m.out))} ETH</b> moved</span>`);
   }
   $('#px-sub').innerHTML = P || px != null ? bits.join('') : '<span class="mute">Reading the pool…</span>';
 }
@@ -898,7 +898,7 @@ function renderMoves() {
   const px = ethUsd(), rows = recentMoves(H.pts, 10);
   body.innerHTML = rows.length ? rows.map((m) => { const inn = m.wei > 0n, v = inn ? m.wei : -m.wei; return `<tr><td title="${esc(new Date(m.t * 1000).toLocaleString())}">${esc(ago(m.t))}</td><td class="${inn ? 'in' : 'out'}">${inn ? 'ETH in' : 'ETH out'}</td><td class="r num" ${px ? `title="${esc(usd(toEth(v) * px))}"` : ''}>${inn ? '+' : '−'}${esc(fmtUnits(v, 18, v < 10n ** 16n ? 4 : 3))}</td></tr>`; }).join('') : '<tr><td colspan="3" class="mute">Nothing has moved yet.</td></tr>';
   const d = movedSince(H.pts, 86400), w = movedSince(H.pts, 7 * 86400);
-  $('#mv-sum').textContent = `24h ${ethTxt(d.in)} in, ${ethTxt(d.out)} out · 7d ${ethTxt(w.in)} in, ${ethTxt(w.out)} out`;
+  $('#mv-sum').textContent = `24h ${ethTxt(d.in + d.out)} ETH moved · 7d ${ethTxt(w.in + w.out)} ETH moved`;
   $('#moves-note').textContent = 'ETH in and out of the pool: deposits, withdrawals and public swaps. Whose it is stays private.';
 }
 

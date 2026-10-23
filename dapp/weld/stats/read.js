@@ -357,12 +357,17 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       const ins = [...direct, ...int_].filter((t) => moved(t) && t.t === lc(A.pool));
       const outs = int_.filter((t) => moved(t) && t.f === lc(A.pool));
       const sent = await senders([...new Set(eth.map((l) => l.h))]);
+      // An explorer's list can leave a transaction out. A deposit it left out is still in the Wrap logs, which come from the nodes,
+      // so each deposit whose transaction the lists have no ETH into the pool for is added from its log: what is held over time
+      // then follows the balance.
+      const listed = new Set(ins.map((t) => t.h));
+      const unlisted = eth.filter((l) => l.ts && !listed.has(l.h));
       return {
         inWei: eth.reduce((s, l) => s + W(l.d, 0), 0n), held, outWei: outs.reduce((s, t) => s + BigInt(t.v), 0n), deposits: eth.length,
         lastAt: eth.length ? eth.at(-1).ts : null, wallets: new Set(sent.filter(Boolean)).size, unread: sent.filter((s) => !s).length,
         series: {
           ins: eth.map((l) => [l.ts, W(l.d, 0)]),
-          flows: [...ins.map((t) => [t.ts, BigInt(t.v)]), ...outs.map((t) => [t.ts, -BigInt(t.v)])],
+          flows: [...ins.map((t) => [t.ts, BigInt(t.v)]), ...unlisted.map((l) => [l.ts, W(l.d, 0)]), ...outs.map((t) => [t.ts, -BigInt(t.v)])],
         },
       };
     }

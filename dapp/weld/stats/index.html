@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module (its sha256 pinned in script-src by build/build.mjs) and the reading it imports. It reads
      public data only: no wallet, no key; it keeps the last reading, and the chain data behind it, to read on from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cU85UaJHGFO41mGmjvYHgLQ5bMArS0b408VRyMNmr0M='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rrgOVe2IhCVCn7EckiS5nP6HDNSDtgexZzXupCPemcU='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -107,10 +107,12 @@ h2 .tk { width: 26px; height: 26px; }
 .cards { min-height: var(--ch); }
 [data-cards="eth"] { --ch: 134px; } [data-cards="btc"] { --ch: 134px; } [data-cards="tac"] { --ch: 169px; } [data-cards="pts"] { --ch: 131px; } [data-cards="link"] { --ch: 169px; } [data-cards="vlt"] { --ch: 134px; }
 @media (max-width: 999px) { [data-cards="eth"] { --ch: 153px; } [data-cards="tac"] { --ch: 189px; } [data-cards="link"] { --ch: 189px; } }
-@media (max-width: 760px) { [data-cards="eth"] { --ch: 247px; } [data-cards="btc"] { --ch: 230px; } [data-cards="tac"] { --ch: 345px; } [data-cards="pts"] { --ch: 225px; } [data-cards="vlt"] { --ch: 228px; } [data-cards="link"] { --ch: 285px; } }
-@media (max-width: 600px) { [data-cards="eth"] { --ch: 266px; } [data-cards="btc"] { --ch: 249px; } [data-cards="tac"] { --ch: 383px; } [data-cards="pts"] { --ch: 244px; } [data-cards="vlt"] { --ch: 228px; } [data-cards="link"] { --ch: 304px; } }
-@media (max-width: 400px) { [data-cards="eth"] { --ch: 316px; } [data-cards="btc"] { --ch: 288px; } [data-cards="tac"] { --ch: 411px; } [data-cards="pts"] { --ch: 256px; } [data-cards="vlt"] { --ch: 266px; } [data-cards="link"] { --ch: 362px; } }
-#f-eth { min-height: 235px; } #f-dev { min-height: 246px; }
+@media (max-width: 760px) { [data-cards="eth"] { --ch: 249px; } [data-cards="btc"] { --ch: 230px; } [data-cards="tac"] { --ch: 345px; } [data-cards="pts"] { --ch: 225px; } [data-cards="vlt"] { --ch: 228px; } [data-cards="link"] { --ch: 285px; } }
+@media (max-width: 600px) { [data-cards="eth"] { --ch: 270px; } [data-cards="btc"] { --ch: 249px; } [data-cards="tac"] { --ch: 383px; } [data-cards="pts"] { --ch: 244px; } [data-cards="vlt"] { --ch: 228px; } [data-cards="link"] { --ch: 304px; } }
+@media (max-width: 440px) { [data-cards="eth"] { --ch: 290px; } }
+@media (max-width: 400px) { [data-cards="eth"] { --ch: 320px; } [data-cards="btc"] { --ch: 288px; } [data-cards="tac"] { --ch: 411px; } [data-cards="pts"] { --ch: 256px; } [data-cards="vlt"] { --ch: 266px; } [data-cards="link"] { --ch: 362px; } }
+#f-eth { min-height: 265px; } #f-dev { min-height: 246px; }
+@media (max-width: 440px) { #f-eth { min-height: 290px; } }
 
 .figure { background: var(--card); border: 1px solid var(--hair); padding: 14px 16px 12px; margin-top: 10px; }
 .figure .k { font-size: 12px; color: var(--mute); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -152,7 +154,7 @@ details.how dd { margin: 0; color: var(--mute); }
 }
 table.chains .n { color: var(--mute); }
 @media (max-width: 520px) {
-  table.chains .moves, table.chains .n, table.chains .wide { display: none; }
+  table.chains .moves, table.chains .n, table.chains .wide, table.chains .wd { display: none; }
   table.chains { font-size: 12px; }
 }
 @media (max-width: 380px) {
@@ -334,7 +336,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <h2><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>Private ETH</h2>
     <div class="cards" data-cards="eth"></div>
     <div class="figure" id="f-eth">
-      <div class="k"><span>ETH over time</span><span class="legend"><span><i style="background:var(--eth)"></i>Made private</span><span><i style="background:var(--ink)"></i>Private now</span></span></div>
+      <div class="k"><span>ETH over time</span><span class="legend"><span><i style="background:var(--ink)"></i>Private now</span><span><i style="background:var(--eth)"></i>Made private each day</span></span></div>
       <div id="c-eth"></div>
     </div>
     <div class="figure" id="f-dev">
@@ -383,7 +385,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <dt>Private now</dt><dd>The ETH balance of the Tacit pool and of each device pool.</dd>
       <dt>Withdrawn</dt><dd>What those pools have paid out, as withdrawals and relay fees.</dd>
       <dt>Wallets</dt><dd>Distinct senders of the Tacit pool’s wraps. Device pools also take deposits through routers and keepers, so their senders are not counted.</dd>
-      <dt>By pool</dt><dd>Each pool’s own balance, deposits and payments out. The totals are the figures above. Out includes relay fees.</dd>
+      <dt>By pool</dt><dd>Each pool’s own deposits, payments out and balance. The totals are the figures above. Withdrawn includes relay fees.</dd>
+      <dt>ETH over time</dt><dd>Private now is each pool’s deposits and payments out added up as they happened, ending on its balance now. Beneath it, the ETH made private on each UTC day, to its own scale.</dd>
       <dt>BTC locked</dt><dd>Proven locks not yet spent or redeemed, each found by its bond (EscrowPosted).</dd>
       <dt>cBTC minted</dt><dd>Every mint on those locks, including locks since closed.</dd>
       <dt>Bonds</dt><dd>wstETH in escrow now.</dd>
@@ -427,7 +430,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <script type="module">
 // The page paints; the reading itself (what is read, from where, and how each figure is counted) is ./read.js, which the
 // API also runs for the shared snapshot. It reads public data only: no wallet, no key.
-import { makeStatsReader, mergeReadings, privateEth, toJson, fromJson, A, API, CHAINS } from '/weld/stats/read.js?cb=3b171cef';
+import { makeStatsReader, mergeReadings, privateEth, toJson, fromJson, A, API, CHAINS } from '/weld/stats/read.js?cb=baa63d5f';
 import { bodyType } from '/rpc-body.js';
 
 const EXPLORER = { 1: 'https://etherscan.io', 8453: 'https://basescan.org', 4663: 'https://robinhoodchain.blockscout.com' };
@@ -467,7 +470,7 @@ function cardHtml(c) {
 }
 function paint(group, cards) { $(`[data-cards="${group}"]`).innerHTML = cards.map(cardHtml).join(''); }
 const PLACE = {
-  eth: [{ k: 'Made private', icon: 'tk-eth' }, { k: 'Private now', icon: 'tk-teth' }, { k: 'Withdrawn' }, { k: 'Wallets' }],
+  eth: [{ k: 'Made private', icon: 'tk-eth' }, { k: 'Withdrawn' }, { k: 'Private now', icon: 'tk-teth' }, { k: 'Wallets' }],
   btc: [{ k: 'BTC locked', icon: 'tk-btc' }, { k: 'cBTC minted', icon: 'tk-cbtc' }, { k: 'Bonds' }, { k: 'cUSD borrowed', icon: 'tk-cusd' }],
   tac: [{ k: 'TAC ERC-20', icon: 'tk-tac' }, { k: 'TAC made private' }, { k: 'TAC made public' }, { k: 'Airdrop claimed' }, { k: 'Others made private' }],
   pts: [{ k: 'Participants' }, { k: 'Points' }, { k: 'TAC allocated' }, { k: 'TAC claimed' }],
@@ -479,34 +482,40 @@ const unread = (group) => paint(group, PLACE[group].map((c) => ({ ...c, v: '—'
 // The API's page view gathers a device pool's deposits into buckets that never cross a day: [time, amount, how many]; a deposit read here is [time, amount].
 const depositTimes = (ins) => ins.flatMap(([t, , n = 1]) => (n === 1 ? [t] : new Array(n).fill(t)));
 // ── charts ────────────────────────────────────────────────────────────────────────────────────────────────
-// ETH made private, and private now, over time: a step at each deposit, and at each ETH movement in or out (signed `flows`).
+// What is private now over time, with the ETH made private each day beneath it on the same dates. The line steps at each ETH movement in or out
+// (signed `flows`) and ends on the balance now, `held`. Each part is drawn to its own scale: the balance is a stock and the days' deposits a flow.
 const widthOf = (el) => Math.max(300, Math.min(900, Math.round(el?.getBoundingClientRect().width || 640)));
-function ethChart(ins, flows, now, Wd = 640) {
-  const ev = [...ins.map(([t, v]) => [t, v, 0n]), ...flows.map(([t, v]) => [t, 0n, v])].sort((a, b) => a[0] - b[0] || (a[2] < 0n) - (b[2] < 0n));
+function ethChart(ins, flows, held, now, Wd = 640) {
+  const ev = flows.filter(([t]) => t).sort((a, b) => a[0] - b[0] || (a[1] < 0n) - (b[1] < 0n));
   if (ev.length < 2) return '';
-  const t0 = ev[0][0], t1 = Math.max(now, ev.at(-1)[0] + 1), H = 180, P = { l: 44, r: 8, t: 8, b: 20 };
-  let cin = 0n, held = 0n, top = 1n;
-  const pts = ev.map(([t, i, d]) => { cin += i; held += d; top = [top, cin, held].reduce((a, b) => (b > a ? b : a)); return [t, cin, held]; });
-  const max = Number(top), x = (t) => P.l + ((t - t0) / (t1 - t0)) * (Wd - P.l - P.r), y = (v) => P.t + (1 - Number(v) / max) * (H - P.t - P.b);
-  // The line steps at each event, and a few tens of thousands of them fall in a few thousand tenths of a pixel: the events of one column are drawn
-  // as where it began, its lowest and highest points and where it ended (the same ink, a fifth of the path).
-  const step = (k) => {
-    let d = `M${x(t0)},${y(0)}`, col = null, first = 0, lo = 0, hi = 0, end = 0, many = false;
-    const put = () => { if (col !== null) d += `H${col}V${first.toFixed(1)}${many ? `V${lo.toFixed(1)}V${hi.toFixed(1)}V${end.toFixed(1)}` : ''}`; };
-    for (const p of pts) {
-      const c = x(p[0]).toFixed(1), yy = y(p[k]);
-      if (c !== col) { put(); col = c; first = lo = hi = end = yy; many = false; continue; }
-      if (yy < lo) lo = yy; if (yy > hi) hi = yy; end = yy; many = true;
-    }
-    put();
-    return d + `H${x(t1).toFixed(1)}`;
-  };
-  const heldPath = step(2), heldArea = `${heldPath}V${y(0)}H${x(t0)}Z`;
+  const t0 = ev[0][0], t1 = Math.max(now, ev.at(-1)[0] + 1), H = 204, P = { l: 44, r: 8, t: 8, b: 20 }, HB = 120, VB = [142, 186];
+  let run = 0n, top = held > 1n ? held : 1n;
+  const pts = ev.map(([t, v]) => { run += v; if (run > top) top = run; return [t, run]; });
+  pts.push([t1, held]);
+  const max = Number(top), x = (t) => P.l + ((t - t0) / (t1 - t0)) * (Wd - P.l - P.r), y = (v) => P.t + (1 - Math.max(0, Number(v)) / max) * (HB - P.t);
+  // The line steps at each event, and a few tens of thousands of them fall in a few hundred pixels: each three-pixel column is drawn at what was
+  // private when it ended.
+  let d = `M${x(t0)},${y(0)}`, col = null, end = y(0);
+  for (const p of pts) {
+    const c = Math.round(x(p[0]) / 3) * 3;
+    if (c !== col) { if (col !== null) d += `H${col}V${end.toFixed(1)}`; col = c; }
+    end = y(p[1]);
+  }
+  const heldPath = `${d}H${col}V${end.toFixed(1)}H${x(t1).toFixed(1)}`, heldArea = `${heldPath}V${y(0)}H${x(t0)}Z`;
   const grid = [0.5, 1].map((f) => `<line x1="${P.l}" x2="${Wd - P.r}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--hair)"/><text x="${P.l - 6}" y="${y(max * f) + 3}" text-anchor="end">${fmt(BigInt(Math.round(max * f)), 18, 2)}</text>`).join('');
-  return `<svg class="chart" viewBox="0 0 ${Wd} ${H}" role="img" aria-label="ETH made private in the pools, and private now, over time">
+  // Each UTC day's deposits as a bar across that day's span of the same axis.
+  const d0 = Math.floor(t0 / 86400), perDay = new Array(Math.floor(t1 / 86400) - d0 + 1).fill(0n);
+  for (const [t, v] of ins) { const i = Math.floor(t / 86400) - d0; if (t && i >= 0 && i < perDay.length) perDay[i] += BigInt(v); }
+  const peak = perDay.reduce((a, b) => (b > a ? b : a), 1n), vh = VB[1] - VB[0];
+  const bars = perDay.map((v, i) => {
+    const a = x(Math.max(t0, (d0 + i) * 86400)), b = x(Math.min(t1, (d0 + i + 1) * 86400)), h = v > 0n ? Math.max(1.5, (Number(v) / Number(peak)) * vh) : 0;
+    return h ? `<rect x="${a.toFixed(1)}" y="${(VB[1] - h).toFixed(1)}" width="${Math.max(1, b - a - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--eth)" rx="1"><title>${esc(day((d0 + i) * 86400))}: ${esc(fmt(v, 18, 2))} ETH made private</title></rect>` : '';
+  }).join('');
+  return `<svg class="chart" viewBox="0 0 ${Wd} ${H}" role="img" aria-label="ETH private now over time, and the ETH made private each day">
     ${grid}<line x1="${P.l}" x2="${Wd - P.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--hair-2)"/>
     <path d="${heldArea}" fill="var(--ink)" opacity=".08"/><path d="${heldPath}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
-    <path d="${step(1)}" fill="none" stroke="var(--eth)" stroke-width="1.8"/>
+    <line x1="${P.l}" x2="${Wd - P.r}" y1="${VB[1]}" y2="${VB[1]}" stroke="var(--hair-2)"/>${bars}
+    <text x="${P.l - 6}" y="${VB[0] + 8}" text-anchor="end">${fmt(peak, 18, 0)}</text>
     ${ticks(t0, t1, x, Wd).map(([t, xx]) => `<text x="${xx}" y="${H - 4}" text-anchor="middle">${esc(shortDay(t))}</text>`).join('')}
     <text x="${P.l}" y="${H - 4}">${esc(shortDay(t0))}</text><text x="${Wd - P.r}" y="${H - 4}" text-anchor="end">now</text></svg>`;
 }
@@ -550,14 +559,16 @@ function showPrivate() {
   if (!eth || !dev) return;
   const left = (ids) => (ids.length ? ` · ${ids.map((id) => NAME[id] || id).join(', ')} not read` : '');
   const v1 = t.pools[0], devHeld = t.pools.slice(1).reduce((s, p) => s + (p.held ?? 0n), 0n);
+  const nowS = Math.floor(Date.now() / 1000), today = depositTimes(t.series.ins).filter((s) => s >= nowS - 86400).length;
+  // In the order the ETH goes: made private, withdrawn, and what is private now.
   paint('eth', [
-    { k: 'Made private', icon: 'tk-eth', v: fmt(t.inWei, 18, 4), u: 'ETH', m: `${int(t.deposits)} deposit${t.deposits === 1 ? '' : 's'}${t.lastAt ? ` · latest ${ago(t.lastAt)}` : ''}${left(t.unread.flow)}` },
-    { k: 'Private now', icon: 'tk-teth', v: fmt(t.held, 18, 4), u: 'ETH', m: `${fmt(v1.held, 18, 4)} in ${addr(A.pool, 1, 'the Tacit pool')} · ${fmt(devHeld, 18, 4)} in device pools${left(t.unread.held)}` },
+    { k: 'Made private', icon: 'tk-eth', v: fmt(t.inWei, 18, 4), u: 'ETH', m: `${int(t.deposits)} deposit${t.deposits === 1 ? '' : 's'}${today ? ` · ${int(today)} in the past day` : t.lastAt ? ` · latest ${ago(t.lastAt)}` : ''}${left(t.unread.flow)}` },
     { k: 'Withdrawn', v: fmt(t.outWei, 18, 4), u: 'ETH', m: `including relay fees${left(t.unread.flow)}` },
+    { k: 'Private now', icon: 'tk-teth', v: fmt(t.held, 18, 4), u: 'ETH', m: `${fmt(v1.held, 18, 4)} in ${addr(A.pool, 1, 'the Tacit pool')} · ${fmt(devHeld, 18, 4)} in device pools${left(t.unread.held)}` },
     { k: 'Wallets', v: int(eth.wallets), m: `that made ETH private in the Tacit pool${eth.unread ? ` · ${int(eth.unread)} deposit${eth.unread === 1 ? '' : 's'} unread` : ''}` },
   ]);
   $('#f-eth').hidden = false;
-  const svg = ethChart(t.series.ins, t.series.flows, Math.floor(Date.now() / 1000), widthOf($('#c-eth')));
+  const svg = ethChart(t.series.ins, t.series.flows, t.held, nowS, widthOf($('#c-eth')));
   if (svg) $('#c-eth').innerHTML = svg; else $('#f-eth').hidden = true;
 }
 
@@ -565,9 +576,9 @@ function showPrivate() {
 function showPools(t, withTotal) {
   const cell = (v, n) => (v == null ? '—' : `${fmt(v, 18, 4)}${n != null ? `<span class="n"> (${int(n)})</span>` : ''}`);
   const pool = (p) => `<a href="${EXPLORER[p.id]}/address/${esc(A.evmPool)}" target="_blank" rel="noopener">${esc(NAME[p.id])}<span class="wide"> device pool</span> ↗</a>`;
-  $('#c-dev').innerHTML = `<div class="tscroll"><table class="chains num"><thead><tr><th>Pool</th><th>Private now</th><th>In</th><th>Out</th><th class="moves">Moves</th></tr></thead><tbody>
-    ${t.pools.map((p) => `<tr><td>${p.id === 'v1' ? addr(A.pool, 1, 'Tacit pool') : pool(p)}</td><td>${p.held == null ? '—' : fmt(p.held, 18, 4)}</td><td>${cell(p.inWei, p.deposits)}</td><td>${cell(p.outWei, p.withdrawals)}</td><td class="moves">${p.moves == null ? '—' : int(p.moves)}</td></tr>`).join('')}
-    ${withTotal ? `<tr><td>Total</td><td>${fmt(t.held, 18, 4)} ETH</td><td>${fmt(t.inWei, 18, 4)}</td><td>${fmt(t.outWei, 18, 4)}</td><td class="moves"></td></tr>` : ''}</tbody></table></div>`;
+  $('#c-dev').innerHTML = `<div class="tscroll"><table class="chains num"><thead><tr><th>Pool</th><th>Made private</th><th class="wd">Withdrawn</th><th>Private now</th><th class="moves">Moves</th></tr></thead><tbody>
+    ${t.pools.map((p) => `<tr><td>${p.id === 'v1' ? addr(A.pool, 1, 'Tacit pool') : pool(p)}</td><td>${cell(p.inWei, p.deposits)}</td><td class="wd">${cell(p.outWei, p.withdrawals)}</td><td>${p.held == null ? '—' : fmt(p.held, 18, 4)}</td><td class="moves">${p.moves == null ? '—' : int(p.moves)}</td></tr>`).join('')}
+    ${withTotal ? `<tr><td>Total</td><td>${fmt(t.inWei, 18, 4)}</td><td class="wd">${fmt(t.outWei, 18, 4)}</td><td>${fmt(t.held, 18, 4)} ETH</td><td class="moves"></td></tr>` : ''}</tbody></table></div>`;
   $('#f-dev').hidden = false;
 }
 

@@ -343,7 +343,7 @@ try {
   ok((await p.title()) === 'tETH $2,441 · tacit', 'the tab names it and its price');
   const sub = await text(p, '#px-sub');
   const heldTxt = (Number(HELD) / 1e18).toFixed(2);
-  ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /187 deposits · 64 wallets/.test(sub), `the line under it says what the pool holds and from how many (${sub.slice(0, 90)})`);
+  ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /ETH made private in 187 deposits · 64 wallets/.test(sub) && /24h: .* ETH moved/.test(sub) && !/ in .* out /.test(sub.replace(/made private in/, '')), `the line under it says what the pool holds, what has been made private in how many deposits, and what moved in a day (${sub.slice(0, 160)})`);
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
   ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');
@@ -397,7 +397,7 @@ try {
   ok(/^\$24,/.test((await text(p, '#ch-read'))), `dollars: the held ETH at today's rate (${(await text(p, '#ch-read')).slice(0, 30)})`);
   const mv = await p.$$eval('#moves tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(mv.length === 10 && /ETH (in|out)/.test(mv[0]) && /2 h ago/.test(mv[0]), `the newest ten movements, the newest first (${mv[0]})`);
-  ok(/24h .* in, .* out/.test(await text(p, '#mv-sum')), 'a line sums the day and the week');
+  ok(/24h .* ETH moved · 7d .* ETH moved/.test(await text(p, '#mv-sum')), 'a line sums the day and the week');
   ok((await text(p, '#about')).includes('is private ETH'), 'the about text says what tETH is');
   await p.evaluate(() => { document.querySelector('#hints').open = true; });                   // the lanes sit in a closed dropdown, whose text is not drawn
   const heads = await p.$$eval('#fm-h, #b-h, #i-h, #lanes .lane .k', (els) => els.map((e) => e.innerText));

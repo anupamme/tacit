@@ -6011,8 +6011,8 @@ await step('stats', async () => {
       `stats: BTC locked leaves out a lock since spent, cBTC minted counts every mint, bonds count the locks that hold one (${bl} | ${cm} | ${bh})`);
     const rows = await r.page.$$eval('#c-dev tbody tr', (trs) => trs.map((tr) => [...tr.children].map((td) => td.textContent.replace(/\s+/g, ' ').trim())));
     const row = Object.fromEntries(rows.map((c) => [c[0].replace(/ ↗$/, '').replace(/ device pool$/, ''), c]));
-    ok(row.Ethereum?.[2] === '0.3 (1)' && row.Ethereum?.[3] === '0.11 (1)' && row.Ethereum?.[4] === '2' && row.Base?.[1] === '0.5' && row.Base?.[2] === '0 (0)'
-      && row.Robinhood?.[1] === '0.2' && row.Robinhood?.[2] === '0.2 (1)', `stats: device pools per chain, deposits and withdrawals (with the relayer's fee) from their Transact events (${JSON.stringify(rows)})`);
+    ok(row.Ethereum?.[1] === '0.3 (1)' && row.Ethereum?.[2] === '0.11 (1)' && row.Ethereum?.[4] === '2' && row.Base?.[3] === '0.5' && row.Base?.[1] === '0 (0)'
+      && row.Robinhood?.[3] === '0.2' && row.Robinhood?.[1] === '0.2 (1)', `stats: device pools per chain, deposits and withdrawals (with the relayer's fee) from their Transact events (${JSON.stringify(rows)})`);
     await shot(r.page, 'stats-desk');
     await r.page.setViewportSize({ width: 390, height: 900 });
     await r.page.emulateMedia({ colorScheme: 'dark' });
