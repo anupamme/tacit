@@ -8976,11 +8976,224 @@ await step('bridgeout', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said().catch(() => '')}`); });
     await sleep(3000);
     ok((await bo()).starts.length === starts0 && (await bo()).calls.some((c) => c[0] === 'cut'), 'bridgeout: a key locked while the relay cuts the note stops the burn before it starts, and the form goes with the key');
-    // the other asset has its own form; the way in has none
+    // TAC's way in has a form of its own (bridgein), offered again with the key locked; tETH's way in from Bitcoin has none
     await r.page.click('#bt-flip');
-    await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'in' && document.querySelector('#bt-form')?.hidden, null, 30000);
-    ok(await r.page.isHidden('#bt-here'), 'bridgeout: the way in from Bitcoin has no form here');
+    await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'in' && document.querySelector('#bt-form')?.hidden && !document.querySelector('#bt-here')?.hidden, null, 30000);
+    ok(true, 'bridgeout: TAC’s way in from Bitcoin offers a form of its own');
+    await r.page.click('#bt-assets [data-asset="teth"]');
+    await until(r.page, () => document.querySelector('#bt')?.dataset.asset === 'teth' && document.querySelector('#bt')?.dataset.dir === 'in', null, 30000);
+    ok(await r.page.isHidden('#bt-here'), 'bridgeout: tETH’s way in from Bitcoin has no form here');
     if (r.errors.length) { fails++; console.log('FAIL bridgeout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Starting a bridge from Bitcoin on the bridge page: the form is offered once the key is open; it lists the TAC at the key's Bitcoin address with
+// why a note cannot go; a picked note is checked and priced against the coins free for fees, and the acknowledgement gates the button; the burn (or
+// the move, for a note the reflection does not track) goes with the key; a note in an older form is first sent to the key's own address, and a
+// note over the limit is split; fees read long ago are read again before a press goes on with them; a key locked after the check stops the burn;
+// and what the engine refuses is said. tacit.js is a stub that records the calls and keeps the journal; the key sheet and the page are the real ones.
+await step('bridgein', async () => {
+  const TACID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const r = await openPage({ account: A0, key: K0 });
+  await r.ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\//, (route) => json(route, []));
+  await r.ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\/tx\/[0-9a-f]{64}\/status/, (route) => json(route, { confirmed: false }));
+  await r.page.route(/\/tacit\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const TAC = '${TACID}', IN = 'tacit-burndep-bridge-v1:mainnet:';
+    const S = window.__bi = { calls: [], coins: [{ txid: 'ff'.repeat(32), vout: 1, value: 20000 }], path: 'reflected', fail: null, bridging: [], gone: [], extra: [], hist: 0 };
+    export const wallet = { priv: null, pub: null, mode: null, address: () => 'bc1qstubaddress' };
+    export const invalidateHoldingsCache = () => {};
+    const hex = (u) => [...(u || [])].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const get = (k) => JSON.parse(localStorage.getItem(k) || '[]');
+    const put = (k, l) => localStorage.setItem(k, JSON.stringify(l));
+    const A = 'a1'.repeat(32), B = 'b2'.repeat(32), C = 'c3'.repeat(32), D = 'd4'.repeat(32), E = 'e5'.repeat(32);
+    const BASE = [[A, 0, 10000000000n, true, 'tacit'], [B, 0, 5000000000n, true, 'old'], [C, 0, 200000000000n, true, 'tacit'], [D, 0, 3000000000n, false, 'tacit'], [E, 2, 700000000n, true, 'tacit']];
+    S.bridging.push(E + ':2');
+    const notes = () => [...BASE, ...S.extra].filter((n) => !S.gone.includes(n[0] + ':' + n[1]));
+    export const scanHoldings = async (force) => {
+      S.calls.push(['scan', !!force]);
+      return new Map([[TAC, { assetIdHex: TAC, utxos: notes().map(([txid, vout, amount, confirmed]) => ({ utxo: { txid, vout, value: 546, status: confirmed ? { confirmed: true, block_height: 900000 } : {} }, amount, blinding: 'bb' })) }]]);
+    };
+    export const pickSafeCommitSats = async (c) => c;
+    export const getUtxos = async () => S.coins;
+    export const buildAndBroadcastCXfer = async (o) => {
+      S.calls.push(['send', String(o.amount), o.recipientPubHex, o.forceUtxos.length]);
+      const u = o.forceUtxos[0].utxo; S.gone.push(u.txid + ':' + u.vout);
+      S.extra.push([('f' + S.extra.length).repeat(32), 0, o.amount, true, 'tacit']);
+      return { revealTxid: 'cd'.repeat(32) };
+    };
+    const recOf = (n, path, pub) => ({ id: n.txid + ':' + n.vout, network: 'mainnet', walletPub: pub, path, stage: path === 'reflected' ? 'burn-submitted' : 'migrate-submitted', createdAt: Date.now(),
+      source: { txid: n.txid, vout: n.vout, sats: 546, assetId: '0x' + TAC, amount: { __big: String(n.amount) }, blinding: { __big: '777' } }, burn: { txid: 'bb'.repeat(32), hex: '00' }, migrate: path === 'reflected' ? undefined : { revealTxid: 'ee'.repeat(32) }, envelope: { destLeaf: '0x' + 'ee'.repeat(32) } });
+    const made = (n, path, o) => {
+      const pub = hex(wallet.pub), rec = recOf(n, path, pub);
+      put(IN + pub, [...get(IN + pub), rec]);
+      S.bridging.push(n.txid + ':' + n.vout);
+      return rec;
+    };
+    export const bridgeUx = () => ({
+      BURNDEP_BETA_CAP_RAW: 100000000000n,
+      list: (pub) => get(IN + pub),
+      armMint: async (pub, id, o) => { S.calls.push(['armMint', id.slice(0, 2), o.walletPriv.length]); },
+      mintRetryDue: () => false,
+      verify: async (pub, id) => get(IN + pub).find((x) => x.id === id) || null,
+      advance: async (pub, id) => { S.calls.push(['advance', id.slice(0, 2)]); return get(IN + pub).find((x) => x.id === id); },
+      noteForms: async (ns) => new Map(ns.map((n) => [n.txid + ':' + n.vout, n.txid === B ? 'old' : 'tacit'])),
+      noteTracking: async (ns) => new Map(ns.map((n) => [n.txid + ':' + n.vout, 'tracked'])),
+      eligibleNotes: (ns) => ns.map((n) => {
+        const id = n.txid + ':' + n.vout, amount = BigInt(n.amount);
+        const reason = amount > 100000000000n ? 'over the 1,000 TAC beta limit — send part of it to yourself first to split off a smaller note' : n.confirmed === false ? 'unconfirmed' : S.bridging.includes(id) ? 'already bridging' : null;
+        return { ...n, eligible: !reason, reason };
+      }),
+      preflight: async ({ note, onProgress }) => {
+        S.calls.push(['preflight', note.txid.slice(0, 2)]);
+        onProgress?.(1234);
+        if (note.txid === B) return { ok: false, steps: [{ name: 'old-leaf', ok: false }] };
+        if (S.path === 'migrate') return { ok: true, path: 'migrate', migrateFeeRate: 4, burnRate: 6, steps: [] };
+        return { ok: true, path: 'reflected', burnFeeRate: 5, steps: [] };
+      },
+      quoteRate: async () => 5,
+      bridgeCost: ({ path, coins }) => (path === 'reflected' ? { fee: 1100, need: 900, ok: (coins[0]?.value || 0) >= 900, have: coins[0]?.value || 0 } : { fee: 2400, need: 3000, later: 800, ok: (coins[0]?.value || 0) >= 3000, have: coins[0]?.value || 0 }),
+      pickFunding: (coins, need) => coins.find((c) => c.value >= need) || null,
+      startReflected: async (o) => {
+        S.calls.push(['startReflected', o.note.txid.slice(0, 2), o.walletPriv.length, o.feeRate, 'recipient' in o]);
+        if (S.fail) throw new Error(S.fail);
+        return made(o.note, 'reflected');
+      },
+      start: async (o) => {
+        S.calls.push(['start', o.note.txid.slice(0, 2), o.walletPriv.length, o.feeRate, o.fundingUtxo.value]);
+        if (S.fail) throw new Error(S.fail);
+        return made(o.note, 'migrate');
+      },
+    });
+    export const crossoutUx = () => ({ list: () => [], advance: async () => null });` }));
+  const bi = () => r.page.evaluate(() => window.__bi);
+  const said = () => text(r.page, '#bi-s').then((t) => t.replace(/\s+/g, ' ').trim());
+  const rcpt = () => text(r.page, '#bi-rcpt').then((t) => t.replace(/\s+/g, ' ').trim());
+  const listed = () => r.page.$$eval('#bi-notes .bi-note', (l) => l.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off'), radio: x.querySelector('input[type=radio]')?.value || null, disabled: x.querySelector('input[type=radio]')?.disabled ?? null })));
+  const pickNote = async (txid) => { await r.page.check(`#bi-notes input[value="${txid}:0"]`); };
+  try {
+    await r.page.goto(r.url + 'bridge/#tac');
+    await r.page.waitForSelector('#bt-here:not([hidden])', { timeout: 60000 });
+    ok(await r.page.isHidden('#bt-form') && !(await bi()), 'bridgein: from Bitcoin offers to bridge from here, and nothing of the key or tacit.js is loaded until asked');
+    await r.page.click('#bt-here');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#bi-notes .bi-note', { timeout: 120000 });
+    // the list: the notes that can go first, why the others cannot, a note held in an older form says it goes to the key's own address first, one over the limit is split
+    const l0 = await listed();
+    ok(l0.length === 4 && l0[0].text.startsWith('100 TAC') && !l0[0].off && /^50 TAC.*Older note form: pick it to send it to your own address once/.test(l0[1].text) && !l0[1].off,
+      `bridgein: the key's TAC is listed, the notes that can go first (${JSON.stringify(l0.map((x) => x.text))})`);
+    const wait = l0.find((x) => /^30 TAC/.test(x.text));
+    ok(wait?.off && wait.disabled && /Waiting for its Bitcoin confirmation/.test(wait.text), `bridgein: a note not yet confirmed is shown and cannot be picked (${wait?.text})`);
+    ok(l0.some((x) => /^2,000 TAC.*Over 1,000 TAC, the most one bridge takes/.test(x.text)) && !!(await r.page.$('#bi-notes [data-split]')), 'bridgein: a note over the limit offers to be split, and one already bridging is not listed');
+    ok(await r.page.isHidden('#bt-here') && await r.page.isDisabled('#bi-go') && await r.page.isHidden('#bi-ackrow'), 'bridgein: with the key open the form takes the place of the offer, and nothing can be pressed before a note is picked');
+    // a note picked: checked once, priced against the coins free for fees, then acknowledged
+    await pickNote(('a1').repeat(32));
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden, null, 60000);
+    const rc1 = await rcpt();
+    ok(/You get100 private TAC on Ethereum/.test(rc1) && /Bitcoin fee≈ 1,100 sats/.test(rc1) && /Relay feeNone/.test(rc1) && /One Bitcoin transaction/.test(rc1), `bridgein: the receipt says what arrives, the Bitcoin fee, and the way (${rc1.slice(0, 220)})`);
+    ok(await r.page.isDisabled('#bi-go'), 'bridgein: until it is acknowledged the button waits');
+    const pre0 = (await bi()).calls.filter((c) => c[0] === 'preflight').length;
+    await r.page.check('#bi-ack');
+    ok(!(await r.page.isDisabled('#bi-go')), 'bridgein: acknowledged, it can be pressed');
+    // another note picked voids the acknowledgement at once; the first picked again is checked afresh
+    await pickNote(('b2').repeat(32));
+    ok(await r.page.isHidden('#bi-ackrow') && await r.page.isDisabled('#bi-go'), 'bridgein: picking another note voids the acknowledgement at once');
+    await r.page.waitForSelector('#bi-prep', { timeout: 60000 });
+    await pickNote(('a1').repeat(32));
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden && document.querySelector('#bi-ack')?.checked === false, null, 60000);
+    await r.page.check('#bi-ack');
+    // fees read long ago are read again, and the holder presses once more on what they now see
+    await r.page.evaluate(() => { window.__now = Date.now.bind(Date); Date.now = () => window.__now() + 6 * 60e3; });
+    await r.page.click('#bi-go');
+    await until(r.page, () => /The fees were read again/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    await r.page.evaluate(() => { Date.now = window.__now; });
+    ok((await bi()).calls.filter((c) => c[0] === 'startReflected').length === 0 && (await bi()).calls.filter((c) => c[0] === 'preflight').length > pre0, 'bridgein: fees read long ago are read again before the press goes on, and nothing was sent');
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden, null, 60000);
+    ok(await r.page.isDisabled('#bi-go'), 'bridgein: and what was acknowledged before is acknowledged again');
+    // the engine refuses: said in words, nothing recorded, and the check is read again
+    await r.page.evaluate(() => { window.__bi.fail = 'burndep-ux: no safe funding utxo'; });
+    await r.page.check('#bi-ack');
+    await r.page.click('#bi-go');
+    await until(r.page, () => /has no free bitcoin to pay this step’s fee/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    ok((await bi()).calls.filter((c) => c[0] === 'startReflected').length === 1 && !(await r.page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('tacit-burndep-bridge-v1:mainnet:') && localStorage.getItem(k) !== '[]'))), `bridgein: a burn the engine refuses is said, and no bridge is recorded (${await said()})`);
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden && document.querySelector('#bi-ack')?.checked === false, null, 60000);
+    // a key locked after the check stops the burn before it is signed
+    await r.page.evaluate(() => { window.__bi.fail = null; });
+    await r.page.check('#bi-ack');
+    const starts0 = (await bi()).calls.filter((c) => c[0] === 'startReflected').length;
+    await r.page.evaluate(() => window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: ['0x00000000000000000000000000000000000000aa'] } })));
+    await until(r.page, () => document.querySelector('#bt-form')?.hidden, null, 30000).catch(() => {});
+    await sleep(1500);
+    ok((await bi()).calls.filter((c) => c[0] === 'startReflected').length === starts0, 'bridgein: a key that moved to another account takes the form with it, and nothing is signed');
+    // the key opened again
+    await r.page.click('#bt-here');
+    await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
+    await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
+    await r.page.waitForSelector('#bi-notes .bi-note', { timeout: 120000 });
+    await pickNote(('a1').repeat(32));
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden, null, 60000);
+    await r.page.check('#bi-ack');
+    await r.page.click('#bi-go');
+    await until(r.page, () => /Burn sent/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    const c1 = (await bi()).calls;
+    const sr = c1.filter((c) => c[0] === 'startReflected').at(-1);
+    ok(sr[1] === 'a1' && sr[2] === 32 && sr[3] === 5 && sr[4] === false, `bridgein: the burn goes with the key and the rate that was shown, to the key's own address (${JSON.stringify(sr)})`);
+    ok(c1.some((c) => c[0] === 'advance' && c[1] === 'a1') && c1.some((c) => c[0] === 'armMint' && c[2] === 32), 'bridgein: and the relay is asked to finish the mint');
+    ok(/shows under Your bridges and finishes on its own, even if you close this page/.test(await said()) && !!(await r.page.$('#bi-s a[href*="mempool.space/tx/"]')), `bridgein: it says where it went (${(await said()).slice(0, 160)})`);
+    await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
+    ok((await listed()).every((x) => !/^100 TAC/.test(x.text)), 'bridgein: the bridge is one of the rows above and its note is no longer offered');
+    // a note in an older form: the check says so, and offers to send it to the key's own address
+    await pickNote(('b2').repeat(32));
+    await r.page.waitForSelector('#bi-prep', { timeout: 60000 });
+    ok(/older note form/.test(await rcpt()) && await r.page.isHidden('#bi-ackrow') && await r.page.isDisabled('#bi-go'), `bridgein: a note in an older form says so, with nothing to acknowledge (${(await rcpt()).slice(0, 160)})`);
+    await r.page.click('#bi-prep');
+    await until(r.page, () => /sent to your own address/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    const sent = (await bi()).calls.filter((c) => c[0] === 'send').at(-1);
+    ok(sent[1] === '5000000000' && /^02|^03/.test(sent[2]) && sent[3] === 1 && !!(await r.page.$('#bi-s a[href*="mempool.space/tx/cdcd"]')), `bridgein: the send to its own address is the whole note, to the key (${JSON.stringify(sent)})`);
+    await until(r.page, () => !document.querySelector(`#bi-notes input[value="${'b2'.repeat(32)}:0"]`) && !!document.querySelector('#bi-notes input[value^="f0f0"]'), null, 60000);
+    ok(true, 'bridgein: the list is read again: the old note is gone and the one sent to the key’s own address is there');
+    // a note over the limit is split off to the key's own address
+    await r.page.fill('#bi-notes [data-split-in]', '0');
+    await r.page.click('#bi-notes [data-split]');
+    ok(/Enter an amount up to 1,000 TAC/.test(await said()), 'bridgein: a split of nothing is refused in words');
+    await r.page.fill('#bi-notes [data-split-in]', '1500');
+    await r.page.click('#bi-notes [data-split]');
+    ok(/Enter an amount up to 1,000 TAC/.test(await said()), 'bridgein: a split over the limit is refused in words');
+    await r.page.fill('#bi-notes [data-split-in]', '500');
+    await r.page.click('#bi-notes [data-split]');
+    await until(r.page, () => /500 TAC split off to your own address/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    ok((await bi()).calls.filter((c) => c[0] === 'send').at(-1)[1] === '50000000000', 'bridgein: the split sends the amount asked of that note');
+    // a note the reflection does not track goes by a move, from a coin free for its fees
+    await r.page.evaluate(() => { window.__bi.path = 'migrate'; });
+    await r.page.click('#bi-re');
+    await r.page.waitForSelector('#bi-notes input[type=radio]:not([disabled])', { timeout: 60000 });
+    const eligible = await r.page.$$eval('#bi-notes input[type=radio]:not([disabled])', (l) => l.map((x) => x.value));
+    await pickNote((eligible[0] || '').split(':')[0]);
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden, null, 60000);
+    const rc2 = await rcpt();
+    ok(/A move, then a burn through a miner/.test(rc2) && /about 800 sats for the burn later/.test(rc2), `bridgein: a move is priced with the burn that follows (${rc2.slice(0, 200)})`);
+    await r.page.check('#bi-ack');
+    await r.page.click('#bi-go');
+    await until(r.page, () => /Move sent/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
+    const st = (await bi()).calls.filter((c) => c[0] === 'start').at(-1);
+    ok(st[2] === 32 && st[3] === 4 && st[4] === 20000, `bridgein: the move is sent from a coin that covers it, at the rate shown (${JSON.stringify(st)})`);
+    ok(/its burn is sent from its row once Bitcoin’s proof reaches the move/.test(await said()), 'bridgein: and it says the burn comes from the row');
+    // the coins free for fees fall short: the shortfall is said and the button stays off
+    await r.page.evaluate(() => { window.__bi.path = 'reflected'; window.__bi.coins = [{ txid: 'ee'.repeat(32), vout: 0, value: 300 }]; });
+    await r.page.click('#bi-re');
+    await r.page.waitForSelector('#bi-notes input[type=radio]:not([disabled])', { timeout: 60000 });
+    const el2 = await r.page.$$eval('#bi-notes input[type=radio]:not([disabled])', (l) => l.map((x) => x.value));
+    await pickNote((el2[0] || '').split(':')[0]);
+    await until(r.page, () => /short of the 900 sats this needs/.test(document.querySelector('#bi-rcpt')?.textContent || ''), null, 60000);
+    await r.page.check('#bi-ack');
+    ok(await r.page.isDisabled('#bi-go'), 'bridgein: coins that fall short of the fee are said, and the button stays off');
+    // the form fits a phone
+    await r.page.setViewportSize({ width: 360, height: 760 });
+    await sleep(300);
+    const wide = await r.page.evaluate(() => { const f = document.querySelector('#bt-form'); return [f.scrollWidth, f.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
+    if (process.env.SHOT) await r.page.screenshot({ path: process.env.SHOT + '-bridgein-phone.png', fullPage: true });
+    ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `bridgein: no sideways scroll at phone width with the form open (${wide})`);
+    if (r.errors.length) { fails++; console.log('FAIL bridgein page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

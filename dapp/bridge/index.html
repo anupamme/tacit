@@ -29,8 +29,8 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=944e5cbe">
-<link rel="modulepreload" href="/bridge/track.js?cb=3bd070b8">
+<link rel="modulepreload" href="/bridge/app.js?cb=a7e8fb88">
+<link rel="modulepreload" href="/bridge/track.js?cb=a6264ed1">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
 <style>
@@ -181,6 +181,18 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .bo-s a { color: var(--ink); }
 button.go { border: 0; cursor: pointer; width: 100%; }
 button.go:disabled { opacity: .45; cursor: default; transform: none; }
+.bi-notes { display: grid; gap: 8px; min-width: 0; }
+.bi-note { display: flex; gap: 10px; align-items: flex-start; background: var(--field); border: 1px solid var(--hair-2); border-radius: 12px; padding: 12px 14px; cursor: pointer; min-width: 0; font-size: 14px; }
+.bi-note.off { cursor: default; opacity: .7; }
+.bi-note input { margin-top: 4px; }
+.bi-note > span { min-width: 0; }
+.bi-note b { font: 500 16px var(--mono); }
+.bi-note small { display: block; color: var(--mute); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.bi-over { cursor: default; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+.bi-split { display: flex; gap: 8px; align-items: center; }
+.bi-split input { width: 9ch; font: 500 14px var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--hair-2); border-radius: 8px; padding: 6px 8px; min-height: 36px; min-width: 0; }
+.bi-split button { font: inherit; color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 8px; padding: 6px 10px; min-height: 36px; cursor: pointer; }
+button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--hair-2); }
 #mine-s a, #lost-s a { color: var(--ink); }
 #mine-l { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .mb { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; }
@@ -1011,6 +1023,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=944e5cbe"></script>
+<script type="module" src="/bridge/app.js?cb=a7e8fb88"></script>
 </body>
 </html>

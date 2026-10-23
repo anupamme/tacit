@@ -1,6 +1,6 @@
 // What this browser's bridges are and where each one stands, read from the journals the front page's bridge keeps.
 //
-// The front page starts every bridge and moves it on (dapp/burndep-ux.js on the way in from Bitcoin, dapp/crossout-ux.js on the way out
+// The front page and this page's forms start a bridge and move it on (dapp/burndep-ux.js on the way in from Bitcoin, dapp/crossout-ux.js on the way out
 // to it); this page reads what they journal, and moves one on itself only once its holder opens the key here (mover.js). The engines lease
 // each bridge while they move it, so it is never moved from two pages at once. A journal is one list per key:
 //   tacit-burndep-bridge-v1:mainnet:<pub>    TAC (and tETH coming back) from Bitcoin to the pool on Ethereum

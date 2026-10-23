@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=3bd070b8';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=a6264ed1';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -310,21 +310,23 @@ function paintAge() {
   if (t && LIVE.at) t.textContent = `checked ${ago(LIVE.at)}`;
 }
 
-// Starting a bridge to Bitcoin from here (out-form.js): offered for the assets that go, once the key is open; the door above stays the front page's.
+// Starting a bridge from here, once the key is open: to Bitcoin (out-form.js) for the assets that go, from Bitcoin (in-form.js) for TAC; the door above
+// stays the front page's.
 let FORM = null, FORM_KEY = '';
-const canHere = () => PICK.dir === 'out' && (PICK.asset === 'tac' || PICK.asset === 'teth');
+const canHere = () => (PICK.dir === 'out' && (PICK.asset === 'tac' || PICK.asset === 'teth')) || (PICK.dir === 'in' && PICK.asset === 'tac');
 function paintHere() {
   const b = $('#bt-here'), box = $('#bt-form');
   if (!b || !box) return;
-  const want = canHere() && MV?.open ? PICK.asset : '';
+  const want = canHere() && MV?.open ? `${PICK.asset}/${PICK.dir}` : '', asset = PICK.asset, dir = PICK.dir;
   b.hidden = !canHere() || !!want;
   if (want === FORM_KEY) return;
   FORM?.destroy(); FORM = null; FORM_KEY = '';
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
-  import('/bridge/out-form.js?cb=392de59f').then((m) => {
+  const repaint = () => { readMine.sig = null; readMine(); };
+  (dir === 'in' ? import('/bridge/in-form.js?cb=ee1859a8') : import('/bridge/out-form.js?cb=392de59f')).then((m) => {
     if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
-    FORM = m.mountOutForm(box, { asset: want, mover: MV, say: mineSay, repaint: () => { readMine.sig = null; readMine(); } });
+    FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
 }
 function mineSay(text, front = false) {
@@ -334,7 +336,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=a566f924').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=495ca05d').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });

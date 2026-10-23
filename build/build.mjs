@@ -194,7 +194,7 @@ const ETCH_CB_FILES = ['etch/minter.js', 'etch/eth.js', 'etch/find.js', 'etch/ap
 // dapp/rewards/ looks up the airdrop and the points of an address or name: its one script, then the page.
 const REWARDS_CB_FILES = ['rewards/farms.js', 'rewards/app.js', 'rewards/index.html'];
 // dapp/bridge/ follows this browser's bridges and shows how each way is proven: its reading of the journals first, then app.js, then the page.
-const BRIDGE_CB_FILES = ['bridge/track.js', 'bridge/mover.js', 'bridge/out-form.js', 'bridge/app.js', 'bridge/index.html'];
+const BRIDGE_CB_FILES = ['bridge/track.js', 'bridge/mover.js', 'bridge/out-form.js', 'bridge/in-form.js', 'bridge/app.js', 'bridge/index.html'];
 // dapp/swap/ is the swap page: its routes first (and the aggregated route over them), the private swaps (later.js reads the aggregated
 // route), then app.js, then the page.
 const SWAP_CB_FILES = ['swap/route.js', 'swap/aggregate.js', 'swap/bitcoin.js', 'swap/private.js', 'swap/later.js', 'swap/app.js', 'swap/index.html'];

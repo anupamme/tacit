@@ -1,11 +1,11 @@
 // The bridge page moving the holder's bridges on, with the key opened here: the same pass the front page makes every minute (bridge-tick.js),
 // and the two presses that need only the relay (the burn of a moved bridge, the mint of a recorded one). Nothing is loaded until the holder asks:
-// this module, the key sheet and tacit.js (four megabytes) all come in on that press. Starting a bridge, moving one back, recovering one, paying
+// this module, the key sheet and tacit.js (four megabytes) all come in on that press. Starting a bridge is the forms' (in-form.js, out-form.js). Merging, bridging all, minting to another address, paying
 // the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=3bd070b8';
+import { ROUTES } from '/bridge/track.js?cb=a6264ed1';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { parseUnits } from '/trade/util.js?cb=509d6618';
 import { forgetUx } from '/trade/poolux.js?cb=e792b253';
@@ -206,5 +206,5 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     } finally { busy = false; repaint(); }
   }
 
-  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run, esplora }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

@@ -149,8 +149,12 @@ acknowledgement that a burn cannot be undone, and has the relay prove the burn, 
 first when none fits. It also moves every bridge it lists on while the page is open, makes the presses a bridge row
 waits on (burn, mint, move back, recover, check again, cancel, send again, sign again), and looks for bridges the
 browser has no record of from the key's own Bitcoin address, or from the burn's Ethereum transaction and the amount.
-Starting a bridge from Bitcoin to Ethereum, proving a burn or a mint yourself, and paying the mint from a wallet are
-on the front page; a press the relay will not take links there.
+For TAC it also starts a bridge from Bitcoin to Ethereum: it lists the TAC at the key's Bitcoin address with why a note
+cannot go, checks the one picked and prices it against the coins the key has free for fees, asks for the same
+acknowledgement, and sends the burn (one Bitcoin transaction) or, for a note the reflection does not yet track, the move
+that comes first; a note in an older form is first sent to the key's own address, and a note over 1,000 TAC is split.
+Merging notes, bridging them all, minting to someone else's address or as public TAC, proving a burn or a mint yourself,
+and paying the mint from a wallet are on the front page; a press the relay will not take links there.
 
 ### Following a bridge
 
