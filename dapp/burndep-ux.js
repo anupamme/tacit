@@ -731,6 +731,11 @@ export function makeBurnDepositUx(deps) {
       if (tracked === null) return rec;
       try { await broadcaster.submitToSlipstream(rec.burn.hex); }
       catch (e) {
+        // A burn Bitcoin already has needs no sending: an earlier send whose answer this page never saw, or another browser's, put it
+        // there, and the miner now refuses it because the burn itself has spent its coins. The bridge carries on from its mining.
+        if ((await chainTxState(rec.burn.txid)) === 'present') {
+          return putRecord({ ...rec, stage: 'burn-submitted', submittedAt: rec.submittedAt || now(), lastError: null, errorCount: 0 });
+        }
         // A signed burn whose coin another transaction has spent can never be mined: when Bitcoin plainly has neither the burn nor its
         // coin unspent, the bridge goes back to its move (the burn address untouched) and builds its burn on another coin.
         const u = rec.burn.fundingUtxo;

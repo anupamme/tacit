@@ -699,7 +699,11 @@ let rec;
   const own = await scenario({ spender: 'burn', burnKnown: false });
   ok(own.threw && own.after.stage === 'burn-signed' && own.after.burn, 'a coin spent by the burn itself is not taken for another spend: the burn stays signed');
   const known = await scenario({ spender: 'other', burnKnown: true });
-  ok(known.threw && known.after.stage === 'burn-signed', 'nor is one whose burn Bitcoin already has');
+  ok(!known.threw && known.after.stage === 'burn-submitted' && known.after.burn && !known.after.lastError,
+    'a burn Bitcoin already has is not sent again and is not taken for a dead one: the bridge goes on to wait for its mining');
+  const mined = await scenario({ spender: 'burn', burnKnown: true });
+  ok(!mined.threw && mined.after.stage === 'burn-submitted' && mined.after.errorCount === 0,
+    'the miner refusing a burn because the burn itself spent its coins no longer leaves the bridge stuck at the burn');
   const unread = await scenario({ spender: 'unreadable', burnKnown: false });
   ok(unread.threw && unread.after.stage === 'burn-signed', 'and a coin that cannot be read just now changes nothing');
 }
@@ -838,7 +842,10 @@ let rec;
   const world = makeWorld();
   world.setSubmitStatus('error');
   const storage = makeMemStorage();
-  const ux = makeUx(world, storage);
+  // The burn the miner refused is not on Bitcoin (a burn Bitcoin has is not a refusal, see the signed-burn scenarios below).
+  let refusedBurn = null;
+  const fetchImpl = async (url, opts) => (refusedBurn && new URL(url).pathname === `/chain/tx/${refusedBurn}` ? { ok: false, status: 404, json: async () => ({ error: 'not-found' }) } : world.fetchImpl(url, opts));
+  const ux = makeUx({ ...world, fetchImpl }, storage);
   let r = await ux.start({
     note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
     walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
@@ -849,6 +856,7 @@ let rec;
   r = await ux.advance(r.walletPub, r.id);
   world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
   r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV }); // burn-signed
+  refusedBurn = r.burn.txid;
   await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit refused/, 'a MARA status!==success response is surfaced as a real error, not treated as submitted');
   const stillAt = ux.list(r.walletPub).find((x) => x.id === r.id);
   ok(stillAt.stage === 'burn-signed', 'a refused MARA submission does not advance the stage');
