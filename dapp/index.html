@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Daj8yjQxc3FwMM5JDDSNY0vvQd1NDoG906sYab2+bWA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-//HKPRyTxuQKL2ruMOpyx0ylqdDS2Jq3ElcTxbVoMlo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -585,6 +585,21 @@ a.di { color: inherit; text-decoration: none; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
 .fm-y + .fm-y { margin-top: 12px; }
 .fm-apr.s { font-size: clamp(44px, 6vw, 72px); }
+.fm-vp { grid-template-columns: minmax(0, 1fr); }
+.fm-vp .fm-way:active { transform: none; }
+.fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 28px; }
+.fm-vp .fm-go a { position: relative; color: inherit; text-decoration: none; }
+.fm-vp .fm-go a::after { content: ''; position: absolute; inset: -10px -6px; }
+.fm-vp .fm-go a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+@media (hover: hover) { .fm-vp .fm-way:hover { background: var(--card); } .fm-vp .fm-way:hover .go { transform: none; } .fm-vp .fm-go a:hover .go { transform: translateX(4px); } }
+@media (min-width: 641px) {
+  .fm-vp .fm-way { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 40px; }
+  .fm-vp .fm-apr { grid-row: 1 / 4; }
+  .fm-vp h3, .fm-vp p, .fm-vp .fm-go { grid-column: 2; }
+  .fm-vp h3 { margin: 0; }
+  .fm-vp .fm-go { margin-top: 8px; }
+  .fm-vp .pair { grid-column: 3; grid-row: 1 / 4; align-self: center; }
+}
 .ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 16px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink); }
 .ptsline .tk { width: 28px; height: 28px; box-shadow: none; transition: transform .4s var(--spring); }
 .ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; }
@@ -675,6 +690,20 @@ a.di { color: inherit; text-decoration: none; }
   .pw-n { font-size: 24px; }
 }
 .ig { padding-top: 72px; }
+.pi { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: 0 56px; align-items: start; }
+.pi .pw, .pi .ig { padding-top: 0; }
+.pi .pw-a { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0 24px; }
+.pi .pw-n { font-size: 24px; }
+.pi .ig-l { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .pi { grid-template-columns: minmax(0, 1fr); gap: 56px; }
+  .pi .ig-l { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .pi { gap: 48px; }
+  .pi .pw-a { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .pi .ig-l { grid-template-columns: minmax(0, 1fr); }
+}
 .pw-k, .ig-k { display: block; margin: 0 0 14px; font-size: 11px; font-weight: 400; line-height: 1.2; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
 .ig-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 56px; border-top: 1px solid var(--hair); }
 .ig-l li { border-bottom: 1px solid var(--hair); }
@@ -1331,22 +1360,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
   </section>
 
-  <section class="sx fm" aria-labelledby="fm-h">
-    <div class="sx-h">
-      <div><span class="sx-k">Earn</span><h2 id="fm-h">Farm <em>TAC</em>.</h2></div>
-      <p>TAC streams to both farms every second. Claim or leave whenever you like.</p>
-    </div>
-    <div class="fm-y">
-      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction: about half your ETH becomes TAC, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
-    </div>
-    <div class="fm-y">
-      <a class="fm-way" href="/vault/#v=usd&amp;pools"><span class="fm-apr s num" id="tacd-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg></span><h3>TACD pools</h3><p>Where borrowed dollars trade for USDC. More depth, better borrowing against TAC.</p><span class="fm-go">Supply liquidity <span class="go" aria-hidden="true">→</span></span></a>
-      <a class="fm-way" href="/vault/#v=eth&amp;pools"><span class="fm-apr s num" id="tace-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><h3>TACE pools</h3><p>Where borrowed ether trades for ETH. More depth, better borrowing against TAC.</p><span class="fm-go">Supply liquidity <span class="go" aria-hidden="true">→</span></span></a>
-    </div>
-    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
-  </section>
-
   <section class="sx tc" id="tac" aria-labelledby="tc-h">
     <div class="tc-stage" aria-hidden="true">
       <div class="tc-tilt"><div class="tc-coin">
@@ -1361,7 +1374,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
       <dl class="tc-facts">
         <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
-        <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
+        <div><dt>Airdropped wallets, both chains</dt><dd class="num">14,000+</dd></div>
         <div><dt>Sale or VC</dt><dd>None</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h">
@@ -1376,13 +1389,29 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <li><b>Cheaper exits</b><span>0.30%, down to 0.15% for holders.</span></li>
         <li><b>More points</b><span>Up to 2× when held on Ethereum.</span></li>
         <li><b>A vote</b><span>On the protocol’s governed parts.</span></li>
-        <li><b>Never sold</b><span>Relay fees in TAC go to the reserve; part of the ETH surplus buys more.</span></li>
+        <li><b>Never sold</b><span>Relay fees in TAC go to the reserve; a tenth of its ETH fees buys more.</span></li>
       </ul>
-      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec →</a></div>
+      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
   </section>
 
-  <section class="sx pw" aria-labelledby="pw-h">
+  <section class="sx fm" aria-labelledby="fm-h">
+    <div class="sx-h">
+      <div><span class="sx-k">Earn</span><h2 id="fm-h">Farm <em>TAC</em>.</h2></div>
+      <p>Farms stream TAC every second, vault pools pay it daily. Leave whenever you like.</p>
+    </div>
+    <div class="fm-y">
+      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction: about half your ETH becomes TAC, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
+    </div>
+    <div class="fm-y fm-vp">
+      <div class="fm-way"><span class="fm-apr s num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><h3>Vault pools</h3><p>TACD trades for USDC, TACE for ETH. Deeper pools, better borrowing against TAC.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
+    </div>
+    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
+  </section>
+
+  <div class="sx pi">
+  <section class="pw" aria-labelledby="pw-h">
     <h2 class="pw-k" id="pw-h">Press</h2>
     <a class="pw-a" href="https://www.bankless.com/read/tacit-a-new-take-on-confidential-bitcoin-defi" rel="noopener noreferrer">
       <img class="pw-i" src="/press/bankless.webp" width="840" height="420" alt="" loading="lazy" decoding="async">
@@ -1394,7 +1423,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </a>
   </section>
 
-  <section class="sx ig" aria-labelledby="ig-h">
+  <section class="ig" aria-labelledby="ig-h">
     <h2 class="ig-k" id="ig-h">Integrations</h2>
     <ul class="ig-l">
       <li><a href="https://zswap.wei.limo" rel="noopener">
@@ -1409,6 +1438,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </a></li>
     </ul>
   </section>
+  </div>
   </main>
 
   <!-- chrome:foot:begin -->
@@ -8192,11 +8222,9 @@ function paintEarn() {
   if (f?.apr != null) { mount($('#pub-apr'), apr(f.apr)); countUp($('#pub-apr')); $('#pub-day').textContent = `${per(f.pubDay)} TAC a day.`; }
   else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'Between reward periods.' : 'Not read yet.') : ''; }
   const tacUsd = (fpx().ethUsd || 0) * (FARM.precision?.tacEth || 0);
-  for (const [key, id] of [['usd', 'tacd'], ['eth', 'tace']]) {
-    const a = LP.m && LP.c ? LP.m.bestApr(LP.c, key, tacUsd) : null;
-    if (a != null) { mount($(`#${id}-apr`), apr(a)); countUp($(`#${id}-apr`)); }
-    else if (LP.done && !LP.c?.weights[key]?.length) $(`#${id}-apr`).textContent = '—';
-  }
+  const vp = LP.m && LP.c ? ['usd', 'eth'].map((k) => LP.m.bestApr(LP.c, k, tacUsd)).filter((a) => a != null) : [];
+  if (vp.length) { mount($('#vp-apr'), apr(Math.max(...vp))); countUp($('#vp-apr')); }
+  else if (LP.done && !LP.c?.weights.usd?.length && !LP.c?.weights.eth?.length) $('#vp-apr').textContent = '—';
   const on = now() < ptsEnd();
   mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
   mount($('#ern-pts'), on ? html`TAC in today’s points pot · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
