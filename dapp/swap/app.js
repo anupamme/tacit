@@ -854,6 +854,7 @@ function paintLater(q, r, kind) {
   $('#later-xv').textContent = `+${eth2(laterExtra(q))} ETH`;
   const dep = laterDeposit(q);
   $('#later-dep').textContent = dep != null ? `${eth2(dep)} ETH` : LATER.err ? '(fee unavailable)' : '…';
+  $('#later-dep').title = dep != null ? `The swap (${eth2(q.wei)} ETH), the relay's fee for the swap out set aside twice (${eth2(2n * LATER.fee)} ETH) and the buffer (${eth2(laterExtra(q))} ETH), rounded up. What is not swapped stays in your private balance.` : '';
 }
 $('#later').addEventListener('click', (e) => {
   if (!e.target.closest('#later-on')) return;
@@ -936,18 +937,35 @@ async function laterCheck(id) {
 }
 // Only ever a price that was shown: no press sends at one read behind the user's back, by the relay or from a wallet.
 async function laterSwap(id, via = 'relay') {
-  const p = plans().find((x) => x.id === id), shown = LATER.offers[id];
+  const p = plans().find((x) => x.id === id);
+  let shown = LATER.offers[id];
   if (!p || S.busy || !shown) return;
   if (via === 'self' && !confirm('This wallet pays for the swap out and is seen sending it. Send it from this wallet?')) return;
   S.busy = true; paintQuote();
+  let again = false;
   try {
     const lt = await ltLoad();
+    // The key is opened first (a sign-in takes its time), then a price shown over a minute ago is read again here: the same or better goes on as
+    // what was shown; a lower one is shown in its place, to confirm again. So the sign-in never turns a confirmed price into "read it again".
+    try { await (await pvLoad()).open(); } catch (e) { if (!e?.unlockCancelled) throw e; return; }
+    readBlend().catch(() => {});
+    if (p.token !== lc(R.ZERO) && Date.now() - shown.at > 60e3) {
+      say('Reading the price again…');
+      const again = await lt.offer(p, { slippageBps: S.slip });
+      if (again.min < shown.min) { LATER.offers[id] = { ...again, ks: shown.ks, via }; say('The price moved while you signed in. Check it and confirm again; nothing was sent.', '', true); return; }
+      shown = LATER.offers[id] = { ...again, ks: shown.ks, via };
+    }
     const done = await lt.swapOut(p, { shown, slippageBps: S.slip, via, onStep: (s) => say(esc(laterStep(s))) });
     delete LATER.offers[id];
     remember(done.swapTx, `${tidy(amtFmt(BigInt(p.swapWei), 18))} ETH → ${p.sym}, privately, to ${shortAddr(p.to)}`);
     say(`<span class="ok">Swapped.</span> ${esc(p.sym)} went to ${esc(shortAddr(p.to))}. <a href="https://etherscan.io/tx/${esc(done.swapTx)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>`, 'ok', true);
-  } catch (e) { if (e?.moved) delete LATER.offers[id]; say(esc(e?.message || String(e)), 'err', true); }
+  } catch (e) {
+    say(esc(e?.message || String(e)), 'err', true);
+    if (e?.moved) { delete LATER.offers[id]; again = true; }
+  }
   finally { S.busy = false; paint(); paintSteps(); }
+  // the price moved between the read and the send: the new one is read and shown, so Confirm is one press away, not two
+  if (again) laterOffer(id, via);
 }
 async function readBlend() {
   const ps = plans().filter((p) => p.state === 'waiting');
@@ -970,7 +988,7 @@ $('#steps').addEventListener('click', (e) => {
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
 const pvLoad = () => (PVP ||= import('/swap/private.js?cb=1cf5b7bd').then((m) => {
-  PV = m.makePrivate({ getUx, pick: pickWallet, onKey: (why) => { if (why) say(esc(why), 'err', true); else PV.read().then(paint, () => {}); paint(); } });
+  PV = m.makePrivate({ getUx, pick: pickWallet, onKey: (why) => { if (why) say(esc(why), 'err', true); else { PV.read().then(paint, () => {}); if (plans().some((x) => x.state === 'waiting')) ltLoad().then(readBlend, () => {}); } paint(); } });
   PV.mod = m;
   return PV;
 }).catch((e) => { PVP = null; throw e; }));
