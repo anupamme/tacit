@@ -5,7 +5,7 @@ import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618'
 import { day } from '/trade/fmt.js?cb=c07717c4';
 import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=0972c6b8';
 
-const BTC_MODULE = '/trade/btc.js?cb=185b80ce', ETH_MODULE = '/etch/eth.js?cb=258db1fd', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
+const BTC_MODULE = '/trade/btc.js?cb=4675a58c', ETH_MODULE = '/etch/eth.js?cb=258db1fd', WALLET_MODULE = '/trade/wallet.js?cb=4965f3e0', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
 const DECIMALS_OF = { btc: [0, 2, 6, 8], eth: [0, 6, 8, 18] };
 // What the pool can hold of an asset, in its base units (2^64 − 1 in-system units); on Bitcoin, the etch's own limit.
 const maxFor = (dec) => (S.chain === 'eth' ? ((1n << 64n) - 1n) * 10n ** BigInt(dec - Math.min(dec, 8)) : MAX_BASE);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9d26+DoVv2JZgiDeExcp4OsvlcllZzDz+12A988aEw8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-O4a8aIyux4FZlIxw4fnOExfJtVMlN3Mizw5XRFp9tPE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -6511,7 +6511,8 @@ const BTC = { mode: 'send', asset: 'btc', pub: null, at: 0, loading: null, err: 
 const SPENT = new Set(), SPENT_LAST = new Map(), UNSPENT_AT = new Map();
 const SATS_DUST = 546n, ASSET_SEND_SATS = 3000n, TAC_BTC_ID = CHAIN_ASSETS.tac.id, TETH_BTC_ID = CHAIN_ASSETS.teth.id;
 const BTC_TOKENS = Object.fromEntries(BTC_NOTE_ASSETS.map((a) => [a.id, a.ticker]));
-const MOVE_SATS = 5000n, NOTES_MAX = 10;
+let MOVE_SATS = 5000n;      // what a move takes from the Bitcoin address: the commit and reveal at the fee rate now, read with the notes (5,000 when the rate cannot be read)
+const NOTES_MAX = 10;
 function loadBtc(force = false) {
   if (!S.key) return Promise.resolve();
   if (BTC.loading) return force ? BTC.loading.catch(() => {}).then(() => loadBtc(true)) : BTC.loading;
@@ -6737,6 +6738,7 @@ function loadBridgedHere(force = false) {
   if (!force && BNOTES.pub === pub && Date.now() - BNOTES.at < 60e3) return Promise.resolve();
   return (BNOTES.loading = withKey(async (t) => {
     const read = await Promise.all(BTC_NOTE_ASSETS.map((a) => t.bridgedNotes(a.id).then((r) => r.notes.map((n) => ({ ...n, aid: a.id })))));
+    try { MOVE_SATS = BigInt(await (await import('/btc-book.js?cb=0a09ab9e')).moveSatsNeeded(() => t.getFeeRate())); } catch {}
     return read.flat();
   }, pub).then((v) => { if (S.key?.pubHex === pub) Object.assign(BNOTES, { pub, at: Date.now(), bridged: v, err: null }); },
     (e) => { if (S.key?.pubHex === pub) Object.assign(BNOTES, { pub, at: Date.now(), err: e }); }).finally(() => { BNOTES.loading = null; }));
@@ -11148,7 +11150,7 @@ function hxBook() {
   if (HXB.v && Date.now() - HXB.at < 60e3) return Promise.resolve(HXB.v);
   return (HXB.p ||= (async () => {
     const api = (path) => fetch(`${API}${path}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    const [bb, sales, asset, bidRows] = await Promise.all([import('/btc-book.js?cb=a129d53a'), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}?network=mainnet`), api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`), loadTacPrice().catch(() => {})]);
+    const [bb, sales, asset, bidRows] = await Promise.all([import('/btc-book.js?cb=0a09ab9e'), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}?network=mainnet`), api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`), loadTacPrice().catch(() => {})]);
     if (!Array.isArray(sales?.sales)) throw new Error('book unread');
     const bidsRead = Array.isArray(bidRows?.intents);
     const book = bb.buildBook({ assetId: TAC_BTC_ID, decimals: 8, listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: bidsRead ? bidRows.intents : [] });

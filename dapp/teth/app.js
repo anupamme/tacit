@@ -7,7 +7,7 @@ import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, 
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
-import { readMarket, isActive, bookState, refSats, premium, vsEth, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/teth/market.js?cb=0ebeb453';
+import { readMarket, isActive, bookState, refSats, premium, vsEth, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/teth/market.js?cb=72760b59';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=509d6618';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
@@ -179,7 +179,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=185b80ce')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
+    bitcoin ||= (await import('/trade/btc.js?cb=4675a58c')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
       asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH reaches Bitcoin through the bridge: <a href="/#private/bitcoin/out">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }

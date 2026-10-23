@@ -1,7 +1,7 @@
 
 import {
   DUST, buildBook, planBuy, planSell, withinBounds, ladderLevels, listingShape,
-  parseAmount, parseNumber, fmtAmount, fmtUnit, fmtSats, amountForSats, satsForAmount,
+  parseAmount, parseNumber, fmtAmount, fmtUnit, fmtSats, amountForSats, satsForAmount, moveSatsNeeded, MOVE_SATS_FLAT,
 } from './btc-book.js';
 
 const REFRESH_MS = 10_000;
@@ -1473,7 +1473,7 @@ function createMarket(host, ctx) {
 
   // Bridged tokens sit at the key's Taproot address, which selling does not read. The move sends one note to the key's own trading address in a Bitcoin
   // transaction; once it confirms the token sells like any other.
-  const MOVE_FEE_SATS = 5000;
+  let MOVE_FEE_SATS = MOVE_SATS_FLAT;
   async function moveBridged() {
     if (S.busy || S.destroyed || document.querySelector('.bm-modal') || !ctx.bridged) return;
     try { await ctx.unlock(); } catch (e) { ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
@@ -1495,6 +1495,7 @@ function createMarket(host, ctx) {
       return;
     }
     const note = ready[0];
+    MOVE_FEE_SATS = await moveSatsNeeded(() => ctx.feeRate?.());
     if (m_sats() != null && m_sats() < MOVE_FEE_SATS) {
       md.set(`<h2>Add sats first</h2><p class="bm-q">Moving ${fmtAmount(note.amount, dec, 4)} ${T} takes about ${fmtSats(MOVE_FEE_SATS)} sats for the Bitcoin fee, paid from your balance here.</p>`);
       md.buttons([{ label: 'Close', onClick: close }, { label: 'Add sats', primary: true, onClick: () => { md.close(); fundFor({ sats: MOVE_FEE_SATS - m_sats(), need: MOVE_FEE_SATS }); } }]);

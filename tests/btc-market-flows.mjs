@@ -82,6 +82,7 @@ const SETUP = () => {
     me: () => W.me,
     unlock: async () => { rec('unlock', {}); },
     fundSats: () => rec('fundSats', {}),
+    feeRate: () => W.feeRate,
     takenIds: () => new Set(),
     flags: { varIntents: false, watchtower: { enabled: true, maxSats: 250000 } },
     exec: {
@@ -362,6 +363,24 @@ await test('with too few sats the dialog offers to add them before anything is m
   const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
   assert.match(t, /Add sats first/); assert.match(t, /5,000 sats/);
   assert.equal((await calls(page, 'move')).length, 0);
+});
+
+await test('the sats a move asks for follow the fee rate: 2,000 at 1 sat/vB, so 2,500 is enough and 1,000 is not', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, sats: 1000, bridged: 1 }; W.feeRate = 1; W.bridgedNotes = [${NOTE()}];`);
+  let t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Add sats first/); assert.match(t, /about 2,000 sats/); assert.doesNotMatch(t, /5,000/);
+  await page.click('.bm-modal .bm-mfoot button:not(.bm-go)'); await settle(page, 300);
+  await page.evaluate(() => { window.__w.me = { ...window.__w.me, sats: 2500 }; });
+  await page.click('[data-k=bridged] [data-act=moveBridged]'); await page.waitForSelector('.bm-modal'); await settle(page, 400);
+  t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Move 100 TAC here/); assert.match(t, /about 2,000 sats/); assert.doesNotMatch(t, /Add sats first/);
+  assert.equal((await calls(page, 'move')).length, 0);
+});
+
+await test('at 10 sat/vB the dialog asks for more than the flat 5,000 it used to', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, sats: 6000, bridged: 1 }; W.feeRate = 10; W.bridgedNotes = [${NOTE()}];`);
+  const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Add sats first/); assert.match(t, /about 9,500 sats/);
 });
 
 await test('a move that fails says why and opens recovery, and spends nothing the page knows of', async (page) => {

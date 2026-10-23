@@ -48,6 +48,7 @@ const T = {
   bridgedAtTaproot: async () => ({ count: W.bridged ? 1 : 0, address: 'bc1ptest' }),
   bridgedNotes: async (aid) => ({ notes: W.bridged && aid === TETH ? [{ txid: 'bb'.repeat(32), vout: 0, sats: 546, amount: 10000000n, confirmed: !W.unconfirmed, openErr: null }] : [], unread: 0 }),
   swapReceiptNotes: async () => W.receipts || [],
+  getFeeRate: async () => W.feeRate,
   moveBridgedNote: async (o) => { rec('move', { txid: o.txid, assetIdHex: o.assetIdHex, vout: o.vout, swap: o.swap }); W.receipts = []; o.onProgress?.('commit-start'); o.onProgress?.('reveal-start'); if (W.fail.move) throw new Error(W.fail.move); W.bridged = false; return { reveal_txid: 'dd'.repeat(32) }; },
   bitcoinSwap: async (o) => { rec('swap', { fromAid: o.fromAid, toAid: o.toAid, amountIn: String(o.amountIn), minOut: String(o.minOut) }); for (const s of ['check', 'prepare', 'send']) { o.onProgress?.(s); await new Promise((r) => setTimeout(r, 30)); } if (W.fail.swap) throw new Error(W.fail.swap); return { revealTxid: 'cc'.repeat(32), quoted: 1n, floor: o.minOut }; },
   bitcoinSwapOutcome: async () => (W.outcome === 'filled' ? { state: 'filled', got: 16500000n } : W.outcome === 'refunded' ? { state: 'refunded', reason: 'floor miss', refund: 2000n } : { state: 'waiting' }),
@@ -165,6 +166,12 @@ console.log('the bridged note');
   ok(/Move 0\.1 tETH to your trading address\? One Bitcoin transaction, about 5,000 sats/.test(ask) && (await calls(page, 'move')).length === 0, 'it asks first, naming the fee, and moves nothing');
   await page.click('[data-move-no]');
   ok(!/Move 0\.1 tETH to your trading address\?/.test(await text(page, '#b-brd')) && (await calls(page, 'move')).length === 0, 'Cancel leaves it as it was');
+  await page.evaluate(() => { window.__stub.feeRate = 1; });
+  await page.click('[data-move]');
+  await page.waitForFunction(() => /about 2,000 sats in fees/.test(document.querySelector('#b-brd').textContent), null, { timeout: 8000 });
+  ok(!/5,000/.test(await text(page, '#b-brd')), 'at 1 sat/vB the ask names about 2,000 sats, the commit and reveal at that rate, not a flat 5,000');
+  await page.click('[data-move-no]');
+  await page.evaluate(() => { window.__stub.feeRate = undefined; });
   await page.click('[data-move]'); await page.click('[data-move-yes]');
   await page.waitForFunction(() => /Moved 0\.1 tETH/.test(document.querySelector('#b-q').textContent), null, { timeout: 8000 });
   const mv = await calls(page, 'move');

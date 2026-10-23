@@ -1,12 +1,13 @@
 // The swap page's Bitcoin lane: tETH and TAC swapped in the Bitcoin pool, signed by a Tacit key. The page loads this when the lane is first opened. tacit.js
 // comes with it through the trade page's Bitcoin module, which also holds the key's sign-in. Nothing here builds or signs a transaction: tacit.js does.
 import { esc, fmtUnits, parseUnits, plain } from '/trade/util.js?cb=509d6618';
+import { moveSatsNeeded, MOVE_SATS_FLAT } from '/btc-book.js?cb=0a09ab9e';
 
-const BTC_MODULE = '/trade/btc.js?cb=185b80ce';
+const BTC_MODULE = '/trade/btc.js?cb=4675a58c';
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TOKENS = { [TETH]: { sym: 'tETH', icon: 'teth', dec: 8 }, [TAC]: { sym: 'TAC', icon: 'tac', dec: 8 } };
 const SLIPS = [50, 100, 300];
-const MOVE_SATS = 5000, DUST = 546, IMPACT_WARN = 0.05, IMPACT_ACK = 0.1;
+const DUST = 546, IMPACT_WARN = 0.05, IMPACT_ACK = 0.1;
 const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount (one Bitcoin transaction pair)…', 'cut:wait': 'Waiting for the network to show the cut…', send: 'Sending the swap…' };
 const MEMPOOL = 'https://mempool.space';
 const SLIP_KEY = 'tacit-swap-btc-slip-v1';
@@ -32,7 +33,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
   let slip = 100;
   try { const s = Number(localStorage.getItem(SLIP_KEY)); if (SLIPS.includes(s)) slip = s; } catch { /* storage is a convenience */ }
   const L = { pay: TETH, get: TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: loadSent(), asking: null, line: '', cls: '', open: false };
-  let bitcoin = null, T = null, mounted = false, seq = 0, qTimer = 0, poll = 0, refreshTimer = 0, reading = null;
+  let moveNeed = MOVE_SATS_FLAT, bitcoin = null, T = null, mounted = false, seq = 0, qTimer = 0, poll = 0, refreshTimer = 0, reading = null;
   const $ = (id) => host.querySelector(`#${id}`);
 
   host.innerHTML = `
@@ -234,7 +235,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     const box = $('b-brd');
     const rows = L.notes.map((n, i) => {
       const what = n.amount != null ? `${tidy(fmt(n.amount, n.aid))} ${TOKENS[n.aid].sym}` : `A note of ${TOKENS[n.aid].sym}`;
-      if (L.asking === i) return `<div><span>Move ${esc(what)} to your trading address? One Bitcoin transaction, about ${MOVE_SATS.toLocaleString('en-US')} sats in fees.</span> <button class="link" type="button" data-move-yes="${i}">Move</button> <button class="link" type="button" data-move-no>Cancel</button></div>`;
+      if (L.asking === i) return `<div><span>Move ${esc(what)} to your trading address? One Bitcoin transaction, about ${moveNeed.toLocaleString('en-US')} sats in fees.</span> <button class="link" type="button" data-move-yes="${i}">Move</button> <button class="link" type="button" data-move-no>Cancel</button></div>`;
       const ready = n.amount != null && n.confirmed;
       return `<div><span>${esc(what)} ${n.swap ? 'from your swap' : 'you bridged'} sits at your Taproot address, which a swap does not spend from.${ready ? '' : ` <em>${esc(n.amount == null ? 'Its amount is not readable yet.' : 'Waiting for its Bitcoin confirmation.')}</em>`}</span>${ready && !L.busy ? ` <button class="link" type="button" data-move="${i}">Move to trade</button>` : ''}</div>`;
     });
@@ -290,9 +291,11 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       saveSent(); paintSent(); follow();
     }, wait);
   }
+  const readMoveNeed = async () => { moveNeed = await moveSatsNeeded(() => T?.getFeeRate()); };      // the commit and reveal at the fee rate now
   async function move(i) {
     const n = L.notes[i]; if (!n || L.busy) return;
-    if (L.sats != null && L.sats < MOVE_SATS) { L.asking = null; say(`Moving takes about ${MOVE_SATS.toLocaleString('en-US')} sats for the Bitcoin fee, paid from the sats at your trading address. Add sats, then try again.`, 'err'); paint(); fund(); return; }
+    await readMoveNeed();
+    if (L.sats != null && L.sats < moveNeed) { L.asking = null; say(`Moving takes about ${moveNeed.toLocaleString('en-US')} sats for the Bitcoin fee, paid from the sats at your trading address. Add sats, then try again.`, 'err'); paint(); fund(); return; }
     L.busy = true; L.asking = null; say('Moving it to your trading address…'); paint();
     try {
       await T.moveBridgedNote({ txid: n.txid, vout: n.vout ?? 0, assetIdHex: n.aid, swap: !!n.swap, onProgress: (s) => say(s === 'reveal-start' ? 'Sending the second transaction…' : 'Sending the first transaction…') });
@@ -300,7 +303,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       L.notes = L.notes.filter((_, j) => j !== i);
       keepBridged(bitcoin.session.key?.pubHex, n.aid === TETH ? 'teth' : 'tac', { notes: L.notes.filter((x) => x.aid === n.aid), unread: L.unread });
       onBridged();
-    } catch (e) { say(esc(/insufficient sats/i.test(e?.message || '') ? `You need about ${MOVE_SATS.toLocaleString('en-US')} sats at your trading address for the fee. Add sats, then try again.` : (e?.message || e)), 'err'); }
+    } catch (e) { say(esc(/insufficient sats/i.test(e?.message || '') ? `You need about ${moveNeed.toLocaleString('en-US')} sats at your trading address for the fee. Add sats, then try again.` : (e?.message || e)), 'err'); }
     finally { L.busy = false; L.bridgedAt = 0; paint(); }
   }
 
@@ -315,10 +318,10 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     const dm = t.closest('[data-dismiss]'); if (dm) { L.sent.splice(Number(dm.dataset.dismiss), 1); saveSent(); paintSent(); return; }
     const sl = t.closest('[data-slip]'); if (sl) { slip = Number(sl.dataset.slip); try { localStorage.setItem(SLIP_KEY, String(slip)); } catch { /* storage is a convenience */ } requote(true); return; }
     const qk = t.closest('[data-quick]'); if (qk) { $('b-amt').value = qk.dataset.quick; setAmt(qk.dataset.quick); return; }
-    const mv = t.closest('[data-move]'); if (mv) { L.asking = Number(mv.dataset.move); paint(); return; }
+    const mv = t.closest('[data-move]'); if (mv) { L.asking = Number(mv.dataset.move); paint(); readMoveNeed().then(() => { if (L.asking != null) paint(); }); return; }
     const yes = t.closest('[data-move-yes]'); if (yes) { move(Number(yes.dataset.moveYes)); return; }
     if (t.closest('[data-move-no]')) { L.asking = null; paint(); return; }
-    if (t.closest('#b-go')) { const a = $('b-go').dataset.act; if (a === 'unlock') unlock(); else if (a === 'fund') fund(); else if (a === 'swap') swap(); else if (a === 'move') { L.asking = Number($('b-go').dataset.mv); paint(); } }
+    if (t.closest('#b-go')) { const a = $('b-go').dataset.act; if (a === 'unlock') unlock(); else if (a === 'fund') fund(); else if (a === 'swap') swap(); else if (a === 'move') { L.asking = Number($('b-go').dataset.mv); paint(); readMoveNeed().then(() => { if (L.asking != null) paint(); }); } }
   });
 
   return {

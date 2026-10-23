@@ -9,6 +9,16 @@
 // executors in tacit.js use.
 
 export const DUST = 546;
+// Sats a move of a bridged note takes from the trading address: the commit and the reveal tacit.js builds (about 153 and 435 vB, each at least 500 sats) at the fee rate
+// now, half again for a rate that rises before it is signed, and the output's dust. A rate that cannot be read leaves the flat sum the pages named before.
+export const MOVE_SATS_FLAT = 5000;
+export async function moveSatsNeeded(feeRate) {
+  let rate = 0;
+  try { rate = Number(await feeRate()); } catch {}
+  if (!(rate > 0)) return MOVE_SATS_FLAT;
+  const fee = (vb) => Math.max(500, Math.ceil(vb * rate * 1.5));
+  return Math.ceil((DUST + fee(153) + fee(435)) / 500) * 500;
+}
 // Atomic offers older than this rarely have a maker online to confirm a claim.
 export const STALE_INTENT_SEC = 12 * 3600;
 // Never route into something that expires before a take could confirm.
