@@ -4,7 +4,7 @@
 // gas to find than a public node allows a call.) Each answer is held to the terms asked by zrouter-guard (it takes the asked token, pays
 // the asked recipient, spends exactly the amount and pays at least its claimed output less the slippage) before it may be offered; the best
 // that passes is the route. All of it is views on the chain: nothing here leaves the page.
-import { checkZRouterCall, decodeZRouterCall } from '../zrouter-guard.js';
+import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '../zrouter-guard.js';
 import { ZQUOTER, ZERO, SOURCES } from './route.js';
 
 const SEL = { viaEth: 'e453166e', split: '892af013', hybrid: '85f86a90', quotes: 'e1fd10bc' };
@@ -28,6 +28,18 @@ export function legsOf(callData) {
     out.push('0x' + b.slice((lenAt + 1) * 64, (lenAt + 1) * 64 + len * 2));
   }
   return out;
+}
+
+const CURVE_UNKNOWN = 'the curve route uses a pool that is not allowed';
+const randomAddr = () => '0x' + Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => b.toString(16).padStart(2, '0')).join('');
+// The one swap run as a call from a fresh address the node is told holds the ETH: what zRouter returns it paid, against the route's floor.
+async function paysFloor(ethCall, c, block) {
+  const from = randomAddr();
+  try {
+    let r = strip(await ethCall(ZROUTER, c.callData, block, { from, value: c.value, gas: '0x7A1200', state: { [from]: { balance: '0x' + (c.value + 10n ** 18n).toString(16) } } }));
+    if (strip(c.callData).startsWith('ac9650d8')) r = strip(legsOf('0xac9650d8' + r).pop());       // a multicall returns each call's result: the swap's is the last
+    return r.length >= 128 && at(r, 1) >= c.min && c.min > 0n;
+  } catch { return false; }
 }
 
 // One zQuoter answer: null when it reverts (no route of that shape) or cannot be read; `fail` keeps a read that failed, so a quote can say so
@@ -65,15 +77,22 @@ export async function bestRoute({ ethCall, to, refundTo = to, tokenIn, tokenOut,
       name: both ? legs.map((l, i) => `${nameOf(l)}${kind === 'hybrid' && i === 1 ? ' via a hub' : ''} ${share(l)}%`).join(' + ') : nameOf(legs[0] || l0) });
   }
   // held to the terms: the asked tokens and recipient, exactly the amount, sent exactly the ETH it spends, and paying at least what it claims less its slippage
-  const ok = cands.filter((c) => {
-    if (c.out <= 0n || c.value !== (ethIn ? amt : 0n)) return false;
+  const ok = [], unknown = [];
+  for (const c of cands) {
+    if (c.out <= 0n || c.value !== (ethIn ? amt : 0n)) continue;
     let legs;
-    try { legs = decodeZRouterCall(c.callData); } catch { return false; }
+    try { legs = decodeZRouterCall(c.callData); } catch { continue; }
     // the least it pays: the limits of the swaps that pay the recipient (the one swap, a split's swaps, a chain's last, a mix's direct and last)
     c.min = legs.filter((l) => lc(l.to) === lc(to)).reduce((s, l) => s + l.limit, 0n);
-    const floor = (c.out * (10000n - c.slip - 1n)) / 10000n;
-    return checkZRouterCall(c.callData, { to, tokenIn, tokenOut, exactOut: false, amount: amt, maxIn: amt, minOut: floor, deadline: dl }) === null;
-  });
+    const want = { to, tokenIn, tokenOut, exactOut: false, amount: amt, maxIn: amt, minOut: (c.out * (10000n - c.slip - 1n)) / 10000n, deadline: dl };
+    const why = checkZRouterCall(c.callData, want);
+    if (why === null) ok.push(c);
+    else if (why === CURVE_UNKNOWN && ethIn && legs.length === 1) unknown.push({ c, want: { ...want, curvePools: legs[0].pools } });
+  }
+  // a Curve pool the guard does not list is taken as anon.wei takes a route it cannot cross-check: only when the route, run as it stands
+  // from an address given the ETH, pays the recipient at least its floor (and only when it beats every route the guard knows)
+  const known = ok.reduce((m, c) => (c.out > m ? c.out : m), 0n);
+  for (const { c, want } of unknown) if (c.out > known && !ok.some((x) => x.callData === c.callData) && checkZRouterCall(c.callData, want) === null && await paysFloor(ethCall, c, block)) ok.push(c);
   if (!ok.length) return null;
   const best = ok.reduce((x, y) => (y.out > x.out ? y : x));
   const quotes = [];

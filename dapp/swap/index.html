@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=6022d323">
+<link rel="modulepreload" href="/swap/app.js?cb=530d1554">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -39,7 +39,7 @@
 <link rel="modulepreload" href="/rpc-body.js">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
 <link rel="modulepreload" href="/swap/route.js?cb=35ce60db">
-<link rel="modulepreload" href="/swap/aggregate.js?cb=5ec6895b">
+<link rel="modulepreload" href="/swap/aggregate.js?cb=9d477e38">
 <link rel="modulepreload" href="/swap/route.js">
 <link rel="modulepreload" href="/points-note.js?cb=eacef061">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
@@ -398,34 +398,32 @@ img.tk { object-fit: contain; }
 .how .more { display: inline-block; margin: -10px 0 0; font-size: 13px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); }
 .how .more:hover, .how .more:focus-visible { border-bottom-color: var(--ink); }
 .how .more::after { content: " \2192"; }
-.how > h2 { font: 400 clamp(34px, 5vw, 52px)/1 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
+.how > h2 { font: 400 clamp(26px, 3.4vw, 36px)/1.05 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
 .how > h2 em { font-style: italic; }
 .how > h2 { margin-bottom: 26px; }
 .how > p.lede { max-width: 64ch; margin: 0 0 28px; font-size: 14px; line-height: 1.65; color: var(--mute); }
-.doors { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1.15fr) 150px minmax(0, 1fr); align-items: center; gap: 0; margin: 0 0 34px; }
-.doors .end, .doors .pool { position: relative; z-index: 1; padding: 16px 16px 15px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; }
-.doors .end.priv { border-style: dashed; }
-.doors .pool { padding: 18px; box-shadow: var(--float); }
-.doors b { display: block; font: 400 24px/1.1 var(--serif); letter-spacing: -.01em; }
-.doors small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--mute); }
-.doors .pairs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
-.doors .pairs li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px; font-size: 12px; background: var(--field); border: 1px solid var(--hair); border-radius: 999px; }
-.doors .tk.sm { width: 18px; height: 18px; }
+.lanes { display: grid; gap: 34px; max-width: 920px; margin: 0 0 34px; padding: 0; list-style: none; }
+.lanes li { display: grid; grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); align-items: center; }
+.lanes .end { position: relative; z-index: 1; padding: 14px 16px 13px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; }
+.lanes .end.priv { border-style: dashed; }
+.lanes b { display: block; font: 400 21px/1.15 var(--serif); letter-spacing: -.01em; }
+.lanes small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.lanes .door small { margin-top: 30px; }
 .door { position: relative; display: grid; justify-items: center; gap: 4px; padding: 0 8px; text-align: center; font-size: 11.5px; line-height: 1.4; color: var(--mute); }
 .door::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--c); border-radius: 2px; }
 .door::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -5px; border-top: 2px solid var(--c); border-right: 2px solid var(--c); }
 .door.pub { --c: var(--eth); } .door.pub::after { right: 1px; transform: rotate(45deg); }
-.door.priv { --c: var(--ink); } .door.priv::before { background: none; border-top: 2px dashed var(--c); height: 0; } .door.priv::after { left: 1px; transform: rotate(-135deg); }
+.door.priv { --c: var(--ink); } .door.priv::before { background: none; border-top: 2px dashed var(--c); height: 0; } .door.priv::after { right: 1px; transform: rotate(45deg); }
 .door span { position: relative; z-index: 1; padding: 2px 8px; font: italic 400 17px/1.2 var(--serif); color: var(--ink); background: var(--paper); border-radius: 6px; }
 .door small { position: relative; z-index: 1; margin-top: 30px; max-width: 18ch; background: var(--paper); }
 .door span { transform: translateY(-14px); }
 @media (max-width: 860px) {
-  .doors { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .lanes { gap: 18px; }
+  .lanes li { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .door { min-height: 84px; align-content: center; justify-items: start; padding: 10px 0 10px 40px; text-align: left; }
   .door::before { left: 22px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; margin: 0; }
   .door.priv::before { border-top: 0; border-left: 2px dashed var(--c); width: 0; height: auto; }
-  .door::after { left: 18px; right: auto; top: auto; margin: 0; }
-  .door.pub::after { bottom: 2px; transform: rotate(135deg); } .door.priv::after { top: 2px; left: 18px; transform: rotate(-45deg); }
+  .door::after { left: 18px; right: auto; top: auto; bottom: 2px; margin: 0; transform: rotate(135deg); }
   .door span, .door small { transform: none; margin: 0; max-width: none; background: none; }
   .door span { padding: 0; }
 }
@@ -611,7 +609,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <div class="stage">
     <section class="hero" aria-labelledby="hero-h">
       <h1 id="hero-h" class="sr">Swap</h1>
-      <p class="lede">Any token at the best onchain price. Switch either side to Private to keep it in your private balance or leave no trail.</p>
+      <p class="lede">Any token at the best onchain price. Either side can be private.</p>
       <p class="pxs" id="pxs" aria-live="off"></p>
       <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
     </section>
@@ -663,16 +661,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </div>
 
   <section class="how" id="how" aria-labelledby="how-h">
-    <h2 id="how-h">One pool, <em>two doors</em></h2>
-    <div class="doors" role="img" aria-label="Your wallet reaches the Tacit pool through the public door; your private balance reaches the same pool through the private door.">
-      <div class="end"><b>Your wallet</b><small>public</small></div>
-      <div class="door pub"><span>public door</span><small>any router</small></div>
-      <div class="pool"><b>Tacit pool</b><small>one set of reserves</small>
-        <ul class="pairs"><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>TAC/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cusd"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cUSD/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cBTC/tETH</li></ul>
-      </div>
-      <div class="door priv"><span>private door</span><small>a proof, sent by the relay</small></div>
-      <div class="end priv"><b>Your private balance</b><small>hidden</small></div>
-    </div>
+    <h2 id="how-h">Three ways <em>to swap</em></h2>
+    <ol class="lanes">
+      <li><div class="end"><b>Your wallet</b></div><div class="door pub"><span>public</span><small>best onchain route</small></div><div class="end"><b>Any token</b><small>in your wallet</small></div></li>
+      <li><div class="end priv"><b>Private balance</b></div><div class="door priv"><span>private</span><small>a proof the relay sends</small></div><div class="end priv"><b>tETH, TAC, cUSD, cBTC</b><small>still private, or out to any token</small></div></li>
+      <li><div class="end"><b>Your ETH</b></div><div class="door priv"><span>Swap privately</span><small>deposit, wait, swap out</small></div><div class="end"><b>Any token</b><small>at an address, no trail back</small></div></li>
+    </ol>
     <a class="more" href="/build/#amm-doors">How the pool trades</a>
   </section>
 
@@ -750,6 +744,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=6022d323"></script>
+<script type="module" src="/swap/app.js?cb=530d1554"></script>
 </body>
 </html>
