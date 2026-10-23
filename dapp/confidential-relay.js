@@ -62,11 +62,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     } finally { stateReading = null; }
   }
 
-  async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null } = {}, waitOpts) {
+  // `exit`: a relayed unwrap's ConfidentialRouter ExitRecipe, which the relay activates once the settle has paid its escrow (never sealed).
+  async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null, exit = null } = {}, waitOpts) {
     const onJob = waitOpts && waitOpts.onJob;
     const sealedMemos = sealFor({ leaves, outputs, ephRand, memos, lockMemos });
     const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
-    const sealing = sealer && !mode && !depositTx && !(waitOpts && waitOpts.viaRelay);
+    const sealing = sealer && !mode && !depositTx && !exit && !(waitOpts && waitOpts.viaRelay);
     const opKey = sealing ? JSON.stringify({ type, op }, bigintSafe) : null;
     if (opKey && sealedJobs.has(opKey)) {
       const jobId = sealedJobs.get(opKey);
@@ -83,7 +84,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(sealedIn
         ? { type, mode: 'sealed', sealed: sealedIn, memos: sealedMemos, ...(feeAsset ? { feeAsset } : {}) }
-        : { type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}) }, bigintSafe),
+        : { type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}), ...(exit ? { exit } : {}) }, bigintSafe),
     });
     const body = await asJson(res);
     if (body && body.jobId) {

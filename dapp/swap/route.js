@@ -164,14 +164,27 @@ function zqSwap(args) {
   p.catch(() => { if (zqMemo.get(key)?.p === p) zqMemo.delete(key); });
   return p;
 }
-async function zqRead({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline }) {
+// zQuoter's best single swap, as one zRouter call: null when no pool trades it (or zQuoter reverts).
+async function zqBest({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline }) {
   const data = '0x' + SEL.buildBestSwap + addr(to) + word(exactOut ? 1 : 0) + addr(tokenIn) + addr(tokenOut) + word(amount) + word(slippageBps) + word(deadline);
   let raw;
   try { raw = strip(await ethCall(ZQUOTER, data, 'latest', { gas: '0x5F5E100' })); } catch (e) { if (e?.revert || /revert/i.test(e?.message || '')) return null; throw e; }
   if (raw.length < 448) return null;
   const at = Number(wordAt(raw, 4)) / 32, len = Number(wordAt(raw, at));
-  const q = { source: Number(wordAt(raw, 0)), feeBps: wordAt(raw, 1), amountIn: wordAt(raw, 2), amountOut: wordAt(raw, 3), callData: '0x' + raw.slice((at + 1) * 64, (at + 1) * 64 + len * 2), amountLimit: wordAt(raw, 5), msgValue: wordAt(raw, 6) };
-  return q.amountOut > 0n && q.amountIn > 0n && q.msgValue === 0n ? q : null;
+  return { source: Number(wordAt(raw, 0)), feeBps: wordAt(raw, 1), amountIn: wordAt(raw, 2), amountOut: wordAt(raw, 3), callData: '0x' + raw.slice((at + 1) * 64, (at + 1) * 64 + len * 2), amountLimit: wordAt(raw, 5), msgValue: wordAt(raw, 6) };
+}
+async function zqRead(args) {
+  const q = await zqBest(args);
+  return q && q.amountOut > 0n && q.amountIn > 0n && q.msgValue === 0n ? q : null;
+}
+// ETH → a token, paid to `to`, as one zRouter call that is sent the ETH itself: what a private exit's escrow runs (dapp/swap/private.js).
+// It must sell exactly `amount`, be sent exactly that, pay `to`, and pay at least its own limit, or it is not used. → the quote, or null.
+export async function quoteEthToToken({ ethCall, to, tokenOut, amount, slippageBps = 50, deadline }) {
+  if (same(tokenOut, ZERO) || same(tokenOut, WETH) || tacitToken(tokenOut)) return null;
+  const q = await zqBest({ ethCall, to, tokenIn: ZERO, tokenOut, amount, exactOut: false, slippageBps, deadline });
+  if (!q || q.amountOut <= 0n || q.amountLimit <= 0n || q.amountIn !== BigInt(amount) || q.msgValue !== BigInt(amount)) return null;
+  if (checkZRouterCall(q.callData, { to, tokenIn: ZERO, tokenOut, exactOut: false, amount, maxIn: amount, minOut: q.amountLimit, deadline })) return null;
+  return { ...q, name: SOURCES[q.source] || 'a pool', to, tokenOut, deadline };
 }
 const bestToWeth = ({ ethCall, tokenIn, amount, exactOut, slippageBps, deadline, reuse }) => zqSwap({ ethCall, to: PRECISION_ROUTE, tokenIn, tokenOut: WETH, amount, exactOut, slippageBps, deadline, reuse });
 

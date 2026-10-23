@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // dapp/swap/ in a real browser, under its own CSP, with Ethereum an anvil fork of mainnet (zQuoter's scan of every pool, a read a fork
 // makes slowly, goes to the upstream node at the fork's block). Checks the page loads clean; the quotes for ETH → TAC (with its routes),
-// USDC → TAC, ETH → tacUSD (a price far under the market has to be accepted first) and a private swap (priced here, handed to the front
-// page's console); then, with a wallet that signs with a real key, buys TAC with ETH, buys TAC with USDC by permit, sells TAC by permit,
+// USDC → TAC, ETH → tacUSD (a price far under the market has to be accepted first) and a private swap (priced here, made on the card
+// once the Tacit key is opened there); then, with a wallet that signs with a real key, buys TAC with ETH, buys TAC with USDC by permit, sells TAC by permit,
 // and opens the farm on what was bought. A phone and a dark screen have no sideways scroll.
 //
 //   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/swap-page.mjs        (SHOTS=dir saves screenshots)
@@ -116,9 +116,18 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: jo
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 const typeAmt = async (page, v) => { await page.fill('#amt', ''); await page.type('#amt', v); };
 const quoted = (page) => until(page, () => { const o = document.querySelector('#out'); return o && !o.classList.contains('busy') && !o.classList.contains('ph') && document.querySelector('#go').textContent !== 'Finding the best price…'; });
+// A price far under the market has to be accepted before a swap: ticked where a test is about something else.
+const ackIf = async (page) => {
+  for (let i = 0; i < 20; i++) {
+    const a = await page.$('#ack:not(:checked)');
+    if (a) await a.check();
+    else if ((await page.textContent('#go')) !== 'Accept the price above to swap') return;
+    await sleep(250);
+  }
+};
 const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pay-coin' : '#get-coin'); await page.click(`.pk-r:has(b:text-is("${sym}"))`); };
 
-// ── no wallet: the page, the quotes, the gate, the private hand-off ──
+// ── no wallet: the page, the quotes, the gate, a private swap's receipt ──
 {
   const { browser, page, errors, blocked } = await openPage({ width: 1280, height: 900 });
   await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
@@ -193,7 +202,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   }
   await shot(page, 'desktop-cusd');
 
-  // Private: priced here, handed to the console.
+  // Private: priced here, made on the card.
   await page.click('[data-mode="private"]');
   await page.click('#get-coin');
   ok(await page.$('.pk-r:has(b:text-is("cUSD"))') && await page.$('.pk-r:has(b:text-is("cBTC"))') && !(await page.$('.pk-r:has(b:text-is("tacUSD"))')), 'private: the picker names the notes cUSD and cBTC');
@@ -202,16 +211,39 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await pick(page, 'get', 'TAC');
   await typeAmt(page, '0.25');
   await quoted(page);
-  ok((await page.textContent('#go')) === 'Continue privately →', 'private: the button continues in the Tacit app');
+  ok((await page.textContent('#go')) === 'Swap privately', 'private: the swap is made on this card');
   ok(/Relay fee/.test(await page.textContent('#rcpt')), 'private: the relay fee is shown');
   ok(await page.$eval('#f-get', (e) => e.classList.contains('priv')), 'private: the get field is dashed');
-  ok((await page.$$eval('#maj [data-major]', (b) => b.map((x) => x.querySelector('b').textContent))).join(' ') === 'ETH USD BTC TAC', 'private: the four coins the pool holds are shown');
-  ok((await page.getAttribute('#maj [aria-checked="true"]', 'data-major')) === TAC.toLowerCase(), 'private: the coin to get is the pressed one');
-  ok(/Pool[\d.,]+ tETH · [\d.,]+ TAC/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private: the receipt says how deep the pool is');
+  { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
+    ok(/Seen on chainyour 0\.25 ETH going in/.test(rc), `private from the wallet: the receipt says what the chain sees (${rc})`);
+    ok(/Pool[\d.,]+ tETH · [\d.,]+ TAC/.test(rc), 'private: the receipt says how deep the pool is'); }
   await shot(page, 'desktop-private');
-  await Promise.all([page.waitForURL(/#card=swap:ether:tac:private&amt=0\.25|\/$/), page.click('#go')]);
-  await sleep(1500);
-  ok(/\/$|\/#/.test(new URL(page.url()).pathname + new URL(page.url()).hash) || page.url().endsWith('/'), `the console opens (${page.url().replace(/^http:\/\/[^/]+/, '')})`);
+  // paid from the private balance: the card offers to read it, and the chain sees a swap, not whose
+  await pick(page, 'pay', 'cUSD');
+  await typeAmt(page, '50');
+  await quoted(page);
+  ok(await page.isVisible('#pv-open'), 'private balance: the card offers to read it');
+  ok(/Seen on chaina swap, not who made it/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private balance: the chain sees a swap, not who made it');
+  ok(!/Deposit tip/.test(await page.textContent('#rcpt')), 'private balance: no deposit, no deposit tip');
+  // out of the pool to an address: private cBTC to USDC, through an exit recipe; the address is asked for, and never taken from the address bar
+  await pick(page, 'pay', 'cBTC');
+  await page.click('#get-coin');
+  ok(/Out to an address/.test(await page.textContent('#pk')) && !!(await page.$('.pk-r:has(b:text-is("USDC"))')), 'private: coins that leave the pool are offered, to an address');
+  await page.click('.pk-r:has(b:text-is("USDC"))');
+  await typeAmt(page, '0.001');
+  await quoted(page);
+  ok(await page.isVisible('#to-in') && (await page.textContent('#go')) === 'Add the address it goes to', `out of the pool: the address is asked for (${await page.textContent('#go')})`);
+  ok(!(await page.$eval('#f-get', (e) => e.classList.contains('priv'))) && (await page.textContent('#get-where')) === 'to an address', 'out of the pool: the get side is not drawn as private');
+  await page.fill('#to-in', '0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a');
+  await until(page, () => /^Swap privately → 0x5a5a…5a5a$|^Accept the price/.test(document.querySelector('#go').textContent));
+  await ackIf(page);
+  ok((await page.textContent('#go')) === 'Swap privately → 0x5a5a…5a5a', `out of the pool: the button names where it goes (${await page.textContent('#go')})`);
+  { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
+    ok(/At least[\d.,]+ USDC/.test(rc) && /Exit fee[\d.]+ tETH/.test(rc) && /Relay fee[\d.]+ cBTC/.test(rc), `out of the pool: the least it pays, the exit's fee and the route's fee (${rc})`);
+    ok(/Seen on chain[\d.,]+ USDC arriving at 0x5a5a…5a5a, not from whom/.test(rc), 'out of the pool: the chain sees USDC arriving, not from whom');
+    ok(/Pool[\d.,]+ cBTC · [\d.,]+ tETH/.test(rc), 'out of the pool: routed through the cBTC pool to tETH first'); }
+  ok(!/0x5a5a/.test(page.url()), 'the address is not put in the address bar');
+  await shot(page, 'desktop-private-out');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
@@ -220,7 +252,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
 // ── a wallet in Private: a private amount has 8 decimals (Max and long amounts are cut there, not refused), the wallet's ETH is held to, a comma is a point ──
 {
   const w = await fundedWallet();
-  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { wallet: w });
+  const { browser, page, errors, walletLog } = await openPage({ width: 1280, height: 900 }, { wallet: w });
   await page.click('#wallet-chip');
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   const settled = () => until(page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });
@@ -228,19 +260,21 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '0.123456789012345678');
   await page.click('[data-mode="private"]');
   ok((await page.inputValue('#amt')) === '0.12345678', `choosing Private cuts a longer amount to 8 decimals (${await page.inputValue('#amt')})`);
-  await page.click('#maj [data-major="0x23cacffac2674514a6d4f6cd420b4cc2ac921564"]');
+  await pick(page, 'get', 'cUSD');
   await quoted(page);
-  ok((await page.textContent('#get-coin')).startsWith('cUSD'), 'pressing USD gets cUSD');
-  ok((await page.textContent('#go')) === 'Continue privately →', 'private ETH → cUSD quotes the cut amount');
+  { const gated = !!(await page.$('#ack'));
+    ok(!gated || (await page.textContent('#go')) === 'Accept the price above to swap', `a private swap far under the market waits for its acceptance too (${await page.textContent('#go')})`); }
+  await ackIf(page);
+  ok((await page.textContent('#go')) === 'Swap privately', 'private ETH → cUSD quotes the cut amount');
   // typing past 8 decimals stops at 8
   await typeAmt(page, '0.0035162701');
-  await settled();
-  ok((await page.inputValue('#amt')) === '0.00351627' && (await page.textContent('#go')) === 'Continue privately →', `a ninth decimal is not kept (${await page.inputValue('#amt')})`);
+  await settled(); await ackIf(page);
+  ok((await page.inputValue('#amt')) === '0.00351627' && (await page.textContent('#go')) === 'Swap privately', `a ninth decimal is not kept (${await page.inputValue('#amt')})`);
   // Max on the wallet's ETH is an amount the private quote takes, and it leaves the gas
   await page.click('#max');
-  await quoted(page);
+  await quoted(page); await ackIf(page);
   { const v = await page.inputValue('#amt'), all = BigInt(await rpcA('eth_getBalance', [w.account, 'latest']));
-    ok(/^\d+(\.\d{1,8})?$/.test(v) && (await page.textContent('#go')) === 'Continue privately →', `Max in Private is a quoted amount of at most 8 decimals (${v}, ${await page.textContent('#go')})`);
+    ok(/^\d+(\.\d{1,8})?$/.test(v) && (await page.textContent('#go')) === 'Swap privately', `Max in Private is a quoted amount of at most 8 decimals (${v}, ${await page.textContent('#go')})`);
     ok(BigInt(Math.round(Number(v) * 1e8)) * 10n ** 10n < all, 'and it is under the balance'); }
   // the wallet's ETH is the one balance known here
   await typeAmt(page, '9'); await settled();
@@ -248,10 +282,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   { const all = BigInt(await rpcA('eth_getBalance', [w.account, 'latest'])), cut = all - (all % 10n ** 10n), whole = cut / 10n ** 18n, frac = (cut % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '');
     await typeAmt(page, `${whole}${frac ? '.' + frac : ''}`); await settled();
     ok((await page.textContent('#go')) === 'Leave some ETH for the network fee', `all of it leaves nothing for the deposit's gas (${await page.textContent('#go')})`); }
-  // a comma is a decimal point where the amount is read; the console is handed the amount that was priced
-  await typeAmt(page, '0,5'); await quoted(page);
-  await Promise.all([page.waitForURL(/#card=swap:ether:cusd:private&amt=0\.5$/), page.click('#go')]);
-  ok(true, 'the hand-off carries 0.5 for "0,5", not 5');
+  // a comma is a decimal point where the amount is read
+  await typeAmt(page, '0,5'); await quoted(page); await ackIf(page);
+  ok(/your 0\.5 ETH going in/.test(await page.textContent('#rcpt')), '"0,5" is priced as 0.5 ETH, not 5');
+  // the press opens the Tacit key on this page; closing it sends nothing and leaves the card as it was
+  { const sent = walletLog.sends.length;
+    await page.click('#go');
+    await until(page, () => /Open your Tacit wallet/.test(document.querySelector('.bsheet')?.textContent || ''), null, 60000);
+    ok(true, 'pressing opens the Tacit key here');
+    await page.click('.bsheet .x');
+    await until(page, () => !document.querySelector('.bsheet') && document.querySelector('#go').textContent === 'Swap privately', null, 20000);
+    ok(walletLog.sends.length === sent, `closing it sends nothing (${walletLog.sends.length - sent} sent)`); }
   await browser.close();
   const t = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private&from=TAC&to=cUSD&amt=0.01' });
   await until(t.page, () => { const o = document.querySelector('#out'), g = document.querySelector('#go').textContent; return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(g); });

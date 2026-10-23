@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=3dff048b">
+<link rel="modulepreload" href="/swap/app.js?cb=9e948ccf">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -38,7 +38,7 @@
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/swap/route.js?cb=166e1efd">
+<link rel="modulepreload" href="/swap/route.js?cb=75c9caf7">
 <link rel="modulepreload" href="/points-note.js?cb=eacef061">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
 <!-- preload:end -->
@@ -140,15 +140,6 @@ img.tk { object-fit: contain; }
 .mode button[data-mode="bitcoin"] { position: relative; } .mode button[data-mode="bitcoin"][data-nudge] .tk { opacity: 1; }
 .mode button[data-mode="bitcoin"][data-nudge]::after { content: ''; position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--card); }
 #p-swap.btc > :not(.mode):not(#btc) { display: none; }
-/* Private: the four coins the pool holds, the one to get pressed */
-.maj { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 10px; }
-.maj button { display: grid; justify-items: center; gap: 1px; min-width: 0; padding: 10px 4px 8px; color: inherit; background: var(--field); border: 1px dashed var(--hair-2); border-radius: 12px; cursor: pointer; transition: border-color .15s, transform .15s; }
-.maj .tk { width: 30px; height: 30px; margin-bottom: 5px; transition: transform .4s var(--spring); }
-.maj b { font: 400 21px/1 var(--serif); letter-spacing: -.01em; }
-.maj small { font-size: 11px; color: var(--mute); }
-.maj button[aria-checked="true"] { border-style: solid; border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-@media (hover: hover) { .maj button:hover { border-color: var(--ink); } .maj button:hover .tk { transform: rotate(-8deg); } }
-.maj button:active { transform: scale(.97); }
 #btc .coin { cursor: default; } #btc .ack label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--mute); }
 .brd { display: grid; gap: 6px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); } .brd em { font-style: normal; color: var(--warn); }
 .brd button.link { padding: 0; font: 12px var(--mono); color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -557,7 +548,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <div class="stage">
     <section class="hero" aria-labelledby="hero-h">
       <h1 id="hero-h">Swap into <em>tacit</em></h1>
-      <p class="lede" id="lede">Get TAC, tacUSD and tacBTC from your wallet, or cUSD and cBTC privately.</p>
+      <p class="lede">Get TAC, tacUSD and tacBTC from your wallet, or cUSD and cBTC privately.</p>
       <p class="pxs" id="pxs" aria-live="off"></p>
       <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
     </section>
@@ -571,11 +562,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="sw-b" id="p-swap" role="tabpanel" aria-labelledby="tab-swap">
         <div class="mode" role="radiogroup" aria-label="Where it arrives">
           <button type="button" role="radio" data-mode="wallet" aria-checked="true">To your wallet</button>
-          <button type="button" role="radio" data-mode="private" aria-checked="false" title="Swap inside the pool with no public trail. It is priced here and finished in the Tacit app."><i class="lock" aria-hidden="true"></i>Private</button>
+          <button type="button" role="radio" data-mode="private" aria-checked="false" title="Swap inside the Tacit pool: what you get and who holds it stay private."><i class="lock" aria-hidden="true"></i>Private</button>
           <button type="button" role="radio" data-mode="bitcoin" aria-checked="false" aria-label="On Bitcoin" title="On Bitcoin"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg></button>
         </div>
         <div id="btc" hidden></div>
-        <div class="maj" id="maj" role="radiogroup" aria-label="Get privately" hidden></div>
         <div class="f" id="f-pay">
           <div class="fh"><span>You pay</span><span class="where" id="pay-where">from your wallet</span></div>
           <div class="fm"><input class="amt" id="amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><button class="coin" id="pay-coin" type="button" aria-haspopup="dialog" aria-label="Pay with ETH"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>ETH<span class="car" aria-hidden="true">▾</span></button></div>
@@ -696,6 +686,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=3dff048b"></script>
+<script type="module" src="/swap/app.js?cb=9e948ccf"></script>
 </body>
 </html>
