@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit bridge</title>
 <meta name="description" content="Move TAC and tETH between Bitcoin and Ethereum, or lock BTC for cBTC. Each way proven in zero knowledge: no federation, no multisig, no soft fork.">
@@ -29,8 +29,8 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=7effc850">
-<link rel="modulepreload" href="/bridge/track.js?cb=9bdc3efd">
+<link rel="modulepreload" href="/bridge/app.js?cb=944e5cbe">
+<link rel="modulepreload" href="/bridge/track.js?cb=3bd070b8">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
 <style>
@@ -197,6 +197,7 @@ button.go:disabled { opacity: .45; cursor: default; transform: none; }
 .mb.done .mb-r i { background: var(--ok); }
 .mb-w { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
 .mb-live { color: var(--mute); }
+.mb-n { margin: 6px 0 0; font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
 .mb-a { display: grid; justify-items: end; align-content: start; gap: 6px; text-align: right; font-size: 12px; }
 .mb-due { font: inherit; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border-radius: 999px; background: var(--ink); color: var(--paper); text-decoration: none; font-weight: 500; white-space: nowrap; }
 .mb-open { color: var(--ink); white-space: nowrap; }
@@ -1009,6 +1010,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=7effc850"></script>
+<script type="module" src="/bridge/app.js?cb=944e5cbe"></script>
 </body>
 </html>

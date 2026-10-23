@@ -5,9 +5,11 @@
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=9bdc3efd';
+import { ROUTES } from '/bridge/track.js?cb=3bd070b8';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { parseUnits } from '/trade/util.js?cb=509d6618';
+import { forgetUx } from '/trade/poolux.js?cb=e792b253';
+import { relayWords } from '/relay-outcome.js?cb=26298b8e';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const TACIT_URL = '/tacit.js?cb=c69646c8';
@@ -25,14 +27,14 @@ async function esplora(path) {
   }
   throw new Error(`Bitcoin explorers are unreachable (${last?.message || 'network'})`);
 }
-const refused = (e) => e?.code === 'relay_held' || e?.code === 'relay_paused' || e?.httpStatus === 429 || /relay (4\d\d|held|paused)|can’t take this one|free (relayed )?settles/i.test(String(e?.message || ''));
 const BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'minted'];
 
 // `repaint()` reads the journals again; `say(text, front)` writes the status line (`front`: the text ends with the way to the front page).
 export function mountMover({ pick, repaint = () => {}, say = () => {}, onState = () => {} } = {}) {
-  const key = makeKeySession({ moved: (why) => { stop(); key.lock(); say(why); } });
+  const key = makeKeySession({ moved: (why) => { lockNow(); say(why); } });
   const TS = makeTacitSession({ url: TACIT_URL, key: () => (key.unlocked ? { pubHex: key.key.pubHex, priv: bytesToHex(key.priv()) } : null), secp, bytesToHex, hexToBytes });
-  let timer = null, busy = false, last = 0, runner = null;
+  let timer = null, busy = false, last = 0, runner = null, loadSaid = false;
+  const rechecked = {};                                                              // when a burn whose claim was not matched was last looked at again (stepOut waits ten minutes)
   // the relay's jobs this page starts, named and followed in the activity journal it shares with the other pages
   const run = () => (runner ||= makeRunner({ api: API, base: async () => (await import('/confidential-deployments.js')).getConfidentialDeployment('mainnet')?.relayBase || API, pub: () => key.key?.pubHex || null }));
 
@@ -45,12 +47,14 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     busy = true; last = Date.now();
     const pub = key.key.pubHex;
     try {
-      const T = await TS.load();
+      let T;
+      try { T = await TS.load(); loadSaid = false; }
+      catch (e) { if (!loadSaid) { loadSaid = true; say(`The wallet library could not be loaded (${txt(e)}). Check the connection and press Move them on here again.`); } throw e; }
       if (journaledIn(pub)) await stepIn({ ux: T.bridgeUx(), pub, withKey: TS.withKey, priv: () => key.priv(), planOf: planOf(pub), alive: () => key.key?.pubHex === pub });
       const pubs = outPubs();
       if (pubs.length) {
         const out = T.crossoutUx();
-        await stepOut({ ux: out, pubs, records: (p) => out.list(p).filter((r) => r.stage !== 'minted'), keyPub: () => key.key?.pubHex, withKey: TS.withKey, priv: () => key.priv() });
+        await stepOut({ ux: out, pubs, records: (p) => out.list(p).filter((r) => r.stage !== 'minted'), keyPub: () => key.key?.pubHex, withKey: TS.withKey, priv: () => key.priv(), rechecked });
       }
     } catch { /* a pass that fails is tried again on the next */ } finally { busy = false; }
     repaint();
@@ -97,10 +101,12 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
   }
   const onVisible = () => { if (!document.hidden) tick(); };
   function stop() { clearInterval(timer); timer = null; document.removeEventListener('visibilitychange', onVisible); TS.drop(); onState(false); }
+  // The key locked: out of the session first (so the page, told next, sees it closed), then the pass stopped and the pool module's copies of it dropped.
+  function lockNow() { key.lock(); forgetUx(); stop(); }
 
   // The key opened here, then the pass running while the page is open. A second press locks the key again.
   async function toggle() {
-    if (key.unlocked) { stop(); key.lock(); say(''); return false; }
+    if (key.unlocked) { lockNow(); say(''); return false; }
     try { await signInSheet(key, { pick, why: 'Open your Tacit wallet to move your bridges on from this page. This page never stores the key.' }); }
     catch (e) { if (e?.unlockCancelled) return false; say(String(e?.message || e)); return false; }
     start();
@@ -169,6 +175,11 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     if (kind === 'cancel') {
       return say(await ux.cancelIntent(pub, id) ? 'That burn had landed on Ethereum: it goes on from its row.' : 'Cancelled: no burn for it was found on Ethereum.');
     }
+    // sending it anyway pays today's Bitcoin fee whatever it is: the row's own words name the rate and the sats, and a second press makes it so
+    if (kind === 'force') {
+      if (!armed(id)) { drop = { id, at: Date.now() }; say(`Sending it now pays today’s Bitcoin fee. ${row.err ? `${txt(row.err)}. ` : ''}Press “Yes, send it now” to go ahead.`); return; }
+      drop = null;
+    }
     let cur = rec;
     if (kind === 'recheck') cur = await ux.recoverFromEthTx('0x' + String(rec.settle.txHash).replace(/^0x/, ''), priv(), { amount: BigInt(rec.source.amount ?? rec.source.value) });
     if (kind === 'resign') cur = await ux.resign(pub, id);
@@ -190,7 +201,8 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     } catch (e) {
       const f = e?.fundWait ? `Still no free coin of ${Number(e.needSats).toLocaleString('en-US')} sats on this key’s Bitcoin address. This goes on by itself once it is there.`
         : /another tab/i.test(txt(e)) ? 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.' : null;
-      say(f || (refused(e) ? 'The relay can’t take this one right now.' : txt(e)), refused(e));
+      const w = relayWords(e);
+      say(f || w?.text || txt(e), !!w?.front);
     } finally { busy = false; repaint(); }
   }
 

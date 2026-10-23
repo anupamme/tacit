@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=9bdc3efd';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=3bd070b8';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -142,7 +142,7 @@ const PICK = { asset: 'tac', dir: 'in' };
 
 function readHash() {
   const [a, d] = location.hash.replace(/^#/, '').toLowerCase().split('/');
-  if (ROUTES[a]) PICK.asset = a;
+  if (Object.hasOwn(ROUTES, a)) PICK.asset = a;                      // a name that is the object's own, not one it inherits (#constructor)
   PICK.dir = d === 'out' && ROUTES[PICK.asset].out ? 'out' : 'in';
 }
 
@@ -218,7 +218,7 @@ function rowHtml(r) {
   const where = r.done ? (r.paid ? 'Sent' : 'Arrived') : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
   // with the key open here, a bridge of that key offers its presses (track.js `acts`) as buttons; one that goes on by itself says so
   const mine = MV?.open && r.pub === MV.pub && !r.done && !r.back;
-  const btn = (x) => `<button type="button" class="${x.main ? 'mb-due' : 'mb-alt'}" data-mv-act="${x.kind}" data-id="${esc(r.id)}">${esc(x.kind === 'cancel' && MV.armed(r.id) ? 'Yes, cancel it' : x.label)}</button>`;
+  const btn = (x) => `<button type="button" class="${x.main ? 'mb-due' : 'mb-alt'}" data-mv-act="${x.kind}" data-id="${esc(r.id)}">${esc(MV.armed(r.id) && x.kind === 'cancel' ? 'Yes, cancel it' : MV.armed(r.id) && x.kind === 'force' ? 'Yes, send it now' : x.label)}</button>`;
   const act = mine && r.acts?.length ? r.acts.map(btn).join('')
     : mine && r.dir === 'out' && r.stage === 'covered' && nx.due === 'Send to Bitcoin' ? '<span class="mb-self">Goes on by itself</span>'
     : nx.due
@@ -226,8 +226,8 @@ function rowHtml(r) {
     : r.done || r.back ? '' : nx.self ? '<span class="mb-self">Goes on by itself</span>'
     : `<a class="mb-open" href="${r.href}">Open to move it on <span aria-hidden="true">→</span></a>`;
   const links = [
-    r.btcTx ? `<a href="https://mempool.space/tx/${r.btcTx}" target="_blank" rel="noopener">Bitcoin tx</a>` : '',
-    r.ethTx ? `<a href="https://etherscan.io/tx/${r.ethTx}" target="_blank" rel="noopener">Ethereum tx</a>` : '',
+    r.btcTx ? `<a href="https://mempool.space/tx/${esc(r.btcTx)}" target="_blank" rel="noopener">Bitcoin tx</a>` : '',
+    r.ethTx ? `<a href="https://etherscan.io/tx/${esc(r.ethTx)}" target="_blank" rel="noopener">Ethereum tx</a>` : '',
   ].filter(Boolean).join('');
   return `<li class="mb${r.done ? ' done' : ''}${nx.due ? ' due' : ''}" data-dir="${r.dir}">
     <svg class="tk" aria-hidden="true"><use href="#${a.icon}"/></svg>
@@ -235,6 +235,7 @@ function rowHtml(r) {
       <div class="mb-t"><b class="num">${fmtAmount(r.amount, a.dp)} ${a.ticker}</b><span>${to}</span><small>${r.since ? ago(r.since) : ''}</small></div>
       <div class="mb-r" role="img" aria-label="${esc(where)}">${ticks}</div>
       <div class="mb-w"><span>${esc(where)}</span>${live ? `<span class="mb-live">${esc(live)}</span>` : ''}</div>
+      ${r.note ? `<p class="mb-n">${esc(r.note)}</p>` : ''}
     </div>
     <div class="mb-a">${act}${links ? `<span class="mb-x">${links}</span>` : ''}</div>
   </li>`;
@@ -321,8 +322,8 @@ function paintHere() {
   FORM?.destroy(); FORM = null; FORM_KEY = '';
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
-  import('/bridge/out-form.js?cb=69fd081a').then((m) => {
-    if (FORM_KEY !== want || !MV?.open) return;
+  import('/bridge/out-form.js?cb=392de59f').then((m) => {
+    if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
     FORM = m.mountOutForm(box, { asset: want, mover: MV, say: mineSay, repaint: () => { readMine.sig = null; readMine(); } });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
 }
@@ -333,7 +334,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=af64e0cc').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=a566f924').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });

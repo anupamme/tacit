@@ -18,8 +18,11 @@ export const canUnbond = (pos, now) => !locked(pos, now) && !unharvested(pos);
 export const harvest = (t, priv, pos, waitOpts) => t.farmHarvest({ walletPriv: priv, position: pos, waitOpts });
 
 // Unbonding: the position's liquidity comes back as a private note. The pool refuses one that would forfeit a pending reward; if that reward
-// is no more than HARVEST_WORTH (dust left by the farm paying every second since the last harvest), it is sent again giving it up.
-export async function unbond(t, priv, pos, waitOpts, again = (p) => p) {
+// is no more than HARVEST_WORTH (dust left by the farm paying every second since the last harvest), it is sent again giving it up. An exit
+// (`forfeit`) gives up what it earned since its harvest, as the front page's Exit does: the farm pays every second, and the proof of the harvest
+// takes minutes, so a position earning well has more than dust by the time it is unbonded.
+export async function unbond(t, priv, pos, waitOpts, again = (p) => p, { forfeit = false } = {}) {
+  if (forfeit) return t.farmUnbond({ walletPriv: priv, position: pos, forfeitPending: true, waitOpts });
   try { return await t.farmUnbond({ walletPriv: priv, position: pos, forfeitPending: false, waitOpts }); }
   catch (e) {
     const u = /farm-unbond: (\d+) reward units/.exec(String(e?.message || ''));
@@ -81,5 +84,28 @@ export function cutPick(notes, amount, fee) {
 }
 // a cut: the notes picked sent to the key itself, `amount` in one note and the rest in another, the relay's fee taken from them
 export const cut = (t, priv, notes, amount, fee, waitOpts) => t.transfer({ walletPriv: priv, notes, recipientPubHex: t.identity(priv).pubHex, amount: BigInt(amount), fee: BigInt(fee), waitOpts });
+// A fee rounded up to its first two digits: the next rung when the relay's floor has moved since the fee was quoted.
+export const ladder = (v) => { const x = BigInt(v), d = x.toString().length; if (d <= 2) return x; const s = 10n ** BigInt(d - 2); return ((x + s - 1n) / s) * s; };
+// the relay turned the fee down for being under its floor
+export const feeShort = (e) => /fee below the current floor|feeGate|below the marginal cost/i.test(String(e?.message || e || ''));
+// A cut that is sent once more at the next rung when the relay's floor moved (as the front page's does), if the notes picked still cover it.
+// `wait` is the relay's wait options, or a function making them: each attempt names its own job.
+export async function cutSized(t, priv, notes, amount, fee, wait) {
+  const waitOpts = () => (typeof wait === 'function' ? wait() : wait);
+  try { return await cut(t, priv, notes, amount, fee, waitOpts()); }
+  catch (e0) {
+    const up = ladder(BigInt(fee) * 2n), sum = notes.reduce((s, n) => s + BigInt(n.value), 0n);
+    if (feeShort(e0) && sum >= BigInt(amount) + up) return cut(t, priv, notes, amount, up, waitOpts());
+    throw e0;
+  }
+}
+// The farm's manager is the pool module's own configuration: a program that names another (an answer from the API) is not obeyed, since a bond
+// goes to whatever controller it is given. Returns the configured one.
+export function farmManager(t, named) {
+  const mine = t.cfg?.farm?.manager;
+  if (!mine) throw new Error('There is no farm program on this network.');
+  if (named && String(named).toLowerCase() !== String(mine).toLowerCase()) throw new Error('This farm names a manager other than the configured one, so nothing was added.');
+  return mine;
+}
 // the two notes added to the pool and the share note bonded in the farm, in one proof
-export const bond = (t, priv, { manager, aNote, bNote, feeBps, waitOpts }) => t.lpBond({ walletPriv: priv, controller: manager, aNote, bNote, feeBps: Number(feeBps ?? 30), waitOpts });
+export const bond = (t, priv, { manager, aNote, bNote, feeBps, waitOpts }) => t.lpBond({ walletPriv: priv, controller: farmManager(t, manager), aNote, bNote, feeBps: Number(feeBps ?? 30), waitOpts });

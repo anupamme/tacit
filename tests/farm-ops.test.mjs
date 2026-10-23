@@ -2,7 +2,7 @@
 // reward sent again giving it up only when that reward is dust.
 //   node tests/farm-ops.test.mjs
 import assert from 'node:assert/strict';
-import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, UNBOND_DUST, HARVEST_WORTH, WTAC, wtacWithdrawCall, wtacBalanceCall, rewardNotes, relayable, worthHarvesting, redeem, lpNotes, takeOut, bFor, aFor, joinTerms, notesOf, exactOf, cutPick, cut, bond } from '../dapp/farm-ops.js';
+import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, UNBOND_DUST, HARVEST_WORTH, WTAC, wtacWithdrawCall, wtacBalanceCall, rewardNotes, relayable, worthHarvesting, redeem, lpNotes, takeOut, bFor, aFor, joinTerms, notesOf, exactOf, cutPick, cut, cutSized, ladder, feeShort, farmManager, bond } from '../dapp/farm-ops.js';
 
 const now = 1_800_000_000;
 assert.equal(canHarvest({ pendingUnits: '1' }), true); assert.equal(canHarvest({ pendingUnits: '0' }), false, 'nothing pending: nothing to harvest');
@@ -58,5 +58,35 @@ assert.equal(cutPick(as, 70n, 6n), null, 'not enough: none');
 assert.equal(cutPick(Array.from({ length: 20 }, () => ({ value: '1' })), 17n, 0n), null, 'never more than 16 notes');
 const jc = [], jx = { identity: (p) => ({ pubHex: `pub(${p})` }), transfer: async (a) => jc.push(a), lpBond: async (a) => jc.push(a) };
 await cut(jx, 'PRIV', [{ value: '50' }], 20, 3, 'W'); assert.deepEqual(jc.at(-1), { walletPriv: 'PRIV', notes: [{ value: '50' }], recipientPubHex: 'pub(PRIV)', amount: 20n, fee: 3n, waitOpts: 'W' }, 'a cut is sent to the key itself');
-await bond(jx, 'PRIV', { manager: '0xM', aNote: 'a', bNote: 'b', waitOpts: 'W' }); assert.deepEqual(jc.at(-1), { walletPriv: 'PRIV', controller: '0xM', aNote: 'a', bNote: 'b', feeBps: 30, waitOpts: 'W' }, 'bonded under the farm manager at the pool\'s fee (30 when unread)');
+jx.cfg = { farm: { manager: '0xM' } };
+await bond(jx, 'PRIV', { manager: '0xm', aNote: 'a', bNote: 'b', waitOpts: 'W' }); assert.deepEqual(jc.at(-1), { walletPriv: 'PRIV', controller: '0xM', aNote: 'a', bNote: 'b', feeBps: 30, waitOpts: 'W' }, 'bonded under the configured farm manager at the pool\'s fee (30 when unread)');
+const nb = jc.length;
+assert.throws(() => farmManager(jx, '0xOther'), /other than the configured one/); await assert.rejects(async () => bond(jx, 'PRIV', { manager: '0xOther', aNote: 'a', bNote: 'b' }), /other than the configured one/); assert.equal(jc.length, nb, 'a manager the API names that is not the configured one gets nothing bonded');
+assert.throws(() => farmManager({ cfg: {} }, '0xM'), /no farm program/); assert.equal(farmManager(jx, null), '0xM', 'no manager named: the configured one');
+// ── the fee ladder, and a cut that is sent again at the next rung ──
+assert.equal(ladder(5n), 5n); assert.equal(ladder(99n), 99n); assert.equal(ladder(123n), 130n); assert.equal(ladder(130n), 130n); assert.equal(ladder(1234567n), 1300000n, 'rounded up to two digits');
+assert.equal(feeShort(new Error('relay: fee below the current floor')), true); assert.equal(feeShort('feeGate'), true); assert.equal(feeShort(new Error('relay 429')), false);
+{
+  const sent = [], t = { identity: () => ({ pubHex: 'pub' }), transfer: async (a) => { sent.push(a); if (t.floor && String(a.fee) === '100000') throw new Error('relay: fee below the current floor'); return { jobId: 'j' }; } };
+  const notes = [{ value: '5000000' }, { value: '300000' }];
+  t.floor = true;
+  assert.deepEqual(await cutSized(t, 'PRIV', notes, 1000000n, 100000n, () => 'W'), { jobId: 'j' });
+  assert.deepEqual(sent.map((a) => [String(a.fee), a.waitOpts]), [['100000', 'W'], ['200000', 'W']], 'refused for its fee: sent again at the next rung, each attempt with its own wait');
+  sent.length = 0; t.floor = false;
+  await cutSized(t, 'PRIV', notes, 1000000n, 100000n, 'W2'); assert.equal(sent.length, 1, 'taken the first time: sent once'); assert.equal(sent[0].waitOpts, 'W2', 'a wait that is not a function is used as it is');
+  sent.length = 0; t.floor = true;
+  await assert.rejects(cutSized(t, 'PRIV', [{ value: '1050000' }], 1000000n, 100000n, 'W'), /fee below/, 'the notes picked do not cover the higher fee: the refusal stands');
+  assert.equal(sent.length, 1);
+  const t2 = { identity: () => ({ pubHex: 'p' }), transfer: async () => { throw new Error('relay 503: down'); } };
+  await assert.rejects(cutSized(t2, 'PRIV', notes, 1n, 1n, 'W'), /503/, 'any other refusal is passed on, not retried');
+}
+// ── an exit forfeits what it earned since its harvest ──
+{
+  const calls = [], t = { farmUnbond: async (a) => { calls.push([a.position.id, a.forfeitPending]); if (!a.forfeitPending) throw new Error('farm-unbond: 1041667 reward units are still pending'); return { jobId: 'u' }; } };
+  assert.deepEqual(await unbond(t, 'PRIV', { id: 7 }, 'W', undefined, { forfeit: true }), { jobId: 'u' });
+  assert.deepEqual(calls, [[7, true]], 'an exit gives it up at once: a position earning well has more than dust by the time its harvest is proved');
+  calls.length = 0;
+  await assert.rejects(unbond(t, 'PRIV', { id: 8 }, 'W'), /1041667 reward units/, 'a plain unbond over a reward worth having is still refused');
+  assert.deepEqual(calls, [[8, false]]);
+}
 console.log('farm-ops: all checks passed');

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { checkNote, readBridges, inRow, outRow, inActs, outActs, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { checkNote, readBridges, inRow, outRow, inActs, outActs, rowNote, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TAC_ID, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 import { makeCrossoutMintReveal } from '../dapp/crossout-mint-reveal.js';
@@ -318,4 +318,35 @@ test('inActs and outActs: the presses a bridge offers', () => {
   const row = outRow(out('covered', { lastError: { message: 'Bitcoin fees are high right now' }, errorCount: 1, source: { value: big(5), amount: big(4) } }), T0);
   assert.deepEqual(row.acts.map((a) => a.kind), ['force']);
   assert.deepEqual(inRow(inr('minted'), T0).acts, [], 'an arrived bridge offers none');
+});
+
+// a held row says what holds it, with the cost in view; ids that are not 64 hex digits are never made into links; Recover is for TAC only
+test('rows: the note, the ids, Recover and a stalled move', () => {
+  const T0 = NOW, tx = 'ab'.repeat(32);
+  // the note: the fee a burn waits for, the error a Bitcoin step keeps meeting, and what a plain-looking press would do
+  const held = outRow({ id: '0x' + 'c1'.repeat(32), stage: 'covered', source: { value: big(5), amount: big(4), assetId: '0x' + TETH_ID }, settle: { txHash: tx }, errorCount: 1,
+    lastError: { message: 'crossout-ux: Bitcoin fees are high right now (400 sat/vB, about 134000 sats for this step), so it is waiting for them to fall under 100', at: T0 } }, T0);
+  assert.deepEqual(held.acts.map((a) => a.kind), ['force']);
+  assert.match(held.note, /^Bitcoin fees are high right now \(400 sat\/vB, about 134000 sats for this step\)/, 'the engine\'s words, its prefix dropped: the press shows what it will cost');
+  assert.doesNotMatch(held.note, /crossout-ux/);
+  const tried = outRow({ id: 'y', stage: 'mint-signed', source: { value: big(5) }, errorCount: 4, lastError: { message: 'bad-txns-inputs-missingorspent' } }, T0);
+  assert.match(tried.note, /^bad-txns-inputs-missingorspent \(4 tries\)\. Bitcoin has not taken the signed transaction\. Signing again uses a coin that is free now/);
+  const old = outRow({ id: 'z', stage: 'settling', createdAt: T0 - 3 * 3600e3, source: { value: big(5) } }, T0);
+  assert.match(old.note, /^Cancelling looks for the burn on Ethereum once more first/);
+  const inFee = inRow({ id: 'a:0', stage: 'traced', path: 'deposit', source: { amount: big(5) }, feeWait: { rate: 31.25, max: 20, at: T0 } }, T0, { burn: { maxRate: 20 } });
+  assert.deepEqual(inFee.acts.map((a) => a.kind), ['burn'], 'with its burn held for the rate, it can still be pressed');
+  assert.equal(inFee.note, 'Moved. The miner’s rate is 31.3 sat/vB, over the 20 sat/vB allowed (twice the rate quoted), so its burn waits for the rate to fall. Burn it sends it now at today’s rate.'.replace('31.3', (31.25).toFixed(1)));
+  assert.equal(rowNote({ done: true, err: 'x' }), ''); assert.equal(rowNote({ dir: 'in', acts: [] }), '', 'nothing holds it: no note');
+  // ids
+  const bad = outRow({ id: 'q', stage: 'settled', source: { value: big(5) }, settle: { txHash: 'x"><a href=//evil>' }, creditedTxid: '"onmouseover=alert(1)' }, T0);
+  assert.equal(bad.ethTx, null); assert.equal(bad.btcTx, null, 'a transaction id that is not 64 hex digits is dropped');
+  const ok = inRow({ id: 'w:0', stage: 'minted', source: { amount: big(1) }, burn: { txid: tx.toUpperCase() }, mintedTxHash: '0x' + tx }, T0);
+  assert.equal(ok.btcTx, tx); assert.equal(ok.ethTx, '0x' + tx, 'a good id is lower case, and the Ethereum one has its 0x');
+  // Recover: TAC only
+  const lost = (assetId, extra = {}) => ({ id: 'l:0', stage: 'not-recorded', path: 'reflected', source: { assetId, amount: big(1) }, ...extra });
+  assert.equal(inDue(lost('0x' + TAC_ID), T0), 'Recover'); assert.equal(inDue(lost('0x' + TETH_ID), T0), '', 'the service recovers no other asset');
+  assert.equal(inRow(lost('0x' + TETH_ID), T0).acts.map((a) => a.kind).join(), 'recheck', 'a tETH burn that was not recorded can still be looked at again');
+  // a move Bitcoin's proof has not reached, failing: its burn, and the way home
+  const stall = inRow({ id: 's:0', stage: 'traced', path: 'deposit', source: { amount: big(1) }, errorCount: 3, lastError: { message: 'x' } }, T0);
+  assert.deepEqual(stall.acts.map((a) => a.kind), ['burn', 'reclaim']); assert.equal(inRow({ id: 's:1', stage: 'traced', path: 'deposit', source: { amount: big(1) }, errorCount: 2, lastError: { message: 'x' } }, T0).acts.some((a) => a.kind === 'reclaim'), false);
 });

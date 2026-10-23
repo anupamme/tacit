@@ -6,7 +6,8 @@
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=e792b253';
 import { makeRunner } from '/activity.js?cb=532a162f';
-import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, rewardNotes, relayable, redeem, wtacWithdrawCall, wtacBalanceCall, worthHarvesting, lpNotes, takeOut, HARVEST_WORTH, bFor, joinTerms, notesOf, exactOf, cutPick, cut, bond } from '/farm-ops.js?cb=4470442d';
+import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, rewardNotes, relayable, redeem, wtacWithdrawCall, wtacBalanceCall, worthHarvesting, lpNotes, takeOut, HARVEST_WORTH, UNBOND_DUST, bFor, joinTerms, notesOf, exactOf, cutPick, cutSized, bond } from '/farm-ops.js?cb=0933a4c8';
+import { relayWords } from '/relay-outcome.js?cb=26298b8e';
 import { esc, wordAt, parseUnits } from '/trade/util.js?cb=509d6618';
 
 const API = 'https://api.tacit.finance';
@@ -17,33 +18,57 @@ const tkName = (tk) => (tk === 'cETH' ? 'tETH' : tk);
 const units8 = (v) => (Number(v) / 1e8).toLocaleString('en-US', { maximumFractionDigits: 8 });
 const noteKey = (n) => String(n.leaf || n.nullifier || `${n.cx}:${n.cy}`).toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const refused = (e) => e?.code === 'relay_held' || e?.code === 'relay_paused' || e?.httpStatus === 429 || /relay (4\d\d|held|paused)|can’t take this one/i.test(String(e?.message || ''));
+const QUOTE_FRESH = 30e3;                                                            // how long a pool's terms are used before they are read again
 
 export function mountFarms(root, { pick, names = () => new Map(), program = () => null, wallet = null, W = null, connect = null } = {}) {
-  let D = null, seq = 0, runner = null;
-  const key = makeKeySession({ moved: () => forget() });
+  let D = null, seq = 0, runner = null, wanted = null;
+  let lockedWhy = '';                                                                  // why the key was locked, when the wallet that opened it moved
+  const key = makeKeySession({ moved: (why) => { lockedWhy = why || ''; forget(); } });
   const run = () => (runner ||= makeRunner({ api: API, base: async () => (await import('/confidential-deployments.js')).getConfidentialDeployment('mainnet')?.relayBase || API, pub: () => key.key?.pubHex || null }));
   const settled = (r) => { if (r?.jobId) run().journal.put('job:' + r.jobId, { status: 'settled', hash: r.txHash || undefined }); };
   function forget() { key.lock(); forgetUx(); seq++; D = null; paint(); }
 
+  // The key a flow starts under. Each step of the flow asks for it again, so a key locked or changed meanwhile stops the flow before its next
+  // step, and each step is given its own copy.
+  function pinned() {
+    const pub = key.key.pubHex;
+    return () => {
+      if (!key.unlocked || key.key.pubHex !== pub) throw new Error('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.');
+      return key.priv();
+    };
+  }
+
   async function read() {
     if (!key.unlocked) return paint();
+    lockedWhy = '';
     const pub = key.key.pubHex, my = ++seq, priv = key.priv(), was = D?.pub === pub ? D : null;
     D = { pub, loading: !was, ...(was ? { ...was } : {}) }; paint();
     try {
       const ux = await getUx(), [list, bal, wt] = await Promise.all([ux.farmPositions({ walletPriv: priv }), ux.balance(priv).catch(() => null), walletWtac(ux)]);
       if (my !== seq || key.key?.pubHex !== pub) return;
-      D = { pub, list: Array.isArray(list) ? list : [], notes: bal?.notes || [], wtac: wt, said: was?.said || null, form: was?.form || wanted || {}, terms: was?.terms || {} };
+      const cur = D?.pub === pub ? D : null;                                         // what was typed, said or started while this was read is kept
+      D = { pub, list: Array.isArray(list) ? list : [], notes: bal?.notes || [], notesOk: !!bal, wtac: wt, said: cur?.said || null, form: cur?.form || wanted || {}, terms: cur?.terms || {}, busy: cur?.busy || null };
     } catch (e) { if (my === seq) D = { pub, err: String(e?.message || e).slice(0, 160) }; }
     paint();
   }
 
   function say(text, kind = '') { if (D) { D.said = { text, kind }; paint(); } }
+  // what a failure says: the relay's words when it was the relay, else the message (a position that cannot be unbonded yet says what to do)
+  function failure(e) {
+    const w = relayWords(e), m = String(e?.message || e);
+    if (w) return [w.text, w.front ? 'front' : 'err'];
+    if (/locked until/.test(m)) return ['The bond is not over yet.', 'err'];
+    if (/farm-unbond: \d+ reward units/.test(m)) return ['It has earned a reward that unbonding would give up. Harvest it first, or press Exit, which harvests what is worth it and gives up what it earns while it runs.', 'err'];
+    return [m.slice(0, 240), e?.front ? 'front' : 'err'];
+  }
   async function act(name, fn) {
-    if (D.busy) return;
-    D.busy = name; say('');
-    try { say(await fn(), 'ok'); D.busy = null; read(); }
-    catch (e) { D.busy = null; say(refused(e) ? 'The relay can’t take this one right now.' : /locked until/.test(String(e?.message || '')) ? 'The bond is not over yet.' : String(e?.message || e), refused(e) || e?.front ? 'front' : 'err'); }
+    if (!D || D.busy) return;
+    const mine = D;
+    mine.busy = name; say('');
+    try { const text = await fn(); if (D?.pub === mine.pub) say(text, 'ok'); }
+    catch (e) { if (D?.pub === mine.pub) { const [text, kind] = failure(e); say(text, kind); } }
+    // whatever it came to, the positions are read again: a step that went through before a later one failed shows as it is
+    finally { if (D?.pub === mine.pub) D.busy = null; if (key.unlocked) read(); }
   }
   const walletWtac = async (ux) => (W?.account ? wordAt(await ux.ethCall(wtacBalanceCall(W.account).to, wtacBalanceCall(W.account).data).catch(() => '0x'), 0) : 0n);
   const name = (pos) => names().get(Number(pos.pid)) || `Farm ${pos.pid}`;
@@ -51,9 +76,9 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
   async function doHarvest(i) {
     const pos = D.list[i];
     if (!pos || !canHarvest(pos)) throw new Error('Nothing to harvest yet.');
-    const t = await getUx(), label = 'Harvest farm rewards';
+    const priv = pinned(), t = await getUx(), label = 'Harvest farm rewards';
     say('The relay is proving your harvest…');
-    settled(await harvest(t, key.priv(), pos, run().wait(label, 15 * 60e3)));
+    settled(await harvest(t, priv(), pos, run().wait(label, 15 * 60e3)));
     return 'Harvested to a wTAC note, one for one with TAC.';
   }
   async function doUnbond(i) {
@@ -61,9 +86,9 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     if (!pos) throw new Error('That position is not listed any more. Read again.');
     if (locked(pos)) throw new Error(`The bond is over on ${day(Number(pos.unlockAt))}.`);
     if (unharvested(pos)) throw new Error('Harvest first: unbonding now would give up what it has earned.');
-    const t = await getUx(), label = 'Unbond from a farm';
+    const priv = pinned(), t = await getUx(), label = 'Unbond from a farm';
     say('The relay is proving your unbond…');
-    settled(await unbond(t, key.priv(), pos, run().wait(label, 15 * 60e3)));
+    settled(await unbond(t, priv(), pos, run().wait(label, 15 * 60e3)));
     return 'Unbonded. Your liquidity is a private note again.';
   }
 
@@ -75,17 +100,18 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     if (!W.account) await connect();
     const to = W.account;
     if (!to) throw new Error('Connect a wallet to receive the TAC.');
-    const t = await getUx(), priv = key.priv(), mine = notes.filter((n) => relayable(t, n, rid)), small = notes.length - mine.length;
+    const priv = pinned(), t = await getUx(), mine = notes.filter((n) => relayable(t, n, rid)), small = notes.length - mine.length;
     if (!mine.length && !(D.wtac > 0n)) throw Object.assign(new Error(notes.length ? 'Your rewards are each worth less than the relay charges to unwrap them.' : 'Nothing to turn into TAC yet.'), { front: notes.length > 0 });
     for (const [i, n] of mine.entries()) {
       say(`The relay is unwrapping your rewards${mine.length > 1 ? ` (${i + 1} of ${mine.length})` : ''}…`);
-      settled(await redeem(t, priv, n, to, run().wait(`Unwrap ${noteTxt(n.value)} wTAC of farm rewards`, 15 * 60e3)));
+      settled(await redeem(t, priv(), n, to, run().wait(`Unwrap ${noteTxt(n.value)} wTAC of farm rewards`, 15 * 60e3)));
     }
     const balOf = async () => wordAt(await t.ethCall(wtacBalanceCall(to).to, wtacBalanceCall(to).data), 0);
     let bal = await balOf();
     for (let i = 0; !bal && mine.length && i < 10; i++) { await sleep(3000); bal = await balOf(); }
     if (!bal) throw new Error('The unwrap landed, but the wTAC is not visible yet. Press again in a minute: it picks up from here.');
     if (W.account?.toLowerCase() !== to.toLowerCase()) throw new Error('Your wallet account changed while this ran. Switch back to the account that holds the wTAC and press again.');
+    priv();                                                                          // the key is still the one this started under
     say('Confirm turning the wTAC into TAC in your wallet…');
     const hash = await wallet.sendTx({ ...wtacWithdrawCall(bal, to), from: to }), J = run().journal, id = `tx:1:${String(hash).toLowerCase()}`;
     J.put(id, { kind: 'tx', label: `Turn ${tacTxt(bal)} wTAC into TAC`, chain: 1, hash, status: 'pending' });
@@ -95,90 +121,128 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     return `Turned ${tacTxt(bal)} wTAC into TAC, in your wallet.${small ? ` ${small} smaller reward${small === 1 ? ' is' : 's are'} worth less than the relay’s fee to unwrap: the front page can send ${small === 1 ? 'it' : 'them'} from your Tacit account.` : ''}`;
   }
 
-  // Out of a farm: the reward harvested if it is worth it through the relay, the position unbonded, and the liquidity it gives back taken out
+  // Out of a farm: the reward harvested if it is worth it through the relay, the position unbonded (giving up what it earned since the harvest,
+  // as the front page's Exit does: the farm pays every second and a harvest takes minutes to prove), and the liquidity it gives back taken out
   // as the pool's two assets. A reward worth having that only an unwrap sent yourself would turn is not given up: that exit is the front page's.
   async function exit(i) {
     const pos = D.list[i], prog = program(), pool = (prog?.pools || []).find((p) => Number(p.pid) === Number(pos?.pid));
     if (!pos) throw new Error('That position is not listed any more. Read again.');
     if (!pool?.reserves) throw new Error('The farm’s pool could not be read. Try again in a moment.');
     if (locked(pos)) throw new Error(`The bond is over on ${day(Number(pos.unlockAt))}.`);
-    const t = await getUx(), priv = key.priv(), rid = prog.rewardAsset, pending = BigInt(pos.pendingUnits || 0);
+    const priv = pinned(), t = await getUx(), rid = prog.rewardAsset, pending = BigInt(pos.pendingUnits || 0);
     const worth = worthHarvesting(t, pending, rid);
     if (pending > HARVEST_WORTH && !worth) throw Object.assign(new Error('Its reward is worth turning into TAC only by sending the unwrap yourself.'), { front: true });
     const n = worth ? 3 : 2;
     let k = 0;
-    if (worth) { say(`Step ${++k} of ${n} · the relay is proving your harvest…`); settled(await harvest(t, priv, pos, run().wait('Harvest farm rewards', 15 * 60e3))); }
-    const lpOf = async () => lpNotes((await t.balance(priv)).notes, pool);
+    if (worth) { say(`Step ${++k} of ${n} · the relay is proving your harvest…`); settled(await harvest(t, priv(), pos, run().wait('Harvest farm rewards', 15 * 60e3))); }
+    const lpOf = async () => lpNotes((await t.balance(priv())).notes, pool);
     const had = new Set((await lpOf()).map(noteKey));
     say(`Step ${++k} of ${n} · the relay is proving your unbond…`);
-    const [now] = (await t.farmPositions({ walletPriv: priv })).filter((p) => p.receiptLeaf === pos.receiptLeaf);
-    settled(await unbond(t, priv, now || pos, run().wait('Unbond from a farm', 15 * 60e3)));
+    const [now] = (await t.farmPositions({ walletPriv: priv() })).filter((p) => p.receiptLeaf === pos.receiptLeaf);
+    const given = BigInt(now?.pendingUnits || 0);
+    settled(await unbond(t, priv(), now || pos, run().wait('Unbond from a farm', 15 * 60e3), undefined, { forfeit: true }));
     let fresh = [];
     for (let j = 0; !fresh.length && j < 8; j++) { fresh = (await lpOf()).filter((x) => !had.has(noteKey(x))); if (!fresh.length) await sleep(5000); }
     if (!fresh.length) throw new Error('Unbonded. The liquidity note is not showing yet: Read again in a minute and take it out from the front page.');
     for (const [j, note] of fresh.entries()) {
       say(`Step ${n} of ${n} · the relay is taking your liquidity out${fresh.length > 1 ? ` (${j + 1} of ${fresh.length})` : ''}…`);
-      try { settled(await takeOut(t, priv, pool, note, run().wait(`Take out ${name(pos)} liquidity`, 15 * 60e3))); }
+      try { settled(await takeOut(t, priv(), pool, note, run().wait(`Take out ${name(pos)} liquidity`, 15 * 60e3))); }
       catch (e) { if (/not covered by this withdrawal/.test(String(e?.message || ''))) throw Object.assign(new Error('Unbonded. This liquidity is worth less than the relay’s fee to take it out.'), { front: true }); throw e; }
     }
-    return `Out. Your liquidity is back as private ${name(pos)} notes.`;
+    return `Out. Your liquidity is back as private ${name(pos)} notes.${given > UNBOND_DUST ? ` The ${noteTxt(given)} TAC it earned while this ran was given up.` : ''}`;
   }
 
-  // the farms open to join, and the terms of the one picked (read again at most every 30 s while the form is in use)
+  // ── joining ──
+  // the farms open to join, and the one picked
   const openFarms = () => (program()?.pools || []).filter((p) => p.reserves?.assetA && Number(p.tacPerDayForPool) > 0);
+  const chosen = () => { const fs = openFarms(), pid = String(D?.form?.pool ?? fs[0]?.pid); return fs.find((p) => String(p.pid) === pid) || fs[0] || null; };
+  // The pool's terms, kept for QUOTE_FRESH while the form is in use: what the form quotes is what a press is held to.
   async function terms(pool, fresh = false) {
-    const t = await getUx(), k = String(pool.pid), j = D.terms?.[k];
-    if (!fresh && j && Date.now() - j.at < 30e3) return j;
+    const t = await getUx(), k = String(pool.pid), j = D?.terms?.[k];
+    if (!fresh && j && Date.now() - j.at < QUOTE_FRESH) return j;
     const v = { ...(await joinTerms(t, pool)), at: Date.now(), tkA: tkName(t.poolTickerOf(String(pool.reserves.assetA).toLowerCase())), tkB: tkName(t.poolTickerOf(String(pool.reserves.assetB).toLowerCase())) };
-    (D.terms ||= {})[k] = v;
+    if (D) (D.terms ||= {})[k] = v;
     return v;
+  }
+  // The join as the notes held and the pool stand: the second side, the notes that fit, the notes to cut and what the cuts cost the relay.
+  function plan(pool, tm, a, notes) {
+    const { assetA, assetB } = pool.reserves, b = bFor(a, tm.res), nsA = notesOf(notes, assetA), nsB = notesOf(notes, assetB), nA = exactOf(nsA, a), nB = exactOf(nsB, b);
+    const fA = nA ? 0n : tm.feeA, fB = nB ? 0n : tm.feeB, pA = nA ? null : cutPick(nsA, a, fA), pB = nB ? null : cutPick(nsB, b, fB);
+    const cutFee = fA + (fB ? (fB * BigInt(tm.res.reserveA)) / BigInt(tm.res.reserveB) : 0n);          // in the first side's units
+    return { a, b, nA, nB, pA, pB, fA, fB, cutFee, short: !nA && !pA ? 'A' : !nB && !pB ? 'B' : null, dear: cutFee * 20n >= 2n * a, pct: Number((cutFee * 1000n) / (2n * a)) / 10 };
+  }
+  // what the form shows under the amount: the second side, what splitting notes costs, and what is wrong with it
+  function joinInfo(pool, tm, a) {
+    if (!tm) return '<p class="more">Reading the pool…</p>';
+    if (!a) return '';
+    const p = plan(pool, tm, a, D.notes);
+    let h = `<dl class="kv"><div><dt>${esc(tm.tkB)}, at the pool’s ratio</dt><dd class="num" id="pf-b">${esc(units8(p.b))}</dd></div>`;
+    if (p.fA || p.fB) h += `<div><dt>Relay fee to split your notes</dt><dd class="num">${esc([p.fA ? `${units8(p.fA)} ${tm.tkA}` : '', p.fB ? `${units8(p.fB)} ${tm.tkB}` : ''].filter(Boolean).join(' + '))}</dd></div>`;
+    h += '</dl>';
+    if (D.notesOk) {
+      if (p.short === 'A') h += `<p class="more err">Your private ${esc(tm.tkA)} does not cover ${esc(units8(a))} and the relay’s fee to split a note.</p>`;
+      else if (p.short === 'B') h += `<p class="more err">This needs ${esc(units8(p.b))} ${esc(tm.tkB)} at the pool’s ratio, and your private ${esc(tm.tkB)} does not cover it and the relay’s fee to split a note.</p>`;
+      else if (p.dear) h += `<p class="more">The relay’s fees to split your notes are ${esc(p.pct.toFixed(1))}% of this deposit: a larger one, or notes that are already this size, spreads them.</p>`;
+    }
+    return h;
   }
   // a note of exactly `amount` of `asset`, once the cut that makes it shows in the balance
   async function noteShows(t, priv, asset, amount) {
-    for (let i = 0; i < 8; i++) { const n = exactOf(notesOf((await t.balance(priv)).notes, asset), amount); if (n) return n; await sleep(5000); }
+    for (let i = 0; i < 8; i++) { const n = exactOf(notesOf((await t.balance(priv())).notes, asset), amount); if (n) return n; await sleep(5000); }
     throw new Error('The note cut for this is not showing yet. It is in your private balance: press again in a minute.');
   }
   // Into a farm with both sides: `a` of the first and the second at the pool's ratio, each a note of exactly that (the relay cuts one to size
-  // when none fits), then both added to the pool and the share bonded in the farm in one proof. If the pool moves while the notes are cut,
-  // nothing is added: the notes are ready for the next press.
+  // when none fits), then both added to the pool and the share bonded in the farm in one proof. What the form quoted is what a press is held to:
+  // a pool that moved since adds nothing, and so does one that moves while the notes are cut (the notes are then ready for the next press).
   async function join() {
-    const prog = program(), pool = openFarms().find((p) => String(p.pid) === String(D.form.pool ?? openFarms()[0]?.pid)), a = parseUnits(D.form.a || '', 8);
+    const prog = program(), pool = chosen(), a = parseUnits(D.form.a || '', 8);
     if (!pool) throw new Error('Choose a farm.');
     if (!a) throw new Error('Enter how much to put in.');
-    const t = await getUx(), priv = key.priv(), tm = await terms(pool, true), b = bFor(a, tm.res), { assetA, assetB } = pool.reserves;
-    const bal = await t.balance(priv), nsA = notesOf(bal.notes, assetA), nsB = notesOf(bal.notes, assetB);
-    let nA = exactOf(nsA, a), nB = exactOf(nsB, b);
-    const pA = nA ? null : cutPick(nsA, a, tm.feeA), pB = nB ? null : cutPick(nsB, b, tm.feeB);
-    if (!nA && !pA) throw new Error(`Your private ${tm.tkA} does not cover ${units8(a)} and the relay’s fee to cut it to size.`);
-    if (!nB && !pB) throw new Error(`This needs ${units8(b)} ${tm.tkB} at the pool’s ratio, and your private ${tm.tkB} does not cover it and the relay’s fee to cut it.`);
+    const priv = pinned(), t = await getUx(), shown = D.terms?.[String(pool.pid)], shownB = shown ? bFor(a, shown.res) : null;
+    const tm = await terms(pool, true);
+    if (shownB != null && bFor(a, tm.res) !== shownB) { updateInfo(); throw Object.assign(new Error(`The pool moved since this was quoted: the second side is now ${units8(bFor(a, tm.res))} ${tm.tkB}. Check it and press again; nothing was added.`), { said: true }); }
+    const p = plan(pool, tm, a, (await t.balance(priv())).notes), b = p.b, { assetA, assetB } = pool.reserves;
+    if (p.short === 'A') throw new Error(`Your private ${tm.tkA} does not cover ${units8(a)} and the relay’s fee to split a note.`);
+    if (p.short === 'B') throw new Error(`This needs ${units8(b)} ${tm.tkB} at the pool’s ratio, and your private ${tm.tkB} does not cover it and the relay’s fee to split a note.`);
+    let { nA, nB } = p;
     const n = 1 + (nA ? 0 : 1) + (nB ? 0 : 1);
     let k = 0;
-    if (!nA) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(a)} ${tm.tkA}…`); settled(await cut(t, priv, pA, a, tm.feeA, run().wait(`Split a note to ${units8(a)} ${tm.tkA}`, 15 * 60e3))); nA = await noteShows(t, priv, assetA, a); }
-    if (!nB) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(b)} ${tm.tkB}…`); settled(await cut(t, priv, pB, b, tm.feeB, run().wait(`Split a note to ${units8(b)} ${tm.tkB}`, 15 * 60e3))); nB = await noteShows(t, priv, assetB, b); }
+    if (!nA) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(a)} ${tm.tkA}…`); settled(await cutSized(t, priv(), p.pA, a, p.fA, () => run().wait(`Split a note to ${units8(a)} ${tm.tkA}`, 15 * 60e3))); nA = await noteShows(t, priv, assetA, a); }
+    if (!nB) { say(`Step ${++k} of ${n} · the relay is cutting a note of ${units8(b)} ${tm.tkB}…`); settled(await cutSized(t, priv(), p.pB, b, p.fB, () => run().wait(`Split a note to ${units8(b)} ${tm.tkB}`, 15 * 60e3))); nB = await noteShows(t, priv, assetB, b); }
     const now = await terms(pool, true);
-    if (bFor(a, now.res) !== b) throw new Error('The pool’s price moved while your notes were cut to size. Press again: the notes are ready and nothing was added.');
+    if (bFor(a, now.res) !== b) { updateInfo(); throw Object.assign(new Error(`The pool’s price moved while your notes were cut to size: the second side is now ${units8(bFor(a, now.res))} ${tm.tkB}. Press again: the notes are ready and nothing was added.`), { said: true }); }
     say(`Step ${n} of ${n} · the relay is proving your farm entry…`);
-    settled(await bond(t, priv, { manager: prog.manager, aNote: nA, bNote: nB, feeBps: now.res.feeBps ?? pool.feeBps, waitOpts: run().wait(`Add ${name(pool)} liquidity and farm it`, 20 * 60e3) }));
-    D.form = {};
+    settled(await bond(t, priv(), { manager: prog.manager, aNote: nA, bNote: nB, feeBps: now.res.feeBps ?? pool.feeBps, waitOpts: run().wait(`Add ${name(pool)} liquidity and farm it`, 20 * 60e3) }));
+    if (D) D.form = {};
     return prog?.epoch?.active ? 'In the farm: TAC is streaming to your private position.' : 'In the farm. It earns once the next reward period starts.';
   }
   function joinForm() {
     const fs = openFarms();
     if (!fs.length) return '';
-    const f = D.form, pid = String(f.pool ?? fs[0].pid), pool = fs.find((p) => String(p.pid) === pid) || fs[0], tm = D.terms?.[String(pool.pid)];
-    const a = parseUnits(f.a || '', 8), b = a && tm ? bFor(a, tm.res) : null;
+    const f = D.form, pool = chosen(), pid = String(pool.pid), tm = D.terms?.[pid], a = parseUnits(f.a || '', 8);
     if (!tm && !D.termsAsked?.[pid]) { (D.termsAsked ||= {})[pid] = true; terms(pool).then(() => paint(), () => {}); }
+    const short = tm && a && D.notesOk && plan(pool, tm, a, D.notes).short;
     return `<details class="pf-join"${f.open || f.a ? ' open' : ''}><summary>Join a private farm</summary>
       <dl class="kv"><div><dt>Farm</dt><dd><select id="pf-pool" aria-label="Farm to join"${D.busy ? ' disabled' : ''}>${fs.map((p) => `<option value="${esc(String(p.pid))}"${String(p.pid) === pid ? ' selected' : ''}>${esc(name(p))}</option>`).join('')}</select></dd></div>
-      <div><dt>${esc(tm?.tkA || 'First side')}</dt><dd><input id="pf-a" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(tm?.tkA || 'First side')} to put in" value="${esc(f.a || '')}"${D.busy ? ' disabled' : ''}></dd></div>
-      ${tm ? `<div><dt>${esc(tm.tkB)}, at the pool’s ratio</dt><dd class="num" id="pf-b">${b != null ? esc(units8(b)) : '–'}</dd></div>` : ''}</dl>
-      <div class="acts"><button type="button" data-pf="join"${D.busy ? ' disabled' : ''}>${D.busy === 'join' ? 'Adding…' : 'Add and farm'}</button><a href="/#farm/private-${esc(pid)}">With one side only</a></div>
+      <div><dt>${esc(tm?.tkA || 'First side')}</dt><dd><input id="pf-a" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(tm?.tkA || 'First side')} to put in" value="${esc(f.a || '')}"${D.busy ? ' disabled' : ''}></dd></div></dl>
+      <div id="pf-info">${joinInfo(pool, tm, a)}</div>
+      <div class="acts"><button type="button" data-pf="join"${D.busy || !tm || short ? ' disabled' : ''}>${D.busy === 'join' ? 'Adding…' : 'Add and farm'}</button><a href="/#farm/private-${esc(pid)}">With one side only</a></div>
     </details>`;
   }
+  // typing and the clock keep the quote current in place (a repaint would take the field's focus)
+  function updateInfo() {
+    const pool = D?.form && chosen();
+    if (!pool) return;
+    const tm = D.terms?.[String(pool.pid)], a = parseUnits(D.form.a || '', 8), el = root.querySelector('#pf-info'), go = root.querySelector('[data-pf="join"]');
+    if (el) el.innerHTML = joinInfo(pool, tm, a);
+    if (go) go.disabled = !!D.busy || !tm || !!(a && D.notesOk && plan(pool, tm, a, D.notes).short);
+    if (tm && a && Date.now() - tm.at > QUOTE_FRESH) terms(pool, true).then(updateInfo, () => {});
+  }
+  setInterval(() => { if (!document.hidden && key.unlocked && D?.form?.a && !D.busy) updateInfo(); }, 15e3);
 
   function paint() {
     let h;
-    if (!key.unlocked) h = '<p class="more">Your positions in the private farms.</p><button class="act" type="button" data-pf="open">Show mine</button>';
+    if (!key.unlocked) h = `${lockedWhy ? `<p class="more err">${esc(lockedWhy)}</p>` : ''}<p class="more">Your positions in the private farms.</p><button class="act" type="button" data-pf="open">Show mine</button>`;
     else if (!D || D.loading) h = '<p class="more">Reading your positions…</p>';
     else if (D.err) h = `<p class="more err">${esc(D.err)} <button class="linkbtn" type="button" data-pf="again">Try again</button></p>`;
     else {
@@ -197,16 +261,20 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
         <div class="acts"><button type="button" data-pf="totac"${D.busy ? ' disabled' : ''}>${D.busy === 'totac' ? 'Turning…' : 'Turn into TAC'}</button></div>` : '';
       h = `${rows || '<p class="more">No private farm positions yet.</p>'}${rewards}${joinForm()}${said}<div class="acts"><button type="button" data-pf="again"${D.busy ? ' disabled' : ''}>Read again</button><button type="button" data-pf="lock"${D.busy ? ' disabled' : ''}>Lock your key</button></div>`;
     }
-    if (root.__h !== h) { root.__h = h; root.innerHTML = h; }
+    if (root.__h !== h) {
+      // the field being typed in keeps its place through a repaint
+      const at = document.activeElement, id = at && root.contains(at) ? at.id : '', s0 = at?.selectionStart, s1 = at?.selectionEnd;
+      root.__h = h; root.innerHTML = h;
+      const el = id && root.querySelector(`#${CSS.escape(id)}`);
+      if (el) { el.focus({ preventScroll: true }); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch { /* a field with no selection */ } }
+    }
   }
 
   root.addEventListener('toggle', (e) => { if (D?.form && e.target.classList?.contains('pf-join')) D.form.open = e.target.open; }, true);
-  // typing updates the ratio's figure in place (a repaint would take the field's focus)
   root.addEventListener('input', (e) => {
     if (!D?.form || e.target.id !== 'pf-a') return;
     D.form.a = e.target.value.trim();
-    const tm = D.terms?.[String(D.form.pool ?? openFarms()[0]?.pid)], a = parseUnits(D.form.a, 8), el = root.querySelector('#pf-b');
-    if (el && tm) el.textContent = a ? units8(bFor(a, tm.res)) : '–';
+    updateInfo();
   });
   root.addEventListener('change', (e) => { if (D?.form && e.target.id === 'pf-pool') { D.form.pool = e.target.value; paint(); } });
   root.addEventListener('click', (e) => {
@@ -225,7 +293,6 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
   key.onChange(() => { if (key.unlocked && D?.pub !== key.key.pubHex) read(); else paint(); });
   paint();
   // a farm picked elsewhere on the page: the join form opened on it, now or once the positions are read
-  let wanted = null;
   function choose(pid) {
     wanted = { pool: String(pid), open: true };
     if (D?.form) { D.form = { ...wanted, a: D.form.pool === wanted.pool ? D.form.a : undefined }; paint(); }

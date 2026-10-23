@@ -9,11 +9,6 @@ export const OUT_ASSETS = {
   teth: { key: 'teth', ticker: 'tETH', pool: 'cETH', id: '0x' + TETH_ID, dp: 6, floor: false, min: 0n },
 };
 
-// A fee rounded up to its first two digits: the next rung when the relay's floor has moved.
-export const ladder = (v) => { const x = BigInt(v), d = x.toString().length; if (d <= 2) return x; const s = 10n ** BigInt(d - 2); return ((x + s - 1n) / s) * s; };
-// the relay turned the fee down for being under its floor
-export const feeShort = (e) => /fee below the current floor|feeGate|below the marginal cost/i.test(String(e?.message || e || ''));
-
 // The relay's fee for burning `a`: its own quote, or the floor it publishes when that is higher (kept for five minutes).
 export function makeOutFee({ api, fetchImpl = (...a) => fetch(...a) }) {
   const floors = {};

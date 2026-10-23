@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ivtdUqX9dG52g2t9SpZ6qrDuVYK61097b9S1lIHr6ro=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-54GF3JsLHqIoUoANRG4pw6kIhyowPyrdIArr9vyvxLU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1592,9 +1592,10 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor } from '/farm-ops.js?cb=4470442d';
+import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
+import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=f3355397';
-import { ladder as xoLadder, feeShort as xoFeeShort, makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=3e9b426a';
+import { makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=4f5612d0';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
@@ -2150,12 +2151,8 @@ function exitKind(k, units) {
 }
 const OBOX = { pub: null, box: null, min: null };
 const maxNotes = async (k) => { const v = spendable(k), keep = await noteKeep(k); return v > keep ? v - keep : 0n; };
-function relayCode(e) { return typeof e?.code === 'string' ? e.code : ''; }
-function proveCapped(e) { return relayCode(e) === 'prove_budget' || /\bprove_budget\b|prove capacity for today|as many proofs as it can/i.test(String(e?.message || e || '')); }
-function proved(e) { return relayCode(e) === 'open' && !!e?.open?.proof && Array.isArray(e.open.memos); }
 function proofsBusy(s) { return /ResourceExhausted|insufficient (balance|funds|credits?)|out of credits?/i.test(String(s || '')); }
 const heldUp = (e) => relayRefused(e) || waitRanOut(e) || proved(e);
-const jobSaid = (e) => /^(settle|prove) failed:|relay lost the job/i.test(e?.message || '');
 
 function reattempt(id) {
   const it = actGet(id);
@@ -2624,8 +2621,6 @@ async function selfFinish(id) {
   } catch (e) { actPut(id, { selfErr: errText(e), selfProve: relayCantProve(e) || undefined }); }
   finally { SELF.delete(id); endRun(run); paintAct(); afterActivity(); }
 }
-const relayRefused = (e) => !proveCapped(e) && relayCode(e) !== 'relay_paused' && relayCode(e) !== 'prove_reserved' && (proved(e) || ['relay_held', 'free_budget'].includes(relayCode(e))
-  || /fee below the current floor|FEE_MOVED|can.t take this one|free relayed settles|relay (5\d\d|429)\b|temporarily unavailable/i.test(`${relayCode(e)} ${e?.message || e || ''}`));
 const exitGo = (note, to, units) => (x) => x.t.sendUnwrap({ note, walletPriv: x.priv, recipient: to, amount: BigInt(units), waitOpts: x.waitOpts, selfSettle: x.selfSettle });
 async function lockSend({ t, priv, note, who, units, ticker, selfSettle = null, waitOpts }) {
   const { makeStealthSendStore } = await import('/confidential-secret-store.js');
@@ -9721,7 +9716,7 @@ function farmJoin(el, p, status, has) {
       }
       const sendBond = settleFrom(t, { label: `Add ${fmt(a, 8, 6)} tETH + ${fmt(b, 8, dpB)} ${other} to the farm`, say: tell });
       const selfSettle = async (x) => { run.check(); return sendBond(x); };
-      const res = await proveWith(['lpbond'], (via) => t.lpBond({ walletPriv: priv, controller: FARM.program.manager, aNote: nA, bNote: nB, feeBps: Number(JOIN[pid]?.res?.feeBps ?? p.feeBps ?? 30), selfSettle,
+      const res = await proveWith(['lpbond'], (via) => t.lpBond({ walletPriv: priv, controller: farmManager(t, FARM.program.manager), aNote: nA, bNote: nB, feeBps: Number(JOIN[pid]?.res?.feeBps ?? p.feeBps ?? 30), selfSettle,
         waitOpts: spTell({ ...run.wait(`Add ${pairName(p.pair)} liquidity and farm it`, 20 * 60e3), ...via }, tell) }));
       [aIn, bIn].filter(Boolean).forEach(clearField); delete acked[`sj-ackv-${pid}`];
       tell(html`<span class="ok">${FARM.program?.epoch?.active ? 'In the farm: TAC is streaming to your private position.' : 'In the farm. It earns once the next reward period starts.'}</span> ${res?.txHash ? txLink(res.txHash) : ''}`);

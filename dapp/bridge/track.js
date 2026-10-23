@@ -58,6 +58,8 @@ export function limitLine(asset, dir) {
 const lc = (s) => String(s || '').replace(/^0x/i, '').toLowerCase();
 const big = (v) => { try { return BigInt(v?.__big ?? v ?? 0); } catch { return 0n; } };
 const num = (v) => (Number.isFinite(Number(v)) && v != null ? Number(v) : null);
+// a transaction id is 64 hex digits: anything else read out of a record or an answer is not made into a link
+const hex64 = (v) => { const x = lc(v); return /^[0-9a-f]{64}$/.test(x) ? x : null; };
 const assetKey = (id, ticker) => (lc(id) === TETH_ID || ticker === 'tETH' ? 'teth' : lc(id) === CBTC_ID || ticker === 'cBTC' ? 'cbtc' : 'tac');
 
 // ── the way in: burndep-ux's stages ──────────────────────────────────────────────────────────────────────────────────────
@@ -84,7 +86,7 @@ export function inDue(r, now = Date.now(), plan = null) {
   if (r.stage === 'burn-signed' && err && tries >= 3) return 'Move it back';
   if (r.stage === 'burn-submitted' && now - Number(r.submittedAt || r.updatedAt || now) > MINER_WAIT) return 'Move it back';
   if ((r.stage === 'migrate-confirmed' || r.stage === 'traced') && err && tries >= 3) return 'Move it back';
-  if (r.stage === 'not-recorded' && r.path === 'reflected' && !r.source?.p2tr) return 'Recover';
+  if (r.stage === 'not-recorded' && r.path === 'reflected' && !r.source?.p2tr && assetKey(r.source?.assetId, r.source?.ticker) === 'tac') return 'Recover';   // only TAC is recovered (the service takes no other asset)
   if (IN_SIGNED.includes(r.stage) && err && tries >= 3) return 'Try again or cancel';
   return '';
 }
@@ -119,23 +121,41 @@ export function inActs(r, due, now = Date.now()) {
   else if (due === 'Try again or cancel') acts.push({ kind: 'poll', label: 'Try again', main: true }, { kind: 'cancel', label: 'Cancel this bridge' });
   else if (failing) acts.push({ kind: 'poll', label: 'Try again' });
   if (r.stage === 'not-recorded' && r.path === 'reflected' && !acts.some((a) => a.kind === 'recheck')) acts.push({ kind: 'recheck', label: 'Check again' });
+  // a move Bitcoin's proof has not reached, kept failing: its burn can still be pressed, and the coin at its burn address can go home
+  if (r.stage === 'traced' && r.lastError && (r.errorCount || 0) >= 3 && !acts.some((a) => a.kind === 'reclaim')) acts.push({ kind: 'reclaim', label: 'Move it back' });
   return acts;
 }
 export function inRow(r, now = Date.now(), plan = null) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.in || ROUTES.tac.in;
   const done = r.stage === 'minted';
-  const burnTxid = lc(r.burn?.txid) || null;
-  return {
+  const burnTxid = hex64(r.burn?.txid), minted = hex64(r.mintedTxHash);
+  const row = {
     id: String(r.id || ''), dir: 'in', asset: key, amount: big(r.source?.amount), stage: r.stage,
     // a bridge that paid someone else ends in a payment to them, not a private note for the key
     at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: r.stealth ? [...route.steps.slice(0, 3), 'Paid privately'] : route.steps, href: route.href, paid: !!r.stealth,
     done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
     due: done ? '' : inDue(r, now, plan), acts: done || r.stage === 'reclaimed' ? [] : inActs(r, inDue(r, now, plan), now), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
     checkNote: r.stage === 'traced' && !r.lastError ? checkNote(r.checkWait, now) : '',
-    btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: r.mintedTxHash ? '0x' + lc(r.mintedTxHash) : null,
+    btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: minted ? '0x' + minted : null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
+    tries: num(r.errorCount), feeWait: r.feeWait && num(r.feeWait.rate) != null && num(r.feeWait.max) != null ? { rate: num(r.feeWait.rate), max: num(r.feeWait.max) } : null,
   };
+  row.note = rowNote(row);
+  return row;
+}
+// What holds a bridge, in the front page's words, so a press that spends a Bitcoin fee is made with its cost in view: the fee it waits for, or the
+// error it keeps meeting (the engine's own message, which names the rates and the sats), and what a press would do that is not plain.
+export function rowNote(row) {
+  if (row.done || row.back) return '';
+  const parts = [];
+  if (row.dir === 'in' && row.feeWait) parts.push(`Moved. The miner’s rate is ${row.feeWait.rate.toFixed(1)} sat/vB, over the ${row.feeWait.max} sat/vB allowed (twice the rate quoted), so its burn waits for the rate to fall. Burn it sends it now at today’s rate.`);
+  else if (row.err) parts.push(`${String(row.err).replace(/^(crossout-ux|burndep-ux):\s*/, '')}${row.tries > 1 ? ` (${row.tries} tries)` : ''}`);
+  const acts = (row.acts || []).map((a) => a.kind);
+  if (row.dir === 'out' && acts.includes('resign')) parts.push('Bitcoin has not taken the signed transaction. Signing again uses a coin that is free now; it is only offered while the first one is not on Bitcoin.');
+  if (row.dir === 'out' && acts.includes('cancel')) parts.push('Cancelling looks for the burn on Ethereum once more first. If it shows up later, “Can’t see a bridge?” finds it from its transaction.');
+  if (row.dir === 'in' && acts.includes('cancel')) parts.push('Bitcoin has not taken this transaction. Cancelling asks Bitcoin once more, and frees what it holds for another try when Bitcoin has neither of the bridge’s transactions.');
+  return parts.map((x) => (/[.!?]$/.test(x) ? x : `${x}.`)).join(' ');
 }
 
 // ── the way out: crossout-ux's stages ─────────────────────────────────────────────────────────────────────────────────────
@@ -170,15 +190,18 @@ export function outRow(r, now = Date.now()) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.out || ROUTES.tac.out;
   const done = r.stage === 'minted';
-  return {
+  const settleTx = hex64(r.settle?.txHash), btcTx = hex64(r.creditedTxid || r.mint?.revealTxid);
+  const row = {
     id: String(r.id || ''), dir: 'out', asset: key, amount: big(r.source?.amount ?? r.source?.value), stage: r.stage,
     at: done ? 4 : (OUT_AT[r.stage] ?? 0), steps: route.steps, href: route.href,
     done, back: false, held: r.stage === 'mint-rejected', due: done ? '' : outDue(r), acts: outActs(r, now), armed: false,
-    ethTx: r.settle?.txHash ? '0x' + lc(r.settle.txHash) : null, ethBlock: num(r.settle?.ethBlock),
-    btcTx: lc(r.creditedTxid || r.mint?.revealTxid) || null,
+    ethTx: settleTx ? '0x' + settleTx : null, ethBlock: num(r.settle?.ethBlock),
+    btcTx,
     since: num(r.createdAt), doneAt: num(r.mintedAt), feeWait: !!r.feeWait,
-    err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
+    err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null, tries: num(r.errorCount),
   };
+  row.note = rowNote(row);
+  return row;
 }
 
 // ── every journal in this browser ────────────────────────────────────────────────────────────────────────────────────────

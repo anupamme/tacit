@@ -8497,6 +8497,7 @@ await step('vaultborrow', async () => {
     ok((await store()).length < s1.length, 'vaultborrow: and the loan is forgotten once repaid');
     const j = await journal();
     ok(j.includes('Borrow 5 cUSD:settled') && j.includes('Repay 5 cUSD:settled'), `vaultborrow: both are in the shared journal under their names, settled (${j.slice(0, 4).join(' | ')})`);
+    ok(new URL(r.page.url()).hash === '#btc', `vaultborrow: the panel's buttons leave the page's address alone (the vault's "Use my wallet" handler does not take them) (${new URL(r.page.url()).hash})`);
     if (r.errors.length) { fails++; console.log('FAIL vaultborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -8582,7 +8583,11 @@ await step('rewardsout', async () => {
         b.notes = [...(b.notes || []), ...extra];
         return b;
       };
-      ux.farmUnbond = async (a) => { S.calls.push(['unbond', a.position.pid, a.forfeitPending]); a.waitOpts?.onJob?.('po-u', 'farmunbond'); S.unbonded = true; return { jobId: 'po-u', txHash: h(0xb2) }; };
+      ux.farmUnbond = async (a) => {
+        S.calls.push(['unbond', a.position.pid, a.forfeitPending]);
+        if (!a.forfeitPending && BigInt(a.position.pendingUnits) > 0n) throw new Error('farm-unbond: ' + a.position.pendingUnits + ' reward units are still pending');       // the pool's own rule
+        a.waitOpts?.onJob?.('po-u', 'farmunbond'); S.unbonded = true; return { jobId: 'po-u', txHash: h(0xb2) };
+      };
       ux.farmHarvest = async (a) => { S.calls.push(['harvest']); return { jobId: 'po-h' }; };
       ux.lpRemove = async (a) => { S.calls.push(['lpRemove', a.assetA, a.assetB, a.feeBps, a.shareNote.value]); a.waitOpts?.onJob?.('po-l', 'lpremove'); S.out = true; return { jobId: 'po-l', txHash: h(0xb3) }; };
       ux.farmRedeem = async (a) => { S.calls.push(['redeem', a.note.value, a.to.toLowerCase(), a.wait]); a.waitOpts?.onJob?.('po-r', 'unwrap'); S.redeemed = true; return { jobId: 'po-r', txHash: h(0xb4) }; };
@@ -8612,8 +8617,9 @@ await step('rewardsout', async () => {
     await until(r.page, () => /Out\. Your liquidity is back/.test(document.querySelector('#pf-said')?.textContent || ''), null, 300000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await po()).calls)}`); });
     const calls = (await po()).calls.filter((c) => c[0] !== 'redeem');
-    ok(calls.length === 2 && calls[0].join() === `unbond,${Number(pool.pid)},false` && calls[1][0] === 'lpRemove' && String(calls[1][1]).toLowerCase() === String(pool.reserves.assetA).toLowerCase() && Number(calls[1][3]) === Number(pool.feeBps ?? 30) && calls[1][4] === '1000',
-      `rewardsout: with only dust pending there is no harvest: the position is unbonded and the liquidity it gives back taken out at the pool's assets and fee (${JSON.stringify(calls)})`);
+    ok(calls.length === 2 && calls[0].join() === `unbond,${Number(pool.pid)},true` && calls[1][0] === 'lpRemove' && String(calls[1][1]).toLowerCase() === String(pool.reserves.assetA).toLowerCase() && Number(calls[1][3]) === Number(pool.feeBps ?? 30) && calls[1][4] === '1000',
+      `rewardsout: with only dust pending there is no harvest: the position is unbonded (giving up what it earned, as the front page's Exit does) and the liquidity it gives back taken out at the pool's assets and fee (${JSON.stringify(calls)})`);
+    ok(/The 0\.005 TAC it earned while this ran was given up/.test(await said()), `rewardsout: and it says what was given up (${await said()})`);
     const j = await r.page.evaluate(() => (JSON.parse(localStorage.getItem('tacit-lite-activity-v1') || '{}').items || []).map((x) => `${x.label}:${x.status}`));
     ok(j.some((x) => /^Unwrap 50 wTAC of farm rewards:settled/.test(x)) && j.some((x) => /^Turn 3 wTAC into TAC:confirmed/.test(x)) && j.includes('Unbond from a farm:settled') && j.some((x) => /liquidity:settled$/.test(x)), `rewardsout: each step is in the shared journal (${j.slice(0, 5).join(' | ')})`);
     if (r.errors.length) { fails++; console.log('FAIL rewardsout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -8634,10 +8640,10 @@ await step('rewardsjoin', async () => {
       const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
       const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
       const note = (asset, value, i) => ({ asset, value: String(value), leaf: h(0xd0d000 + i), leafIndex: 710000 + i, cx: h(0x300 + i), cy: h(2), owner: h(3), secret: h(0x6200 + i), blinding: h(0x8900 + i), root: h(1), path: [] });
-      const S = window.__pj = { calls: [], cut: false, bonded: false, move: false, reads: 0 };
+      const S = window.__pj = { calls: [], cut: false, bonded: false, move: false, shiftOnce: false, reads: 0 };
       const res = (b) => ({ assetA: '${A}', assetB: '${B}', reserveA: 100000000n, reserveB: b, totalShares: 1000n, feeBps: ${Number(pool.feeBps ?? 30)} });
       ux.farmPositions = async () => [];
-      ux.poolReserves = async () => { S.reads++; return res(S.move && S.cut ? 500000000n : 400000000n); };
+      ux.poolReserves = async () => { S.reads++; if (S.shiftOnce) { S.shiftOnce = false; return res(390000000n); } return res(S.move && S.cut ? 500000000n : 400000000n); };
       ux.quoteOpFee = async () => 1000n;
       ux.balance = async (priv, opts) => {
         const b = await balance(priv, opts);
@@ -8665,15 +8671,36 @@ await step('rewardsjoin', async () => {
     await r.page.fill('#pf-a', '1');
     await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4', null, 10000);
     ok(await r.page.evaluate(() => document.activeElement?.id === 'pf-a'), 'rewardsjoin: the second side is shown at the pool\'s ratio as it is typed, the field keeping its focus');
+    // what splitting the notes costs is shown with the amount: the first side has no note of that size, the second has one
+    const info = () => text(r.page, '#pf-info').then((t) => t.replace(/\s+/g, ' ').trim());
+    ok(/Relay fee to split your notes\s*0\.00001 tETH/.test(await info()) && !/fees to split your notes are/.test(await info()), `rewardsjoin: the relay's fee to split the first side's note is shown, and not warned about when it is small (${await info()})`);
+    await r.page.fill('#pf-a', '0.0001');
+    await until(r.page, () => /fees to split your notes are/.test(document.querySelector('#pf-info')?.textContent || ''), null, 10000);
+    ok(/fees to split your notes are 6\.2% of this deposit/.test(await info()), `rewardsjoin: fees that are a twentieth or more of the deposit are said (${await info()})`);
+    await r.page.fill('#pf-a', '1');
+    await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4', null, 10000);
+    // the pool moves after the form quoted it: nothing is cut or added, and the form shows the new second side
+    await r.page.evaluate(() => { window.__pj.shiftOnce = true; });
+    await r.page.click('#pf-mine [data-pf="join"]');
+    await until(r.page, () => /moved since this was quoted: the second side is now 3\.9 /.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
+    ok((await pj()).calls.length === 0 && (await r.page.textContent('#pf-b')) === '3.9', `rewardsjoin: a pool that moved (even in the holder's favour) since the quote adds nothing, cuts nothing, and the form shows what it now takes (${await said()})`);
+    // pressed against that figure, with the pool back where it was: held to the figure it showed, so again nothing is done
+    await r.page.click('#pf-mine [data-pf="join"]');
+    await until(r.page, () => /moved since this was quoted: the second side is now 4 /.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
+    ok((await pj()).calls.length === 0 && (await r.page.textContent('#pf-b')) === '4', 'rewardsjoin: and it is held to the figure it showed each time');
     // the pool moves while the first side is cut: nothing is added
     await r.page.evaluate(() => { window.__pj.move = true; });
     await r.page.click('#pf-mine [data-pf="join"]');
-    await until(r.page, () => /price moved/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
+    await until(r.page, () => /price moved while your notes were cut/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
     const c1 = (await pj()).calls;
     ok(c1.length === 1 && c1[0].join() === 'cut,300000000,100000000,1000,true', `rewardsjoin: the first side is cut to size by the relay, to the key itself, and with the pool moved nothing is bonded (${JSON.stringify(c1)})`);
-    // pressed again: the cut note is ready, both bonded
+    // pressed again with the pool back: the quote it showed was the moved one, so it is refused once more, and then the cut note is ready and both are bonded
     await r.page.evaluate(() => { window.__pj.move = false; });
+    await r.page.click('#pf-mine [data-pf="join"]');
+    await until(r.page, () => /moved since this was quoted: the second side is now 4 /.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000);
     await r.page.click('#pf-mine [data-pf="join"]');
     await until(r.page, () => /In the farm/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
@@ -8803,9 +8830,9 @@ await step('bridgeout', async () => {
         if (S.refuse) throw Object.assign(new Error('relay 429: the relay can’t take this one right now'), { code: 'relay_held', httpStatus: 429 });
         if (S.floorOnce) { S.floorOnce = false; throw new Error('relay: fee below the current floor'); }
         o.waitOpts?.onJob?.('bo-j', 'bridgeburn');
-        return { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)) } };
+        return { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)), fee: String(o.fee) } };
       },
-      cancelIntent: async (pub, id) => { S.calls.push(['cancel', id]); return false; },
+      cancelIntent: async (pub, id) => { S.calls.push(['cancel', id]); return !!S.landed; },
       advance: async (pub, id) => ({ id, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true } }),
     });` }));
   await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
@@ -8818,7 +8845,12 @@ await step('bridgeout', async () => {
       const S = window.__bo;
       ux.balance = async () => ({ notes: S.cut ? [note(6000000000n, 1), note(3999000000n, 2)] : [note(10000000000n, 3)] });
       ux.quoteOpFee = async (tk, op) => (op === 'bridgeburn' ? 100000n : 1000000n);
-      ux.transfer = async (a) => { S.calls.push(['cut', String(a.amount), String(a.fee), a.notes.map((n) => n.value).join('+')]); a.waitOpts?.onJob?.('bo-c', 'transfer'); S.cut = true; return { jobId: 'bo-c', txHash: h(0xd1) }; };
+      ux.transfer = async (a) => {
+        S.calls.push(['cut', String(a.amount), String(a.fee), a.notes.map((n) => n.value).join('+')]);
+        a.waitOpts?.onJob?.('bo-c', 'transfer'); S.cut = true;
+        if (S.lockOnCut) { S.lockOnCut = false; window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: ['0x00000000000000000000000000000000000000aa'] } })); }      // the wallet moves to another account while the note is being cut
+        return { jobId: 'bo-c', txHash: h(0xd1) };
+      };
       return ux;
     }` }));
   const bo = () => r.page.evaluate(() => window.__bo);
@@ -8845,8 +8877,22 @@ await step('bridgeout', async () => {
     ok(/You get59\.9975 TAC on your Bitcoin address/.test(rcpt) && /Relay fee0\.0025 TAC/.test(rcpt) && /Relay fee to cut a note to size0\.01 TAC/.test(rcpt) && /bc1q6pm2t5wjvnv9glmaj8qggflx4526jnslqnrsaj/.test(rcpt),
       `bridgeout: the receipt takes the published floor over the relay's own quote, and says what the cut and the address are (${rcpt.slice(0, 260)})`);
     ok(await r.page.isDisabled('#bo-go'), 'bridgeout: until it is acknowledged the button waits');
+    ok(/If the relay’s floor has moved by the time it takes the burn, its fee is 0\.005 TAC and 0\.0025 TAC less arrives/.test(rcpt), `bridgeout: the next rung the burn may be sent at is said before it is acknowledged (${rcpt.slice(-200)})`);
+    // the form and its receipt, the long Bitcoin address included, fit a phone
+    await r.page.setViewportSize({ width: 360, height: 760 });
+    await sleep(300);
+    const wideBo = await r.page.evaluate(() => { const f = document.querySelector('#bt-form'); return [f.scrollWidth, f.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
+    if (process.env.SHOT) await r.page.screenshot({ path: process.env.SHOT + '-bridgeout-phone.png', fullPage: true });
+    ok(wideBo[0] <= wideBo[1] + 1 && wideBo[2] <= wideBo[3] + 1, `bridgeout: no sideways scroll at phone width with the form open (${wideBo})`);
+    await r.page.setViewportSize({ width: 1280, height: 900 });
     await r.page.check('#bo-ack');
     ok(!(await r.page.isDisabled('#bo-go')), 'bridgeout: acknowledged, it can be pressed');
+    // an edit voids the quote and its acknowledgement at once, not when the new one has been read
+    const touched = await r.page.evaluate(() => { const i = document.querySelector('#bo-amt'); i.value = '61'; i.dispatchEvent(new Event('input', { bubbles: true })); return [document.querySelector('#bo-go').disabled, document.querySelector('#bo-ack').checked, document.querySelector('#bo-ackrow').hidden]; });
+    ok(touched.join() === 'true,false,true', `bridgeout: the moment the amount is touched the button is off and the acknowledgement is gone (${touched})`);
+    await r.page.fill('#bo-amt', '60');
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.check('#bo-ack');
     // the floor has moved by the time the burn is proved: met once at the next rung
     await r.page.evaluate(() => { window.__bo.floorOnce = true; });
     await r.page.click('#bo-go');
@@ -8857,6 +8903,7 @@ await step('bridgeout', async () => {
     ok(b1.starts.length === 2 && b1.starts[0][0] === '6000000000' && b1.starts[0][1] === '250000' && b1.starts[1][0] === '6000000000' && b1.starts[1][1] === '500000' && b1.starts[1][2] === 32,
       `bridgeout: the burn spends that note whole, and a floor that moved is met once at the next rung (${JSON.stringify(b1.starts)})`);
     ok((await r.page.inputValue('#bo-amt')) === '' && !!(await r.page.$('#bo-s a[href^="https://etherscan.io/tx/0x"]')), 'bridgeout: the form is emptied and the burn is linked');
+    ok(/The relay’s floor had moved: its fee was 0\.005 TAC/.test(await said()), `bridgeout: and it says the burn went at the higher rung (${await said()})`);
     // a relay that refuses: said, the intent dropped, nothing burned
     await r.page.evaluate(() => { window.__bo.refuse = true; window.__bo.calls.length = 0; });
     await typed('60');
@@ -8866,7 +8913,27 @@ await step('bridgeout', async () => {
     await until(r.page, () => /can’t take this burn/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
     const b2 = await bo();
-    ok((await r.page.getAttribute('#bo-s a', 'href')) === '/#bridge/out' && b2.calls.some((c) => c[0] === 'cancel'), `bridgeout: a burn the relay refuses says so, drops its intent and points to the front page (${await said()})`);
+    ok((await r.page.getAttribute('#bo-s a', 'href')) === '/#bridge/out' && b2.calls.some((c) => c[0] === 'cancel') && /Nothing was burned\./.test(await said()), `bridgeout: a burn the relay refuses says so, drops its intent, says nothing was burned once the chain showed none, and points to the front page (${await said()})`);
+    ok(await r.page.isDisabled('#bo-go') && await r.page.isChecked('#bo-ack') === false, 'bridgeout: and after a failure the quote is read again and must be acknowledged again');
+    // the same refusal when the burn had in fact landed: not called unburned
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.evaluate(() => { window.__bo.landed = true; window.__bo.calls.length = 0; });
+    await r.page.check('#bo-ack');
+    await r.page.click('#bo-go');
+    await until(r.page, () => /had landed on Ethereum/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
+    ok(!/Nothing was burned/.test(await said()), `bridgeout: a refused burn that had landed on Ethereum says so, and does not say nothing was burned (${await said()})`);
+    // the key locked while the relay cuts the note: the burn is not started, and the form goes with the key
+    await r.page.evaluate(() => { window.__bo.landed = false; window.__bo.refuse = false; window.__bo.cut = false; window.__bo.lockOnCut = true; });
+    await r.page.fill('#bo-amt', '60');
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.check('#bo-ack');
+    const starts0 = (await bo()).starts.length;
+    await r.page.click('#bo-go');
+    await until(r.page, () => !document.querySelector('#bt-here')?.hidden && document.querySelector('#bt-form')?.hidden, null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said().catch(() => '')}`); });
+    await sleep(3000);
+    ok((await bo()).starts.length === starts0 && (await bo()).calls.some((c) => c[0] === 'cut'), 'bridgeout: a key locked while the relay cuts the note stops the burn before it starts, and the form goes with the key');
     // the other asset has its own form; the way in has none
     await r.page.click('#bt-flip');
     await until(r.page, () => document.querySelector('#bt')?.dataset.dir === 'in' && document.querySelector('#bt-form')?.hidden, null, 30000);
@@ -8891,7 +8958,7 @@ await step('bridgepresses', async () => {
     const put = (k, l) => localStorage.setItem(k, JSON.stringify(l, (_k, v) => (typeof v === 'bigint' ? { __big: String(v) } : v)));
     const set = (key, pub, id, patch) => { const l = get(key + pub); const r = l.find((x) => x.id === id); if (r) { Object.assign(r, patch); if (patch.lastError === null) delete r.lastError; } put(key + pub, l); return r; };
     const drop = (key, pub, id) => put(key + pub, get(key + pub).filter((x) => x.id !== id));
-    const note = (what, id, o) => S.calls.push([what, id, o?.walletPriv ? o.walletPriv.length : null]);
+    const note = (what, id, o) => S.calls.push([what, id, o?.walletPriv ? o.walletPriv.length : null, !!o?.allowHighFee]);
     export const bridgeUx = () => ({
       list: (pub) => get(IN + pub), armMint: async () => {}, mintRetryDue: () => false,
       verify: async (pub, id) => get(IN + pub).find((x) => x.id === id),
@@ -8924,11 +8991,12 @@ await step('bridgepresses', async () => {
     const recOut = (n, stage, extra = {}) => ({ id: '0x' + n.repeat(32), network: 'mainnet', walletPub: pub, stage, createdAt: Date.now() - 9e5, destXonly: 'ab'.repeat(32),
       source: { nullifier: '0x' + n.repeat(32), value: { __big: '400000' }, amount: { __big: '390000' }, fee: { __big: '10000' }, assetId: '0x' + TETHID, ticker: 'tETH' },
       settle: { txHash: n.repeat(32), claimId: '0x' + n.repeat(32), cx: '0x' + 'c2'.repeat(32), cy: '0x' + 'c3'.repeat(32), destCommitment: '0x' + 'dd'.repeat(32), ethBlock: 1, claimIdVerified: true }, ...extra });
-    const I = ['a1', 'a2', 'a3'].map((n) => `${n.repeat(32)}:0`), O = ['c1', 'c2', 'c3'].map((n) => '0x' + n.repeat(32));
+    const I = ['a1', 'a2', 'a3'].map((n) => `${n.repeat(32)}:0`), O = ['c1', 'c2', 'c3', 'c4'].map((n) => '0x' + n.repeat(32));
     await r.page.evaluate(([k1, a, k2, b]) => { localStorage.setItem(k1, JSON.stringify(a)); localStorage.setItem(k2, JSON.stringify(b)); },
       [`tacit-burndep-bridge-v1:mainnet:${pub}`, [recIn('a1', 'stopped'), recIn('a2', 'not-recorded'), recIn('a3', 'migrate-signed', { lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 })],
         `tacit-crossout-bridge-v1:mainnet:${pub}`, [recOut('c1', 'mint-rejected', { attempts: ['1'], rejectedStatus: 'rejected' }), recOut('c2', 'settled', { settle: { txHash: 'c2'.repeat(32), claimIdVerified: false } }),
-          recOut('c3', 'mint-signed', { lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 })]]);
+          recOut('c3', 'mint-signed', { lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 }),
+          recOut('c4', 'covered', { lastError: { message: 'crossout-ux: Bitcoin fees are high right now (400 sat/vB, about 134000 sats for this step), so it is waiting for them to fall under 100', at: Date.now() }, errorCount: 1 })]]);
     await r.page.reload();
     await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
     await r.page.click('#mine-mv');
@@ -8936,7 +9004,18 @@ await step('bridgepresses', async () => {
     await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
     await r.page.waitForSelector(`#mine-l [data-mv-act="reclaim"]`, { timeout: 120000 });
     const kinds = await r.page.$$eval('#mine-l [data-mv-act]', (b) => b.map((x) => `${x.dataset.mvAct}`).sort().join());
-    ok(kinds === 'cancel,poll,poll,recheck,recheck,recover,reclaim,resign,retry'.split(',').sort().join(), `bridgepresses: each row offers the presses the front page's row does (${kinds})`);
+    ok(kinds === 'cancel,force,poll,poll,recheck,recheck,recover,reclaim,resign,retry'.split(',').sort().join(), `bridgepresses: each row offers the presses the front page's row does (${kinds})`);
+    // a press that spends a Bitcoin fee has the cost in front of it
+    const rowText = await r.page.$$eval('#mine-l .mb', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+    ok(rowText.some((t) => /Bitcoin fees are high right now \(400 sat\/vB, about 134000 sats for this step\)/.test(t) && /Send it anyway/.test(t)) && rowText.some((t) => /Bitcoin has not taken the signed transaction\. Signing again uses a coin that is free now/.test(t)),
+      `bridgepresses: a row held back for fees shows the rate and the sats beside "Send it anyway", and Sign it again says what it does (${rowText.find((t) => /fees are high/.test(t))?.slice(0, 200)})`);
+    // every row with its presses fits a phone
+    await r.page.setViewportSize({ width: 360, height: 760 });
+    await sleep(300);
+    const widePr = await r.page.evaluate(() => { const m = document.querySelector('#mine'); return [m.scrollWidth, m.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
+    if (process.env.SHOT) await r.page.screenshot({ path: process.env.SHOT + '-bridgepresses-phone.png', fullPage: true });
+    ok(widePr[0] <= widePr[1] + 1 && widePr[2] <= widePr[3] + 1, `bridgepresses: no sideways scroll at phone width with the presses showing (${widePr})`);
+    await r.page.setViewportSize({ width: 1280, height: 900 });
     await press('reclaim', I[0], 'Moving it back');
     ok((await bp()).calls.some((c) => c[0] === 'reclaim' && c[1] === I[0] && c[2] === 32), 'bridgepresses: a stopped bridge is moved back with the key');
     await press('recover', I[1], 'back on your Bitcoin address');
@@ -8948,6 +9027,12 @@ await step('bridgepresses', async () => {
     await press('cancel', I[2], 'Cancelled\\.');
     ok((await bp()).calls.some((c) => c[0] === 'cancelSigned' && c[1] === I[2]), 'bridgepresses: the second press cancels it, once Bitcoin is asked again');
     // the way out
+    // sending it anyway pays today's fee whatever it is: the first press asks, naming it, and the second goes
+    await r.page.click(`#mine-l [data-mv-act="force"][data-id="${O[3]}"]`);
+    await until(r.page, () => /pays today’s Bitcoin fee\. Bitcoin fees are high right now \(400 sat\/vB.*Press “Yes, send it now”/.test(document.querySelector('#mine-s')?.textContent || ''), null, 30000);
+    ok(!(await bp()).calls.some((c) => c[0] === 'out' && c[1] === O[3] && c[3] === true) && /Yes, send it now/.test(await text(r.page, `#mine-l [data-mv-act="force"][data-id="${O[3]}"]`)), 'bridgepresses: the first press of Send it anyway asks, naming the fee, and sends nothing');
+    await press('force', O[3], 'Checked');
+    ok((await bp()).calls.some((c) => c[0] === 'out' && c[1] === O[3] && c[2] === 32 && c[3] === true), 'bridgepresses: the second press sends it past the fee guard, with the key');
     await press('retry', O[0], 'Checked');
     ok((await bp()).calls.some((c) => c[0] === 'retry' && c[1] === O[0]), 'bridgepresses: a rejected Bitcoin step is sent again');
     await r.page.evaluate(() => { window.__bp.calls.length = 0; });
@@ -9005,6 +9090,11 @@ await step('bridgefindhere', async () => {
     ok(window_asked.length === 8 && /\/address\/bc1qfindme\/txs$/.test(window_asked[0]) && /\/txs\/chain\//.test(window_asked[1]), `bridgefindhere: the key's own Bitcoin address is read, page by page (${window_asked.length} reads)`);
     // a bridge to Bitcoin, from its burn
     await r.page.click('#lost-form > summary');
+    await r.page.setViewportSize({ width: 360, height: 760 });
+    await sleep(300);
+    const wideLf = await r.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+    ok(wideLf[0] <= wideLf[1] + 1, `bridgefindhere: no sideways scroll at phone width with the form open (${wideLf})`);
+    await r.page.setViewportSize({ width: 1280, height: 900 });
     await r.page.fill('#lf-tx', '0x12ab');
     await r.page.fill('#lf-amt', '0.0039');
     await r.page.click('#lf-go');

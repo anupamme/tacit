@@ -1,11 +1,9 @@
-// dapp/bridge-out.js, what a bridge to Bitcoin is held to wherever it is started: the fee ladder, the relay's published floor taken when it is
+// dapp/bridge-out.js, what a bridge to Bitcoin is held to wherever it is started: the relay's published floor taken when it is
 // the higher, the limits in words, and the words for a proof that is behind and a Bitcoin address with no coin for the last step.
 //   node tests/bridge-out.test.mjs
 import assert from 'node:assert/strict';
-import { OUT_ASSETS, ladder, feeShort, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '../dapp/bridge-out.js';
+import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '../dapp/bridge-out.js';
 
-assert.equal(ladder(5n), 5n); assert.equal(ladder(99n), 99n); assert.equal(ladder(123n), 130n); assert.equal(ladder(130n), 130n); assert.equal(ladder(1234567n), 1300000n, 'rounded up to two digits');
-assert.equal(feeShort(new Error('relay: fee below the current floor')), true); assert.equal(feeShort('feeGate'), true); assert.equal(feeShort(new Error('relay 429')), false);
 assert.equal(OUT_ASSETS.tac.pool, 'cTAC'); assert.equal(OUT_ASSETS.teth.id.length, 66); assert.equal(OUT_ASSETS.tac.min, 2_000_000_000n);
 
 // the fee: the pool's own quote, or the published floor when that is higher, kept five minutes
