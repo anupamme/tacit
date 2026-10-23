@@ -4180,7 +4180,9 @@ await step('xtring', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(/Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin/.test(await text(r.page, '#xt-rcpt')), 'xtring: a key with no private TAC is told where to get some');
   await r.page.fill('#xt-amt', '');
-  await r.page.click('#xc-look');
+  // A key this browser has no record of is also looked for once on its own (xbDiscover), a few seconds after it opens: by now the page may have
+  // done that, and "Look for it" has given way to "refresh", which reads the address again. Either one lists the notes.
+  await r.page.click('#xc-look, #xc-re');
   await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
   const items = await r.page.$$eval('#bridge-body label.brn', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off') })));
