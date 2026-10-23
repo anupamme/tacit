@@ -1091,7 +1091,7 @@ async function handleReflectionAttestState(req, env, url, cors) {
 // awaits the first's in-flight result instead of building a redundant one; `ethContentHash` is captured
 // from whichever `att` actually ran the assembly, since a caller that only awaited would otherwise read
 // its own (never-run) closure's stale value.
-const _reflectionAssembleInFlight = new Map(); // network -> Promise<{ job, ethContentHash }>
+const _reflectionAssembleInFlight = new Map(); // `${network}:${maxBlocks}` -> Promise<job body | null>
 
 // True once RSS is at or above server/memory-guard.mjs's own soft threshold (or, lacking an RSS reading,
 // once the heap is at or above the same fraction of its own cap) — mirroring the guard's "whichever
@@ -1136,11 +1136,17 @@ async function handleReflectionJob(req, env, url, cors) {
   }
   // Assembling a batch is minutes of CPU on full mainnet blocks; the Node server runs it on a worker thread
   // (env.assembleReflectionJobOffThread, server/index.mjs) so the requests it serves meanwhile are not held.
-  let inFlight = _reflectionAssembleInFlight.get(network);
+  // The relayer may ask for fewer blocks than this server's cap (`maxBlocks`, which reflection-folder.js lowers
+  // after the prover network refuses a batch it cannot execute). The single-flight is keyed by the ask too, so a
+  // caller wanting 2 blocks is never handed a 20-block job another caller started.
+  const askedBlocks = parseInt(url.searchParams.get('maxBlocks') || '', 10);
+  const maxBlocks = Number.isInteger(askedBlocks) && askedBlocks > 0 ? Math.min(askedBlocks, 64) : 0;
+  const flightKey = `${network}:${maxBlocks}`;
+  let inFlight = _reflectionAssembleInFlight.get(flightKey);
   if (!inFlight) {
-    inFlight = env.assembleReflectionJobOffThread ? env.assembleReflectionJobOffThread(network) : assembleReflectionJobBody(env, network);
-    inFlight.finally(() => { if (_reflectionAssembleInFlight.get(network) === inFlight) _reflectionAssembleInFlight.delete(network); }).catch(() => {});
-    _reflectionAssembleInFlight.set(network, inFlight);
+    inFlight = env.assembleReflectionJobOffThread ? env.assembleReflectionJobOffThread(network, { maxBlocks }) : assembleReflectionJobBody(env, network, { maxBlocks });
+    inFlight.finally(() => { if (_reflectionAssembleInFlight.get(flightKey) === inFlight) _reflectionAssembleInFlight.delete(flightKey); }).catch(() => {});
+    _reflectionAssembleInFlight.set(flightKey, inFlight);
   }
   const body = await inFlight;
   if (body) return new Response(body, { status: 200, headers: { ...cors, 'Cache-Control': 'no-store', 'Content-Type': 'application/json' } });
@@ -1150,10 +1156,10 @@ async function handleReflectionJob(req, env, url, cors) {
 // The next batch for the relayer as a JSON body, or null when caught up. Its post-batch snapshot (and which
 // eth-state candidate it used, if any) is stashed for /reflection/ack, which carries only the jobId, to
 // advance the persisted state and promote that candidate once the batch lands.
-async function assembleReflectionJobBody(env, network) {
+async function assembleReflectionJobBody(env, network, { maxBlocks = 0 } = {}) {
   const att = scanReflectionAttesterFor(env, network);
   if (!att) return null;
-  const job = await att.assembleJob();
+  const job = await att.assembleJob({ maxBlocks });
   if (!job) return null;
   const ethContentHash = att.lastEthContentHash ? att.lastEthContentHash() : null;
   await env.REGISTRY_KV.put(reflectionPendingKey(network, job.jobId), JSON.stringify({ newSnapshot: job.newSnapshot, ethContentHash, attestedTo: job.attestedTo }), { expirationTtl: 86400 });

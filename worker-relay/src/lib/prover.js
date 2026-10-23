@@ -21,6 +21,7 @@ import { boardPost, boardStatus, boardCancel, boardSummary } from './worker-clie
 import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
 import { proverEnvFrom } from './prover-env.js';
+import { isUnexecutable } from './block-cap.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover: the service's own, without its keys and tokens (lib/prover-env.js).
@@ -121,7 +122,7 @@ export async function proveReflection(input) {
   await rm(path.join(CFG.proverOut, 'bitcoin_proof_bytes.hex'), { force: true });
   if (input.modeB) await writeEthProofFor(input.ethPv);
 
-  const { code, out } = await run(CFG.bitcoinProveBin, {
+  const { code, out, err } = await run(CFG.bitcoinProveBin, {
     env: proverEnv({ PROOF_MODE: 'groth16', REFLECT_FIXTURE: fixture }),
     cwd: CFG.proverOut,
     timeoutMs: CFG.reflectionProveTimeoutSecs * 1000,
@@ -137,7 +138,11 @@ export async function proveReflection(input) {
     const proofBytes = await readHex(pbPath);
     return { publicValues, proofBytes };
   } catch (e) {
-    throw new Error(`bitcoin_prove produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+    const fail = new Error(`bitcoin_prove produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+    // The network's refusal is reported on stderr, which the message above leaves out; it is marked here so the caller
+    // can tell a batch the network would not run from a crash.
+    fail.unexecutable = isUnexecutable(err);
+    throw fail;
   }
 }
 

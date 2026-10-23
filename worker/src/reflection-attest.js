@@ -91,11 +91,15 @@ export function makeScanReflectionAttester({ deps, storage, prove, submit, getBl
   // Assemble the next un-attested block range into a prover input WITHOUT advancing the persisted
   // anchor (the relayer proves + submits, then acks). Returns null if caught up. The returned
   // `newSnapshot` is the post-batch canonical state ackJob will persist.
-  async function assembleJob() {
+  //
+  // `maxBlocks` is the relayer's ceiling for this one job, below batchSize: after the prover network refuses a batch
+  // as too costly to run, the relayer asks for a smaller one. 0 / absent = batchSize alone.
+  async function assembleJob({ maxBlocks = 0 } = {}) {
     const s = await loadState();
     if (s.tipHeight <= s.attestedHeight) return null;
     const from = s.attestedHeight + 1;
-    const to = Math.min(s.tipHeight, from + batchSize - 1);
+    const size = maxBlocks > 0 ? Math.min(batchSize, Math.floor(maxBlocks)) : batchSize;
+    const to = Math.min(s.tipHeight, from + size - 1);
     const heights = range(from, to);
     const idx = makeScanReflectionIndexer({ ...deps, burnDepositKit, swapBatchVk: SWAP_BATCH_VK });
     idx.load(s.snapshot);

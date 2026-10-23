@@ -28,6 +28,7 @@ import { reflectionJob, reflectionAck, reflectionPending, reflectionAttestState,
 import { awaitAttestLanding, digestDeepEnough } from './lib/attest-wait.js';
 import { recoverLostAck } from './lib/reflection-reconcile.js';
 import { proveReflection } from './lib/prover.js';
+import { nextBlockCap } from './lib/block-cap.js';
 import { relayWallet, publicClient, verifyClient, readPool, readReflectionDigest, POOL, POOL_ABI, gasAboveCap, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 import { withNonceRetry } from './lib/nonce-retry.js';
@@ -40,8 +41,12 @@ const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 // having to hand-rewind after every shallow reorg. Overridable, but do not set it to 1.
 const ATTEST_CONFIRMATIONS = Math.max(1, parseInt(process.env.ATTEST_CONFIRMATIONS || '3', 10));
 
+// The most blocks this lane asks the API to put in one job; null = the API's own cap. Lowered when the network
+// refuses a batch it cannot execute, raised again as batches prove (lib/block-cap.js). Memory only.
+let blockCap = null;
+
 async function cycle() {
-  const job = await reflectionJob();
+  const job = await reflectionJob({ maxBlocks: blockCap || 0 });
   if (!job || !job.input) return false; // caught up
   const attestedTo = Number(job.attestedTo) | 0;
   const newDigest = job.jobId || job.input.newDigest;
@@ -155,9 +160,25 @@ async function cycle() {
     await heartbeat('reflection', `mode_b required (crossOuts=${crossOuts}) but job is forward-only — eth-state candidate missing?`);
     return false;
   }
-  log(`job attestedTo=${attestedTo} pending=${job.pending ?? '?'} — proving (network groth16)...`);
+  log(`job attestedTo=${attestedTo} pending=${job.pending ?? '?'} blocks=${job.blocks ?? '?'} ask=${blockCap ?? 'none'} — proving (network groth16)...`);
   await heartbeat('reflection', `proving ${newDigest}`);
-  const { publicValues, proofBytes } = await proveReflection(job.input);
+  let proved;
+  try {
+    proved = await proveReflection(job.input);
+  } catch (e) {
+    // The network refusing to run the request (the batch costs more gas than REFLECT_GAS_LIMIT allows) repeats
+    // for as long as the same batch is served, so the next job is asked for at half the blocks.
+    const next = nextBlockCap(blockCap, { unexecutable: e?.unexecutable, blocks: job.blocks });
+    if (next !== blockCap) {
+      log(`the network would not run a ${job.blocks}-block batch (over its gas or cycle limit) — asking for at most ${next} block(s) per job from here`);
+      await heartbeat('reflection', `batch of ${job.blocks} block(s) refused as unexecutable; now asking for at most ${next}`);
+    }
+    blockCap = next;
+    throw e;
+  }
+  const { publicValues, proofBytes } = proved;
+  const grown = nextBlockCap(blockCap, { proved: true, blocks: job.blocks });
+  if (grown !== blockCap) { log(`proved at the full ask of ${blockCap} block(s) — raising it to ${grown ?? 'the API cap'}`); blockCap = grown; }
 
   // Make the proof available to any wallet before this one tries to land it: a proof that cannot be submitted from
   // here (the wallet is short, the node is down) is still good for as long as the pool sits on its prior.

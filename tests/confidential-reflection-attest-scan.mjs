@@ -73,6 +73,16 @@ const run = async () => {
   eq(job.input.anchorHeight, 500, 'anchorHeight = first un-attested height');
   ok(job.input.blocks[1].txs[0].openings.length === 1, 'block 501 plain spend detected in the job');
 
+  // The relayer can ask for fewer blocks than the attester's cap (after the prover network refuses a heavy
+  // batch); the ask only ever lowers the size, and never moves the cursor.
+  const one = await att.assembleJob({ maxBlocks: 1 });
+  ok(one && one.blocks === 1 && one.attestedTo === 500 && one.input.anchorHeight === 500, 'maxBlocks=1 → a one-block job (500..500)');
+  const wide = await att.assembleJob({ maxBlocks: 50 });
+  ok(wide && wide.blocks === 2 && wide.attestedTo === 501, 'an ask above the range is bounded by the tip');
+  const none = await att.assembleJob({ maxBlocks: 0 });
+  ok(none && none.blocks === 2, 'maxBlocks=0 means no ask');
+  eq((await att.loadState()).attestedHeight, 499, 'a smaller job does not advance the anchor either');
+
   // assembleJob did NOT advance the persisted anchor (still pre-genesis) — only ack does.
   eq((await att.loadState()).attestedHeight, 499, 'anchor not advanced before ack');
   // re-assembling yields the same job (idempotent until ack) — same newDigest.

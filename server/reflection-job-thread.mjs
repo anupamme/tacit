@@ -13,7 +13,7 @@ if (!isMainThread) {
   const driver = await createPgDriver(process.env.DATABASE_URL, { max: 2 });
   try {
     const { assembleReflectionJobBody } = await import('../worker/src/index.js');
-    const body = await assembleReflectionJobBody(buildEnv(driver), workerData.network);
+    const body = await assembleReflectionJobBody(buildEnv(driver), workerData.network, { maxBlocks: workerData.maxBlocks || 0 });
     parentPort.postMessage({ body });
   } catch (e) {
     parentPort.postMessage({ error: String(e?.message || e) });
@@ -24,15 +24,15 @@ if (!isMainThread) {
 
 // → the job's JSON body, or null when caught up. Rejects with the thread's error, or when it exits without
 // answering (killed for memory, or past the timeout).
-export function runReflectionJob(network) {
+export function runReflectionJob(network, { maxBlocks = 0 } = {}) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const worker = new Worker(new URL(import.meta.url), { workerData: { network } });
+    const worker = new Worker(new URL(import.meta.url), { workerData: { network, maxBlocks } });
     let settled = false;
     const done = (fn, v) => { if (settled) return; settled = true; clearTimeout(timer); fn(v); };
     const timer = setTimeout(() => { worker.terminate(); done(reject, new Error(`reflection job thread timed out after ${THREAD_TIMEOUT_MS} ms`)); }, THREAD_TIMEOUT_MS);
     worker.on('message', (m) => {
-      console.log(`[reflection-thread] ${network} ${m.error ? 'failed' : m.body ? `${(m.body.length / 1e6).toFixed(1)}MB job` : 'caught up'} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      console.log(`[reflection-thread] ${network}${maxBlocks ? ` (asked for at most ${maxBlocks} block(s))` : ''} ${m.error ? 'failed' : m.body ? `${(m.body.length / 1e6).toFixed(1)}MB job` : 'caught up'} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       if (m.error) done(reject, new Error(m.error)); else done(resolve, m.body ?? null);
     });
     worker.on('error', (e) => done(reject, e));

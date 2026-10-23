@@ -30,9 +30,11 @@ async function postJson(path, body, { timeoutMs = 0 } = {}) {
 }
 
 // ── Reflection ──
-export async function reflectionJob() {
-  // { input, jobId(newDigest), attestedTo, pending } | {}
-  return getJson(`/reflection/job?network=${encodeURIComponent(CFG.network)}`);
+export async function reflectionJob({ maxBlocks = 0 } = {}) {
+  // { input, jobId(newDigest), attestedTo, blocks, pending } | {}
+  // maxBlocks (> 0) asks for a batch of at most that many blocks, under the API's own cap (lib/block-cap.js).
+  const ask = maxBlocks > 0 ? `&maxBlocks=${Math.floor(maxBlocks)}` : '';
+  return getJson(`/reflection/job?network=${encodeURIComponent(CFG.network)}${ask}`);
 }
 export async function reflectionAck({ attestedTo, txHash, jobId }) {
   try {
