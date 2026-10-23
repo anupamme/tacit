@@ -23,5 +23,19 @@ await get('?network=mainnet'); await get('?network=mainnet');
 ok('repeat calls inside the window reuse the parsed summary', reads === before);
 const s = await get('?network=signet');
 ok('an unseeded network is a clean 404', s.status === 404);
+// Burns the reflection holds pending with no proof bundle registered, and how long the oldest has waited (the other network,
+// since each network's summary is held for a few seconds).
+{
+  const rec = (txid, height, completed = false) => ({ burnTxidDisplay: '0x' + txid.repeat(32), height, completed });
+  const pendingRecord = JSON.stringify({ attestedHeight: 970000, tipHeight: 970010, snapshot: { burnNodes: [['0x00', '0x01', '0x00', true]], pendingDepositRecords: [rec('aa', 969000), rec('bb', 969500), rec('cc', 968000, true), rec('dd', 969900)] } });
+  const registered = new Set(['bb'.repeat(32), 'dd'.repeat(32)]);
+  const env2 = { REGISTRY_KV: { get: async (k) => (k === 'reflection:scan:signet' ? pendingRecord : (registered.has(k.split(':').pop()) ? '{}' : null)), put: async () => {}, delete: async () => {} } };
+  const b2 = await (await worker.default.fetch(new Request('https://api.test/reflection/status?network=signet'), env2, { waitUntil() {} })).json();
+  ok('counts the open pending burns that have no bundle registered', b2.burnsAwaitingBundle === 1);
+  ok('reports the height of the oldest of them', b2.oldestAwaitingHeight === 969000);
+  ok('still counts every pending record as before', b2.burnDeposits === 4);
+  ok('a record already completed is never counted', b2.burnsAwaitingBundle === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

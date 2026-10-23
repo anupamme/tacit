@@ -517,6 +517,7 @@ export const CFG = {
   snapshotBytesWarn: num('SNAPSHOT_BYTES_WARN', 64 * 1024 * 1024),
   // No successful attest for this long while Bitcoin has un-attested blocks in range is a stalled reflection lane.
   reflectionStallHours: num('REFLECTION_STALL_HOURS', 3),
+  burnBundleWarnBlocks: num('BURN_BUNDLE_WARN_BLOCKS', 12), // a burn recorded without a proof bundle this many blocks (about 2 h) ago
   // A pending eth-state candidate bridges an ETH-side crossOut to its Bitcoin-side fold. The sidecar discards
   // and republishes its own candidate once it passes ETH_STATE_PENDING_STALE_SECS, so these thresholds exist
   // only for the case where that hasn't happened on its own timeline.

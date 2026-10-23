@@ -88,6 +88,7 @@ import { keccak_256 } from '@noble/hashes/sha3';
 import { hexToBytes, bytesToHex, concatBytes } from '@noble/hashes/utils';
 import { bech32, bech32m } from '@scure/base';
 import { buildScanReflectionAttester } from './reflection-attest.js';
+import { burnsAwaitingBundle } from './pending-burns.js';
 import { handleFarm } from './farm-program.js';
 import { buildConfidentialSettler } from './confidential-settle.js';
 import { pvDeadline, settleCalldata as openSettleCalldata, carriesPublicValues, checkPostedShape } from './confidential-open.js';
@@ -1628,6 +1629,15 @@ async function reflectionStatusBody(env, network) {
   const tipRec = tipRaw == null ? NaN : parseInt(tipRaw, 10);
   const attested = s.attestedHeight ?? null;
   const tip = Number.isInteger(tipRec) && !(s.tipHeight > tipRec) ? tipRec : (s.tipHeight ?? null);
+  // Burns the reflection holds pending with no proof bundle registered, and the height of the oldest: a burn whose own page
+  // did not register one stays unmintable until someone does (see pending-burns.js). Null while the registry cannot be read.
+  let awaiting = { count: null, oldestHeight: null };
+  try {
+    const norm = (t) => String(t || '').replace(/^0x/, '').toLowerCase();
+    const open = (Array.isArray(snap.pendingDepositRecords) ? snap.pendingDepositRecords : []).filter((r) => r && !r.completed && r.burnTxidDisplay);
+    const stored = await Promise.all(open.map((r) => env.REGISTRY_KV.get(`reflection:burndep:${network}:${norm(r.burnTxidDisplay)}`)));
+    awaiting = burnsAwaitingBundle(snap.pendingDepositRecords, open.filter((_, i) => stored[i]).map((r) => r.burnTxidDisplay));
+  } catch { /* the rest of the status stands without it */ }
   const body = {
     network,
     attestedHeight: attested,

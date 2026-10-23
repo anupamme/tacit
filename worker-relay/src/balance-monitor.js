@@ -31,7 +31,7 @@ import { CFG, OP_GAS } from './lib/config.js';
 import { burnGasPerDay, runwayDays } from './lib/runway.js';
 import { queueVerdict } from './lib/queue-health.js';
 import { makeRpc, checkFarm, FARM_MANAGER_MAINNET } from './lib/farm-health.js';
-import { stallVerdict, driftVerdict } from './lib/reflection-stall.js';
+import { stallVerdict, driftVerdict, awaitingBundleVerdict } from './lib/reflection-stall.js';
 import { manualRecoveryHint } from './lib/reflection-reconcile.js';
 import { reflectionDriftSeen, crossOutGapSeen } from './lib/worker-client.js';
 import { creditLevel } from './lib/prove-credit.js';
@@ -275,6 +275,21 @@ async function checkReflectionLag() {
     // so this fell back to the literal string below on every single unhealthy reading until now.
     await alert('critical', `/prover-health (reflection) unhealthy: ${(health.reasons || []).join('; ') || 'no heartbeat'}`, health);
   }
+}
+
+// Bridge burns the reflection holds pending with no proof bundle registered. A burn's own page registers one once the burn is
+// mined; one that never does (a tab closed too soon, an old page, another browser) leaves the burn's TAC unmintable. The public
+// status counts them and gives the height of the oldest, and a long wait is raised here.
+async function checkBurnsAwaitingBundle() {
+  let b = null;
+  try {
+    const res = await fetch(`${CFG.workerBase}/reflection/status?network=${encodeURIComponent(CFG.network)}`);
+    if (res.ok) b = await res.json();
+  } catch { /* unknown below */ }
+  const v = awaitingBundleVerdict({ count: Number(b && b.burnsAwaitingBundle), oldestHeight: Number(b && b.oldestAwaitingHeight), attestedHeight: Number(b && b.attestedHeight), warnBlocks: CFG.burnBundleWarnBlocks });
+  log(`burns awaiting a bundle: ${v.reason}`);
+  if (v.level !== 'warning') return;
+  await alert('warning', `${v.reason}. Register one for each: POST /reflection/burndep/trace, then /reflection/burndep/check, then /reflection/burndep (the burn's page does this itself when it is open), or POST /reflection/burndep/sweep with the box token.`, { count: b.burnsAwaitingBundle, oldestHeight: b.oldestAwaitingHeight, waited: v.waited });
 }
 
 // Every service's liveness, not just reflection's. The lag check above reads ?kind=reflection because it wants
@@ -630,7 +645,7 @@ async function checkRunPod() {
 
 async function main() {
   log(`monitor run — worker=${CFG.workerBase} relay=${relayWallet ? relayWallet.account.address : '(no key on this service — watching by address)'}`);
-  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkRunPod(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan(), checkProverBoard()]);
+  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkRunPod(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkBurnsAwaitingBundle(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan(), checkProverBoard()]);
   for (const r of results) if (r.status === 'rejected') log('check threw:', r.reason?.message || r.reason);
   log(`monitor done — ${criticals} critical${criticals === 1 ? '' : 's'}`);
   // Exit non-zero so the cron run is marked failed even with no webhook configured. A check that THREW is

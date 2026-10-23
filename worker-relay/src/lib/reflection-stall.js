@@ -28,3 +28,17 @@ export function driftVerdict({ cursorDigest, onchainDigest, streak }) {
   }
   return { level: 'ok', drifting: true, reason: `cursor digest differs from the pool (${streak} of ${DRIFT_RUNS_TO_ALERT} runs)` };
 }
+
+// Burns the reflection holds pending with no proof bundle registered: how long has the oldest waited, in blocks? A burn's own
+// page registers one once the burn is mined, so a short wait is ordinary; a long one means that page did not, and the burn's
+// TAC stays unmintable until someone registers a bundle for it.
+//
+//   -> { level: 'ok' | 'warning' | 'unknown', reason }
+export function awaitingBundleVerdict({ count, oldestHeight, attestedHeight, warnBlocks }) {
+  if (!Number.isFinite(count)) return { level: 'unknown', reason: 'the status does not report burns awaiting a bundle' };
+  if (count <= 0) return { level: 'ok', reason: 'no burn is waiting for a bundle' };
+  if (!Number.isFinite(oldestHeight) || !Number.isFinite(attestedHeight)) return { level: 'unknown', reason: `${count} burn(s) waiting for a bundle, heights unavailable` };
+  const waited = attestedHeight - oldestHeight;
+  if (waited >= warnBlocks) return { level: 'warning', reason: `${count} bridge burn(s) recorded without a proof bundle, the oldest for ${waited} blocks (since block ${oldestHeight})`, waited };
+  return { level: 'ok', reason: `${count} burn(s) waiting for a bundle, the oldest ${waited} block(s) (under ${warnBlocks})`, waited };
+}

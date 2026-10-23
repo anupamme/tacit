@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { awaitAttestLanding, digestDeepEnough } from '../worker-relay/src/lib/attest-wait.js';
 import { recoverLostAck, manualRecoveryHint } from '../worker-relay/src/lib/reflection-reconcile.js';
-import { stallVerdict, driftVerdict } from '../worker-relay/src/lib/reflection-stall.js';
+import { stallVerdict, driftVerdict, awaitingBundleVerdict } from '../worker-relay/src/lib/reflection-stall.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d) => { if (c) { console.log('  PASS  ' + n); pass++; } else { console.log('  FAIL  ' + n + (d ? ' - ' + d : '')); fail++; } };
@@ -144,6 +144,15 @@ const wait = (c, o = {}) => awaitAttestLanding({ newDigest: D1, txHash: TX, read
   ok('one drifting run is only noted', driftVerdict({ cursorDigest: D1, onchainDigest: D2, streak: 1 }).level === 'ok');
   ok('two consecutive drifting runs are critical', driftVerdict({ cursorDigest: D1, onchainDigest: D2, streak: 2 }).level === 'critical');
   ok('a missing digest gives no verdict', driftVerdict({ cursorDigest: null, onchainDigest: D2, streak: 9 }).level === 'unknown');
+
+  // Burns recorded without a proof bundle: a short wait is the burn's own page at work, a long one is raised.
+  const aw = (o) => awaitingBundleVerdict({ count: 1, oldestHeight: 1000, attestedHeight: 1005, warnBlocks: 12, ...o });
+  ok('no burn waiting for a bundle is fine', awaitingBundleVerdict({ count: 0, oldestHeight: null, attestedHeight: 1005, warnBlocks: 12 }).level === 'ok');
+  ok('a burn that has waited a few blocks is only noted', aw({}).level === 'ok');
+  ok('a burn that has waited the threshold is a warning', aw({ oldestHeight: 993 }).level === 'warning');
+  ok('the warning names how long and since when', /12 blocks.*993/.test(aw({ oldestHeight: 993 }).reason));
+  ok('a status that does not report the count gives no verdict', awaitingBundleVerdict({ count: NaN, oldestHeight: NaN, attestedHeight: 1005, warnBlocks: 12 }).level === 'unknown');
+  ok('a count without heights gives no verdict rather than a guess', awaitingBundleVerdict({ count: 2, oldestHeight: NaN, attestedHeight: 1005, warnBlocks: 12 }).level === 'unknown');
 }
 
 // ── API: the stash, the pending/attest-state routes, and the reconcile inside /reflection/job ──
