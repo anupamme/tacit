@@ -125,6 +125,8 @@ const ackIf = async (page) => {
     await sleep(250);
   }
 };
+// The tooltip of each receipt row (the detail a row keeps out of its text).
+const rowTips = (page) => page.$$eval('#rcpt div', (ds) => ds.map((d) => d.title).filter(Boolean));
 // Each side's Wallet / Private switch.
 const sidePriv = (page, side, on) => page.click(`.sides[data-side="${side}"] [data-p="${on ? 1 : 0}"]`);
 const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pay-coin' : '#get-coin'); await page.click(`.pk-r:has(b:text-is("${sym}"))`); };
@@ -214,11 +216,12 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '0.25');
   await quoted(page);
   ok((await page.textContent('#go')) === 'Swap privately', 'private: the swap is made on this card');
-  ok(/Relay fee/.test(await page.textContent('#rcpt')), 'private: the relay fee is shown');
+  ok(/Fees\s*about/.test(await page.textContent('#rcpt')), 'private: the fees are said once');
   ok(await page.$eval('#f-get', (e) => e.classList.contains('priv')), 'private: the get field is dashed');
   { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
-    ok(/Seen on chainyour 0\.25 ETH going in/.test(rc), `private from the wallet: the receipt says what the chain sees (${rc})`);
-    ok(/Pool[\d.,]+ tETH · [\d.,]+ TAC/.test(rc), 'private: the receipt says how deep the pool is'); }
+    ok(/Chain seesyour 0\.25 ETH deposited/.test(rc), `private from the wallet: the receipt says what the chain sees (${rc})`);
+    ok((await rowTips(page)).some((t) => /Pool depth: [\d.,]+ tETH · [\d.,]+ TAC/.test(t)), 'private: the price row keeps how deep the pool is');
+    ok(!/Pool/.test(rc) && (await page.$$('#rcpt div')).length <= 6, `private: the receipt stays short (${(await page.$$('#rcpt div')).length} rows)`); }
   await shot(page, 'desktop-private');
   // paid from the private balance too: the card offers to read it, and the chain sees a swap, not whose
   await sidePriv(page, 'pay', true);
@@ -227,7 +230,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '50');
   await quoted(page);
   ok(await page.isVisible('#pv-open'), 'private balance: the card offers to read it');
-  ok(/Seen on chaina swap, not who made it/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private balance: the chain sees a swap, not who made it');
+  ok(/Chain seesa swap, not whose/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'private balance: the chain sees a swap, not whose');
   ok(!/Deposit tip/.test(await page.textContent('#rcpt')), 'private balance: no deposit, no deposit tip');
   // out of the pool to an address: private cBTC to USDC, through an exit recipe; with no wallet here the address is asked for, and never taken from the address bar
   await pick(page, 'pay', 'cBTC');
@@ -244,9 +247,10 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await ackIf(page);
   ok((await page.textContent('#go')) === 'Swap privately → 0x5a5a…5a5a', `out of the pool: the button names where it goes (${await page.textContent('#go')})`);
   { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
-    ok(/At least[\d.,]+ USDC/.test(rc) && /Exit fee[\d.]+ tETH/.test(rc) && /Relay fee[\d.]+ cBTC/.test(rc), `out of the pool: the least it pays, the exit's fee and the route's fee (${rc})`);
-    ok(/Seen on chain[\d.,]+ USDC arriving at 0x5a5a…5a5a, not from whom/.test(rc), 'out of the pool: the chain sees USDC arriving, not from whom');
-    ok(/Pool[\d.,]+ cBTC · [\d.,]+ tETH/.test(rc), 'out of the pool: routed through the cBTC pool to tETH first'); }
+    const tips = await rowTips(page);
+    ok(/At least[\d.,]+ USDC/.test(rc) && /Fees\s*about/.test(rc) && tips.some((t) => /Relay fee [\d.]+ cBTC/.test(t) && /Exit fee [\d.]+ tETH/.test(t)), `out of the pool: the least it pays, and the route's and the exit's fee as one row (${rc})`);
+    ok(/Chain seesUSDC to 0x5a5a…5a5a, not from whom/.test(rc), 'out of the pool: the chain sees USDC arriving, not from whom');
+    ok(tips.some((t) => /Pool depth: [\d.,]+ cBTC · [\d.,]+ tETH/.test(t)), 'out of the pool: routed through the cBTC pool to tETH first'); }
   ok(!/0x5a5a/.test(page.url()), 'the address is not put in the address bar');
   await shot(page, 'desktop-private-out');
   // a wallet token into the private balance: swapped for ETH on the best onchain route, that ETH made private, then swapped in the pool
@@ -257,8 +261,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '100');
   await quoted(page);
   { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
-    ok(/Made privateabout [\d.]+ ETH/.test(rc) && /Relay fee[\d.]+ tETH/.test(rc) && /Deposit tip/.test(rc), `USDC into private TAC: the ETH made private, the relay's fee in tETH, the deposit's tip (${rc})`);
-    ok(/Seen on chainyour 100 USDC, swapped for ETH going in/.test(rc) && /Route.* → Tacit pool/.test(rc), 'and the chain sees the USDC swapped for ETH going in, then the pool'); }
+    ok(/Fees\s*about/.test(rc) && (await rowTips(page)).some((t) => /Relay fee [\d.]+ tETH/.test(t) && /Deposit tip/.test(t)), `USDC into private TAC: the relay's fee in tETH and the deposit's tip, as one row (${rc})`);
+    ok(/Chain seesyour 100 USDC for ETH, then a deposit/.test(rc) && /Route.* → Tacit pool/.test(rc), 'and the chain sees the USDC swapped for ETH, then a deposit'); }
   ok((await page.textContent('#go')) === 'Connect wallet', 'it needs the wallet');
   // any token to any token: zQuoter's best onchain route, compared with each pool
   await sidePriv(page, 'get', false);
@@ -267,19 +271,21 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '1');
   await quoted(page);
   { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
-    ok(/Route(Uniswap|Sushi|Curve|zAMM)/.test(rc) && /Compared\d+ pools? · /.test(rc) && /At least[\d.,]+ USDC/.test(rc), `ETH → USDC: the route, how it compares with each pool, the least it pays (${rc})`);
-    ok(!/Seen on chain/.test(rc), 'a public swap needs no line on what the chain sees: all of it'); }
+    ok(/Route(Uniswap|Sushi|Curve|zAMM)/.test(rc) && /At least[\d.,]+ USDC/.test(rc) && (await rowTips(page)).some((t) => /Compared with \d+ pools?/.test(t)), `ETH → USDC: the route and the least it pays, with the pools it was compared with in a tooltip (${rc})`);
+    ok(!/Chain sees/.test(rc) && (await page.$$('#rcpt div')).length <= 6, `a public swap needs no line on what the chain sees, and a short receipt (${(await page.$$('#rcpt div')).length} rows)`); }
   ok(await page.isVisible('.sw-foot'), 'a public swap has its slippage row');
   // Swap privately: the wallet's ETH deposited now into the private ETH pool, swapped later from it to an address
   ok(await page.isVisible('#later') && /Swap privately/.test(await page.textContent('#later')), 'a wallet ETH swap on the onchain route offers to swap privately');
-  await page.check('#later-on');
-  await until(page, () => /ETH$|did not answer/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  ok((await page.getAttribute('#later-on', 'role')) === 'switch' && (await page.getAttribute('#later-on', 'aria-checked')) === 'false', 'Swap privately is a switch, off to start');
+  await page.click('#later-on');
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && /Deposit/.test(await page.textContent('#later .pre')) && /Wait/.test(await page.textContent('#later .pre')) && /Swap/.test(await page.textContent('#later .pre')), 'turned on, it shows the three steps it takes');
+  await until(page, () => /ETH$|unavailable/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
   { const d0 = await page.textContent('#later-dep');
-    ok(/^[\d.]+ ETH$/.test(d0) && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')), `the deposit is the swap, the relay's fee and an extra a slider sets (${d0}, ${await page.textContent('#later-xv')})`);
+    ok(/^[\d.]+ ETH$/.test(d0) && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')) && !/\d\.\d{4,}/.test(await page.textContent('#later-xv')), `the deposit is the swap, the relay's fee and a buffer a slider sets, shown in two figures (${d0}, ${await page.textContent('#later-xv')})`);
     await page.$eval('#later-x', (el) => { el.value = '80'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
     ok(Number((await page.textContent('#later-dep')).split(' ')[0]) > Number(d0.split(' ')[0]), 'a larger extra makes a larger deposit');
-    ok(await page.isVisible('#to-in'), 'it asks for the address it goes to: never the wallet that deposits'); }
-  await page.uncheck('#later-on');
+    ok(await page.isVisible('#to-in') && /Address it goes to/.test(await page.getAttribute('#to-in', 'placeholder')), 'it asks for the address it goes to: never the wallet that deposits'); }
+  await page.click('#later-on');
   ok(await page.isHidden('#later-x'), 'turned off, the card is an ordinary swap again');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
@@ -321,7 +327,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok((await page.textContent('#go')) === 'Leave some ETH for the network fee', `all of it leaves nothing for the deposit's gas (${await page.textContent('#go')})`); }
   // a comma is a decimal point where the amount is read
   await typeAmt(page, '0,5'); await quoted(page); await ackIf(page);
-  ok(/your 0\.5 ETH going in/.test(await page.textContent('#rcpt')), '"0,5" is priced as 0.5 ETH, not 5');
+  ok(/your 0\.5 ETH deposited/.test(await page.textContent('#rcpt')), '"0,5" is priced as 0.5 ETH, not 5');
   // the press opens the Tacit key on this page; closing it sends nothing and leaves the card as it was
   { const sent = walletLog.sends.length;
     await page.click('#go');
@@ -340,7 +346,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(u.page, () => document.querySelector('#pxs')?.classList.contains('on'));
   await until(u.page, () => { const o = document.querySelector('#out'); return o && !o.classList.contains('busy') && !/^(Finding the best price…|Enter an amount)$/.test(document.querySelector('#go').textContent); });
   { const rc = (await u.page.textContent('#rcpt')).replace(/\s+/g, ' '), impact = Number((/Price impact\s*([\d.]+)%/.exec(rc) || [])[1]);
-    ok(/Relay fee[\d.]+ tETH · \d+% of the swap/.test(rc), `a small private swap says what share of it the relay's fee is (${rc || await u.page.textContent('#go')})`);
+    ok(/Fees\s*about \$[\d.,]+ · \d+% of the swap/.test(rc), `a small private swap says what share of it the fees are (${rc || await u.page.textContent('#go')})`);
     ok(impact < 10, `and its price impact is the pool's, not the fee's (${impact}%)`); }
   ok(await u.page.isHidden('.sw-foot'), 'Private has no slippage row: there is nothing to set');
   await sidePriv(u.page, 'get', false);
@@ -356,15 +362,49 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.reload();
   await until(page, () => !document.querySelector('#steps').hidden);
   const t = (await page.textContent('#steps')).replace(/\s+/g, ' ');
-  ok(/0\.02 ETH → USDC · to 0x2222…2222/.test(t) && /Deposit/.test(t) && /Wait\s*30 min/.test(t) && /Swap now/.test(t), `a kept swap shows its deposit, how long it has waited and a way to swap it out (${t.slice(0, 160)})`);
+  ok(/0\.02 ETH → USDC\s*to 0x2222…2222/.test(t) && /Deposit/.test(t) && /Wait\s*30 min/.test(t) && /Swap now/.test(t), `a kept swap shows its deposit, how long it has waited and a way to swap it out (${t.slice(0, 160)})`);
+  ok((await page.$$eval('#steps .st li', (l) => l.map((x) => x.className))).join(',') === 'done,now,todo' && (await page.getAttribute('#steps .st li.now', 'aria-current')) === 'step', 'its steps read done, now, to do, the current one marked for a screen reader');
   ok(!!(await page.$('#steps use[href="#tk-peth"]')), 'drawn with the private ETH mark');
   // Swap now reads the price and shows it; nothing is sent until it is confirmed, and Cancel drops it
   await page.click('[data-later-go="p1"]');
   await until(page, () => !!document.querySelector('[data-later-ok]'), null, 120000);
   { const t2 = (await page.textContent('#steps')).replace(/\s+/g, ' ');
-    ok(/at least [\d.,]+ USDC/.test(t2) && /Confirm/.test(t2) && /Cancel/.test(t2), `Swap now shows the least it pays before anything is sent (${t2.slice(0, 200)})`); }
+    ok(/At least [\d.,]+ USDC/.test(t2) && /Confirm/.test(t2) && /Cancel/.test(t2), `Swap now shows the least it pays before anything is sent (${t2.slice(0, 200)})`); }
+  ok((await page.textContent('#q')).trim() === '', 'and the status line under the swap button does not repeat it');
   await page.click('[data-later-no="p1"]');
   ok(!(await page.$('[data-later-ok]')) && !!(await page.$('[data-later-go="p1"]')), 'Cancel drops the price and offers Swap now again');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+
+// ── every state of a kept swap, on a phone: what each shows and offers, and nothing runs off the card ──
+{
+  const { browser, page, errors } = await openPage({ width: 390, height: 900 }, { scheme: 'dark' });
+  const T = Date.now(), base = { from: '0x' + '11'.repeat(20), swapWei: '500000000000000000', extraWei: '125000000000000000', depositWei: '660000000000000000', token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', sym: 'USDC', dec: 6, to: '0x' + '22'.repeat(20), leaves0: 500 };
+  const tx = (c) => '0x' + c.repeat(32);
+  const plans = [
+    { ...base, id: 'dep', at: T - 20e3, state: 'depositing' },
+    { ...base, id: 'wait', at: T - 42 * 60e3, depositedAt: T - 42 * 60e3, state: 'waiting', depositTx: tx('ab') },
+    { ...base, id: 'swp', at: T - 50 * 60e3, depositedAt: T - 50 * 60e3, swapAt: T - 30e3, state: 'swapping', depositTx: tx('ab') },
+    { ...base, id: 'uns', at: T - 50 * 60e3, depositedAt: T - 50 * 60e3, state: 'unsure', depositTx: tx('ab'), err: 'The relay did not answer, and it may still have sent your payment.' },
+    { ...base, id: 'don', at: T - 70 * 60e3, depositedAt: T - 70 * 60e3, doneAt: T - 60e3, state: 'done', depositTx: tx('ab'), swapTx: tx('cd') },
+    { ...base, id: 'stp', at: T - 5 * 60e3, state: 'stopped', err: 'Cancelled in your wallet. Nothing was sent.' },
+  ];
+  await page.evaluate((v) => localStorage.setItem('tacit-swap-later-v1', JSON.stringify(v)), plans);
+  await page.reload();
+  await until(page, () => document.querySelectorAll('#steps .plan').length === 6);
+  const cls = (id) => page.$$eval(`#steps .plan:nth-of-type(${id}) .st li`, (l) => l.map((x) => x.className).join(','));
+  const plan = (n) => page.locator(`#steps .plan:nth-of-type(${n})`);
+  ok((await cls(1)) === 'now,todo,todo', `a deposit being sent: it is the current step (${await cls(1)})`);
+  ok((await cls(2)) === 'done,now,todo' && (await plan(2).locator('[data-later-go]').count()) === 1 && (await plan(2).locator('.x').count()) === 1, 'a waiting swap offers Swap now and a way to remove it');
+  ok((await cls(3)) === 'done,done,now' && /sending…/.test(await plan(3).textContent()) && (await plan(3).locator('button').count()) === 0, 'a swap being sent offers nothing to press');
+  ok((await cls(4)) === 'done,done,fail' && (await plan(4).locator('[data-later-check]').count()) === 1 && (await plan(4).locator('.note.err').count()) === 1 && /may still have sent/.test(await plan(4).locator('.note').textContent()), 'a swap in doubt says so in its own note and offers Check it, not Swap now');
+  ok((await cls(5)) === 'done,done,done' && (await plan(5).locator('a[href*="etherscan.io/tx/"]').count()) === 2, 'a finished swap shows both transactions');
+  ok((await cls(6)) === 'fail,todo,todo' && (await plan(6).locator('.x').count()) === 1 && (await plan(6).locator('.note.err').count()) === 1, 'a deposit that did not go through says so and can be removed');
+  { const over = await page.evaluate(() => { const c = document.querySelector('#sw').getBoundingClientRect(); return [...document.querySelectorAll('#steps *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > c.right + 0.5 || r.left < c.left - 0.5); }).length; });
+    ok(over === 0 && (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)), `nothing in the steps runs off the card or the page at 390 px (${over} elements)`); }
+  await page.evaluate(() => { document.querySelector('#steps').scrollIntoView(); });
+  await shot(page, 'phone-later-steps');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }

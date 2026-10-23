@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=a2720a94">
+<link rel="modulepreload" href="/swap/app.js?cb=d6889ef1">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -223,7 +223,7 @@ img.tk { object-fit: contain; }
 .rcpt { margin: 10px 2px 0; display: grid; gap: 2px; font-size: 12.5px; }
 .rcpt div { display: flex; align-items: baseline; gap: 8px; color: var(--mute); }
 .rcpt div::after { content: ''; order: 1; flex: 1; min-width: 12px; border-bottom: 1px dotted var(--hair-2); transform: translateY(-4px); }
-.rcpt dt { order: 0; } .rcpt dd { order: 2; margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.rcpt dt { order: 0; flex: none; white-space: nowrap; } .rcpt dd { order: 2; margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .rcpt dd.warn { color: var(--warn); } .rcpt dd.ok { color: var(--ok); } .rcpt dd.err { color: var(--err); }
 .ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
 .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
@@ -243,22 +243,57 @@ img.tk { object-fit: contain; }
 .link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .sw-foot[hidden] { display: none; }
 .sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
-.later { margin: 10px 2px 0; padding: 10px 12px; font-size: 12.5px; border: 1px dashed var(--hair-2); border-radius: 12px; }
-.later label.on { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-.later label.on input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
-.later label.on b { font-weight: 500; } .later label.on small { display: block; color: var(--mute); }
-.later .row { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; color: var(--mute); }
-.later .row input[type="range"] { flex: 1; accent-color: var(--ink); }
-.later .row b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Swap privately: one row that switches it, the buffer and the three steps it takes while it is on; and the swaps in progress, as the same steps */
+.later { margin: 10px 2px 0; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
+.later.on { border-style: dashed; border-color: var(--hair-2); }
+.later .tgl { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 28px; padding: 0; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; font-size: 13.5px; }
+.later .tgl b { flex: 1; font-weight: 500; }
+.later .pill { position: relative; width: 34px; height: 20px; flex: none; border-radius: 999px; background: var(--hair-2); transition: background .15s; }
+.later .pill::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .2s var(--spring); }
+.later .tgl[aria-checked="true"] .pill { background: var(--ink); }
+.later .tgl[aria-checked="true"] .pill::after { transform: translateX(14px); }
+.later .buf { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; font-size: 12.5px; color: var(--mute); }
+.later .buf input { flex: 1; min-width: 0; accent-color: var(--ink); }
+.later .buf b { min-width: 76px; text-align: right; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.st { display: grid; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.st li { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: 0 10px; padding-bottom: 14px; color: var(--mute); }
+.st li:last-child { padding-bottom: 0; }
+.st li::before { content: ''; position: absolute; left: 10.5px; top: 24px; bottom: 2px; width: 1px; background: var(--hair-2); }
+.st li:last-child::before { display: none; }
+.st li.done::before { background: var(--ink); }
+.st .mk { display: grid; place-items: center; width: 22px; height: 22px; font: normal 11px var(--mono); color: var(--mute); background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; }
+.st li.done .mk { color: var(--card); background: var(--ink); border-color: var(--ink); }
+.st li.now { color: var(--ink); }
+.st li.now .mk { border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 10%, transparent); }
+.st li.now .mk::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); animation: st-pulse 1.8s ease-in-out infinite; }
+.st li.fail .mk { color: var(--err); border-color: var(--err); }
+@keyframes st-pulse { 50% { opacity: .25; } }
+.st .t { display: grid; gap: 1px; min-width: 0; padding-top: 2px; }
+.st .t > span { font-size: 13px; color: var(--mute); }
+.st li.done .t > span, .st li.now .t > span, .st li.fail .t > span { color: var(--ink); }
+.st .t small { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
+.st .a { align-self: start; padding-top: 0; text-align: right; } .st .a a { display: inline-block; padding-top: 2px; color: var(--ink); }
+/* the preview under the switch: the same three steps in a row */
+.st.pre { display: flex; align-items: center; margin: 12px 0 0; }
+.st.pre li { display: flex; flex: none; align-items: center; gap: 6px; padding: 0; white-space: nowrap; }
+.st.pre li::before { display: none; }
+.st.pre li + li { flex: 1 1 auto; min-width: 0; }
+.st.pre li + li::before { content: ''; display: block; position: static; flex: 1; min-width: 8px; height: 1px; margin: 0 8px; background: var(--hair-2); }
+.st.pre li span { font-size: 12.5px; color: var(--ink); } .st.pre li b { font-weight: 500; }
+.st.pre .mk { width: 18px; height: 18px; font-size: 10px; }
 .steps { display: grid; gap: 10px; margin: 12px 2px 0; font-size: 12.5px; }
-.steps .plan { padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; }
-.steps .plan > b { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-.steps ol { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; counter-reset: st; color: var(--mute); }
-.steps li { display: flex; justify-content: space-between; gap: 10px; counter-increment: st; }
-.steps li::before { content: counter(st); width: 18px; height: 18px; flex: none; display: grid; place-items: center; font-size: 11px; border: 1px solid var(--hair-2); border-radius: 50%; }
-.steps li.done::before { content: '✓'; color: var(--card); background: var(--ink); border-color: var(--ink); }
-.steps li.now { color: var(--ink); }
-.steps li > span { flex: 1; } .steps li a, .steps li button { color: var(--ink); }
+.steps .plan { padding: 12px 14px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
+.steps header { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0 0 14px; }
+.steps header b { flex: none; font-weight: 500; font-size: 13.5px; white-space: nowrap; }
+.steps header small { flex: 1; min-width: 0; overflow: hidden; color: var(--mute); text-overflow: ellipsis; white-space: nowrap; }
+.steps header .x { flex: none; width: 28px; height: 28px; margin: -4px -6px -4px auto; font-size: 20px; line-height: 1; color: var(--mute); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+@media (hover: hover) { .steps header .x:hover { color: var(--ink); background: var(--hair); } }
+.steps .offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 14px 0 0; padding: 10px 12px; border: 1px dashed var(--hair-2); border-radius: 10px; }
+.steps .offer b { display: block; font: 400 19px/1.15 var(--serif); letter-spacing: -.01em; }
+.steps .offer small { color: var(--mute); }
+.steps .acts { display: flex; gap: 6px; }
+.steps .note { margin: 12px 0 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.steps .note.warn { color: var(--warn); } .steps .note.err { color: var(--err); }
 .recent { margin: 8px 2px 0; font-size: 12px; color: var(--mute); }
 .recent summary { width: fit-content; list-style: none; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .recent summary::-webkit-details-marker { display: none; }
@@ -715,6 +750,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=a2720a94"></script>
+<script type="module" src="/swap/app.js?cb=d6889ef1"></script>
 </body>
 </html>

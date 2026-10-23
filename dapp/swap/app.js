@@ -457,6 +457,7 @@ function paintSides() {
   gw.className = `where${inPriv ? ' priv' : ''}`; gw.textContent = inPriv ? 'private on Ethereum' : S.to && to ? `to ${shortAddr(to)}` : out && !W.account ? 'to an address' : 'to your wallet';
   gw.disabled = inPriv; gw.setAttribute('aria-expanded', String(S.toOpen && !inPriv));
   $('#to').hidden = inPriv || !S.toOpen; $('#to-in').setAttribute('aria-invalid', String(!!S.toBad));
+  $('#to-in').placeholder = LATER.on || (out && !W.account) ? 'Address it goes to, 0x…' : 'Send to another address, 0x…';
   $('#to-note').textContent = S.toBad || (to && $('#to-in').value.trim() !== checksum(to) ? checksum(to) : ''); $('#to-note').className = S.toBad ? 'err' : '';
   const a = $('#amt'); if (a.value !== S.amt) a.value = S.amt;
   fitSize(a);
@@ -481,6 +482,22 @@ const PSYM = { eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' }, PICON = { 
 const farmOn = (p) => (S.farms || []).find((f) => f.pid != null && [PICON[p.a], PICON[p.b]].every((i) => f.icons.includes(i))) || null;
 const fitSize = (el) => { const n = (el.value || el.textContent || '').length; el.classList.toggle('long', n > 8); el.classList.toggle('longer', n > 11); };
 
+// A private swap's fees said once, in dollars, when each part can be priced (the relay's for the swap, the exit's, the deposit's tip), else a row
+// each; the share of the swap they take is said when it is a fiftieth or more.
+function feeLines(q, r) {
+  const coin = isEth(S.pay) || S.pay === 'teth' || r.pin ? 'teth' : S.pay;
+  const parts = [];
+  if (q.fee != null) parts.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${tokenOf(coin, true).sym}`, usdOf(coin, q.fee * E10)]);
+  if (q.xfee != null) parts.push(['Exit fee', `${fmtUnits(q.xfee, 8, 6)} tETH`, usdOf('teth', q.xfee * E10)]);
+  if (q.tip != null) parts.push(['Deposit tip', `${fmtUnits(q.tip, 18, 6)} ETH`, usdOf(lc(R.ZERO), q.tip)]);
+  if (!parts.length) return [];
+  const share = q.fee != null ? Number(q.fee * E10) / Number(r.pin ? q.ethIn : q.wei) : 0, said = share >= 0.02 ? ` · ${(share * 100).toFixed(share >= 0.1 ? 0 : 1)}% of the swap` : '';
+  if (parts.every((x) => x[2] != null)) {
+    const t = parts.reduce((a, x) => a + x[2], 0);
+    return [['Fees', `about ${t < 1 ? `$${t.toFixed(2)}` : usd(t)}${said}`, share >= 0.05 ? 'warn' : '', parts.map((x) => `${x[0]} ${x[1]}`).join(' + ')]];
+  }
+  return parts.map(([k, v], i) => [k, `${v}${i === 0 ? said : ''}`]);
+}
 function paintQuote() {
   const q = S.q, out = $('#out'), get = tokenOf(S.get), pay = tokenOf(S.pay), rows = $('#rows'), rc = $('#rcpt'), go = $('#go'), ackbox = $('#ackbox');
   const r = picked(q), kind = kindOf(S.pay, S.get);
@@ -503,35 +520,32 @@ function paintQuote() {
   const lines = first ? (kind === 'private' || kind === 'pout' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
   if (r) {
     const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.val ?? r.out) / 10 ** get.dec;
-    if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`]);
+    const depth = r.priv && q.pools?.length ? `Pool depth: ${q.pools.map((p) => `${tidy(amtFmt(p.ra, 8))} ${PSYM[p.a]} · ${tidy(amtFmt(p.rb, 8))} ${PSYM[p.b]}`).join(' and ')}` : '';
+    if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`, '', depth]);
     if (!r.priv || (r.pout && !isEth(S.get))) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
     if (r.sell?.rest > 0n) lines.push(['Plus', `about ${tidy(amtFmt(r.sell.rest, 18))} WETH`]);
-    if (r.any?.hop || r.sell || r.buy || r.agg || r.pin) lines.push(['Route', r.name]);
-    // how the route compares with each pool's own price for the whole amount: the best pool, and what the route adds over it
+    if (r.any?.hop || r.sell || r.buy || r.agg || r.pin) lines.push(['Route', r.name, '', r.agg?.quotes?.length ? `Compared with ${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''}` : '']);
+    // what the route adds over the best single pool, and how KyberSwap's figure for the same trade compares (a reference: the swap itself goes
+    // through zRouter), each shown only when it is 0.1% or more
     if (r.agg?.quotes?.length) {
-      const top = r.agg.quotes[0], gain = Number(r.out - top.out) / Number(top.out);
-      lines.push(['Compared', `${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''} · ${gain >= 0.0005 ? `${(gain * 100).toFixed(2)}% more than ${top.name}` : `best is ${top.name}`}`]);
+      const gain = Number(r.out - r.agg.quotes[0].out) / Number(r.agg.quotes[0].out);
+      if (gain >= 0.001) lines.push(['Over best pool', `+${(gain * 100).toFixed(2)}%`, 'ok', r.agg.quotes[0].name]);
     }
-    // KyberSwap's figure for the same trade, said as it is (more or less), as a reference: the swap itself goes through zRouter
     if (r.ks) {
       const d = Number(r.out - r.ks) / Number(r.ks);
-      lines.push(['KyberSwap', Math.abs(d) < 0.0005 ? 'the same' : d > 0 ? `pays ${(d * 100).toFixed(2)}% less` : `pays ${(-d * 100).toFixed(2)}% more (${tidy(amtFmt(r.ks, get.dec))})`]);
+      if (Math.abs(d) >= 0.001) lines.push(['KyberSwap', d > 0 ? `pays ${(d * 100).toFixed(2)}% less` : `pays ${(-d * 100).toFixed(2)}% more`, d > 0 ? 'ok' : 'warn', `KyberSwap's figure: ${tidy(amtFmt(r.ks, get.dec))} ${get.sym}`]);
     }
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
-    else if (m != null) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
-    for (const p of r.priv ? q.pools || [] : []) lines.push(['Pool', `${tidy(amtFmt(p.ra, 8))} ${PSYM[p.a]} · ${tidy(amtFmt(p.rb, 8))} ${PSYM[p.b]}`]);
-    if (r.priv && q.tip != null) lines.push(['Deposit tip', `${fmtUnits(q.tip, 18, 6)} ETH`]);
-    if (r.priv && q.fee != null) { const share = Number(q.fee * E10) / Number(r.pin ? q.ethIn : q.wei); lines.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' || r.pin ? 'tETH' : pay.sym}${share >= 0.02 ? ` · ${(share * 100).toFixed(share >= 0.1 ? 0 : 1)}% of the swap` : ''}`]); }
-    if (r.pout && q.xfee != null) lines.push(['Exit fee', `${fmtUnits(q.xfee, 8, 6)} tETH`]);
-    if (r.pin) lines.push(['Made private', `about ${tidy(amtFmt(q.ethIn, 18))} ETH`]);
-    if (r.pout) lines.push(['Seen on chain', `${tidy(amtFmt(r.out, get.dec))} ${get.sym} arriving at ${S.to ? shortAddr(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
-    else if (r.pin) lines.push(['Seen on chain', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym}, swapped for ETH going in`]);
-    else if (r.priv) lines.push(['Seen on chain', isEth(S.pay) ? `your ${tidy(amtFmt(q.wei, 18))} ETH going in` : 'a swap, not who made it']);
+    else if (m != null && (!(r.agg || r.pin) || Math.abs(m) >= 0.01)) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
+    if (r.priv) lines.push(...feeLines(q, r));
+    if (r.pout) lines.push(['Chain sees', `${get.sym} to ${S.to ? shortAddr(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
+    else if (r.pin) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} for ETH, then a deposit`]);
+    else if (r.priv) lines.push(['Chain sees', isEth(S.pay) ? `your ${tidy(amtFmt(q.wei, 18))} ETH deposited` : 'a swap, not whose']);
     if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
   rc.hidden = !lines.length;
-  rc.innerHTML = lines.map(([k, v, c]) => `<div><dt>${esc(k)}</dt><dd class="${c || ''}">${esc(v)}</dd></div>`).join('');
+  rc.innerHTML = lines.map(([k, v, c, t]) => `<div${t ? ` title="${esc(t)}"` : ''}><dt>${esc(k)}</dt><dd class="${c || ''}">${esc(v)}</dd></div>`).join('');
   paintLater(q, r, kind);
   const gate = r && !q.busy && m != null && m <= GATE;
   if (busy) { } else if (gate) {
@@ -796,7 +810,10 @@ function readFee() {
   LATER.err = null;
   return ltLoad().then((m) => m.mod.relayFee()).then((f) => { LATER.fee = f; LATER.feeAt = Date.now(); paintQuote(); }, (e) => { LATER.err = e?.message || String(e); paintQuote(); });
 }
-// The box under the receipt: drawn again only when it is switched, so the slider keeps its hold while dragged; its figures are written in place.
+// The box under the receipt: one row that switches it and, while it is on, the buffer and the three steps it takes. Drawn again only when it is
+// switched, so the slider keeps its hold while dragged; its figures are written in place.
+const eth2 = (wei) => { const n = Number(wei) / 1e18; return tidy(n >= 1 ? n.toFixed(2) : n.toPrecision(2)); };
+const LATER_TIP = 'Deposit now into the private ETH pool and swap out later, so nothing on chain links your wallet to where the tokens go.';
 function paintLater(q, r, kind) {
   const el = $('#later'), fits = !!r && laterFits(kind);
   el.hidden = !fits;
@@ -804,19 +821,25 @@ function paintLater(q, r, kind) {
   const k = String(LATER.on);
   if (el.dataset.k !== k) {
     el.dataset.k = k;
-    el.innerHTML = `<label class="on"><input type="checkbox" id="later-on"${LATER.on ? ' checked' : ''}><span><b>Swap privately</b><small>Deposit now, swap later from the private pool: nothing on chain links your wallet to where it goes. The price is read again when it swaps.</small></span></label>`
-      + (LATER.on ? `<div class="row"><span>Extra deposit</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="Extra deposit, as a share of the swap"><b id="later-xv"></b></div><div class="row"><span>Deposit</span><b id="later-dep"></b><span>a round amount, not the swap's; the extra stays private</span></div>` : '');
+    el.classList.toggle('on', LATER.on);
+    el.innerHTML = `<button type="button" class="tgl" id="later-on" role="switch" aria-checked="${LATER.on}" title="${esc(LATER_TIP)}"><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg><b>Swap privately</b><span class="pill" aria-hidden="true"></span></button>`
+      + (LATER.on ? `<div class="buf"><span>Buffer</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="Buffer added to the deposit, as a share of the swap"><b id="later-xv"></b></div>`
+        + `<ol class="st pre" aria-label="How it goes"><li><i class="mk" aria-hidden="true">1</i><span>Deposit <b id="later-dep"></b></span></li><li><i class="mk" aria-hidden="true">2</i><span>Wait</span></li><li><i class="mk" aria-hidden="true">3</i><span>Swap</span></li></ol>` : '');
   }
   if (!LATER.on) return;
-  $('#later-xv').textContent = `+${tidy(amtFmt(laterExtra(q), 18))} ETH`;
+  $('#later-xv').textContent = `+${eth2(laterExtra(q))} ETH`;
   const dep = laterDeposit(q);
-  $('#later-dep').textContent = dep != null ? `${tidy(amtFmt(dep, 18))} ETH` : LATER.err ? 'the relay did not answer' : '…';
+  $('#later-dep').textContent = dep != null ? `${eth2(dep)} ETH` : LATER.err ? '(fee unavailable)' : '…';
 }
-$('#later').addEventListener('change', (e) => {
-  if (e.target.id === 'later-on') { LATER.on = e.target.checked; if (LATER.on) { S.toOpen = true; if (LATER.fee == null) readFee(); warmPrivate(); } paint(); }
-  else if (e.target.id === 'later-x') { LATER.pct = Number(e.target.value); LATER.rand = Math.random(); paintQuote(); }
+$('#later').addEventListener('click', (e) => {
+  if (!e.target.closest('#later-on')) return;
+  LATER.on = !LATER.on;
+  if (LATER.on) { S.toOpen = true; if (LATER.fee == null) readFee(); warmPrivate(); }
+  paint();
 });
-$('#later').addEventListener('input', (e) => { if (e.target.id === 'later-x') { LATER.pct = Number(e.target.value); LATER.rand = Math.random(); paintLater(S.q, picked(), kindOf(S.pay, S.get)); } });
+// the buffer moves the deposit as it is dragged; the random draw around it is made again when it is let go
+$('#later').addEventListener('input', (e) => { if (e.target.id === 'later-x') { LATER.pct = Number(e.target.value); paintQuote(); } });
+$('#later').addEventListener('change', (e) => { if (e.target.id === 'later-x') { LATER.rand = Math.random(); paintQuote(); } });
 const laterStep = (s) => ({ 'proving on this device': 'Proving on this device…', 'confirm in your wallet': 'Confirm the deposit in your wallet…', 'waiting for it to be mined': 'Waiting for it to land…',
   'sending through the relayer': 'The relay is sending it…', 'reading the price again': 'Reading the price again…' }[s] || `${s.charAt(0).toUpperCase()}${s.slice(1)}…`);
 async function laterGo() {
@@ -831,29 +854,40 @@ async function laterGo() {
     const lt = await ltLoad();
     await lt.start({ swapWei: q.wei, extraWei: extra, token: S.get, sym: get.sym, dec: get.dec, to, depositWei: dep, onStep: (s) => say(esc(laterStep(s))) });
     LATER.on = false; S.amt = ''; S.q = null; S.to = null; S.toOpen = false; $('#to-in').value = '';
-    say('<span class="ok">Deposited.</span> Your swap waits below: the more deposits that land after yours, the less it can be traced to you.', 'ok', true);
+    say('<span class="ok">Deposited.</span> The swap waits below.', 'ok', true);
   } catch (e) { say(e instanceof UserStopped || e?.userStopped ? 'Nothing was sent.' : esc(e?.message || String(e)), e instanceof UserStopped ? '' : 'err', true); }
   finally { S.busy = false; keepUrl(); paint(); paintSteps(); readBalances().then(paintSides, () => {}); }
 }
-// Each kept swap: its deposit, its wait (the pool's new notes since, once the key is open here), and its swap out.
+// Each kept swap as steps: its deposit, its wait (the pool's new notes since, once the key is open here) and its swap out, with the price to
+// confirm and what went wrong in the swap's own card.
 const BLEND = {};
 const ago_ = (t) => { const m = Math.floor((Date.now() - t) / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+const stepLi = (state, n, title, detail = '', action = '') => `<li class="${state}"${state === 'now' ? ' aria-current="step"' : ''}><i class="mk" aria-hidden="true">${state === 'done' ? '✓' : state === 'fail' ? '!' : state === 'now' ? '' : n}</i><div class="t"><span>${title}</span>${detail ? `<small>${detail}</small>` : ''}</div>${action ? `<div class="a">${action}</div>` : ''}</li>`;
 function paintSteps() {
   const el = $('#steps'), ps = plans().filter((p) => p.state !== 'done' || Date.now() - (p.doneAt || 0) < 864e5).slice(0, 6);
   el.hidden = !ps.length;
   el.innerHTML = ps.map((p) => {
-    const b = BLEND[p.id], amt = tidy(amtFmt(BigInt(p.swapWei), 18)), wait = p.state === 'waiting' || p.state === 'swapping', done = p.state === 'done';
-    const link = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
-    const mix = b ? `${b.since} new notes in the pool · ${ago_(p.depositedAt || p.at)}` : `${ago_(p.depositedAt || p.at)}`;
-    const o = LATER.offers[p.id], doubt = p.state === 'unsure' || (p.state === 'depositing' && Date.now() - p.at > 3 * 60e3) || (p.state === 'swapping' && Date.now() - (p.swapAt || p.at) > 10 * 60e3);
-    const selfOk = p.refused && p.state === 'waiting' && W.account && lc(W.account) !== p.from;
-    const act = p.state === 'waiting' ? (o ? `at least ${esc(tidy(amtFmt(o.min, Number(p.dec))))} ${esc(p.sym)}${o.ks ? ` (KyberSwap ${esc(tidy(amtFmt(o.ks, Number(p.dec))))})` : ''} <button type="button" class="link" data-later-ok="${esc(p.id)}" data-via="${esc(o.via || 'relay')}">${o.via === 'self' ? 'Confirm from this wallet' : 'Confirm'}</button> <button type="button" class="link" data-later-no="${esc(p.id)}">Cancel</button>`
-      : `<button type="button" class="link" data-later-go="${esc(p.id)}">Swap now</button> <button type="button" class="link" data-later-forget="${esc(p.id)}" data-ask="1">Remove</button>`) : '';
-    return `<div class="plan"><b><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg>${esc(amt)} ETH → ${esc(p.sym)} · to ${esc(shortAddr(p.to))}</b><ol>`
-      + `<li class="${p.depositTx || p.depositedAt ? 'done' : 'now'}">Deposit <span></span>${p.depositTx ? link(p.depositTx) : p.state === 'stopped' ? `did not go through <button type="button" class="link" data-later-forget="${esc(p.id)}">Remove</button>` : p.depositedAt ? 'in the pool' : 'sending…'}</li>`
-      + `<li class="${done ? 'done' : wait ? 'now' : ''}">Wait <span>${wait || done ? esc(mix) : ''}</span>${act}</li>`
-      + `<li class="${done ? 'done' : p.state === 'swapping' || p.state === 'unsure' ? 'now' : ''}">Swap <span>${p.err && (p.state === 'waiting' || p.state === 'unsure') ? esc(p.err) : ''}</span>${p.swapTx ? link(p.swapTx) : done ? 'done' : p.state === 'swapping' && !doubt ? 'sending…' : ''}${doubt ? ` <button type="button" class="link" data-later-check="${esc(p.id)}">Check it</button>` : ''}${selfOk ? ` <button type="button" class="link" data-later-self="${esc(p.id)}">Send it from this wallet</button>` : ''}${done ? ` <button type="button" class="link" data-later-forget="${esc(p.id)}">Hide</button>` : ''}</li>`
-      + `</ol></div>`;
+    const b = BLEND[p.id], o = LATER.offers[p.id], id = esc(p.id), amt = tidy(amtFmt(BigInt(p.swapWei), 18));
+    const link = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer" aria-label="Transaction ${esc(h.slice(0, 10))}">${esc(h.slice(0, 8))}…↗</a>`;
+    const deposited = !!p.depositedAt, done = p.state === 'done', swapping = p.state === 'swapping', stopped = p.state === 'stopped', waiting = p.state === 'waiting';
+    const depDoubt = !deposited && !stopped && (p.state === 'unsure' || Date.now() - p.at > 3 * 60e3);
+    const swapDoubt = deposited && !done && (p.state === 'unsure' || (swapping && Date.now() - (p.swapAt || p.at) > 10 * 60e3));
+    const mix = b ? `${ago_(p.depositedAt || p.at)} · ${b.since} new note${b.since === 1 ? '' : 's'} in the pool` : ago_(p.depositedAt || p.at);
+    const check = `<button type="button" class="btn sm ghost" data-later-check="${id}">Check it</button>`;
+    const s1 = stopped ? stepLi('fail', 1, 'Deposit', 'did not go through') : depDoubt ? stepLi('fail', 1, 'Deposit', 'not confirmed', check)
+      : deposited ? stepLi('done', 1, 'Deposit', '', p.depositTx ? link(p.depositTx) : 'in the pool') : stepLi('now', 1, 'Deposit', 'sending…');
+    const s2 = !deposited ? stepLi('todo', 2, 'Wait') : done || swapping || swapDoubt || (waiting && o) ? stepLi('done', 2, 'Wait', mix) : stepLi('now', 2, 'Wait', mix);
+    const s3 = done ? stepLi('done', 3, 'Swap', '', p.swapTx ? link(p.swapTx) : 'done') : swapDoubt ? stepLi('fail', 3, 'Swap', 'not confirmed', check)
+      : swapping ? stepLi('now', 3, 'Swap', 'sending…') : waiting && o ? stepLi('now', 3, 'Swap', 'confirm the price')
+      : waiting ? stepLi('todo', 3, 'Swap', '', `<button type="button" class="btn sm" data-later-go="${id}">Swap now</button>`) : stepLi('todo', 3, 'Swap');
+    const dec = Number(p.dec), self = o?.via === 'self';
+    const offer = waiting && o ? `<div class="offer"><div><b>At least ${esc(tidy(amtFmt(o.min, dec)))} ${esc(p.sym)}</b>${o.ks ? `<small>KyberSwap ${esc(tidy(amtFmt(o.ks, dec)))}</small>` : ''}</div>`
+      + `<div class="acts"><button type="button" class="btn sm" data-later-ok="${id}" data-via="${self ? 'self' : 'relay'}">${self ? 'Confirm from this wallet' : 'Confirm'}</button><button type="button" class="btn sm ghost" data-later-no="${id}">Cancel</button></div></div>` : '';
+    const selfOk = p.refused && waiting && W.account && lc(W.account) !== p.from;
+    const note = p.err && !done ? `<p class="note ${stopped || depDoubt || swapDoubt ? 'err' : 'warn'}" role="status">${esc(p.err)}${selfOk ? ` <button type="button" class="link" data-later-self="${id}">Send it from this wallet</button>` : ''}</p>` : '';
+    const x = done ? `<button type="button" class="x" data-later-forget="${id}" aria-label="Hide">×</button>` : stopped ? `<button type="button" class="x" data-later-forget="${id}" aria-label="Remove">×</button>`
+      : waiting ? `<button type="button" class="x" data-later-forget="${id}" data-ask="1" aria-label="Remove this swap">×</button>` : '';
+    return `<section class="plan" aria-label="Private swap of ${esc(amt)} ETH to ${esc(p.sym)}"><header><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg><b>${esc(amt)} ETH → ${esc(p.sym)}</b><small>to ${esc(shortAddr(p.to))}</small>${x}</header><ol class="st">${s1}${s2}${s3}</ol>${offer}${note}</section>`;
   }).join('');
 }
 // Swap now: the route read now (with the stand-in) and shown with KyberSwap's figure; Confirm sends it while it pays at least that.
@@ -864,7 +898,7 @@ async function laterOffer(id, via = 'relay') {
   try {
     const lt = await ltLoad(), [o, ks] = await Promise.all([lt.offer(p, { slippageBps: S.slip }), p.token === lc(R.ZERO) ? null : A.kyberOut({ tokenIn: R.ZERO, tokenOut: p.token, amountIn: BigInt(p.swapWei) })]);
     LATER.offers[id] = { ...o, ks, via };
-    say(`${esc(tidy(amtFmt(BigInt(p.swapWei), 18)))} ETH swaps for at least ${esc(tidy(amtFmt(o.min, Number(p.dec))))} ${esc(p.sym)} via ${esc(o.name)}. Confirm below to send it${via === 'self' ? ' from this wallet' : ''}.`, '', true);
+    say('');
   } catch (e) { say(esc(e?.message || String(e)), 'err', true); }
   finally { S.busy = false; paint(); paintSteps(); }
 }
