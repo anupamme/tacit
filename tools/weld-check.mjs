@@ -884,10 +884,12 @@ await step('v1refuse', async () => {
 await step('wrapform', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const p = r.page;
-  let bump = 1n;
   const waitFor = (what, fn, arg, ms = 60000) => until(p, fn, arg, ms).catch(async (e) => { throw new Error(`${what}: ${e.message.split('\n')[0]} | status: ${(await text(p, '#v1-status')).replace(/\s+/g, ' ').slice(0, 160)} | rcpt: ${(await text(p, '#w-rcpt')).replace(/\s+/g, ' ').slice(0, 160)} | go disabled: ${await p.$eval('#w-go', (b) => b.disabled).catch(() => '?')}`); });
   try {
-    await p.route(/\/confidential\/quote\?/, (route) => {
+    // The tip is three times as high for every quote asked after the page says it has pressed (window.__armed), never for one asked before: the form
+    // quotes afresh on its own every 15 seconds, and one of those landing between the test raising the tip and the press would show the new tip unannounced.
+    await p.route(/\/confidential\/quote\?/, async (route) => {
+      const bump = (await p.evaluate(() => !!window.__armed).catch(() => false)) ? 3n : 1n;
       const wei = BigInt(new URL(route.request().url()).searchParams.get('amountWei') || '0'), cap = 300000000000000n, tip = (((wei * 3n) / 100n) < cap ? (wei * 3n) / 100n : cap) * bump;
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
         body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2', tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9', recommendedWrapTipWei: String(tip) }) });
@@ -925,9 +927,8 @@ await step('wrapform', async () => {
     ok(walletTxs.length === n0 && /^0x/.test(first || ''), 'wrapform: a prompt declined in the wallet sends nothing and says so');
     // A tip that moved by more than half while the form sat open is shown again, and nothing is sent.
     await waitFor('after the decline the button comes back', () => !document.querySelector('#w-go').disabled);
-    bump = 3n;
-    // The clock moves on and the press is made in one step: a form with a deposit waiting redraws every 15 seconds, which would quote afresh in between.
-    await p.evaluate(() => { window.__now = Date.now.bind(Date); Date.now = () => window.__now() + 90000; document.querySelector('#w-go').click(); });
+    // The clock moves on and the press is made in one step, which also arms the higher tip for the quotes that follow.
+    await p.evaluate(() => { window.__armed = true; window.__now = Date.now.bind(Date); Date.now = () => window.__now() + 90000; document.querySelector('#w-go').click(); });
     await waitFor('the moved tip is said', () => /tip moved while this was open/.test(document.querySelector('#v1-status')?.textContent || ''));
     ok(walletTxs.length === n0, 'wrapform: a tip that moved while the form sat open is not paid unseen');
     await waitFor('the new tip is shown', () => /0\.0009 ETH/.test(document.querySelector('#w-rcpt')?.textContent || ''));
