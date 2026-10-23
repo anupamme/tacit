@@ -8697,10 +8697,12 @@ await step('rewardsjoin', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
     const c1 = (await pj()).calls;
     ok(c1.length === 1 && c1[0].join() === 'cut,300000000,100000000,1000,true', `rewardsjoin: the first side is cut to size by the relay, to the key itself, and with the pool moved nothing is bonded (${JSON.stringify(c1)})`);
-    // pressed again with the pool back: the quote it showed was the moved one, so it is refused once more, and then the cut note is ready and both are bonded
+    // at the moved price the second side is more than the key holds: the form says so and the button waits
+    ok(/This needs 5 \w+ at the pool’s ratio, and your private \w+ does not cover it/.test(await info()) && await r.page.isDisabled('#pf-mine [data-pf="join"]'), `rewardsjoin: a second side the key cannot cover at the price now quoted is said, and the button waits (${await info()})`);
+    // the pool is back: the form re-quotes by itself while it is open with an amount, the figure returns, and the cut note is ready, so both are bonded
     await r.page.evaluate(() => { window.__pj.move = false; });
-    await r.page.click('#pf-mine [data-pf="join"]');
-    await until(r.page, () => /moved since this was quoted: the second side is now 4 /.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000);
+    await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4' && !document.querySelector('#pf-mine [data-pf="join"]')?.disabled, null, 150000);
+    ok(true, 'rewardsjoin: and the form re-quotes by itself, so the price it shows and the button come back');
     await r.page.click('#pf-mine [data-pf="join"]');
     await until(r.page, () => /In the farm/.test(document.querySelector('#pf-said')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | ${JSON.stringify((await pj()).calls)}`); });
