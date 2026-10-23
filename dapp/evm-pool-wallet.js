@@ -18,7 +18,7 @@ import { secp, keccak_256, sha256, hmac, concatBytes } from './vendor/tacit-deps
 import { makeBtcShieldedPool } from './btc-shielded-pool.js';
 import { poolAsset, extDataHash } from './evm-pool-zk.js';
 import { sharedSecrets } from './evm-pool-scan.js';
-import { receiveKeys, receivedNote, receiveBoxAddress, sweepWitness, callIntent, callEscrowAddress, callIntentJson, calldata, selector, bridgeEthCall, L2_BRIDGES, RECEIVE_FEE_BPS, RECEIVE_INDEX } from './evm-pool-gateway.js';
+import { receiveKeys, receivedNote, receiveBoxAddress, sweepWitness, callIntent, callEscrowAddress, callIntentJson, callIntentAbi, CALL_INTENT_SIG, calldata, selector, bridgeEthCall, L2_BRIDGES, RECEIVE_FEE_BPS, RECEIVE_INDEX } from './evm-pool-gateway.js';
 
 export const MEMO_LEN = 65;
 const REFUND_GAP = 20;
@@ -315,6 +315,7 @@ const TX_TYPES = [PAIR, { tuple: [PAIR, PAIR] }, PAIR, { tuple: Array(11).fill('
 const TX_SIG = '(uint256[2],uint256[2][2],uint256[2],uint256[11],address,int256,address,uint256,bytes,bytes)';
 const txValues = (t) => [t.pA, t.pB, t.pC, t.publicInputs, t.recipient, BigInt.asUintN(256, BigInt(t.extAmount)), t.relayer, t.fee, t.memo0, t.memo1];
 const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, txValues(t));
+const withdrawAndCallData = (t, i) => { const a = callIntentAbi(i); return calldata(`withdrawAndCall(${TX_SIG},${CALL_INTENT_SIG})`, [{ tuple: TX_TYPES }, a.type], [txValues(t), a.value]); };
 const WRAP_SIG = '(bytes32,uint256,uint256,address,bytes32,address,uint64,uint256)';
 const WRAP_TYPES = ['bytes32', 'uint256', 'uint256', 'address', 'bytes32', 'address', 'uint64', 'uint256'];
 const wrapValues = (i) => [i.assetId, i.amount, i.tip, i.tipTo, i.commit, i.refund, i.deadline, i.nonce];
@@ -1028,21 +1029,24 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       return boxOf(i);
     },
 
-    // Withdraws `amount` wei into `intent`'s escrow (gateway callIntent) and has the relayer run it in the same
-    // transaction (router.withdrawAndCall). → tx hash.
+    // Withdraws `amount` wei into `intent`'s escrow (gateway callIntent) and runs it in the same transaction
+    // (router.withdrawAndCall): sent by the relayer, or with `via: 'self'` by the signer (who pays the gas and is seen
+    // sending it). → tx hash.
     // gas: what the withdrawal and its calls need; by default the relay's plus 250k per call.
-    async withdrawAndCall({ intent, amount, gas = null, maxFee = null, onStep = () => {} }) {
+    async withdrawAndCall({ intent, amount, gas = null, maxFee = null, via = 'relay', onStep = () => {} }) {
       ethOnly('Withdrawing into a call');
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');
       await sync();
-      const q = withinFee(await keeperGet(`/quote?gas=${gas ?? 450_000 + 250_000 * (intent.calls?.length ?? 1)}`), maxFee);
-      const fee = BigInt(q.fee);
+      const self_ = via === 'self';
+      const q = self_ ? null : withinFee(await keeperGet(`/quote?gas=${gas ?? 450_000 + 250_000 * (intent.calls?.length ?? 1)}`), maxFee);
+      const fee = q ? BigInt(q.fee) : 0n;
       const ins = await prepare(a + fee, q, onStep);
       const change = ins.reduce((s, n) => s + BigInt(n.v), 0n) - a - fee;
       return transact({
         ins, outs: [change > 0n ? { to: self, value: change } : null, null], extAmount: -a, recipient: callEscrowAddress(intent, chain.router),
-        q, extra: { call: callIntentJson(intent) }, onStep,
+        q, extra: q ? { call: callIntentJson(intent) } : {}, onStep,
+        selfCall: self_ ? (tx) => ({ to: chain.router, data: withdrawAndCallData(tx, intent) }) : null,
       });
     },
 

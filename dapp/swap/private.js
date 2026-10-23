@@ -6,8 +6,9 @@
 // held in this visit's memory only.
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
 import { forgetUx } from '/trade/poolux.js?cb=e792b253';
-import { wrapEth, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=7a1a5b69';
+import { wrapEth, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=efa4f7eb';
 import { wrapQuote } from '/teth/read.js?cb=b2a110d0';
+import { bytesToHex } from '/vendor/tacit-deps.min.js';
 import { makeRunner } from '/activity.js?cb=532a162f';
 
 export { Cancelled, relayWords };
@@ -265,8 +266,11 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
     return g.value > fee ? g.value - fee : 0n;
   }
 
+  // The key as hex for the private ETH pool's wallet (swap/later.js), opened first if it is not: one key sheet for both kinds of private swap.
+  const keyHex = async () => { await open(); return bytesToHex(key.priv()); };
+
   return {
-    open, lock, read, swap, swapOut, exitCalls, of, most,
+    open, lock, read, swap, swapOut, exitCalls, of, most, keyHex,
     get unlocked() { return key.unlocked; },
     get held() { return held; },
   };

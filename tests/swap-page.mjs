@@ -270,6 +270,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(/Route(Uniswap|Sushi|Curve|zAMM)/.test(rc) && /Compared\d+ pools? · /.test(rc) && /At least[\d.,]+ USDC/.test(rc), `ETH → USDC: the route, how it compares with each pool, the least it pays (${rc})`);
     ok(!/Seen on chain/.test(rc), 'a public swap needs no line on what the chain sees: all of it'); }
   ok(await page.isVisible('.sw-foot'), 'a public swap has its slippage row');
+  // Swap privately: the wallet's ETH deposited now into the private ETH pool, swapped later from it to an address
+  ok(await page.isVisible('#later') && /Swap privately/.test(await page.textContent('#later')), 'a wallet ETH swap on the onchain route offers to swap privately');
+  await page.check('#later-on');
+  await until(page, () => /ETH$|did not answer/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  { const d0 = await page.textContent('#later-dep');
+    ok(/^[\d.]+ ETH$/.test(d0) && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')), `the deposit is the swap, the relay's fee and an extra a slider sets (${d0}, ${await page.textContent('#later-xv')})`);
+    await page.$eval('#later-x', (el) => { el.value = '80'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    ok(Number((await page.textContent('#later-dep')).split(' ')[0]) > Number(d0.split(' ')[0]), 'a larger extra makes a larger deposit');
+    ok(await page.isVisible('#to-in'), 'it asks for the address it goes to: never the wallet that deposits'); }
+  await page.uncheck('#later-on');
+  ok(await page.isHidden('#later-x'), 'turned off, the card is an ordinary swap again');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
@@ -336,6 +347,26 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(await u.page.isVisible('.sw-foot'), 'and a public swap has it');
   await u.browser.close();
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+}
+
+// ── a swap kept for later: its deposit, its wait and its swap out, drawn again from this browser on a later visit ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tacit-swap-later-v1', JSON.stringify([{ id: 'p1', at: Date.now() - 30 * 60e3, depositedAt: Date.now() - 30 * 60e3, from: '0x' + '11'.repeat(20), swapWei: '20000000000000000', extraWei: '5000000000000000', depositWei: '26000000000000000', token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', sym: 'USDC', dec: 6, to: '0x' + '22'.repeat(20), state: 'waiting', leaves0: 500, depositTx: '0x' + 'ab'.repeat(32) }])));
+  await page.reload();
+  await until(page, () => !document.querySelector('#steps').hidden);
+  const t = (await page.textContent('#steps')).replace(/\s+/g, ' ');
+  ok(/0\.02 ETH → USDC · to 0x2222…2222/.test(t) && /Deposit/.test(t) && /Wait\s*30 min/.test(t) && /Swap now/.test(t), `a kept swap shows its deposit, how long it has waited and a way to swap it out (${t.slice(0, 160)})`);
+  ok(!!(await page.$('#steps use[href="#tk-peth"]')), 'drawn with the private ETH mark');
+  // Swap now reads the price and shows it; nothing is sent until it is confirmed, and Cancel drops it
+  await page.click('[data-later-go="p1"]');
+  await until(page, () => !!document.querySelector('[data-later-ok]'), null, 120000);
+  { const t2 = (await page.textContent('#steps')).replace(/\s+/g, ' ');
+    ok(/at least [\d.,]+ USDC/.test(t2) && /Confirm/.test(t2) && /Cancel/.test(t2), `Swap now shows the least it pays before anything is sent (${t2.slice(0, 200)})`); }
+  await page.click('[data-later-no="p1"]');
+  ok(!(await page.$('[data-later-ok]')) && !!(await page.$('[data-later-go="p1"]')), 'Cancel drops the price and offers Swap now again');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
 }
 
 // ── a wallet: any token to any token on zQuoter's best route, sent on the fork: ETH → USDC, then USDC → DAI with its permit ahead of the swaps ──

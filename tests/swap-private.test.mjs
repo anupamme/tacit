@@ -19,6 +19,7 @@ const STUBS = {
     export const relayWords = (e) => 'relay: ' + (e?.message || e);`,
   '/teth/read.js': 'export const wrapQuote = async (wei) => { globalThis.M.quoted.push(wei); return { tip: 7n, to: "0xtip" }; };',
   '/activity.js': 'export function makeRunner() { return { wait: (label, ms) => ({ timeoutMs: ms, label, onJob() {} }) }; }',
+  '/vendor/tacit-deps.min.js': 'export const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");',
 };
 const hooks = `const S = ${JSON.stringify(STUBS)};
 export async function resolve(spec, ctx, next) {
@@ -188,6 +189,13 @@ test('a swap the relay may still finish is not offered again: its note stays out
 test('the deposit path: a swap the relay may still finish says so, not "press again"', async () => {
   const { ux } = setup({ deposit: note('0xnew', 1000), routeErr: ['relay 202: proved, waiting for a sender'] });
   await assert.rejects(run(await load(ux), plan({ wallet: true })), (e) => e.pending && !e.kept);
+});
+
+test('the open key is handed to the private ETH pool as hex, opening the sheet first', async () => {
+  const { M, ux } = setup();
+  const pv = await load(ux);
+  assert.strictEqual(await pv.keyHex(), '01');
+  assert.strictEqual(M.sheets, 1);
 });
 
 test('a key sheet open once for two presses', async () => {

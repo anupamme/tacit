@@ -226,6 +226,9 @@ export function callIntent({ calls, outputs = [], to = ZERO, refund, deadline, n
 const intentValues = (i) => [
   i.calls.map((c) => [c.target, c.value, c.token, c.amount, c.push, c.data]), i.outTokens, i.minOuts, i.to, i.refund, i.deadline, i.nonce,
 ];
+// The intent as the router's ABI takes it, for a withdrawal into its escrow that the wallet sends itself (router.withdrawAndCall).
+export const CALL_INTENT_SIG = '((address,uint256,address,uint256,bool,bytes)[],address[],uint256[],address,address,uint64,uint256)';
+export const callIntentAbi = (i) => ({ type: CALL_INTENT, value: intentValues(i) });
 
 // callEscrowOf(intent) of `router`, computed here: the router's box clone at keccak256(abi.encode(CALL_TAG, intent)).
 export function callEscrowAddress(intent, router = EVM_POOL_ROUTER) {
