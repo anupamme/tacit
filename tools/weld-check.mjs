@@ -2465,7 +2465,10 @@ await step('acct', async () => {
   await fundTac(want, 100n * 10n ** 18n);                                                // and some TAC (bought on the swap page, which is tested on its own)
 
   await go(r.page, '#tac');                                                               // another sheet first, so the farm's link is followed again and its balances read again
+  await r.page.waitForSelector('#sheet-tac[open]', { timeout: 60000 });
+  await sleep(500);                                                                       // the TAC sheet writes its own link (#bridge) as it opens: the farm's link is set after that, not under it
   await go(r.page, '#farm');
+  await r.page.waitForSelector('#sheet-farm[open]', { timeout: 60000 });
   await r.page.waitForSelector('[data-pfm="pair"]', { timeout: 60000 });
   await r.page.click('[data-pfm="pair"]');
   await r.page.fill('#pf-amt', '0.0002');
@@ -5415,7 +5418,8 @@ await step('retention', async () => {
     await new Promise((res) => setTimeout(res, 2500));
     const v = await read(r);
     ok(v.btn === 'Count my private ETH' && !v.off, `retention: before the reader agrees the button asks (${v.btn})`);
-    ok(asked.every((x) => /^\/holding GET$/.test(x)), `retention: before that the page only reads the service's terms (${asked.join(', ')})`);
+    // (the page also reads the service's public figures for the tasks and liquidity rows: GETs that carry nothing of the reader's)
+    ok(asked.length > 0 && asked.every((x) => /^\/(holding|tasks|lp) GET$/.test(x)) && asked.some((x) => x === '/holding GET'), `retention: before that the page only reads the service's terms and public figures (${asked.join(', ')})`);
     await r.browser.close(); }
   { const { r } = await open({ on: true, key: K0, consent: true });
     await until(r.page, () => !!document.querySelector('#hold-now'), null, 30000);
