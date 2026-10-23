@@ -142,11 +142,22 @@ note back). It opens on the side the key has something to do on. The Private ETH
 key holds on Bitcoin and what is on its way there, and the same figures show on the dashboard and on the tETH page.
 A note comes back whole, so bridge in the amounts you will want back.
 
+[tacit.finance/bridge](https://tacit.finance/bridge/) does the same for the way to Bitcoin once the Tacit key is opened
+there (nothing of the key or the wallet library is loaded until it is asked for): for TAC and tETH it takes the amount,
+shows the receipt (what arrives, the relay's fee, the Bitcoin fee, the coin the Bitcoin step needs), asks for the
+acknowledgement that a burn cannot be undone, and has the relay prove the burn, cutting a note to the exact amount
+first when none fits. It also moves every bridge it lists on while the page is open, makes the presses a bridge row
+waits on (burn, mint, move back, recover, check again, cancel, send again, sign again), and looks for bridges the
+browser has no record of from the key's own Bitcoin address, or from the burn's Ethereum transaction and the amount.
+Starting a bridge from Bitcoin to Ethereum, proving a burn or a mint yourself, and paying the mint from a wallet are
+on the front page; a press the relay will not take links there.
+
 ### Following a bridge
 
 Every bridge is journaled in the browser that started it, and the Bitcoin step needs the key, so a bridge can be left
-and come back to: the app moves it on whenever it is open with the key. [tacit.finance/bridge](https://tacit.finance/bridge/)
-lists each bridge with what it waits on, and names a step as ready as soon as the chains say so (the proof has
+and come back to: the app moves it on whenever it is open with the key, and so does the bridge page once the key is open
+there (the engines hold a lease on each bridge they move, so two tabs never move one at once).
+[tacit.finance/bridge](https://tacit.finance/bridge/) lists each bridge with what it waits on, and names a step as ready as soon as the chains say so (the proof has
 reached its burn), whether or not the app has been open since. A tab left open there puts the count of bridges that
 need their holder in its title, and can send a browser notification when one does, or when one arrives (off until
 asked for).
