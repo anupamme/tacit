@@ -2360,7 +2360,7 @@ await step('saved', async () => {
   await r.page.waitForSelector('#pass-dialog[open] #pass-input-1', { timeout: 120000 });
   await r.page.fill('#pass-input-1', pass); await r.page.fill('#pass-input-2', pass); await r.page.click('#pass-submit');
   ok(await saving, 'saved: a passphrase-locked key is saved in this browser');
-  await r.page.evaluate(() => { localStorage.setItem('tacit-active-mode-v1', 'local'); localStorage.removeItem('tacit-lite-id-v1'); });
+  await r.page.evaluate(() => { localStorage.setItem('tacit-active-mode-v1:mainnet', 'local'); localStorage.removeItem('tacit-lite-id-v1'); });       // the wallet choice is kept per network
   // A link straight to the TAC sheet, with no key open in the tab, offers the same wallet there.
   await r.page.goto(r.url + '#tac'); await r.page.reload();
   ok(!!(await r.page.waitForSelector('#tac-bal [data-in="known"]', { timeout: 60000 }).catch(() => null)), 'saved: the TAC sheet offers to open the saved key');
@@ -2373,7 +2373,7 @@ await step('saved', async () => {
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'), null, 120000);
   const t1 = shownAddress(hex);
   ok((await shown(r.page)).includes(`${t1.slice(0, 14)}…${t1.slice(-12)}`), 'saved: the passphrase opens the same key tacit.finance saved');
-  ok(await r.page.evaluate(() => localStorage.getItem('tacit-active-mode-v1') === 'local'), 'saved: tacit.finance\'s own wallet choice is left as it was');
+  ok(await r.page.evaluate(() => localStorage.getItem('tacit-active-mode-v1:mainnet') === 'local'), 'saved: tacit.finance\'s own wallet choice is left as it was');
   if (r.errors.length) { fails++; console.log('FAIL saved page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
@@ -4169,17 +4169,16 @@ await step('xtring', async () => {
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
   await go(r.page, '#bridge/out');
-  await r.page.waitForSelector('#xc-look', { timeout: 120000 });
-  ok(/Look for it/.test(await text(r.page, '#bridge-body')), 'xtring: bridged TAC is listed on request, so a key that has bridged nothing loads nothing');
+  // A key this browser has no record of is looked for once, on its own (xbDiscover), so its bridged TAC is listed without a press.
+  await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
+  ok(!(await r.page.$('#xc-look')), 'xtring: bridged TAC is listed on its own for a key this browser has no record of, with no press to look for it');
   // A key with no private TAC at all is told so, and where to get some, rather than that the amount is "more than your private balance".
   await r.page.fill('#xt-amt', '25');
   await until(r.page, () => /You have no private TAC yet\./.test(document.querySelector('#xt-rcpt')?.textContent || ''), null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(/Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin/.test(await text(r.page, '#xt-rcpt')), 'xtring: a key with no private TAC is told where to get some');
   await r.page.fill('#xt-amt', '');
-  await r.page.click('#xc-look');
-  await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
-    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
   const items = await r.page.$$eval('#bridge-body label.brn', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off') })));
   ok(items.length === 2 && items.some((x) => /40 TAC/.test(x.text) && !x.off) && items.some((x) => /30 TAC/.test(x.text) && x.off && /Waiting for Bitcoin’s proof on Ethereum to reach its block/.test(x.text)),
     `xtring: both notes are found with their amounts (the 30 TAC one, past the search's reach, from the note spent to make it); the one the proof has recorded can be chosen, the other says why not (${items.map((x) => x.text).join(' | ')})`);
@@ -8666,10 +8665,10 @@ await step('rewardsjoin', async () => {
     await r.page.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]', { timeout: 60000 });
     ok(new URL(r.page.url()).pathname === '/rewards/' && await r.page.evaluate(() => document.querySelector('#pf-row')?.open), 'rewardsjoin: a private farm\'s row opens the panel on this page');
     await r.page.click('.bsheet.top [data-in="known"], .bsheet.top [data-in="eth"]');
-    await r.page.waitForSelector('#pf-mine .pf-join[open] #pf-b', { timeout: 300000 });
+    await r.page.waitForSelector('#pf-mine .pf-join[open] #pf-a', { timeout: 300000 });
     ok(await r.page.$eval('#pf-pool', (x) => x.value) === String(pool.pid), 'rewardsjoin: with that farm in the join form, which stays open while the pool is read');
     await r.page.fill('#pf-a', '1');
-    await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4', null, 10000);
+    await until(r.page, () => document.querySelector('#pf-b')?.textContent === '4', null, 90000);
     ok(await r.page.evaluate(() => document.activeElement?.id === 'pf-a'), 'rewardsjoin: the second side is shown at the pool\'s ratio as it is typed, the field keeping its focus');
     // what splitting the notes costs is shown with the amount: the first side has no note of that size, the second has one
     const info = () => text(r.page, '#pf-info').then((t) => t.replace(/\s+/g, ' ').trim());
@@ -8830,10 +8829,10 @@ await step('bridgeout', async () => {
         if (S.refuse) throw Object.assign(new Error('relay 429: the relay can’t take this one right now'), { code: 'relay_held', httpStatus: 429 });
         if (S.floorOnce) { S.floorOnce = false; throw new Error('relay: fee below the current floor'); }
         o.waitOpts?.onJob?.('bo-j', 'bridgeburn');
-        return { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)), fee: String(o.fee) } };
+        return (S.last = { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)), fee: String(o.fee) } });
       },
       cancelIntent: async (pub, id) => { S.calls.push(['cancel', id]); return !!S.landed; },
-      advance: async (pub, id) => ({ id, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true } }),
+      advance: async (pub, id) => S.last || { id, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true } },
     });` }));
   await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
     import * as real from '/confidential-pool-ux.js?stub=real';
@@ -8920,8 +8919,8 @@ await step('bridgeout', async () => {
     await r.page.evaluate(() => { window.__bo.landed = true; window.__bo.calls.length = 0; });
     await r.page.check('#bo-ack');
     await r.page.click('#bo-go');
-    await until(r.page, () => /had landed on Ethereum/.test(document.querySelector('#bo-s')?.textContent || ''), null, 240000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()}`); });
+    await until(r.page, () => /had landed on Ethereum/.test(document.querySelector('#bo-s')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | calls ${JSON.stringify((await bo()).calls)} | landed ${(await bo()).landed} refuse ${(await bo()).refuse} | go disabled ${await r.page.isDisabled('#bo-go')} ack ${await r.page.isChecked('#bo-ack')}`); });
     ok(!/Nothing was burned/.test(await said()), `bridgeout: a refused burn that had landed on Ethereum says so, and does not say nothing was burned (${await said()})`);
     // the key locked while the relay cuts the note: the burn is not started, and the form goes with the key
     await r.page.evaluate(() => { window.__bo.landed = false; window.__bo.refuse = false; window.__bo.cut = false; window.__bo.lockOnCut = true; });

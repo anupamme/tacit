@@ -158,7 +158,8 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .lf-f input { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--hair-2); border-radius: 10px; padding: 10px 12px; min-height: var(--tap); min-width: 0; }
 .lf-f button { font: inherit; color: var(--paper); background: var(--ink); border: 0; border-radius: 10px; min-height: var(--tap); cursor: pointer; }
 #bt-here { display: block; margin: 10px auto 0; font: inherit; color: var(--ink); background: none; border: 0; padding: 4px 0; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
-#bt-form { margin-top: 16px; display: grid; gap: 10px; text-align: left; }
+#bt-form { margin-top: 16px; display: grid; gap: 10px; text-align: left; min-width: 0; }
+#bt-form > * { min-width: 0; }
 #bt-form[hidden] { display: none; }
 .bo-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; color: var(--mute); font-size: 12px; }
 .bo-top button { font: inherit; color: var(--ink); background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
@@ -167,11 +168,11 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .bo-amt input { flex: 1; min-width: 0; font: 500 18px var(--mono); color: var(--ink); background: none; border: 0; outline: none; }
 .bo-amt span { color: var(--mute); }
 .bo-r { display: grid; gap: 6px; font-size: 13px; }
-.bo-r > div { display: flex; justify-content: space-between; gap: 14px; }
+.bo-r > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 14px; min-width: 0; }
 .bo-r > div > span { color: var(--mute); }
-.bo-r > div > b { font-weight: 500; text-align: right; }
+.bo-r > div > b { font-weight: 500; text-align: right; margin-left: auto; min-width: 0; overflow-wrap: anywhere; }
 .bo-n { margin: 0; color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }
-.bo-n code { font-size: 11px; user-select: all; }
+.bo-n code { font-size: 11px; user-select: all; overflow-wrap: anywhere; word-break: break-all; }
 .bo-e, .bo-n.bo-e { color: var(--err); }
 .bo-ok { color: var(--ok); }
 .bo-ack { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
