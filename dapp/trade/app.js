@@ -7,7 +7,7 @@ import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=0a09ab9e';
 import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=a4aefafb';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deafdf6c';
-import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
+import { mountDepth } from '/trade/depth.js?cb=9c6bb081';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=e8d21aec';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 import { takeEarly } from '/trade/rpc.js?cb=63f04503';
@@ -604,11 +604,12 @@ function renderVenues(q) {
   const bk = q.book;
   if (bk) {
     const to = (act, text) => (btcOn() ? { act, actText: text } : {});
-    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : bk.sats < 546 ? 'too small for Bitcoin' : 'no listing that small', btc: true, ...(bk.out ? to('buy', 'Buy on Bitcoin →') : {}) });
+    const sw = (n) => (D.btcUsd ? ` (about ${usd(n / 1e8 * D.btcUsd)})` : '');
+    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats${sw(bk.sats)} instead`, out: bk.out, why: bk.out ? null : bk.sats < 546 ? 'too small for Bitcoin' : 'no listing that small', btc: true, ...(bk.out ? to('buy', 'Buy on Bitcoin →') : {}) });
     else if (bk.sell?.fills.length) {
       const sp = bk.sell, manual = sp.fills.filter((f) => !f.bid.auto).length;
       add({ name: 'Bitcoin order book', show: `${satsFmt(bk.sats)} sats`, btc: true,
-        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats in fees`, out: null, ...to('sell', 'Sell on Bitcoin →') });
+        note: `${D.btcUsd ? `about ${usd(bk.sats / 1e8 * D.btcUsd)} · ` : ''}${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats in fees`, out: null, ...to('sell', 'Sell on Bitcoin →') });
     } else add({ name: 'Bitcoin order book', note: bk.bids ? 'no bid takes this amount' : D.bidsRead ? 'no bids' : 'bids not read', why: `list it: ~${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true, ...to('list', 'List on Bitcoin →') });
   }
   const eth = rows.filter((r) => r.out != null && !r.priv && !r.btc && !r.part).map((r) => BigInt(r.out));
@@ -1000,7 +1001,7 @@ function renderGo() {
   if (!buy && S.bal && S.bal.eth != null && S.bal.eth < gasReserve(P, false)) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P, false), 18, 5)} ETH is needed for the fee`; return; }
   if (buy && have != null && wei + gasReserve(P) > have) { go.textContent = 'Leave ETH for the network fee'; go.disabled = true; go.title = `About ${fmtUnits(gasReserve(P), 18, 5)} ETH stays for the fee: Max leaves it`; return; }
   go.textContent = buy ? 'Buy TAC' : 'Sell TAC';
-  if (P.impact >= 0.1 && S.ack !== ackKey(P)) { go.disabled = true; go.title = 'Tick the box above to accept the price impact'; }
+  if (P.impact >= 0.1 && S.ack !== ackKey(P)) { go.textContent = `Accept the loss to ${buy ? 'buy' : 'sell'} TAC`; go.disabled = true; go.title = 'Tick the box above to accept the price impact'; }
 }
 function planOf(q = S.quote) {
   const { wei, dir, buy, rt } = q;

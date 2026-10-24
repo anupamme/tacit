@@ -5,7 +5,7 @@ import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, moved
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=2c769cca';
 import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/teth/prover.js?cb=1baba054';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
+import { mountDepth } from '/trade/depth.js?cb=9c6bb081';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
 import { readMarket, isActive, bookState, refSats, premium, vsEth, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/teth/market.js?cb=72760b59';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=509d6618';

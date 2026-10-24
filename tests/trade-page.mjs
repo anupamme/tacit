@@ -332,6 +332,7 @@ try {
   ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /(spread [\d.]+%|bids [\d.]+% over asks)/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
   ok(await p.$eval('#ladders .ob-asks .ob-row:last-child', (e) => parseFloat(getComputedStyle(e, '::before').width) > 0), 'each row is shaded by the depth from the middle out');
   ok((await p.$$eval('#depthchart path.dep-ask:not(.take)', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid:not(.take)', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
+  ok((await p.$$eval('#depthchart path.dep-bid:not(.take), #depthchart path.dep-ask:not(.take)', (x) => x.every((e) => e.getBBox().height > 8))), 'both sides of the depth chart are tall enough to see');
   const dbox = await (await p.$('#depthchart svg')).boundingBox();
   await p.hover('#depthchart svg', { position: { x: dbox.width * 0.85, y: dbox.height / 2 } });      // scrolled into view first
   await until(p, () => !document.querySelector('#depthchart .chart-tip')?.hidden, null, 5000).catch(() => {});
@@ -437,7 +438,7 @@ try {
     // a purchase that splits
     await q.evaluate(() => { window.__go = new Set(); new MutationObserver(() => window.__go.add(document.querySelector('#go').textContent)).observe(document.querySelector('#go'), { childList: true, characterData: true, subtree: true }); });
     await q.fill('#amt', '2');
-    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /buy TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     ok(await q.evaluate(() => window.__go.has('Updating the quote…')), `while a new amount is quoted the button says so and waits (${await q.evaluate(() => [...window.__go].join(' / '))})`);
     if (SHOTS) await q.locator('.p-ticket').screenshot({ path: join(SHOTS, 'ticket-quoted.png') });
     const rv = (await text(q, '#route')).replace(/\s+/g, ' ');
@@ -445,7 +446,9 @@ try {
     ok(/Network fee(≈ \$\d+\.\d\d|under \$0\.01)/.test(rv) && /gas at [\d.]+ gwei/.test(await q.$eval('#route .kv b[title*="gas at"]', (b) => b.title)), `the quote says what the network takes, at the gas price now (${(rv.match(/Network fee[^S]*/) || [''])[0]})`);
     const floorTxt = (rv.match(/Least you get([\d,.]+) TAC/) || [])[1];
     ok(await q.$eval('#go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#route')), 'a purchase that moves the price over 10% waits for the box to be ticked');
+    ok(/^Accept the loss to buy TAC$/.test(await text(q, '#go')), `the waiting button says what it waits for (${await text(q, '#go')})`);
     await q.check('#ack');
+    ok((await text(q, '#go')) === 'Buy TAC', 'and ticking the box makes it Buy TAC');
     // the page refreshes its readings each minute: what is on the ticket, a ticked box included, is left as it is
     await q.clock.fastForward(61000); await q.waitForTimeout(2500);
     ok(await q.$eval('#ack', (c) => c.checked) && !(await q.$eval('#go', (b) => b.disabled)), 'a minute passing (the page\'s own refresh) keeps the ticked box and the button ready');
@@ -505,7 +508,7 @@ try {
     // a sale that splits: the permit is signed in the wallet, then one transaction
     await q.click('[data-side="sell"]');
     await q.fill('#amt', '12000');
-    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /Sell TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /sell TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     ok(await q.$eval('#go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#route')), 'a sale that moves the price over 10% waits for the box to be ticked');
     await q.check('#ack'); ok(!(await q.$eval('#go', (b) => b.disabled)), 'ticking it lets the sale go');
     const e1 = await ethBal(me.account), t1 = await tacBal(me.account), n1 = BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest']));
@@ -524,7 +527,7 @@ try {
     const refuser = await fundedWallet(5n * E18, 0n), rf = await openPage({ width: 1280, height: 900 }, { ...refuser, refuseSends: true });
     await until(rf.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
     await rf.page.click('#go'); await until(rf.page, () => /Balance/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
-    await rf.page.fill('#amt', '0.1'); await until(rf.page, () => /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await rf.page.fill('#amt', '0.1'); await until(rf.page, () => /buy TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     await rf.page.click('#go');
     await until(rf.page, () => /Cancelled in your wallet/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(/Nothing was sent/.test(await text(rf.page, '#status')) && (await tacBal(refuser.account)) === 0n && (await ethBal(refuser.account)) === 5n * E18, 'a wallet that refuses the transaction ends with Cancelled, nothing sent, nothing spent');
@@ -538,7 +541,11 @@ try {
     ok((await text(sm.page, '#go')) === 'Buy TAC' && !(await sm.page.$eval('#go', (b) => b.disabled)), `0.0001 ETH from a 0.0013 ETH balance can be sent (${await text(sm.page, '#go')})`);
     await sm.page.click('#in-bal'); await until(sm.page, () => Number(document.querySelector('#amt').value) > 0 && Number(document.querySelector('#amt').value) < 0.0013, null, 10000);
     await until(sm.page, () => /Buy TAC|Leave ETH/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
-    ok(Number(await sm.page.inputValue('#amt')) > 0.001 && (await text(sm.page, '#go')) === 'Buy TAC', `Max keeps back about the fee, not 0.004 ETH, and what it fills in can be sent (${await sm.page.inputValue('#amt')}, ${await text(sm.page, '#go')})`);
+    // what Max keeps back follows the fork's own gas price (1 gwei on an anvil fork, far under it on mainnet): it must be about the fee (the split
+    // route's gas, twice, with half again for room), whatever the price, and never the old flat 0.004 ETH
+    const forkGas = BigInt((await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}' })).json()).result);
+    const keepMax = Number(261000n * forkGas * 2n) / 1e18 * 1.5, maxAmt = Number(await sm.page.inputValue('#amt'));
+    ok(maxAmt > 0.0013 - keepMax && maxAmt < 0.0013 && (await text(sm.page, '#go')) === 'Buy TAC', `Max keeps back about the fee, not 0.004 ETH, and what it fills in can be sent (${maxAmt}, ${await text(sm.page, '#go')})`);
     await sm.page.fill('#amt', '0.0013'); await until(sm.page, () => /Leave ETH|Not enough/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     ok((await text(sm.page, '#go')) === 'Leave ETH for the network fee' && (await sm.page.$eval('#go', (b) => b.disabled)), 'all of the balance leaves nothing for the fee and says so');
     await sm.page.click('[data-side="sell"]'); await sm.page.fill('#amt', '100');
@@ -556,7 +563,7 @@ try {
     const swapper = await fundedWallet(5n * E18, 0n), sw = await openPage({ width: 1280, height: 900 }, swapper);
     await until(sw.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
     await sw.page.click('#go'); await until(sw.page, () => /Balance/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
-    await sw.page.fill('#amt', '0.1'); await until(sw.page, () => /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await sw.page.fill('#amt', '0.1'); await until(sw.page, () => /buy TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     if (await sw.page.$('#ack')) await sw.page.check('#ack');
     sw.walletLog.onChainId = () => sw.page.evaluate(() => window.__h.accountsChanged(['0x000000000000000000000000000000000000dEaD']));
     await sw.page.click('#go');
@@ -617,7 +624,7 @@ try {
     const fillKey = await q.$$eval('#ladders .ob-asks .ob-row[data-fill]:not(.mine)', (b) => b.at(-1).dataset.fill);
     ok(fillKey === `v1:${idV1}`, `the cheapest order is the Swapboard v1 one (${fillKey})`);
     await q.click(`[data-fill="${fillKey}"]`);
-    await until(q, () => /Filling Swapboard v1/.test(document.querySelector('#pin')?.textContent || '') && /^1,000/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);   // that order's own quote, not the one before it
+    await until(q, () => /Filling Swapboard v1/.test(document.querySelector('#pin')?.textContent || '') && /^1,000/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /buy TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);   // that order's own quote, not the one before it
     ok(/Filling Swapboard v1 order #\d+/.test(await text(q, '#pin')) && (await q.inputValue('#amt')) === '0.01' && /^1,000/.test((await text(q, '#out')).trim()), `Fill sets the ticket to buy that order whole: 0.01 ETH for ${await text(q, '#out')} TAC`);
     ok(/Route.*Swapboard v1 order #\d+/.test((await text(q, '#route')).replace(/\s+/g, ' ')), 'and the route is that order');
     const rvb = (await text(q, '#route')).replace(/\s+/g, ' ');
@@ -634,7 +641,7 @@ try {
     const bidKey = await q.$eval('#ladders .ob-bids .ob-row[data-fill]', (b) => b.dataset.fill);
     ok(bidKey === `v2:${idV2 + 1n}`, `the bid is the Swapboard v2 one (${bidKey})`);
     await q.click(`[data-fill="${bidKey}"]`);
-    await until(q, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /Sell TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /sell TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     ok((await q.inputValue('#amt')) === '1000' && /Filling Swapboard v2 order/.test(await text(q, '#pin')) && /^0\.015/.test((await text(q, '#out')).trim()), `Fill on a bid sets the ticket to sell 1,000 TAC for ${await text(q, '#out')} ETH`);
     if (await q.$('#ack')) await q.check('#ack');
     const s1 = w.walletLog.signs, tt = await tacBal(me.account), ee = await ethBal(me.account);
@@ -647,13 +654,13 @@ try {
     // "Use the best route" lets go of a pinned order
     const dutchKey = await q.$eval('#ladders [data-fill^="dutch:"]', (b) => b.dataset.fill);
     await q.click(`[data-fill="${dutchKey}"]`);
-    await until(q, () => /Filling Dutchboard order/.test(document.querySelector('#pin')?.textContent || '') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => /Filling Dutchboard order/.test(document.querySelector('#pin')?.textContent || '') && /buy TAC/i.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     await q.click('#unpin');
     ok(await q.$eval('#pin', (e) => e.hidden), '"Use the best route" lets go of the pinned order');
 
     // an order filled by someone else between the quote and the press stops the trade: nothing is sent
     await q.click(`[data-fill="${dutchKey}"]`);
-    await until(q, () => /Buy TAC/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
+    await until(q, () => /buy TAC/i.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
     const rival = await fundedWallet(10n * E18, 0n);
     await sendTx(rival.account, DU, 'fill(uint256,uint128,address,uint256)', [idDu, tac(1000), rival.account, eth(40)], eth(40));
     const before = w.walletLog.sends.length;
@@ -671,8 +678,8 @@ try {
   // the main page takes the private swap from the link: the console on Swap, ETH to TAC, the amount in, the address its own again
   {
     const fp = await openPage({ width: 1280, height: 900 }, null, '#card=swap:ether:tac:private&amt=0.25', '/');
-    await until(fp.page, () => document.querySelector('#hx-amt')?.value === '0.25', null, 120000).catch(() => {});
-    const st = await fp.page.evaluate(() => ({ amt: document.querySelector('#hx-amt')?.value, tab: document.querySelector('[data-hxm][aria-selected="true"]')?.dataset.hxm, hash: location.hash }));
+    await until(fp.page, () => (document.querySelector('#hx-swap #amt') || document.querySelector('#hx-amt'))?.value === '0.25', null, 120000).catch(() => {});
+    const st = await fp.page.evaluate(() => ({ amt: (document.querySelector('#hx-swap #amt') || document.querySelector('#hx-amt'))?.value, tab: document.querySelector('[data-hxm][aria-selected="true"]')?.dataset.hxm, hash: location.hash }));
     ok(st.amt === '0.25' && st.tab === 'swap' && st.hash === '', `the main page opens its console on the private swap with the amount (${JSON.stringify(st)})`);
     await fp.browser.close();
   }
