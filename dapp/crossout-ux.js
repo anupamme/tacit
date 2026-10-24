@@ -237,6 +237,9 @@ export function makeCrossoutUx(deps) {
   }
 
   const inFlight = new Set();
+  // A busy or unreachable service (429, 5xx, no network) is an outage to wait out, not one of the page's few tries: the row still says what failed, and
+  // the next try comes after the usual rest, but the count that ends the page's automatic tries does not move.
+  const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted|\b(?:API|HTTP|status)\s*(?:429|5\d\d)\b|\((?:429|5\d\d)\)/i.test(String((e && e.message) || e)); };
   async function advance(walletPub, id, { walletPriv = null, allowHighFee = false } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`crossout-ux: no bridge record for ${id}`);
@@ -254,7 +257,7 @@ export function makeCrossoutUx(deps) {
       const waiting = !!(e && e.feeWait), funding = !!(e && e.fundWait);
       putRecord({ ...cur,
         lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}), ...(funding ? { fundWait: true, needSats: e.needSats, haveSats: e.haveSats, address: e.address } : {}) },
-        errorCount: (cur.errorCount || 0) + (waiting || funding ? 0 : 1) });
+        errorCount: (cur.errorCount || 0) + (waiting || funding || passing(e) ? 0 : 1) });
       throw e;
     } finally { inFlight.delete(id); releaseLease(id); }
   }

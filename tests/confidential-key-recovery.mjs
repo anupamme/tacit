@@ -327,6 +327,19 @@ test('balance: a bridge-mint note found by the search is found again after a rel
     assert.equal(reloaded.notes.length, 1, 'found again by a fresh instance');
     assert.equal(BigInt(reloaded.byAsset[TAC.toLowerCase()].value), VALUE);
     assert.equal(reloaded.notes[0].source, 'bridge-mint');
+    // A quick read (bridge: false, as the private swap card makes) searches nothing, but still applies what this key has found: from the same
+    // instance's memory, and from the kept hint after a reload.
+    const sameUx = mkUx(chainHandler(events));
+    assert.equal((await sameUx.balance(walletPriv, { cbtc: false })).notes.length, 1);
+    const quickSame = await sameUx.balance(walletPriv, { cbtc: false, bridge: false });
+    assert.equal(quickSame.notes.length, 1, 'a quick read shows a bridged note this instance found');
+    const quickReload = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false, bridge: false });
+    assert.equal(quickReload.notes.length, 1, 'and one a past visit found, from its hint');
+    assert.equal(BigInt(quickReload.byAsset[TAC.toLowerCase()].value), VALUE);
+    assert.equal(quickReload.diag.bridge.attempted, false, 'without searching');
+    for (const k of [...store.keys()]) if (k.startsWith('tacit-bridge-found-v1:')) store.delete(k);
+    const quickCold = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false, bridge: false });
+    assert.equal(quickCold.notes.length, 0, 'a quick read that has nothing kept finds nothing: the search is left to the full read');
     // A browser carrying the old tried set, which listed the found leaf, searches it once more instead of skipping it.
     store.clear();
     const wk = ux.identity(walletPriv).pubHex.toLowerCase();
@@ -335,6 +348,38 @@ test('balance: a bridge-mint note found by the search is found again after a rel
     store.set(`tacit-bridge-tried-v1:mainnet:fast:${wk.replace(/^0x/, '')}`, JSON.stringify({ sig, leaves: [leaf.toLowerCase()] }));
     const legacy = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false });
     assert.equal(legacy.notes.length, 1, 'an old tried set does not hide a note');
+  } finally { globalThis.localStorage = had; if (had === undefined) delete globalThis.localStorage; }
+});
+
+test('recover: the deep search reads 16 nullifiers, and a read that left leaves unsearched is not called complete', async () => {
+  const had = globalThis.localStorage, store = new Map();
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); }, removeItem: (k) => { store.delete(k); } };
+  try {
+    const ux = mkUx();
+    const TAC = ux.assetByTicker.TAC.assetId;
+    const rec = makeBridgeMintRecovery({ hmac, sha256: nobleSha256, curveOrder: secp.CURVE.n });
+    const id = ux.identity(walletPriv);
+    const mint = (nu, value) => {
+      const blinding = '0x' + rec.deriveBridgeMintBlinding({ privkey: id.priv, nullifier: nu }).toString(16).padStart(64, '0');
+      const owner = ux.pool.nkToOwner(ux.pool.deriveNote(id.priv, TAC, 0).secret);
+      const c = ux.pool.commitXY(value, blinding);
+      return ux.pool.leaf(TAC, c.cx, c.cy, owner);
+    };
+    const h = (n) => '0x' + n.toString(16).padStart(64, '0');
+    const VALUE = 100000000000n;                                     // 1,000 TAC: round, so its mint has no memo
+    const events = [leavesEv(0, [mint(h(0xa0), VALUE)], null, tx(100)), nullifiersEv([h(0xa0)], tx(100))];
+    const flags = { cbtc: false, farm: false, locks: false, cdp: false };
+    const few = await mkUx(chainHandler(events)).recover({ walletPriv, events, ...flags });
+    assert.equal(few.notes.length, 1, 'with few spends behind it the round mint is found');
+    assert.equal(few.diagnostics.coverage.notes.bridgeMintWalk, true);
+    // 20 newer transactions, each with an empty-memo leaf and a nullifier: the deep search's 16 do not reach the oldest
+    for (let i = 1; i <= 20; i++) events.push(leavesEv(i, [h(0xc000 + i)], null, tx(100 + i)), nullifiersEv([h(0xd000 + i)], tx(100 + i)));
+    store.clear();
+    const many = await mkUx(chainHandler(events)).recover({ walletPriv, events, ...flags });
+    assert.equal(many.notes.length, 0, 'the search did not get to the oldest');
+    assert.equal(many.diagnostics.coverage.notes.bridgeMintWalk, false, 'and says so');
+    assert.equal(many.diagnostics.coverage.complete, false, 'the read is not called complete');
+    assert.ok(many.diagnostics.coverage.skipped.bridgeLeaves >= 5, 'with the leaves it left counted');
   } finally { globalThis.localStorage = had; if (had === undefined) delete globalThis.localStorage; }
 });
 

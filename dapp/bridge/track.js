@@ -70,6 +70,7 @@ const IN_AT = {
 };
 const IN_SIGNED = ['rburn-signed', 'rburn-sent', 'migrate-signed', 'migrate-sent'];
 const IN_DONE = ['minted', 'reclaimed'];
+const IN_BACK = ['reclaimed', 'recovered'];                    // the TAC is on the key's Bitcoin address again (moved back, or returned by the relay's recovery)
 const MINER_WAIT = 12 * 3600e3;
 
 // What a bridge in waits on its holder for, in the front page's own words for the press (its Bridge tab offers it), or ''.
@@ -134,8 +135,8 @@ export function inRow(r, now = Date.now(), plan = null) {
     id: String(r.id || ''), dir: 'in', asset: key, amount: big(r.source?.amount), stage: r.stage,
     // a bridge that paid someone else ends in a payment to them, not a private note for the key
     at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: r.stealth ? [...route.steps.slice(0, 3), 'Paid privately'] : route.steps, href: route.href, paid: !!r.stealth,
-    done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
-    due: done ? '' : inDue(r, now, plan), acts: done || r.stage === 'reclaimed' ? [] : inActs(r, inDue(r, now, plan), now), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
+    done, back: IN_BACK.includes(r.stage), held: ['not-recorded', 'stopped'].includes(r.stage),
+    due: done ? '' : inDue(r, now, plan), acts: done || IN_BACK.includes(r.stage) ? [] : inActs(r, inDue(r, now, plan), now), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
     checkNote: r.stage === 'traced' && !r.lastError ? checkNote(r.checkWait, now) : '',
     btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: minted ? '0x' + minted : null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
@@ -153,6 +154,7 @@ export function rowNote(row) {
   else if (row.err) parts.push(`${String(row.err).replace(/^(crossout-ux|burndep-ux):\s*/, '')}${row.tries > 1 ? ` (${row.tries} tries)` : ''}`);
   const acts = (row.acts || []).map((a) => a.kind);
   if (row.dir === 'out' && acts.includes('resign')) parts.push('Bitcoin has not taken the signed transaction. Signing again uses a coin that is free now; it is only offered while the first one is not on Bitcoin.');
+  if (row.dir === 'out' && acts.includes('retry')) parts.push('Confirmed on Bitcoin, but it was not credited. It can be sent again; that costs another Bitcoin fee.');
   if (row.dir === 'out' && acts.includes('cancel')) parts.push('Cancelling looks for the burn on Ethereum once more first. If it shows up later, “Can’t see a bridge?” finds it from its transaction.');
   if (row.dir === 'in' && acts.includes('cancel')) parts.push('Bitcoin has not taken this transaction. Cancelling asks Bitcoin once more, and frees what it holds for another try when Bitcoin has neither of the bridge’s transactions.');
   return parts.map((x) => (/[.!?]$/.test(x) ? x : `${x}.`)).join(' ');
@@ -228,7 +230,7 @@ export function readBridges(storage, now = Date.now()) {
     try { text = storage.getItem(k); } catch { continue; }
     for (const r of parse(text)) {
       if (!r || typeof r !== 'object' || !r.stage) continue;
-      if (dir === 'in' && r.stage === 'reclaimed' && now - Number(r.updatedAt || r.createdAt || 0) > KEEP_DONE_MS) continue;
+      if (dir === 'in' && IN_BACK.includes(r.stage) && now - Number(r.updatedAt || r.createdAt || 0) > KEEP_DONE_MS) continue;
       const row = dir === 'in' ? inRow(r, now, plans[k.slice(IN_PREFIX.length)]?.[r.id] || null) : outRow(r, now);
       if (row.done && now - Number(row.doneAt || 0) > KEEP_DONE_MS) continue;
       row.pub = k.slice((dir === 'in' ? IN_PREFIX : OUT_PREFIX).length);        // the key it belongs to (public: it names the journal)

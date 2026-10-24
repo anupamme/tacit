@@ -609,4 +609,26 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   ok('useSealer: a relayed settle goes as { type, mode: sealed, sealed, memos } without the op; prove, viaRelay and a wrap go unsealed; null sends as usual; a throw sends nothing');
 }
 
+// ───────────────── a settled answer that comes without its transaction is read again, for an op that makes no notes too ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash });
+  const inner = mockFetch(q);
+  let dropped = 0;
+  const fetchImpl = async (u, o) => {
+    const res = await inner(u, o);
+    if (new URL(u, 'http://relay.test').pathname !== '/confidential/status' || dropped >= 1) return res;
+    const j = JSON.parse(await res.text());
+    if (j.status !== 'settled') return res;
+    dropped++; delete j.txHash;                                                  // the first settled answer has no hash yet
+    return { ok: true, status: 200, statusText: '200', text: async () => JSON.stringify(j) };
+  };
+  const relay = makeConfidentialRelay({ base: '', fetchImpl });
+  let acked = false;
+  const sleep = async () => { if (!acked) { acked = true; const { jobId } = await q.nextJob(); await q.ackJob(jobId, { txHash: '0xcafe' }); } };
+  const st = await relay.settle({ type: 'swap', op: swapOp, memos: ['0xaa'] }, { intervalMs: 0, sleep });
+  assert.strictEqual(dropped, 1, 'the first settled answer carried no hash');
+  assert.strictEqual(st.txHash, '0xcafe', 'and the settle’s transaction is read again (a bridge burn has no leaves, and was never read again)');
+  ok('settle: a settled answer without its transaction hash is read again whether or not the op makes notes');
+}
+
 console.log(`\n${n} confidential-relay checks passed.`);

@@ -5,14 +5,14 @@
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=a6264ed1';
+import { ROUTES } from '/bridge/track.js?cb=fc64c03a';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { parseUnits } from '/trade/util.js?cb=509d6618';
-import { forgetUx } from '/trade/poolux.js?cb=e792b253';
+import { forgetUx } from '/trade/poolux.js?cb=b5025c37';
 import { relayWords } from '/relay-outcome.js?cb=26298b8e';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
-const TACIT_URL = '/tacit.js?cb=74a7c1ff';
+const TACIT_URL = '/tacit.js?cb=70d2b030';
 const PLAN_KEY = 'tacit-lite-bridge-plan-v1', SELF_PROVE = 'tacit-lite-prove-self-v1:';
 const API = 'https://api.tacit.finance';
 const EVERY = 75e3;                                                                  // as often as the front page's pass
@@ -82,7 +82,7 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     if (!key.unlocked) return say('Open your Tacit wallet first.');
     const h = String(hash || '').trim().toLowerCase().replace(/^0x/, ''), v = parseUnits(amountText || '', 8);
     if (!/^[0-9a-f]{64}$/.test(h)) return say('A transaction hash is 64 characters, 0-9 and a-f.');
-    if (!v) return say('Add the amount you bridged.');
+    if (!v) return say(v === null && parseUnits(amountText || '', 64) != null ? 'Up to 8 decimals.' : 'Add the amount you bridged.');
     try {
       say('Checking the burn and rebuilding the bridge…');
       const T = await TS.load();
@@ -136,7 +136,8 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     }
     if (kind === 'mint' || kind === 'poll') {
       say(kind === 'mint' ? 'Minting: the relay proves it, about a minute…' : 'Trying again…');
-      const after = await TS.withKey(() => ux.advance(pub, id, { walletPriv: priv() }), pub);
+      // not inside the key's turn, as the front page does it: the relay's wait (up to 15 minutes) would hold every other use of the key; a bridge of another key is refused by its own record
+      const after = await ux.advance(pub, id, { walletPriv: priv() });
       return say(after.stage === 'minted' ? '✓ Minted: it is in your private balance.'
         : after.mintJob && !after.lastError ? 'Its mint is with the relay and lands on its own, usually within minutes. It is not sent twice.' : after.lastError ? `Checked: ${txt(after.lastError.message)}` : 'Checked.');
     }

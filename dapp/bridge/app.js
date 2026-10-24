@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=a6264ed1';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=fc64c03a';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -324,7 +324,7 @@ function paintHere() {
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
   const repaint = () => { readMine.sig = null; readMine(); };
-  (dir === 'in' ? import('/bridge/in-form.js?cb=dedec2a6') : import('/bridge/out-form.js?cb=392de59f')).then((m) => {
+  (dir === 'in' ? import('/bridge/in-form.js?cb=3baa0f63') : import('/bridge/out-form.js?cb=54e0fbf3')).then((m) => {
     if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
     FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
@@ -336,7 +336,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=16c0bc11').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=d5bfc9ed').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });

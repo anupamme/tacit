@@ -190,15 +190,30 @@ export async function tryAgain({ fn, sentBefore, fresh, sleep }) {
   return fn();
 }
 
-// What the transactions of a press cost at today's rate, by the estimate the single note's panel uses (a commit and a reveal each, a merge adding an input's
-// weight per extra note), and whether the key's free coins cover them. `bulk`: { merge, all } (bridge-all.js); `coins`: null when they could not be read.
+// What a send of notes to the key's own address costs (a merge is one of these): a confidential transfer, a commit and a reveal, priced by the wallet's
+// own estimate (tacit.js buildAndBroadcastCXfer: two dust outputs, the notes' own sats counted against the commit, a sats change), which weighs far more
+// than a burn's reveal and adds an input's weight per note. → { fee, need } against `coins` (the key's free coins; none read, none counted).
+export function sendCost(t, { rate, coins, noteSats, k }) {
+  const DUST = t.DUST ?? 546, reveal = t.feeFor(t.estCXferRevealVb({ m: 2, numAssetIn: k, hasSatsChange: true }), rate);
+  let commitValue = 2 * DUST + reveal - noteSats;
+  if (commitValue < DUST) commitValue = DUST + reveal;
+  const vals = (coins || []).map((c) => Number(c && c.value)).filter((v) => v > 0).sort((a, b) => b - a);
+  let total = 0, n = 0, commitFee = t.feeFor(t.estCommitVb(1), rate);
+  for (const v of vals) { if (total >= commitValue + commitFee + DUST) break; total += v; n += 1; commitFee = t.feeFor(t.estCommitVb(n), rate); }
+  return { fee: commitFee + reveal, need: commitValue + commitFee };
+}
+
+// What the transactions of a press cost at today's rate (a burn by the single note's panel's estimate, a merge or a send by sendCost), and whether the key's
+// free coins cover them. `bulk`: { merge, all } (bridge-all.js); `coins`: null when they could not be read.
 export async function bulkFee(t, { bulk, kind, coins }) {
   const ux = t.bridgeUx(), rate = await ux.quoteRate().catch(() => null);
   if (!rate) return null;
-  const tx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: ns.reduce((s, n) => s + Number(n.sats || 0), 0) }); return { fee: c.fee + Math.ceil(68 * rate) * (ns.length - 1), need: c.need }; };
-  const txs = kind === 'merge' ? bulk.merge.groups.map((g) => tx(g.notes))
-    : [...bulk.all.burns.map((n) => tx([n])), ...bulk.all.sends.map((g) => tx(g.notes)), ...bulk.all.privates.map((n) => tx([n]))];
-  const need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0), burn = tx([{ sats: 546 }]).fee;
+  const sats = (ns) => ns.reduce((s, n) => s + Number(n.sats || 0), 0);
+  const burnTx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: sats(ns) }); return { fee: c.fee, need: c.need }; };
+  const sendTx = (ns) => sendCost(t, { rate, coins, noteSats: sats(ns), k: ns.length });
+  const txs = kind === 'merge' ? bulk.merge.groups.map((g) => sendTx(g.notes))
+    : [...bulk.all.burns.map((n) => burnTx([n])), ...bulk.all.sends.map((g) => sendTx(g.notes)), ...bulk.all.privates.map((n) => sendTx([n]))];
+  const need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0), burn = burnTx([{ sats: 546 }]).fee;
   // What comes after the first transactions: the burn of each merged or sent note, and for a note the proof does not track its move and its burn.
   let fee = txs.reduce((s, x) => s + x.fee, 0), later = (kind === 'merge' ? bulk.merge.groups.length : bulk.all.sends.length + bulk.all.privates.length) * burn;
   if (kind === 'all') for (const n of bulk.all.checks) { const c = ux.bridgeCost({ path: 'deposit', feeRate: rate, coins: coins || [], noteSats: n.sats, burnRate: rate }); fee += c.fee; later += c.later; }

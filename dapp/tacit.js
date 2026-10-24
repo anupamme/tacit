@@ -15878,7 +15878,10 @@ function _burndepUxSingleton() {
       const r = tx ? _noteOpener({ tx, vout, walletPriv: wallet.priv }) : null;
       if (r) return { amount: r.amount, blinding: r.blinding };
       const kept = getOpening(String(txid).toLowerCase(), Number(vout));
-      return kept ? { amount: kept.amount, blinding: kept.blinding } : null;
+      if (kept) return { amount: kept.amount, blinding: kept.blinding };
+      // A transaction that could not be read is not a note that does not open with this key: the caller reads it again (a 404 is the answer that there is none).
+      if (!tx && !_txIsRecentlyNotFound(String(txid).toLowerCase())) throw Object.assign(new Error('burndep-ux: chain read failed (503): that transaction could not be read just now'), { status: 503 });
+      return null;
     },
     nullifierSpent: (nu) => guard.evmNullifierSpent((a, slot, tag) => poolUx.rpc('eth_getStorageAt', [a, slot, tag || 'latest']), poolUx.cfg.pool, nu),
     openHeldNote: (txid, vout, walletPriv) => _crossoutNotesSingleton().openOutpoint({ walletPriv, txid, vout }),

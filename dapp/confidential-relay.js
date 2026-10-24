@@ -201,7 +201,9 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       }
       throw e;
     }
-    if (!st.txHash && st.status === 'settled' && opSpec.leaves && opSpec.leaves.length) {
+    // A settled answer without its transaction is read again for any op, not only one that makes notes: a bridge burn makes none, and its record is
+    // found and its claim checked from that transaction.
+    if (!st.txHash && st.status === 'settled') {
       try { const rs = await status(jobId); if (rs && rs.txHash) st = { ...st, txHash: rs.txHash }; } catch { }
     }
     return verifyEmittedMemos(st, opSpec.leaves, sealedMemos);

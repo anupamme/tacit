@@ -9044,6 +9044,7 @@ await step('bridgeout', async () => {
       start: async (o) => {
         S.starts.push([String(o.note.value), String(o.fee), o.walletPriv.length, typeof o.waitOpts?.onJob]);
         if (S.refuse) throw Object.assign(new Error('relay 429: the relay can’t take this one right now'), { code: 'relay_held', httpStatus: 429 });
+        if (S.held) throw Object.assign(new Error('settle held: proved and waiting for a sender (job bo-j); it can be sent from any account now'), { code: 'open', open: { jobId: 'bo-j', proof: '0x01', memos: ['0x'] } });
         if (S.floorOnce) { S.floorOnce = false; throw new Error('relay: fee below the current floor'); }
         o.waitOpts?.onJob?.('bo-j', 'bridgeburn');
         return (S.last = { id: o.note.nullifier, stage: 'settled', settle: { txHash: 'ab'.repeat(32), claimIdVerified: true, ethBlock: 1 }, source: { amount: String(BigInt(o.note.value) - BigInt(o.fee)), fee: String(o.fee) } });
@@ -9139,8 +9140,18 @@ await step('bridgeout', async () => {
     await until(r.page, () => /had landed on Ethereum/.test(document.querySelector('#bo-s')?.textContent || ''), null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | calls ${JSON.stringify((await bo()).calls)} | landed ${(await bo()).landed} refuse ${(await bo()).refuse} | go disabled ${await r.page.isDisabled('#bo-go')} ack ${await r.page.isChecked('#bo-ack')}`); });
     ok(!/Nothing was burned/.test(await said()), `bridgeout: a refused burn that had landed on Ethereum says so, and does not say nothing was burned (${await said()})`);
+    // a burn the relay proved and holds for a sender may still land: its intent is kept (not cancelled), nothing is said to be unburned, and the front page is offered
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.evaluate(() => { window.__bo.landed = false; window.__bo.refuse = false; window.__bo.held = true; window.__bo.calls.length = 0; });
+    await r.page.check('#bo-ack');
+    await r.page.click('#bo-go');
+    await until(r.page, () => /proved and waiting to be sent/.test(document.querySelector('#bo-s')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said()} | calls ${JSON.stringify((await bo()).calls)}`); });
+    ok(!(await bo()).calls.some((c) => c[0] === 'cancel') && !/Nothing was burned/.test(await said()) && (await r.page.getAttribute('#bo-s a', 'href')) === '/#bridge/out',
+      `bridgeout: a burn the relay proved and holds keeps its intent, is not called unburned, and points to the front page (${await said()})`);
     // the key locked while the relay cuts the note: the burn is not started, and the form goes with the key
-    await r.page.evaluate(() => { window.__bo.landed = false; window.__bo.refuse = false; window.__bo.cut = false; window.__bo.lockOnCut = true; });
+    await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
+    await r.page.evaluate(() => { window.__bo.held = false; window.__bo.landed = false; window.__bo.refuse = false; window.__bo.cut = false; window.__bo.lockOnCut = true; });
     await r.page.fill('#bo-amt', '60');
     await until(r.page, () => !document.querySelector('#bo-ackrow')?.hidden, null, 60000);
     await r.page.check('#bo-ack');
@@ -9322,7 +9333,7 @@ await step('bridgein', async () => {
     const sr = c1.filter((c) => c[0] === 'startReflected').at(-1);
     ok(sr[1] === 'a1' && sr[2] === 32 && sr[3] === 5 && sr[4] === false, `bridgein: the burn goes with the key and the rate that was shown, to the key's own address (${JSON.stringify(sr)})`);
     ok(c1.some((c) => c[0] === 'advance' && c[1] === 'a1') && c1.some((c) => c[0] === 'armMint' && c[2] === 32), 'bridgein: and the relay is asked to finish the mint');
-    ok(/shows under Your bridges and finishes on its own, even if you close this page/.test(await said()) && !!(await r.page.$('#bi-s a[href*="mempool.space/tx/"]')), `bridgein: it says where it went (${(await said()).slice(0, 160)})`);
+    ok(/shows under Your bridges and goes on from there; its row says once the relay finishes it, and then this page can be closed/.test(await said()) && !!(await r.page.$('#bi-s a[href*="mempool.space/tx/"]')), `bridgein: it says where it went (${(await said()).slice(0, 160)})`);
     await r.page.waitForSelector('#mine-l .mb', { timeout: 60000 });
     ok((await listed()).every((x) => !/^100 TAC/.test(x.text)), 'bridgein: the bridge is one of the rows above and its note is no longer offered');
     // a note in an older form: the check says so, and offers to send it to the key's own address

@@ -4,7 +4,7 @@
 // With several notes it also merges them or bridges them all (bridge-all.js plans it, bridge-in.js runs it, the front page runs the same). Bridging a note
 // for the holder when it is ready, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
 import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=509d6618';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=5a42e68b';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=37054b08';
 import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 
@@ -282,7 +282,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
       const tx = rec.burn?.txid || rec.migrate?.revealTxid, sent = !/-signed$/.test(rec.stage);
       pick = null; reviews.clear(); stale(); rc.innerHTML = ''; rc.hidden = true;
       status(sent
-        ? `<span class="bo-ok">✓ ${one ? 'Burn' : 'Move'} sent.</span>${tx ? ` <a href="${MEMPOOL}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 6))} ↗</a>` : ''} ${esc(amount)} shows under Your bridges and ${one ? 'finishes on its own, even if you close this page' : `goes on from there: ${selfBurn ? 'its burn is sent for you once Bitcoin’s proof reaches the move, while this page is open with your key' : 'its burn is sent from its row once Bitcoin’s proof reaches the move'}`}.`
+        ? `<span class="bo-ok">✓ ${one ? 'Burn' : 'Move'} sent.</span>${tx ? ` <a href="${MEMPOOL}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 6))} ↗</a>` : ''} ${esc(amount)} shows under Your bridges and ${one ? 'goes on from there; its row says once the relay finishes it, and then this page can be closed' : `goes on from there: ${selfBurn ? 'its burn is sent for you once Bitcoin’s proof reaches the move, while this page is open with your key' : 'its burn is sent from its row once Bitcoin’s proof reaches the move'}`}.`
         : `<span class="bo-e">Signed, but Bitcoin did not take it yet.</span> Try again from its row under Your bridges.`);
       mover.tick(true);
     } catch (e) {

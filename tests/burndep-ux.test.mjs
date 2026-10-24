@@ -843,8 +843,12 @@ let rec;
   world.setSubmitStatus('error');
   const storage = makeMemStorage();
   // The burn the miner refused is not on Bitcoin (a burn Bitcoin has is not a refusal, see the signed-burn scenarios below).
-  let refusedBurn = null;
-  const fetchImpl = async (url, opts) => (refusedBurn && new URL(url).pathname === `/chain/tx/${refusedBurn}` ? { ok: false, status: 404, json: async () => ({ error: 'not-found' }) } : world.fetchImpl(url, opts));
+  let refusedBurn = null, miner = null;
+  const fetchImpl = async (url, opts) => {
+    const u = new URL(url);
+    if (miner && u.hostname === 'slipstream.mara.com' && u.pathname === '/api/transactions') return { ok: false, status: miner, text: async () => 'busy', json: async () => ({}) };
+    return refusedBurn && u.pathname === `/chain/tx/${refusedBurn}` ? { ok: false, status: 404, json: async () => ({ error: 'not-found' }) } : world.fetchImpl(url, opts);
+  };
   const ux = makeUx({ ...world, fetchImpl }, storage);
   let r = await ux.start({
     note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
@@ -860,6 +864,17 @@ let rec;
   await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit refused/, 'a MARA status!==success response is surfaced as a real error, not treated as submitted');
   const stillAt = ux.list(r.walletPub).find((x) => x.id === r.id);
   ok(stillAt.stage === 'burn-signed', 'a refused MARA submission does not advance the stage');
+  ok(stillAt.errorCount === 1, 'and a refusal counts as a failed try');
+  // A miner that is busy or down (429, 5xx) did not refuse the burn: the error is on the record and none of the tries toward "did not take this burn" is used
+  for (const status of [503, 429, 502, 503]) {
+    miner = status;
+    await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed/);
+  }
+  const outage = ux.list(r.walletPub).find((x) => x.id === r.id);
+  ok(outage.stage === 'burn-signed' && /slipstream submit failed \(503\)/.test(outage.lastError?.message || '') && outage.errorCount === 1, 'a miner that is busy or down is on the record and costs none of the tries');
+  miner = 400;
+  await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed \(400\)/);
+  ok(ux.list(r.walletPub).find((x) => x.id === r.id).errorCount === 2, 'while a 400 from the miner is a refusal and counts');
 }
 
 // ==== a registration conflict against a DIFFERENT already-stored bundle propagates rather than being swallowed
@@ -1300,6 +1315,26 @@ let rec;
   ok(d2.found.length === 0 && d2.tried.length === 0 && disc.list(rebuilt.walletPub).length === 1, 'asked again, it finds nothing new and does not read what it has seen');
   const dStranger = await makeUx(world, makeMemStorage(), { openNote: async () => null }).discover({ walletPriv: other, txs: [burnTx] });
   ok(dStranger.found.length === 0, 'a key whose note this was not finds nothing');
+  // A busy or failing explorer (429, 5xx) on the burn's transaction is a read to repeat, not an answer that it is no bridge: the burn is not marked
+  // tried (which would skip it for good) and is counted as left, so the one-time deep search is not called done.
+  let hexStatus = 503;
+  const flaky = async (url, opts) => (hexStatus && /^\/chain\/tx\/[0-9a-f]{64}\/hex$/.test(new URL(url).pathname) ? { ok: false, status: hexStatus, text: async () => 'busy', json: async () => ({}) } : world.fetchImpl(url, opts));
+  const dFlaky = makeUx({ ...world, fetchImpl: flaky }, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false });
+  const f1 = await dFlaky.discover({ walletPriv: WALLET_PRIV, txs: [burnTx] });
+  ok(f1.found.length === 0 && f1.tried.length === 0 && f1.left === 1, 'a 503 on a burn’s transaction leaves it for the next look, not tried');
+  hexStatus = 429;
+  const f1b = await dFlaky.discover({ walletPriv: WALLET_PRIV, txs: [burnTx] });
+  ok(f1b.tried.length === 0 && f1b.left === 1, 'and so does a 429');
+  hexStatus = 404;
+  const f1c = await dFlaky.discover({ walletPriv: WALLET_PRIV, txs: [burnTx] });
+  ok(f1c.found.length === 0 && f1c.tried.length === 1 && f1c.left === 0, 'a 404 is the explorer’s answer that there is none: tried');
+  hexStatus = 0;
+  const f2 = await dFlaky.discover({ walletPriv: WALLET_PRIV, txs: [burnTx] });
+  ok(f2.found.length === 1 && f2.left === 0, 'and once the explorer answers the bridge is found');
+  // A note the page could not read (the wallet's transaction read failed) is the same: left for the next look
+  const unread = async () => { throw Object.assign(new Error('burndep-ux: chain read failed (503): that transaction could not be read just now'), { status: 503 }); };
+  const dUnread = await makeUx(world, makeMemStorage(), { openNote: unread, nullifierSpent: async () => false }).discover({ walletPriv: WALLET_PRIV, txs: [burnTx] });
+  ok(dUnread.found.length === 0 && dUnread.tried.length === 0 && dUnread.left === 1, 'a note whose transaction could not be read is left, where one that does not open with this key is tried');
   // A burn-deposit is not this kind: it still wants its amount.
   const dep = makeUx(world, makeMemStorage(), { openNote: ownerOpens });
   msg = null; try { await dep.recoverFromTxid('ab'.repeat(32), WALLET_PRIV); } catch (e) { msg = e.message; }

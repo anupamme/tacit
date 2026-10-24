@@ -35,7 +35,8 @@ export function makeBurnDepositBroadcaster({ workerBase, fetchImpl, slipstreamBa
     });
     const text = await res.text();
     let body; try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
-    if (!res.ok) throw new Error(`burndep-broadcast: slipstream submit failed (${res.status}): ${text.slice(0, 300)}`);
+    // the status rides on the error, so a busy or failing miner (429, 5xx) is told from one that refused the transaction (a 400 names why)
+    if (!res.ok) throw Object.assign(new Error(`burndep-broadcast: slipstream submit failed (${res.status}): ${text.slice(0, 300)}`), { status: res.status });
     if (body.status !== 'success') throw new Error(`burndep-broadcast: slipstream submit refused: ${body.message || JSON.stringify(body)}`);
     return body;
   }
@@ -43,7 +44,7 @@ export function makeBurnDepositBroadcaster({ workerBase, fetchImpl, slipstreamBa
   async function slipstreamStatus(txid) {
     if (!txid) throw new Error('burndep-broadcast: txid required');
     const res = await f(`${slipstreamBase}/api/transactions/status?tx_id=${txid}`, { headers: mhdrs({}) });
-    if (!res.ok) throw new Error(`burndep-broadcast: slipstream status failed (${res.status})`);
+    if (!res.ok) throw Object.assign(new Error(`burndep-broadcast: slipstream status failed (${res.status})`), { status: res.status });
     return res.json();
   }
 

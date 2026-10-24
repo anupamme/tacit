@@ -1,12 +1,12 @@
 // Starting a bridge to Bitcoin from the bridge page, with the key opened here (mover.js): the amount, what it costs and arrives as, the
 // acknowledgement that a burn can't be undone, and the burn itself, proved by the relay. A note of exactly the amount is spent whole; if none is,
 // the relay cuts one to size first. Anything the relay will not take, and proving the burn oneself, is the front page's: the status line links there.
-import { getUx } from '/trade/poolux.js?cb=e792b253';
+import { getUx } from '/trade/poolux.js?cb=b5025c37';
 import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=509d6618';
 import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=4f5612d0';
 import { notesOf, exactOf, cutPick, cutSized, ladder, feeShort } from '/farm-ops.js?cb=0933a4c8';
 import { advanceOut } from '/bridge-tick.js?cb=db96a3a9';
-import { relayRefused, relayWords, waitRanOut } from '/relay-outcome.js?cb=26298b8e';
+import { proved, relayRefused, relayWords, waitRanOut } from '/relay-outcome.js?cb=26298b8e';
 
 const API = 'https://api.tacit.finance';
 const outFee = makeOutFee({ api: API });
@@ -56,7 +56,12 @@ export function mountOutForm(el, { asset, mover, say = () => {}, repaint = () =>
   async function check(keepStatus = false) {
     const my = ++seq, units = parseUnits(amt.value, 8);
     stale(); rc.innerHTML = ''; if (keepStatus !== true) status('');
-    if (!units) { rc.hidden = true; return; }
+    if (!units) {
+      rc.hidden = true;
+      // an amount finer than a Bitcoin unit is said, not left blank (the front page says it too)
+      if (units === null && parseUnits(amt.value, 64) != null) warn('Up to 8 decimals.');
+      return;
+    }
     rc.hidden = false; rc.innerHTML = '<p class="bo-n">Checking the fees and the proof…</p>';
     try {
       const [t, T] = await Promise.all([getUx(), TS.load()]), ux = T.crossoutUx(), lim = ux.assetOf(a.id);
@@ -127,6 +132,9 @@ export function mountOutForm(el, { asset, mover, say = () => {}, repaint = () =>
         catch (e0) { const up = ladder(x.fee * 2n); if (feeShort(e0) && !waitRanOut(e0) && up * 2n < x.units) rec = await begin(up); else throw e0; }
       } catch (e) {
         if (waitRanOut(e)) throw said('The relay is taking longer than usual. If the burn went through it shows under Your bridges on its own; do not send it again.');
+        // The relay proved the burn and holds it for a sender: it goes through when one sends it, so the intent is kept (as the front page keeps it) and
+        // nothing is said to be unburned. The front page can send it from the Tacit account.
+        if (proved(e)) { failed = true; return front(relayWords(e).text); }
         if (!(relayRefused(e) || feeShort(e))) throw e;
         // Nothing is said to be unburned until the burn's record is looked for on Ethereum; a relay that could not be asked leaves it for the page's pass
         let landed = null;

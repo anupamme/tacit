@@ -3,7 +3,7 @@
 // to one's own address that an older note needs first.
 //   node tests/bridge-in.test.mjs
 import assert from 'node:assert/strict';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf, NO_SATS, isShort, halts, haltText, PREP_KEY, preps, prepAdd, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '../dapp/bridge-in.js';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf, NO_SATS, isShort, halts, haltText, PREP_KEY, preps, prepAdd, mergeSend, startNote, tryAgain, bulkFee, sendCost, runMerge, runAll } from '../dapp/bridge-in.js';
 
 const say = (e) => `said: ${e?.message || e}`;
 
@@ -226,13 +226,25 @@ assert.equal(haltText(new Error('burndep-ux: nope'), say), 'said: Nope');
 // the cost of a press, at today's rate, against the coins free for fees
 {
   const ux = { quoteRate: async () => 5, bridgeCost: ({ path, feeRate, coins, noteSats }) => (path === 'deposit' ? { fee: 2000, need: 2500, later: 600, ok: true } : { fee: 1000 + noteSats, need: 900, ok: (coins[0]?.value || 0) >= 900 }) };
-  const t = { bridgeUx: () => ux };
+  // the wallet's own estimates (tacit.js estCXferRevealVb with m 2 and a sats change, estCommitVb, feeFor, DUST; read off the real ones: reveal 492 vB for one note,
+  // 562 for two, 1122 for ten; a commit 153 vB for one coin, 221 for two)
+  const wallet = { DUST: 546, feeFor: (vb, r) => Math.max(500, Math.ceil(vb * r)), estCommitVb: (c) => 85 + 68 * c, estCXferRevealVb: ({ numAssetIn: k }) => 422 + 70 * k };
+  const t = { bridgeUx: () => ux, ...wallet };
   const n = (sats) => ({ sats });
   const bulk = { merge: { groups: [{ notes: [n(546), n(546), n(546)] }] }, all: { burns: [n(546)], sends: [{ notes: [n(546), n(546)] }], privates: [n(546)], checks: [n(546)] } };
   const m = await bulkFee(t, { bulk, kind: 'merge', coins: [{ value: 5000 }] });
-  assert.deepEqual([m.fee, m.need, m.short, m.later], [1000 + 3 * 546 + 2 * Math.ceil(68 * 5), 900, false, 1546], 'a merge adds an input’s weight per extra note, and the burn that follows');
-  const a = await bulkFee(t, { bulk, kind: 'all', coins: [{ value: 5000 }] });
-  assert.equal(a.need, 900 * 3, 'a burn, a send and a private note’s send, each needing its commit'); assert.equal(a.short, false, 'free coins of 5000 cover 2700');
+  // three notes: a 632 vB reveal at 5 sat/vB is 3,160; the commit holds 2 x 546 + 3,160 less the notes' 1,638 sats, and its own fee on 153 vB is 765
+  assert.deepEqual([m.fee, m.need, m.short, m.later], [765 + 3160, (1092 + 3160 - 1638) + 765, false, 1546], 'a merge is a transfer, priced by the wallet’s estimate, and the burn that follows');
+  // two notes at 10 sat/vB: the wallet's 562 vB reveal, not a burn's 228 (the quote was 4,490 sats for what costs 7,150)
+  const two = sendCost(t, { rate: 10, coins: [{ value: 50000 }], noteSats: 1092, k: 2 });
+  assert.deepEqual([two.fee, two.need], [1530 + 5620, 5620 + 1530], 'a two-note send costs its commit and a 562 vB reveal');
+  const ten = sendCost(t, { rate: 10, coins: [{ value: 50000 }], noteSats: 5460, k: 10 });
+  assert.equal(ten.fee, 1530 + 11220, 'ten notes weigh 1,122 vB');
+  assert.equal(sendCost(t, { rate: 10, coins: [{ value: 4000 }, { value: 4000 }], noteSats: 1092, k: 2 }).fee, 2210 + 5620, 'coins too small for the commit are joined, and the commit grows with them');
+  const a = await bulkFee(t, { bulk, kind: 'all', coins: [{ value: 10000 }] });
+  // a burn (900), a two-note send (2,810 + 765) and a private note's send (3,006 + 765), each needing its commit
+  assert.equal(a.need, 900 + (2810 + 765) + (3006 + 765), 'a burn, a send and a private note’s send, each needing its commit'); assert.equal(a.short, false, 'free coins of 10000 cover 8246');
+  assert.equal((await bulkFee(t, { bulk, kind: 'all', coins: [{ value: 5000 }] })).short, true, 'the same press is short of 5000, which a burn’s estimate alone would have passed');
   assert.equal(a.later, 2 * 1546 + 600, 'the burns after the two sends, and the burn after a checked note’s move');
   assert.equal((await bulkFee(t, { bulk, kind: 'merge', coins: [{ value: 100 }] })).short, true, 'coins read and short');
   assert.equal((await bulkFee(t, { bulk, kind: 'merge', coins: null })).short, false, 'coins not read are not called short');

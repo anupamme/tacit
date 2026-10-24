@@ -94,6 +94,18 @@ test('every journal in the browser, ordered: what needs its holder, then what is
   assert.deepEqual(rows.map((r) => r.id), ['d', 'a', 'b']);
 });
 
+test('a bridge whose TAC came back (moved back, or returned by the recovery) is done with: it waits on nobody, and goes after three days', () => {
+  for (const stage of ['reclaimed', 'recovered']) {
+    const row = inRow(inRec({ id: stage, stage, updatedAt: NOW - 1e3, lastError: { message: 'old' } }), NOW);
+    assert.equal(row.back, true, stage); assert.equal(row.held, false, stage); assert.equal(row.due, '', stage); assert.deepEqual(row.acts, [], stage);
+    const old = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([inRec({ id: stage, stage, updatedAt: NOW - KEEP_DONE_MS - 1 })]) }), NOW);
+    assert.deepEqual(old.map((r) => r.id), [], `${stage}: dropped after ${KEEP_DONE_MS / 86400e3} days`);
+    const recent = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([inRec({ id: stage, stage, updatedAt: NOW - 1e3 })]) }), NOW);
+    assert.deepEqual(recent.map((r) => r.id), [stage], `${stage}: listed while recent`);
+  }
+  assert.equal(inRow(inRec({ id: 's', stage: 'stopped' }), NOW).held, true, 'a stopped bridge still waits on its holder');
+});
+
 test('Ethereum blocks read as a time: minutes, then hours from an hour and a half', () => {
   assert.equal(ethSpan(1), '1 min');
   assert.equal(ethSpan(100), '20 min');
@@ -337,6 +349,11 @@ test('rows: the note, the ids, Recover and a stalled move', () => {
   assert.deepEqual(inFee.acts.map((a) => a.kind), ['burn'], 'with its burn held for the rate, it can still be pressed');
   assert.equal(inFee.note, 'Moved. The miner’s rate is 31.3 sat/vB, over the 20 sat/vB allowed (twice the rate quoted), so its burn waits for the rate to fall. Burn it sends it now at today’s rate.'.replace('31.3', (31.25).toFixed(1)));
   assert.equal(rowNote({ done: true, err: 'x' }), ''); assert.equal(rowNote({ dir: 'in', acts: [] }), '', 'nothing holds it: no note');
+  // sending a rejected Bitcoin step again spends another fee, and the row says so (as the front page's does)
+  const rej = outRow({ id: 'r', stage: 'mint-rejected', source: { value: big(5) }, settle: { claimIdVerified: true }, attempts: [1] }, T0);
+  assert.deepEqual(rej.acts.map((a) => a.kind), ['retry']);
+  assert.match(rej.note, /It can be sent again; that costs another Bitcoin fee\./);
+  assert.doesNotMatch(outRow({ id: 'r2', stage: 'mint-rejected', source: { value: big(5) }, settle: { claimIdVerified: true }, attempts: [1, 2] }, T0).note, /another Bitcoin fee/, 'a step that is not offered again does not promise it');
   // ids
   const bad = outRow({ id: 'q', stage: 'settled', source: { value: big(5) }, settle: { txHash: 'x"><a href=//evil>' }, creditedTxid: '"onmouseover=alert(1)' }, T0);
   assert.equal(bad.ethTx, null); assert.equal(bad.btcTx, null, 'a transaction id that is not 64 hex digits is dropped');

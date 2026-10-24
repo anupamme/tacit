@@ -627,6 +627,9 @@ export function makeBurnDepositUx(deps) {
   const inFlight = new Set();
   const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'traced', 'burn-submitted', 'burn-mined', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
   const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(String((e && e.message) || e)); };
+  // A signed burn that a busy or unreachable miner (429, 5xx, no network) did not take is not one the miner refused: the error is on the record, but it does
+  // not count toward "The miner did not take this burn" (three counted failures offer Move back, which costs two transactions to undo a burn that may be fine).
+  const OUTAGE_NO_COUNT = new Set(['burn-signed']);
   async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null, go = false } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`burndep-ux: no bridge record for ${id}`);
@@ -647,7 +650,7 @@ export function makeBurnDepositUx(deps) {
     } catch (e) {
       const now_ = at && getRecord(walletPub, id);
       if (now_ && now_.stage === at.stage && !(WAITS.has(at.stage) && passing(e))) {
-        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : relayFault(e) ? { relay: true } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) ? 0 : 1) });
+        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : relayFault(e) ? { relay: true } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) || (OUTAGE_NO_COUNT.has(at.stage) && passing(e)) ? 0 : 1) });
       }
       throw e;
     } finally { inFlight.delete(id); clearInterval(renew); releaseLease(id); }
@@ -956,7 +959,8 @@ export function makeBurnDepositUx(deps) {
     const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
     if (!f) throw new Error('burndep-ux: no fetch implementation');
     const res = await f(`${workerBase}/chain${path}${path.includes('?') ? '&' : '?'}network=${network}`);
-    if (!res.ok) throw new Error(`burndep-ux: chain read failed (${res.status})`);
+    // carries the status, so a busy or failing explorer (429, 5xx) is a read to repeat (`passing`), not an answer that this is no bridge
+    if (!res.ok) throw Object.assign(new Error(`burndep-ux: chain read failed (${res.status})`), { status: res.status });
     return (await res.text()).trim().replace(/^0x/, '');
   }
 

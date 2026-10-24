@@ -584,11 +584,13 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const tx = R.txIndex(events);
     const unexplained = () => emptyLeaves.filter((l) => !all.has(lc(l.leaf)));
 
-    diag.bridge = { attempted: false, found: 0, unexplainedLeaves: 0, candidatesTried: 0 };
+    diag.bridge = { attempted: false, found: 0, unexplainedLeaves: 0, unsearchedLeaves: 0, candidatesTried: 0 };
     const fast = !deep;
     const amounts = [...new Set([...(bridgeAmounts || []), ..._storedBridgeAmounts(id.pubHex)].map((v) => { try { return BigInt(v); } catch { return 0n; } }).filter((v) => v > 0n).map(String))].sort();
     diag.bridge.amountsTried = amounts.length;
-    if (bridge) {
+    {
+      // With `bridge: false` (a read that must be quick) the notes this key has already found are still applied, from memory or its kept hints (one
+      // candidate each); only the search for new ones is left out. A round-amount bridge note has no memo, so it appears nowhere else.
       const todo = new Map();
       const wk = lc(id.pubHex);
       const triedSet = fast ? _bridgeFastTried : _bridgeTried;
@@ -624,6 +626,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
         } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
       diag.bridge.unexplainedLeaves = [...todo.values()].reduce((sN, a) => sN + a.length, 0);
+      if (!bridge) { diag.bridge.searchSkipped = true; todo.clear(); }
       if (todo.size) {
         diag.bridge.attempted = true;
         try {
@@ -642,9 +645,11 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
             }
             if (part.length) slices.push([part, n]);
           } else slices.push([[...todo].reverse(), 16]);
+          const covered = new Set();
           for (const [part, budget] of slices) {
             const slice = new Map([...part].reverse());
             const r = await walk(slice, budget);
+            for (const t of (r.searched || slice.keys())) covered.add(t);
             diag.bridge.candidatesTried += r.tried;
             const got = new Set(r.found.map((n) => lc(n.leaf)));
             for (const n of r.found) keep(n);
@@ -653,6 +658,8 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
             _saveTried(wk, fast, amounts.join(','), triedSet);
             _saveFoundHints(wk, hints);
           }
+          // The leaves whose transactions the search did not get to (the deep search reads 16 nullifiers; the fast one up to 4,096): said, so a read is not called complete over them.
+          diag.bridge.unsearchedLeaves = [...todo].filter(([t]) => !covered.has(t)).reduce((sN, [, a]) => sN + a.length, 0);
         } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
       _saveFoundHints(wk, hints);
@@ -3039,7 +3046,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
         wrapWalk: !d.errors.wrap && !(d.wrap.truncated || []).length,
         changeWalk: deep && !d.errors.change && !(d.change && d.change.skipped && d.change.skipped.length),
         derivedOutputs: deep && !d.errors.derived && !d.errors.derivedOutputs && !(d.derived && d.derived.skipped && d.derived.skipped.length),
-        bridgeMintWalk: !d.errors.bridge,
+        bridgeMintWalk: !d.errors.bridge && !(d.bridge && d.bridge.unsearchedLeaves > 0),
         cbtcScan: cbtc && d.cbtc.attempted ? !d.errors.cbtc : (cbtc ? 'not needed' : false),
       },
       farmPositions: { derived: d.farm.attempted && !d.errors.farm, needsImportedRecord: 'positions opened under a key not derived from this wallet — importFarmPosition(record)' },
@@ -3048,8 +3055,10 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       complete: Object.keys(d.errors).length === 0
         && !(d.change && d.change.skipped && d.change.skipped.length)
         && !(d.derived && d.derived.skipped && d.derived.skipped.length)
-        && !(d.cdp && d.cdp.skipped && d.cdp.skipped.length),
+        && !(d.cdp && d.cdp.skipped && d.cdp.skipped.length)
+        && !(d.bridge && d.bridge.unsearchedLeaves > 0),
       skipped: {
+        bridgeLeaves: (d.bridge && d.bridge.unsearchedLeaves) || 0,
         change: (d.change && d.change.skipped) || [],
         derived: (d.derived && d.derived.skipped) || [],
         cdp: (d.cdp && d.cdp.skipped) || [],

@@ -1061,6 +1061,29 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   const sent = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
   ok(sent.stage === 'mint-signed' && !sent.lastError && !sent.errorCount, 'and once a coin is there the Bitcoin step is signed without any press, the wait cleared');
 }
+// A busy or unreachable service at the Bitcoin step is an outage to wait out, not one of the page's six tries: the error is on the record, and the
+// count that ends the automatic tries does not move; any other failure still counts.
+{
+  const world = makeWorld();
+  world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 200_000 }]);
+  const ux = makeUx(world, MULTI);
+  await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  world.setEthCovered(true);
+  await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  const getUtxos = world.chain.getUtxos;
+  for (const [what, err] of [['a 503', () => Object.assign(new Error('esplora unavailable'), { status: 503 })], ['a 429', () => Object.assign(new Error('slow down'), { status: 429 })], ['no network', () => new Error('Failed to fetch')], ['an API 502', () => new Error('API 502 Bad Gateway')]]) {
+    world.chain.getUtxos = async () => { throw err(); };
+    for (let i = 0; i < 8; i++) { try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch {} }
+    const out = ux.list(WALLET_PUB)[0];
+    ok(out.stage === 'covered' && out.lastError && !out.errorCount, `${what} at the Bitcoin step is on the record and costs none of the page's tries`);
+  }
+  world.chain.getUtxos = async () => { throw new Error('something else broke'); };
+  for (let i = 0; i < 3; i++) { try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch {} }
+  ok(ux.list(WALLET_PUB)[0].errorCount === 3, 'and any other failure still counts');
+  world.chain.getUtxos = getUtxos;
+  const sent = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+  ok(sent.stage === 'mint-signed' && !sent.lastError && !sent.errorCount, 'and once the service answers the step goes on and the count is cleared');
+}
 // A burn that never landed, whose note went elsewhere, is let go after the relay's own deadlines; a burn that did land is found again from the key.
 {
   const world = makeWorld(); world.setCrossOutError(Object.assign(new Error('settle timed out'), {}));
