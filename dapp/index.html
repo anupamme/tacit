@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UmSDtQDZeAkLHRdpj4Ug4f1GmC8ZsHelmiEOenxdVyw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-OWAvr3jHTTnS8W+c8qc8ej2M0KEhaLkMgwuzOTGeXig=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1486,7 +1486,7 @@ import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladde
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
 import { makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=4f5612d0';
-import { SERVED as SERVED_POOLS, keeperIdOf, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js?cb=4801eddd';
+import { SERVED as SERVED_POOLS, keeperIdOf, makeTokenPools, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js?cb=cdc195bc';
 import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=5a42e68b';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
@@ -1558,17 +1558,30 @@ const TOKEN_POOLS = [
 ];
 // The token pools a private swap went through (dapp/swap/later.js keeps them in this browser, dapp/evm-pool-tokens.js opens them): each the
 // same pool with its own ERC-20, served by the relay at the route its token names, listed here so what is left in one can be sent or taken out.
-// Only the pools the relay serves (SERVED, their addresses fixed there): what this browser kept says which to show, never where they are.
-for (const x of (() => { try { return JSON.parse(localStorage.getItem('tacit-token-pools-v1') || '[]') || []; } catch { return []; } })()) {
-  const t = String(x?.token || '').toLowerCase(), v = SERVED_POOLS[t];
-  if (!v) continue;
-  const id = keeperIdOf(t);
-  if (TOKEN_POOLS.some((p) => p.pool.toLowerCase() === v.pool.toLowerCase() || p.slug === id.slice(2))) continue;
-  const from = Number.isInteger(x.from) && x.from >= 26262000 ? x.from : 26262000;
-  TOKEN_POOLS.push({ slug: id.slice(2), name: v.sym, sym: v.sym, dec: v.dec, icon: 'tk-peth', chainId: 1, token: t, permit: null,
-    keeper: `${POOL_KEEPERS}/${id}/evm-pool/keeper`, relayer: POOL_RELAYER, maxRelayFee: v.maxRelayFee,
-    pool: v.pool, router: v.router, deployBlock: from, rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations });
-}
+// What this browser kept says which to show, never where they are: the pools the relay lists (SERVED) have their addresses fixed there, and
+// any other token's are derived from the token here (with the pools' creation code, loaded only when there is one).
+const SEEN_POOLS = (() => { try { return (JSON.parse(localStorage.getItem('tacit-token-pools-v1') || '[]') || []).filter((x) => /^0x[0-9a-fA-F]{40}$/.test(String(x?.token || ''))); } catch { return []; } })();
+const tokenPoolRow = ({ token, sym, dec, pool, router, maxRelayFee }) => {
+  const id = keeperIdOf(token);
+  if (TOKEN_POOLS.some((p) => p.pool.toLowerCase() === pool.toLowerCase() || p.slug === id.slice(2))) return null;
+  const row = { slug: id.slice(2), name: sym, sym, dec, icon: 'tk-peth', chainId: 1, token: token.toLowerCase(), permit: null,
+    keeper: `${POOL_KEEPERS}/${id}/evm-pool/keeper`, relayer: POOL_RELAYER, maxRelayFee, pool, router, deployBlock: 26262000,
+    rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations };
+  TOKEN_POOLS.push(row);
+  return row;
+};
+for (const x of SEEN_POOLS) { const v = SERVED_POOLS[x.token.toLowerCase()]; if (v) tokenPoolRow({ token: x.token, ...v }); }
+const OTHER_POOLS = SEEN_POOLS.filter((x) => !SERVED_POOLS[x.token.toLowerCase()] && !TOKEN_POOLS.some((p) => p.token.toLowerCase() === x.token.toLowerCase())).slice(0, 20);
+if (OTHER_POOLS.length) (async () => {
+  const tp = makeTokenPools({ code: await fetch('/evm-pool/token-pool-code.json').then((r) => r.json()), keccak256: keccak_256 });
+  for (const x of OTHER_POOLS) {
+    const p = tp.poolOf(x.token), sym = String(x.sym || 'token').replace(/[^\w.$-]/g, '').slice(0, 12) || 'token';
+    const dec = Number.isInteger(x.dec) && x.dec >= 0 && x.dec <= 36 ? x.dec : 18;
+    const row = p.fixed ? null : tokenPoolRow({ token: p.token, sym, dec, pool: p.pool, router: p.router, maxRelayFee: 10n ** 36n });
+    if (row) NOT_TO.push([row.pool, `the private ${sym} pool`], [row.router, `the private ${sym} router`]);
+  }
+  dashSoon();
+})().catch(() => {});
 const PERMIT2_ADDR = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -11946,7 +11959,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=a7e99fec').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=ad8e5a6c').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) s.replaceWith(SWC.el); swcAsk(); };

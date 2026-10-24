@@ -1213,11 +1213,16 @@ await step('devtac', async () => {
 await step('devtokpool', async () => {
   const USDC = USDC_TP.token, unit = 10n ** 6n, BEEF = '0x000000000000000000000000000000000000beef';
   const usdcOf = async (a) => BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + addrWord(a) }, 'latest']));
-  const open = TOKEN_TP.openTx(USDC);
+  // the USDC pool is open on Ethereum now: opened here only on a fork from before it was
+  const live = (await rpc('eth_getCode', [USDC_TP.pool, 'latest'])) !== '0x' && (await rpc('eth_getCode', [USDC_TP.router, 'latest'])) !== '0x';
+  const open = live ? null : TOKEN_TP.openTx(USDC);
   if (open) { const h = await rpc('eth_sendTransaction', [{ from: A0, to: open.to, data: open.data, gas: '0x' + open.gas.toString(16) }]); for (let i = 0; i < 100 && !(await rpc('eth_getTransactionReceipt', [h])); i++) await sleep(100); }
   const from = Number(BigInt(await rpc('eth_blockNumber', [])));
   await rpc('anvil_dealERC20', [A0, USDC, '0x' + (100n * unit).toString(16)]);
-  const seen = [{ token: USDC.toLowerCase(), sym: 'USDC', dec: 6, pool: USDC_TP.pool, router: USDC_TP.router, id: USDC_TP.id, from: from - 5 }];
+  // and an unlisted token's (DAI): its addresses derived on the page from the token, whatever this browser kept
+  const DAI_TP = TOKEN_TP.poolOf('0x6B175474E89094C44Da98b954EedeAC495271d0F');
+  const seen = [{ token: USDC.toLowerCase(), sym: 'USDC', dec: 6, pool: USDC_TP.pool, router: USDC_TP.router, id: USDC_TP.id, from: from - 5 },
+    { token: DAI_TP.token.toLowerCase(), sym: 'DAI', dec: 18, pool: '0x' + '66'.repeat(20), router: '0x' + '77'.repeat(20), id: DAI_TP.id, from: from - 5 }];
   const r = await openPage({ account: A0, key: K0, init: { arg: { seen }, fn: ({ seen }) => { try { localStorage.setItem('tacit-token-pools-v1', JSON.stringify(seen)); } catch { /* storage is a convenience */ } } } });
   const p = r.page, st = () => text(p, '#d-status'), shown = async () => (await text(p, '.bal .v')).trim(), slug = USDC_TP.id.slice(2);
   try {
@@ -1226,11 +1231,13 @@ await step('devtokpool', async () => {
     await p.waitForSelector('#d-amt', { timeout: 120000 });
     await until(p, () => /^\d/.test(document.querySelector('.bal .v')?.textContent || ''), null, 240000);
     ok((await shown()) === '0' && /USDC, private on this device/.test(await text(p, '.bal .u')) && await p.$(`[data-chain="${slug}"][aria-selected="true"]`), `devtokpool: the sheet lists the USDC pool a swap went through, in USDC (${await shown()})`);
+    ok(!!(await p.$(`[data-chain="${DAI_TP.id.slice(2)}"]`)), 'devtokpool: and the DAI pool a swap went through (its addresses derived on the page from DAI, not the ones the browser kept)');
     await p.fill('#d-amt', '25');
     await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    const held = await usdcOf(USDC_TP.pool);
     await p.click('#d-go');
     await until(p, () => /Deposited|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
-    ok(/Deposited/.test(await st()) && (await usdcOf(USDC_TP.pool)) === 25n * unit, `devtokpool: 25 USDC deposited from the wallet, six decimals read right (${(await st()).slice(0, 50)})`);
+    ok(/Deposited/.test(await st()) && (await usdcOf(USDC_TP.pool)) - held === 25n * unit, `devtokpool: 25 USDC deposited from the wallet, six decimals read right (${(await st()).slice(0, 50)})`);
     await until(p, () => /^25(\.0+)?$/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 120000);
     await p.click('[data-dev="out"]');
     await p.waitForSelector('#d-to', { timeout: 30000 });

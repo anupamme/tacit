@@ -110,10 +110,37 @@ export function makeTokenPools({ code, keccak256 }) {
 }
 
 // Whether a token's pool and router are on chain: `ethCall(to, data)` → the hex a view returns ('0x' or a revert where there is none).
-// The pool answers ASSET() with the token, the router POOL() with the pool. → { pool: bool, router: bool }
+// The pool answers ASSET() with the token, the router POOL() with the pool: both asked in one read (Multicall3's aggregate3, each call
+// allowed to fail), or one by one where that read gives nothing. → { pool: bool, router: bool }
 export async function poolState(tp, token, ethCall) {
-  const p = tp.poolOf(token);
-  const ask = async (to, data, want) => { try { const r = strip(await ethCall(to, data)); return r.length >= 64 && r.slice(24, 64) === lc(strip(want)); } catch { return false; } };
-  const [pool, router] = await Promise.all([ask(p.pool, SEL.asset, p.token), ask(p.router, SEL.pool, p.pool)]);
+  const p = tp.poolOf(token), is = (r, want) => r.length >= 64 && r.slice(24, 64) === lc(strip(want));
+  const asks = [[p.pool, SEL.asset, p.token], [p.router, SEL.pool, p.pool]];
+  try {
+    const got = decodeAggregate3(strip(await ethCall(MULTICALL3, encodeAggregate3(asks.map(([to, data]) => [to, data])))));
+    if (got?.length === 2) return { pool: got[0].ok && is(got[0].data, p.token), router: got[1].ok && is(got[1].data, p.pool) };
+  } catch { /* one by one, below */ }
+  const ask = async (to, data, want) => { try { return is(strip(await ethCall(to, data)), want); } catch { return false; } };
+  const [pool, router] = await Promise.all(asks.map(([to, data, want]) => ask(to, data, want)));
   return { pool, router };
+}
+
+// aggregate3((address target, bool allowFailure, bytes callData)[]) for short calls, each allowed to fail
+export function encodeAggregate3(calls) {
+  const tuples = calls.map(([to, data]) => { const d = strip(data); return addrWord(to) + word(1) + word(96) + word(d.length / 2) + padRight(d); });
+  let off = 32 * tuples.length;
+  const heads = tuples.map((t) => { const h = word(off); off += t.length / 2; return h; });
+  return SEL.aggregate3 + word(32) + word(calls.length) + heads.join('') + tuples.join('');
+}
+// its answer, (bool success, bytes returnData)[] → [{ ok, data (hex, no 0x) }], or null when it is not one
+export function decodeAggregate3(r) {
+  const at = (byte) => BigInt('0x' + (r.slice(byte * 2, byte * 2 + 64) || 'x'));
+  try {
+    const base = Number(at(0)), n = Number(at(base)), out = [];
+    for (let i = 0; i < n; i++) {
+      const el = base + 32 + Number(at(base + 32 + 32 * i)), len = Number(at(el + Number(at(el + 32))));
+      const from = (el + Number(at(el + 32)) + 32) * 2;
+      out.push({ ok: at(el) === 1n, data: r.slice(from, from + len * 2) });
+    }
+    return out;
+  } catch { return null; }
 }

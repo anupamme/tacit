@@ -15,7 +15,10 @@
 //   EVM_POOL_TOKEN_POOLS_<chainId>=<block>   serve the token pools anyone opens on Ethereum (dapp/evm-pool-tokens.js) for the tokens in
 //                                            its SERVED and EVM_POOL_TOKEN_POOLS_ALLOW_<chainId> (addresses, comma-separated), found from
 //                                            CreateX's logs from that block on, each as the named pool <chainId>-x<token's first ten hex
-//                                            digits> with the chain's key and zQuoter's price (EVM_POOL_TOKEN_POOLS_MAX, default 30)
+//                                            digits> with the chain's key and zQuoter's price (EVM_POOL_TOKEN_POOLS_MAX, default 30); POST
+//                                            /token-pools { token } names any other token's pool, kept once it is on chain and served on a
+//                                            day's allowance of gas (EVM_POOL_TOKEN_POOLS_DAY_WEI, default 0.003 ETH; at most
+//                                            EVM_POOL_TOKEN_POOLS_NAMED, default 10)
 //
 // Pools on one chain may share a key: their sends go through one queue per signer (evm-pool-keeper-chain.js), so they never race for a
 // nonce. A pool that holds a token is paid in it; EVM_POOL_KEEPER_RATE_FEED keeps its price in ETH current (evm-pool-keeper-rates.js).
@@ -36,11 +39,12 @@ import { makeKeeperChain } from './lib/evm-pool-keeper-chain.js';
 import { makeLeafSync, makeFactsSync } from './lib/evm-pool-keeper-leaves.js';
 import { makePipeline } from './lib/evm-pool-keeper-pipeline.js';
 import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
-import { createIntakeHandler } from './lib/evm-pool-keeper-intake.js';
 import { seedFromFeed } from './lib/evm-pool-keeper-seed.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
 import { makeRateFeed, parseRateFeed } from './lib/evm-pool-keeper-rates.js';
 import { makeTokenPoolDiscovery } from './lib/evm-pool-token-discovery.js';
+import { makeGasBudget, budgeted } from './lib/evm-pool-gas-budget.js';
+import { createIntakeHandler, IntakeError } from './lib/evm-pool-keeper-intake.js';
 import { makeTokenPools, keeperIdOf, SERVED, CHAIN_ID as TOKEN_POOLS_CHAIN } from '../../dapp/evm-pool-tokens.js';
 import { keccak_256 } from '../../dapp/vendor/tacit-deps.min.js';
 import { safeErr } from './lib/safe-err.js';
@@ -138,7 +142,7 @@ async function main() {
 
   // One keeper, made ready to serve (its nodes, price, prover, store, intake), or an error. `needPrice`: a token pool found on chain starts
   // only once its token can be priced (one no pool trades is not worth a keeper's loop). → the keeper, or null when it is not configured.
-  async function startKeeper(inst, env, { needPrice = false } = {}) {
+  async function startKeeper(inst, env, { needPrice = false, dayBudgetWei = null } = {}) {
     const { id, chainId } = inst;
     const clog = (...a) => console.log(`[evm-pool-keeper ${id} ${new Date().toISOString()}]`, ...a);
     const cfg = loadKeeperConfig(env);
@@ -151,6 +155,8 @@ async function main() {
     cfg.keeperAddress = account.address;
     const chain = await makeKeeperChain({ cfg, account, log: clog });
     if (chain.chainId !== chainId) throw new Error(`keeper ${id}: its node is on chain ${chain.chainId}, not ${chainId}`);
+    // a pool served on request spends at most a day's allowance of gas: a send past it is refused before it is signed
+    if (dayBudgetWei) budgeted(chain, makeGasBudget({ dayWei: dayBudgetWei }), () => new IntakeError(503, "the relay has used today's gas for this pool; try again tomorrow. Sending it from your own wallet also works, and shows your address as the sender"), cfg.relayGas);
     // a pool that holds a token: its price in ETH, kept current from the chain, before the first fee is checked
     const ethPool = BigInt(chain.asset) === 0n;
     if (cfg.rateFeed && ethPool) clog('EVM_POOL_KEEPER_RATE_FEED ignored: this pool holds ETH, whose price is one');
@@ -220,9 +226,32 @@ async function main() {
   }
   if (!running.length) { log('no chain is enabled'); return; }
 
+  // POST /token-pools { token }: someone names a token pool for the relay to keep (set once the token pools are on, below)
+  const tokenApi = { notify: null, list: null };
+  const asked = new Map();      // client → the times it named a pool in the last hour
+  const askedOk = (who) => { const t = Date.now(), a = (asked.get(who) || []).filter((x) => t - x < 3_600_000); if (a.length >= 30) return false; a.push(t); asked.set(who, a); return true; };
+  const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+
   const port = Number(process.env.PORT || 10000);
   createServer((req, res) => {
     const url = req.url || '/';
+    if (url === '/token-pools' || url === '/token-pools/') {
+      if (req.method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }); return res.end(); }
+      if (!tokenApi.notify) return json(res, 404, { error: 'this relay keeps no token pools' });
+      if (req.method === 'GET') return json(res, 200, tokenApi.list());
+      if (req.method !== 'POST') return json(res, 405, { error: 'GET or POST' });
+      const who = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (!askedOk(who)) return json(res, 429, { error: 'rate limited' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 1024) req.destroy(); });
+      req.on('end', async () => {
+        let token = null;
+        try { token = JSON.parse(body || '{}').token; } catch { /* below */ }
+        if (!/^0x[0-9a-fA-F]{40}$/.test(String(token || '')) || BigInt(token) === 0n) return json(res, 400, { error: 'name a token: { "token": "0x…" }' });
+        try { return json(res, 200, await tokenApi.notify(token)); } catch (e) { return json(res, 502, { error: safeErr(e) }); }
+      });
+      return;
+    }
     if (url === '/health' || url === '/health/') {
       // the chains' own pools decide the service's health; another pool's trouble (a token pool's node, its price) shows, and restarts nothing
       const ok = running.filter(chainPool).every((c) => keepers.get(c).lastTickOk);
@@ -256,8 +285,10 @@ async function main() {
     const tokens = [...new Set([...Object.keys(SERVED), ...extra.map((x) => x.toLowerCase())])];
     for (const t of extra) tp.poolOf(t);   // a bad address stops here, at start
     const disc = makeTokenPoolDiscovery({ tp, tokens, rpc: rpcOver([...(ck.cfg.logRpcUrls?.length ? ck.cfg.logRpcUrls : []), ...ck.cfg.rpcUrls]), fromBlock: BigInt(from),
-      statePath: join(dirname(ck.cfg.dbPath), `token-pools-${chainId}.json`), confirmations: BigInt(process.env.EVM_POOL_TOKEN_POOLS_CONFIRMATIONS || 3), log: tlog });
+      statePath: join(dirname(ck.cfg.dbPath), `token-pools-${chainId}.json`), confirmations: BigInt(process.env.EVM_POOL_TOKEN_POOLS_CONFIRMATIONS || 3),
+      maxNamed: Number(process.env.EVM_POOL_TOKEN_POOLS_NAMED || 10), log: tlog });
     const chainKey = process.env[`EVM_POOL_KEEPER_PRIV_${chainId}`] || process.env.EVM_POOL_KEEPER_PRIV;
+    const dayWei = BigInt(process.env.EVM_POOL_TOKEN_POOLS_DAY_WEI || 3_000_000_000_000_000n);
     const max = Number(process.env.EVM_POOL_TOKEN_POOLS_MAX || 30), served = new Set();
     // whether zQuoter prices the token now, read through the chain's own keeper before a keeper is made for it (so a token with no price
     // costs one read a round, not a keeper's start)
@@ -275,12 +306,21 @@ async function main() {
       const own = { ADDR: p.pool, ROUTER_ADDR: p.router, START_BLOCK: String(p.block), KEEPER_PRIV: chainKey, KEEPER_RATE_FEED: 'zq', KEEPER_POLL_SECS: '60' };
       const env = envFor(inst, { ...Object.fromEntries(Object.entries(own).map(([kk, v]) => [`EVM_POOL_${kk}${inst.suffix}`, v])), ...process.env });
       try {
-        const k = await startKeeper(inst, env, { needPrice: true });
+        // a pool named on request (not one of the listed tokens) is served on a day's allowance of gas
+        const k = await startKeeper(inst, env, { needPrice: true, dayBudgetWei: disc.named(p.token) ? dayWei : null });
         if (!k) return;
         keepers.set(id, k); running.push(id); served.add(id); runKeeper(k);
         tlog(`serving the ${p.token} pool at /${id}/evm-pool/keeper`);
       } catch (e) { tlog(`${p.token}'s pool not served yet: ${safeErr(e)}`); }
     };
+    tokenApi.notify = async (token) => {
+      const r = await disc.notify(token);
+      // kept now, or kept before and not served yet (its price unread then): served as soon as it can be
+      const entry = r.entry || (r.status === 'known' || r.status === 'served' ? disc.known().find((x) => x.token.toLowerCase() === token.toLowerCase()) : null);
+      if (entry && !keepers.has(keeperIdOf(entry.token))) serve(entry).catch(() => {});
+      return { status: r.status, pool: r.pool ?? null, id: keeperIdOf(token), serving: keepers.has(keeperIdOf(token)) };
+    };
+    tokenApi.list = () => ({ chainId, pools: running.filter((id) => id.startsWith(`${chainId}-x`)).map((id) => { const k = keepers.get(id); return { id, pool: k.cfg.pool, asset: k.chain.asset, named: !!k.chain.gasBudget, ...(k.chain.gasBudget ? { gasLeftWei: k.chain.gasBudget.left().toString() } : {}) }; }) });
     (async () => {
       for (const p of disc.known()) await serve(p);
       for (;;) {

@@ -6,7 +6,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { keccak_256 } from '@noble/hashes/sha3';
-import { makeTokenPools, poolState, keeperIdOf, FIXED, SERVED, CREATEX, MULTICALL3 } from '../dapp/evm-pool-tokens.js';
+import { makeTokenPools, poolState, keeperIdOf, encodeAggregate3, decodeAggregate3, FIXED, SERVED, CREATEX, MULTICALL3 } from '../dapp/evm-pool-tokens.js';
 
 const require = createRequire(new URL('../worker-relay/package.json', import.meta.url));
 const { decodeFunctionData, parseAbi, keccak256, concat, toHex, encodeAbiParameters, getAddress } = require('viem');
@@ -92,4 +92,21 @@ test('one by one: the pool and then its router, each a CreateX call with its sal
     assert.strictEqual(tp.openTx(t, { pool: true, router: false }).data, b.data);
   }
   assert.deepStrictEqual(tp.deploySteps(TAC), []);
+});
+
+test('both asked in one read (Multicall3), encoded as viem encodes it and its answer read back', async () => {
+  const mc = parseAbi(['function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[])']);
+  const p = tp.poolOf(USDC), w = (a) => '0x' + a.toLowerCase().slice(2).padStart(64, '0');
+  const data = encodeAggregate3([[p.pool, '0x4800d97f'], [p.router, '0x7535d246']]);
+  const { args: [calls] } = decodeFunctionData({ abi: mc, data });
+  assert.deepStrictEqual(calls.map((c) => [c.target, c.allowFailure, c.callData]), [[p.pool, true, '0x4800d97f'], [p.router, true, '0x7535d246']]);
+  const answer = (rows) => encodeAbiParameters([{ type: 'tuple[]', components: [{ type: 'bool', name: 'success' }, { type: 'bytes', name: 'returnData' }] }], [rows]);
+  assert.deepStrictEqual(decodeAggregate3(answer([{ success: true, returnData: w(USDC) }, { success: false, returnData: '0x' }]).slice(2)), [{ ok: true, data: w(USDC).slice(2) }, { ok: false, data: '' }]);
+  let reads = 0;
+  const one = async (to, d) => { reads++; assert.strictEqual(to, MULTICALL3); assert.strictEqual(d, data); return answer([{ success: true, returnData: w(USDC) }, { success: true, returnData: w(p.pool) }]); };
+  assert.deepStrictEqual(await poolState(tp, USDC, one), { pool: true, router: true }); assert.strictEqual(reads, 1, 'in one read');
+  const half = async () => answer([{ success: true, returnData: w(USDC) }, { success: false, returnData: '0x' }]);
+  assert.deepStrictEqual(await poolState(tp, USDC, half), { pool: true, router: false });
+  const wrong = async () => answer([{ success: true, returnData: w(TAC) }, { success: true, returnData: w(p.pool) }]);
+  assert.deepStrictEqual(await poolState(tp, USDC, wrong), { pool: false, router: true });
 });

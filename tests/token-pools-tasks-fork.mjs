@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // The token pools' task jobs (worker-relay/scripts/tasks-token-pools.mjs), audited on a mainnet fork, token by token:
 //   - the job's payload passes the page's own check against the job (dapp/tasks/verify.js) and is the deployment dapp/evm-pool-tokens.js derives;
-//   - sent from a fresh account, it deploys the pool and its router where the job says, and the points service credits both steps from the
-//     receipts (stepsCompleted); a pool opened in one transaction instead (the swap page's, Multicall3 calling CreateX twice) is credited the same;
+//   - sent from a fresh account (or, for a pool opened on Ethereum already, the transactions that opened it), it deploys the pool and its router
+//     where the job says, and the points service credits both steps from the receipts (stepsCompleted); a pool opened in one transaction instead
+//     (the swap page's, Multicall3 calling CreateX twice) is credited the same;
 //   - the code deployed is the live TAC pool's, router's and box template's but for their immutables (the token, its asset field, the pool,
 //     the router, the box template), and every constructor setting reads back;
 //   - a deposit through the router and a withdrawal sent by the user (real proofs) move each token exactly.
@@ -68,15 +69,22 @@ await post('anvil_setBalance', [FROM, hx(10n ** 18n)]); await post('anvil_impers
 const send = async (to, data, from = FROM) => { const h = await post('eth_sendTransaction', [{ from, to, data, gas: hx(8_000_000) }]); return { h, rc: await receipt(h) }; };
 const credited = async (job, h) => stepsCompleted(job, await client.getTransaction({ hash: h }), await client.getTransactionReceipt({ hash: h }), 1).map((x) => x.step.id).sort().join(',');
 
-// a pool opened in one transaction (the swap page's) is credited both steps the same: USDC, then put back
+// a pool opened in one transaction (the swap page's) is credited both steps the same: DAI's (no pool on Ethereum), against a job made the way
+// the builder makes one, then put back
 {
-  const t = Object.keys(SERVED)[0], sym = SERVED[t].sym, job = serviceJobs.find((j) => j.id === `token-pool-${sym.toLowerCase()}`);
+  const DAI = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
+  const job = { id: 'token-pool-dai', chainId: 1, opensAt: 0, steps: tp.deploySteps(DAI).map((x, i) => ({ id: `0${i + 1}-${x.kind}`, kind: 'createx', to: x.to, gas: 1, expected: x.expected, salt: x.salt, initCodeHash: x.initCodeHash, bound: false })) };
   const snap = await post('evm_snapshot');
-  const o = tp.openTx(t), { h, rc } = await send(o.to, o.data);
-  ok(rc?.status === '0x1' && (await credited(job, h)) === '01-pool,02-router', `${sym}: a pool opened in one transaction (Multicall3) is credited both steps (${await credited(job, h)})`);
+  const o = tp.openTx(DAI), { h, rc } = await send(o.to, o.data);
+  ok(rc?.status === '0x1' && (await credited(job, h)) === '01-pool,02-router', `DAI: a pool opened in one transaction (Multicall3) is credited both steps (${await credited(job, h)})`);
   await post('evm_revert', [snap]);
-  ok(JSON.stringify(await poolState(tp, t, (to, data) => call(to, data))) === JSON.stringify({ pool: false, router: false }), `${sym}: and the fork is put back, with no pool`);
+  ok(JSON.stringify(await poolState(tp, DAI, (to, data) => call(to, data))) === JSON.stringify({ pool: false, router: false }), 'DAI: and the fork is put back, with no pool');
 }
+// the transactions that made a contract (CreateX's log for its address): the real ones, for a pool opened on Ethereum before the fork
+const madeBy = async (address) => {
+  const logs = await post('eth_getLogs', [{ address: '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed', topics: ['0xb8fda7e00c6b06a2b54e58521bc5894fee35f1090e5a3bb6390bfe2b98b497f7', '0x' + word(address)], fromBlock: hx(26262000), toBlock: 'latest' }]);
+  return logs[0]?.transactionHash || null;
+};
 
 const Pz = { 2: poseidon2, 3: poseidon3, 4: poseidon4, 5: poseidon5, 7: poseidon7 };
 const zk = makeEvmPoolZk({ poseidon: (xs) => Pz[xs.length](xs) });
@@ -98,11 +106,13 @@ for (const [t, v] of Object.entries(SERVED)) {
       `${sym}: it is the deployment evm-pool-tokens.js derives: pool ${p.pool}, router ${p.router}`);
     ok(svc.steps[0].expected === v.pool && svc.steps[1].expected === v.router, `${sym}: at the addresses the page and relay serve (SERVED)`);
     ok(svc.steps.every((s) => /^0x0{42}[0-9a-f]{22}$/.test(s.salt) && s.bound === false), `${sym}: under open salts any account can send`);
-    // sent as the page sends it, from a fresh account
+    // sent as the page sends it, from a fresh account; or, opened on Ethereum already, the transactions that opened it
+    const opened = JSON.stringify(await poolState(tp, t, (to, data) => call(to, data))) === JSON.stringify({ pool: true, router: true });
     const sent = [];
-    for (const s of payload.steps) { const r = await send(s.to, s.data); sent.push(r); }
-    ok(sent.every((r) => r.rc?.status === '0x1'), `${sym}: both steps land (${sent.map((r) => BigInt(r.rc.gasUsed)).join(' and ')} gas; the job plans ${svc.steps.map((s) => s.gas).join(' and ')})`);
-    ok((await credited(svc, sent[0].h)) === '01-pool' && (await credited(svc, sent[1].h)) === '02-router', `${sym}: the service credits each step from its receipt`);
+    if (opened) for (const a of [p.pool, p.router]) { const h = await madeBy(a); sent.push({ h, rc: h ? await receipt(h) : null }); }
+    else for (const s of payload.steps) { const r = await send(s.to, s.data); sent.push(r); }
+    ok(sent.every((r) => r.rc?.status === '0x1'), `${sym}: both steps ${opened ? 'landed on Ethereum' : 'land'} (${sent.map((r) => (r.rc ? BigInt(r.rc.gasUsed) : '?')).join(' and ')} gas; the job plans ${svc.steps.map((s) => s.gas).join(' and ')})`);
+    ok((await credited(svc, sent[0].h)) === '01-pool' && (await credited(svc, sent[1].h)) === '02-router', `${sym}: the service credits each step from its receipt${opened ? ` (${sent.map((r) => r.h.slice(0, 10)).join(', ')})` : ''}`);
     // the code: the live TAC contracts' but for their immutables
     const field = poolAsset({ chainId: 1n, pool: p.pool, token: t }), box = lc(await addr(p.router, SEL.boxImpl));
     const [poolCode, routerCode, boxCode] = await Promise.all([p.pool, p.router, box].map((a) => post('eth_getCode', [a, 'latest'])));
@@ -116,7 +126,7 @@ for (const [t, v] of Object.entries(SERVED)) {
       'router V1': [await addr(p.router, SEL.V1), V1], 'router POSEIDON4': [await addr(p.router, SEL.POSEIDON4), POSEIDON4],
     };
     const wrong = Object.entries(views).filter(([, [a, b]]) => lc(a) !== lc(b)).map(([k]) => k);
-    ok(!wrong.length && (await num(p.pool, SEL.ASSET_FIELD)) === field && (await num(p.pool, SEL.nextIndex)) === 0n, `${sym}: every setting reads back (verifier, token, pool, zRouter, Permit2, V1, PoseidonT5, asset field; empty)${wrong.length ? ` wrong: ${wrong}` : ''}`);
+    ok(!wrong.length && (await num(p.pool, SEL.ASSET_FIELD)) === field && (opened || (await num(p.pool, SEL.nextIndex)) === 0n), `${sym}: every setting reads back (verifier, token, pool, zRouter, Permit2, V1, PoseidonT5, asset field; empty)${wrong.length ? ` wrong: ${wrong}` : ''}`);
     ok(BigInt(await call(t, '0xdd62ed3e' + word(p.router) + word(p.pool))) === MAX || BigInt(await call(t, '0xdd62ed3e' + word(p.router) + word(p.pool))) > 10n ** 50n, `${sym}: the router has the pool's allowance for its deposits`);
     // a deposit and a withdrawal, real proofs, sent by the user
     const USER = '0x00000000000000000000000000000000000De9b' + (Object.keys(SERVED).indexOf(t) + 1), DEST = '0x00000000000000000000000000000000000De9c' + (Object.keys(SERVED).indexOf(t) + 1);
@@ -127,10 +137,11 @@ for (const [t, v] of Object.entries(SERVED)) {
       chain: { chainId: 1, pool: p.pool, router: p.router, token: t, deployBlock: Number(BigInt(sent[0].rc.blockNumber)), rpc, confirmations: 1, logChunk: 50000 } });
     W.connect({ address: USER, rpc, send: async ({ to, data, value }) => post('eth_sendTransaction', [{ from: USER, to, data, value: hx(value || 0), gas: hx(8_000_000) }]) });
     await receipt((await send(t, '0x095ea7b3' + word(p.router) + word(hx(dep)), USER)).h);
+    const held = await bal(t, p.pool);
     const hd = await W.deposit({ amount: dep, selfCall: (tx) => routerDeposit(p.router, tx, { kind: 'allowance' }) });
-    ok((await receipt(hd))?.status === '0x1' && (await bal(t, p.pool)) === dep && W.summary().balance === dep, `${sym}: 100 ${sym} deposited through the router, a private note`);
+    ok((await receipt(hd))?.status === '0x1' && (await bal(t, p.pool)) - held === dep && W.summary().balance === dep, `${sym}: 100 ${sym} deposited through the router, a private note`);
     const hw = await W.withdraw({ to: DEST, amount: out, via: 'self' });
-    ok((await receipt(hw))?.status === '0x1' && (await bal(t, DEST)) === out && (await bal(t, p.pool)) === dep - out, `${sym}: 40 ${sym} withdrawn to a fresh address, 60 left in the pool`);
+    ok((await receipt(hw))?.status === '0x1' && (await bal(t, DEST)) === out && (await bal(t, p.pool)) - held === dep - out, `${sym}: 40 ${sym} withdrawn to a fresh address, 60 left in the pool`);
   } catch (e) { ok(false, `${sym}: ${String(e?.message || e).slice(0, 300)}`); }
 }
 console.log(`  proofs: ${times.map((x) => `${(x / 1000).toFixed(1)} s`).join(', ')}`);

@@ -388,6 +388,8 @@ export function createIntakeHandler({
     const asset = chain.asset.toLowerCase();
     if (!cfg.rates.has(asset) && !cfg.minFees.has(asset)) throw new IntakeError(503, "the relay can't price its fee in this token right now; try again in a few minutes. Sending it from your own wallet also works, and shows your address as the sender");
     const price = await gasPrice();
+    // a pool with a day's allowance of gas (one served on request) quotes nothing it could not send today
+    if (chain.gasBudget && chain.gasBudget.left() < gas * price) throw new IntakeError(503, "the relay has used today's gas for this pool; try again tomorrow. Sending it from your own wallet also works, and shows your address as the sender");
     await mustFront((gas * 13n) / 10n);
     const q = quoteFee({ token: chain.asset, gas, gasPrice: price, cfg });
     // What collecting a receive box costs now, and the smallest balance whose 0.25% cap pays for it.

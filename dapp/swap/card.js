@@ -870,7 +870,7 @@ const pageSigner = { get address() { return W.account; }, ready: async () => { i
   // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
   canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
   get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=ecef2a5f').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=a5d00585').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
 // the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
 const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));
@@ -902,8 +902,8 @@ const laterIn = (q) => { if (picked(q)?.hop) return laterDeposit(q); const v = p
 const tokHop = () => (!isEth(S.pay) && LATER.tp[S.pay]) || null;
 const hopOpen = (t = tokHop()) => !!(t?.hop?.state?.pool && t?.hop?.state?.router);
 const viaToken = () => LATER.via !== 'eth' && hopOpen() && tokHop().fee != null;
-// the token's pool row: once it is open, or (for a token the relay serves) the offer to open it
-const viaShown = (th = tokHop()) => !!th?.hop && (hopOpen(th) || th.served);
+// the token's pool row, for any wallet token: its own pool beside the ETH pool once it is open, else that it has none yet and the offer to open it
+const viaShown = (th = tokHop()) => !!th?.hop;
 const NEXT_INDEX = '0xfc7e9c6f';
 function readHop(token = S.pay, force = false) {
   if (isEth(token) || !LATER.on) return;
@@ -915,7 +915,9 @@ function readHop(token = S.pay, force = false) {
     const hop = await lt.hopOf(token), open = hopOpen({ hop });
     // the fee at the gas the swap out is sent with, from the keeper that answers for this pool
     const [leaves, fee] = open ? await Promise.all([ethCall(hop.pool, NEXT_INDEX).then((h) => Number(BigInt(h)), () => null), lt.mod.relayFee(Number(lt.mod.HOP_GAS), undefined, hop.keeper, hop.pool).catch(() => null)]) : [0, null];
-    LATER.tp[token] = { hop, leaves, fee, served: !!lt.mod.SERVED[token], at: Date.now(), tried: Date.now(), busy: false };
+    LATER.tp[token] = { hop, leaves, fee, served: !!lt.mod.SERVED[token], told: t?.told, at: Date.now(), tried: Date.now(), busy: false };
+    // open and the relay does not quote for it: named to the relay once, which keeps it (the next read, a minute on, finds it served)
+    if (open && fee == null && !t?.told) { LATER.tp[token].told = true; lt.mod.notifyPool(token).catch(() => {}); }
     if (token === S.pay) paint();
   }).catch(() => { LATER.tp[token] = { ...(LATER.tp[token] || {}), busy: false, tried: Date.now() }; });
 }
@@ -972,7 +974,7 @@ function paintLater(q, r, kind) {
 const LT_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
 function viaHtml(th, hopOn) {
   const sym = esc(tokenOf(S.pay).sym), n = (x) => (x == null ? '' : ` · ${x.toLocaleString('en-US')}`);
-  if (!hopOpen(th)) return `<div class="via"><span>Through the ETH pool</span><button type="button" class="link" data-open-pool title="One transaction from your wallet (about 4.4M gas) opens a private ${sym} pool for everyone, served by the relay. The first deposits have little company.">Open a private ${sym} pool</button></div>`;
+  if (!hopOpen(th)) return `<div class="via"><span>No private ${sym} pool yet</span><button type="button" class="link" data-open-pool title="One transaction from your wallet (about 4.4M gas) opens a private ${sym} pool for everyone. The relay serves it${th.served ? '' : ' on a daily allowance of gas'}; until then, and while it holds little, the swap goes through the ETH pool.">Open one</button></div>`;
   const pill = (v, label, on, dis = false) => `<button type="button" class="vp" data-via="${v}" aria-pressed="${on}"${dis ? ' disabled' : ''}>${label}</button>`;
   return `<div class="via" role="group" aria-label="Through">${pill('token', `${sym} pool${n(th.leaves)}`, hopOn, th.fee == null)}${pill('eth', `ETH pool${n(LATER.ethLeaves)}`, !hopOn)}</div>`;
 }

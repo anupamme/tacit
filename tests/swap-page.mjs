@@ -12,11 +12,15 @@ import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { ammRouteDeployTx, ammRouteAddress, ammRouteAddressMatches } from './amm-route-deploy.mjs';
-import { SERVED } from '../dapp/evm-pool-tokens.js';
+import { makeTokenPools } from '../dapp/evm-pool-tokens.js';
+import { keccak_256 } from '@noble/hashes/sha3';
 // a keeper's quote: a token pool's (its route names the token) in the token and naming its pool, else the ETH pool's
+const TOKEN_TP = makeTokenPools({ code: JSON.parse(readFileSync(new URL('../dapp/evm-pool/token-pool-code.json', import.meta.url), 'utf8')), keccak256: keccak_256 });
+const STUB_TOKENS = ['0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', '0xdAC17F958D2ee523a2206206994597C13D831ec7', '0x6B175474E89094C44Da98b954EedeAC495271d0F', '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'];
+const tokenOfRoute = (url) => { const x = (url.match(/\/1-x([0-9a-f]{10})\//) || [])[1]; return x ? STUB_TOKENS.find((a) => a.toLowerCase().startsWith('0x' + x)) || null : null; };
 const tokenQuote = (url) => {
-  const x = (url.match(/\/1-x([0-9a-f]{10})\//) || [])[1], t = x && Object.keys(SERVED).find((a) => a.startsWith('0x' + x));
-  return t ? { fee: '1500000', pool: SERVED[t].pool, relayer: '0x' + '00'.repeat(20) } : { fee: '300000000000000', relayer: '0x' + '00'.repeat(20) };
+  const t = tokenOfRoute(url);
+  return t ? { fee: '1500000', pool: TOKEN_TP.poolOf(t).pool, relayer: '0x' + '00'.repeat(20) } : { fee: '300000000000000', relayer: '0x' + '00'.repeat(20) };
 };
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
@@ -96,12 +100,14 @@ async function fundedWallet() {
   const j = JSON.parse(cast('wallet', 'new', '--json'))[0], who = j.address;
   await rpcA('anvil_setBalance', [who, '0x' + (5n * 10n ** 18n).toString(16)]);
   await rpcA('anvil_dealERC20', [who, USDC, '0x' + (2000n * 10n ** 6n).toString(16)]);
+  await rpcA('anvil_dealERC20', [who, '0x6B175474E89094C44Da98b954EedeAC495271d0F', '0x' + (2000n * 10n ** 18n).toString(16)]);
   await rpcA('anvil_impersonateAccount', [who]);
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false, keeperDown = false } = {}) {
-  const keeper = { down: keeperDown };
+async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false, keeperDown = false, tokenPools = false } = {}) {
+  // `tokenPools`: whether the relay serves the token pools (else their routes answer as a relay that does not serve them)
+  const keeper = { down: keeperDown, notified: [] };
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
@@ -121,6 +127,8 @@ async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'li
   // The private ETH pool's keeper quotes its fee for a withdrawal into a swap: stubbed, so a pass does not depend on a service that may be asleep.
   // (a token pool's keeper, at the route its token names, quotes in that token: 1.5 of a six-decimal one here)
   await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/quote/, (route) => route.fulfill(keeper.down ? { status: 503, headers: { 'access-control-allow-origin': '*' }, body: '{}' } : { status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(tokenQuote(route.request().url())) }));
+  await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/1-x[0-9a-f]{10}\/evm-pool\/keeper\/quote/, (route) => (tokenPools ? route.fallback() : route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"no such chain"}' })));
+  await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/token-pools/, (route) => { try { keeper.notified.push(JSON.parse(route.request().postData() || '{}').token); } catch { } return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ status: 'added', serving: tokenPools }) }); });
   // The points program's terms, stubbed so a pass shows they are read: ETH swapped into TAC pays 1,000 points an ETH.
   await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
     body: JSON.stringify({ day: 1, programDay: 1, programDays: 90, program: { startDay: 1, days: 90, dayBudgetWei: '1111111111111111111111', rates: { zswapeth: 1000 }, weights: [{ fromDay: 1, weights: {} }] }, totalPoints: 0, dayBudgetWei: '1111111111111111111111', taking: 0, rows: [] }) }));
@@ -802,7 +810,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(page, () => !/private pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
   ok(!/private pool/.test(await page.textContent('#rcpt')) && !/USDC$/.test(await page.textContent('#go')), 'turned off, it is the one direct swap again');
   ok(walletLog.sends.length === 0, 'nothing was sent');
-  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  { const own = errors.filter((e) => !/status of 404/.test(e));                 // the 404 of the USDC pool's route, which this relay does not serve
+    ok(!own.length, `no page errors${own.length ? ': ' + own.slice(0, 3).join(' | ') : ''}`); }
   await browser.close();
 }
 {
@@ -839,28 +848,30 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 {
-  // a token's own private pool: offered to open (one transaction from the wallet, for everyone), then the swap goes through it, the token in as
-  // it is, priced as one swap out; the ETH pool stays a press away
+  // a token's own private pool, for any token (here DAI, which has none): that there is none yet and the offer to open it (one transaction from
+  // the wallet, for everyone), named to the relay once open; then the swap goes through it, the token in as it is, priced as one swap out; the
+  // ETH pool stays a press away
   const w = await fundedWallet();
-  const { browser, page, errors, walletLog } = await openPage({ width: 1280, height: 900 }, { wallet: w, path: '/swap/?from=USDC&to=WBTC&amt=150' });
+  const { browser, page, errors, walletLog, keeper } = await openPage({ width: 1280, height: 900 }, { wallet: w, path: '/swap/?from=DAI&to=WBTC&amt=150', tokenPools: true });
   await page.click('#wallet-chip');
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   await quoted(page); await ackIf(page);
   await page.click('#later-on');
-  await until(page, () => !!document.querySelector('#later [data-open-pool]'), null, 60000);
-  ok(/Through the ETH pool/.test(await page.textContent('#later .via')) && /Open a private USDC pool/.test(await page.textContent('#later [data-open-pool]')), 'with no USDC pool yet, it goes through the ETH pool and offers to open one');
+  await until(page, () => !!document.querySelector('#later [data-open-pool]') && /→ private pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(/No private DAI pool yet/.test(await page.textContent('#later .via')) && /Open one/.test(await page.textContent('#later [data-open-pool]')) && /→ private pool →/.test(await page.textContent('#rcpt')), 'with no DAI pool yet it says so, offers to open one, and goes through the ETH pool');
   const sent = walletLog.sends.length;
   await page.click('#later [data-open-pool]');
   await until(page, () => /pool is open/.test(document.querySelector('#q')?.textContent || ''), null, 120000);
   ok(walletLog.sends.length === sent + 1 && walletLog.sends[sent].to.toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11', `one transaction opens it (Multicall3 calling CreateX): ${await page.textContent('#q')}`);
   await until(page, () => document.querySelector('#later [data-via="token"]')?.getAttribute('aria-pressed') === 'true', null, 90000);
-  ok(/USDC pool · 0/.test(await page.textContent('#later .via')) && /ETH pool · [\d,]+/.test(await page.textContent('#later .via')), `then it goes through the USDC pool, each pool's notes beside it (${(await page.textContent('#later .via')).trim()})`);
-  await until(page, () => /USDC pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(keeper.notified.map((t) => String(t).toLowerCase()).includes('0x6b175474e89094c44da98b954eedeac495271d0f'), `and it is named to the relay (${keeper.notified.join(', ')})`);
+  ok(/DAI pool · 0/.test(await page.textContent('#later .via')) && /ETH pool · [\d,]+/.test(await page.textContent('#later .via')), `then it goes through the DAI pool, each pool's notes beside it (${(await page.textContent('#later .via')).trim()})`);
+  await until(page, () => /DAI pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
   await page.fill('#to-in', '0x' + '5d'.repeat(20));
-  await until(page, () => /^Deposit [\d.,]+ USDC$/.test(document.querySelector('#go').textContent), null, 60000);
+  await until(page, () => /^Deposit [\d.,]+ DAI$/.test(document.querySelector('#go').textContent), null, 60000);
   const dep = Number((await page.textContent('#go')).match(/[\d.,]+/)[0].replace(/,/g, ''));
-  ok(dep > 150 && dep < 300 && /^\+[\d.,]+ USDC$/.test(await page.textContent('#later-xv')), `the deposit is the 150 USDC as it is, the relay's fee twice in USDC and the buffer (${await page.textContent('#go')}, ${await page.textContent('#later-xv')})`);
-  ok(/into the private USDC pool as it is/.test(await page.getAttribute('#later-dep', 'title')), 'its tooltip says the USDC goes into its own pool as it is');
+  ok(dep > 150 && dep < 300 && /^\+[\d.,]+ DAI$/.test(await page.textContent('#later-xv')), `the deposit is the 150 DAI as it is, the relay's fee twice in DAI and the buffer (${await page.textContent('#go')}, ${await page.textContent('#later-xv')})`);
+  ok(/into the private DAI pool as it is/.test(await page.getAttribute('#later-dep', 'title')), 'its tooltip says the DAI goes into its own pool as it is');
   await page.click('#later [data-via="eth"]');
   await until(page, () => /→ private pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
   ok(/→ private pool →/.test(await page.textContent('#rcpt')) && (await page.getAttribute('#later [data-via="eth"]', 'aria-pressed')) === 'true', 'the ETH pool is a press away: priced through it again');

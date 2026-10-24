@@ -2,7 +2,8 @@
 // A private pool for any ERC-20 (dapp/evm-pool-tokens.js), end to end on a mainnet fork: a user opens the USDC pool with the page's one
 // transaction (Multicall3 calling CreateX twice), the REAL multi-keeper process (worker-relay/src/evm-pool-keepers.js, the ETH pool's
 // keeper and its key) finds it in CreateX's logs and starts serving it; the user deposits USDC (their own transaction), and the keeper
-// relays a withdrawal to a fresh address and a withdrawal that swaps USDC for WBTC on zRouter to another, each paid in USDC. Then the page's
+// relays a withdrawal to a fresh address and a withdrawal that swaps USDC for WBTC on zRouter to another, each paid in USDC; a DAI pool named
+// to the relay (POST /token-pools) is kept and served on a day's allowance of gas, which its relays are charged to. Then the page's
 // own flow (later.js) swaps privately through a token's pool to each kind of output its routes build: USDC for WBTC and for ETH (zQuoter's
 // routes), USDC for TAC (into the Precision pool), and through the TAC pool (served beside it) TAC for ETH and for USDC. Real proofs.
 // USDC is priced here as a dollar (EVM_POOL_KEEPER_RATE_FEED usd:…): zQuoter's scans are too slow for a fork; the zq feed has a test of its own.
@@ -61,7 +62,10 @@ await rpcA('anvil_dealERC20', [USER, USDC, hx(5_000n * 10n ** 6n)]);
 const code = JSON.parse(readFileSync(join(ROOT, 'dapp/evm-pool/token-pool-code.json'), 'utf8'));
 const tp = makeTokenPools({ code, keccak256: keccak_256 }), P = tp.poolOf(USDC);
 const ethCall = (to, data) => rpcA('eth_call', [{ to, data }, 'latest']);
-ok(JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool: false, router: false }), `no USDC pool yet at ${P.pool}`);
+// the USDC pool was opened on Ethereum (block 26264051): on a fork from after that it is there already, found from its real creation
+const LIVE = JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool: true, router: true });
+ok(LIVE || JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool: false, router: false }), LIVE ? `the USDC pool is open on Ethereum already, at ${P.pool}` : `no USDC pool yet at ${P.pool}`);
+const DAI = '0x6B175474E89094C44Da98b954EedeAC495271d0F', PD = tp.poolOf(DAI), SD = '_' + PD.id.toUpperCase().replace(/-/g, '_');
 
 // the keepers: the ETH pool's on its knobs, watching CreateX from the fork's head for token pools, priced USDC as a dollar here
 const ART = join(ROOT, 'dapp/evm-pool/');
@@ -69,7 +73,9 @@ const env = {
   ...process.env, PORT: String(KPORT), EVM_POOL_CHAINS: '1,1-tac', EVM_POOL_ADDR: ETH_POOL, EVM_POOL_ROUTER_ADDR: ETH_ROUTER, EVM_POOL_KEEPER_DB: join(tmp, 'keeper.db'),
   EVM_POOL_RPC_URL_1: RPC, EVM_POOL_KEEPER_SEND_RPC_URLS_1: RPC, EVM_POOL_KEEPER_PRIV_1: keyA, EVM_POOL_START_BLOCK_1: '26069245', EVM_POOL_KEEPER_MIN_FEES_1: 'eth:1000',
   EVM_POOL_CONFIRMATIONS: '0', EVM_POOL_KEEPER_POLL_SECS: '1', EVM_POOL_LOG_CHUNK: '50000', EVM_POOL_KEEPER_FACTS: '0', EVM_POOL_KEEPER_POINTS: '0',
-  EVM_POOL_TOKEN_POOLS_1: String(head), EVM_POOL_TOKEN_POOLS_SECS: '2', [`EVM_POOL_KEEPER_RATE_FEED${'_' + P.id.toUpperCase().replace(/-/g, '_')}`]: `usd:${ETHUSD}`,
+  EVM_POOL_TOKEN_POOLS_1: LIVE ? '26264000' : String(head), EVM_POOL_TOKEN_POOLS_SECS: '2',
+  // a pool named on request (DAI's, below): priced as a dollar here too, its own loop quick
+  [`EVM_POOL_KEEPER_RATE_FEED${SD}`]: `usd:${ETHUSD}`, [`EVM_POOL_KEEPER_POLL_SECS${SD}`]: '1', [`EVM_POOL_KEEPER_RATE_FEED${'_' + P.id.toUpperCase().replace(/-/g, '_')}`]: `usd:${ETHUSD}`,
   [`EVM_POOL_KEEPER_POLL_SECS${'_' + P.id.toUpperCase().replace(/-/g, '_')}`]: '1',
   // the TAC pool, as Render serves it: its own addresses, first block and price, the ETH pool's key
   EVM_POOL_ADDR_1_TAC: TAC_POOL.pool, EVM_POOL_ROUTER_ADDR_1_TAC: TAC_POOL.router, EVM_POOL_START_BLOCK_1_TAC: String(TAC_POOL.from), EVM_POOL_KEEPER_PRIV_1_TAC: keyA,
@@ -87,11 +93,13 @@ for (let i = 0; ; i++) {
 }
 ok(true, 'the keeper runs, watching CreateX for token pools');
 
-// open the pool: the page's one transaction, from the user
-const open = tp.openTx(USDC);
-const ho = await rpcA('eth_sendTransaction', [{ from: USER, to: open.to, data: open.data, gas: hx(open.gas) }]);
-const ro = await receipt(ho);
-ok(ro?.status === '0x1' && JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool: true, router: true }), `one transaction opens the USDC pool and its router (${BigInt(ro.gasUsed)} gas, under the ${open.gas} the page asks)`);
+// open the pool: the page's one transaction, from the user (on a fork from before it was opened on Ethereum)
+let ro = { blockNumber: hx(26264051) };
+if (!LIVE) {
+  const open = tp.openTx(USDC);
+  ro = await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: open.to, data: open.data, gas: hx(open.gas) }]));
+  ok(ro?.status === '0x1' && JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool: true, router: true }), `one transaction opens the USDC pool and its router (${BigInt(ro.gasUsed)} gas, under the ${open.gas} the page asks)`);
+}
 ok(tp.openTx(USDC, await poolState(tp, USDC, ethCall)) === null, 'and the page then has nothing more to open');
 await rpcA('anvil_mine', ['0x5']);                              // the blocks a quiet fork does not make by itself, for the scan's confirmations
 
@@ -101,6 +109,18 @@ for (let i = 0; i < 120 && !listed; i++) { listed = ((await getJson('/chains')).
 ok(!!listed && listed.pool === P.pool && listed.router === P.router && listed.asset.toLowerCase() === USDC.toLowerCase() && listed.keeper === A, `the keeper finds it in CreateX's logs and serves it at /${P.id}/ from the ETH pool's key (${listed ? 'listed' : klog.join('').split('\n').filter((l) => /token-pools|1-x/.test(l)).slice(-3).join(' | ')})`);
 const q = (await getJson(`/${P.id}/evm-pool/keeper/quote`)).body;
 ok(q.relayer === A && q.asset?.toLowerCase() === USDC.toLowerCase() && BigInt(q.fee || 0) > 0n, `its quote is in USDC: ${Number(q.fee) / 1e6} USDC for a relay`);
+
+// any other token's pool, named to the relay (POST /token-pools): DAI's, opened here, kept once it is on chain and served on a day's
+// allowance of gas
+const tpost = async (token) => (await fetch(`${K}/token-pools`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ token }) })).json();
+ok((await tpost(DAI)).status === 'not-open', 'named before it is open, a token pool is not kept');
+ok((await tpost(USDC)).status === 'served', 'a listed token is served already');
+const od = tp.openTx(DAI), rd = await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: od.to, data: od.data, gas: hx(od.gas) }]));
+const nd = await tpost(DAI);
+ok(rd?.status === '0x1' && nd.status === 'added' && nd.id === PD.id, `the DAI pool opened and named, it is kept (${JSON.stringify(nd)})`);
+let dk = null;
+for (let i = 0; i < 120 && !dk; i++) { dk = ((await getJson('/token-pools')).body.pools || []).find((x) => x.id === PD.id); if (!dk) await sleep(1000); }
+ok(!!dk && dk.named === true && dk.pool === PD.pool && BigInt(dk.gasLeftWei || 0) > 0n, `and served at /${PD.id}/ on a day's allowance of gas (${dk ? Number(dk.gasLeftWei) / 1e18 : '?'} ETH left)`);
 
 // the user's deposit, then the keeper's relays
 const Pz = { 2: poseidon2, 3: poseidon3, 4: poseidon4, 5: poseidon5, 7: poseidon7 };
@@ -113,14 +133,31 @@ const W = makeEvmPoolWallet({ zk, keys: evmPoolKeys(zk, crypto.getRandomValues(n
 W.connect({ address: USER, rpc, send: async ({ to, data, value }) => rpcA('eth_sendTransaction', [{ from: USER, to, data, value: hx(value || 0), gas: '0x7A1200' }]) });
 const dep = 1_500n * 10n ** 6n;
 await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: USDC, data: '0x095ea7b3' + pad(P.router) + pad(hx(dep)), gas: '0x30000' }]));
+const held0 = await bal(USDC, P.pool);
 const hd = await W.deposit({ amount: dep, selfCall: (tx) => routerDeposit(P.router, tx, { kind: 'allowance' }) });
-ok((await receipt(hd))?.status === '0x1' && W.summary().balance === dep && (await bal(USDC, P.pool)) === dep, `the user deposits 1,500 USDC into the USDC pool, a private note (${Number(W.summary().balance) / 1e6})`);
+ok((await receipt(hd))?.status === '0x1' && W.summary().balance === dep && (await bal(USDC, P.pool)) - held0 === dep, `the user deposits 1,500 USDC into the USDC pool, a private note (${Number(W.summary().balance) / 1e6})`);
 
 const f0 = await bal(USDC, A);
 const hw = await W.withdraw({ to: DEST, amount: 400n * 10n ** 6n });
 const rw = await receipt(hw), tw = await rpcA('eth_getTransactionByHash', [hw]);
 ok(rw?.status === '0x1' && tw.from.toLowerCase() === A.toLowerCase() && (await bal(USDC, DEST)) === 400n * 10n ** 6n, 'the keeper relays a withdrawal of 400 USDC to a fresh address');
 ok((await bal(USDC, A)) - f0 > 0n, `and is paid in USDC (${Number((await bal(USDC, A)) - f0) / 1e6} USDC)`);
+
+// the named pool: a deposit and a relayed withdrawal, which the keeper's allowance pays for
+{
+  const WD = makeEvmPoolWallet({ zk, keys: evmPoolKeys(zk, crypto.getRandomValues(new Uint8Array(32))), keeper: `${K}/${PD.id}/evm-pool/keeper`, store: null, feed: true, prove,
+    chain: { chainId: 1, pool: PD.pool, router: PD.router, token: DAI, deployBlock: Number(BigInt(rd.blockNumber)), rpc, confirmations: 1, logChunk: 50000, relayer: A, maxRelayFee: 10n ** 30n } });
+  WD.connect({ address: USER, rpc, send: async ({ to, data, value }) => rpcA('eth_sendTransaction', [{ from: USER, to, data, value: hx(value || 0), gas: '0x7A1200' }]) });
+  await rpcA('anvil_dealERC20', [USER, DAI, hx(1_000n * 10n ** 18n)]);
+  await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: DAI, data: '0x095ea7b3' + pad(PD.router) + pad(hx(300n * 10n ** 18n)), gas: '0x30000' }]));
+  await receipt(await WD.deposit({ amount: 300n * 10n ** 18n, selfCall: (tx) => routerDeposit(PD.router, tx, { kind: 'allowance' }) }));
+  const left0 = BigInt(((await getJson('/token-pools')).body.pools || []).find((x) => x.id === PD.id).gasLeftWei), DEST4 = '0x00000000000000000000000000000000000de944';
+  const hw2 = await WD.withdraw({ to: DEST4, amount: 100n * 10n ** 18n });
+  const rw2 = await receipt(hw2), tw2 = await rpcA('eth_getTransactionByHash', [hw2]);
+  const left1 = BigInt(((await getJson('/token-pools')).body.pools || []).find((x) => x.id === PD.id).gasLeftWei);
+  ok(rw2?.status === '0x1' && tw2.from.toLowerCase() === A.toLowerCase() && (await bal(DAI, DEST4)) === 100n * 10n ** 18n, 'the keeper relays a withdrawal of 100 DAI out of the named pool, paid in DAI');
+  ok(left1 < left0, `and charges it to the pool's allowance (${Number(left0 - left1) / 1e18} ETH of gas)`);
+}
 
 // a withdrawal that swaps: the escrow approves zRouter for exactly the swap's USDC, the route pays WBTC to the address; the rest refunds privately
 const dl = BigInt(Number(BigInt((await rpcA('eth_getBlockByNumber', ['latest', false])).timestamp)) + 1200);

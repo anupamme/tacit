@@ -10,7 +10,7 @@ import { hexToBytes, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { checkZRouterCall } from '/zrouter-guard.js';
 import { bestRoute } from '/swap/aggregate.js?cb=9759a1ca';
 import { readAccess, readToken, permitTyped, permit2Typed, splitSig, randomNonce as permit2Nonce, encApprove, quoteTacitToToken, buildTacitToToken, quoteAnyToTac, buildAnyToTac } from '/swap/route.js?cb=ce610210';
-import { makeTokenPools, poolState, RELAYER, KEEPERS, SERVED } from '/evm-pool-tokens.js?cb=4801eddd';
+import { makeTokenPools, poolState, RELAYER, KEEPERS, SERVED } from '/evm-pool-tokens.js?cb=cdc195bc';
 export { SERVED };
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
@@ -178,6 +178,12 @@ const unsure = (e) => /may still have sent|did not answer|already on its way|wai
 // A refusal by the relay itself (nothing sent): the one case a swap out may be sent from a wallet instead.
 const refused = (e) => /relay(er)? returned|relay could not|cannot front|too low|fee went up|is full|refus/i.test(String(e?.message || e));
 
+// Names a token's open pool to the relay (POST /token-pools), which keeps it and serves it: a listed token's at once, any other's on a day's
+// allowance of gas. Plain text, so the browser sends it without asking first. → the relay's answer ({ status, serving, … }) or null
+export async function notifyPool(token, get = globalThis.fetch, keepers = KEEPERS) {
+  const r = await get(`${keepers}/token-pools`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ token }), signal: AbortSignal.timeout(20_000) });
+  return r.ok ? r.json().catch(() => null) : null;
+}
 // The gas a swap out of a token pool is quoted and sent with: the withdrawal, its escrow's approval and the route.
 export const HOP_GAS = BASE_GAS + 900_000n;
 // The keeper's fee for a withdrawal into a swap, read without a key (the card quotes the deposit before the key is open). → wei, or for a
@@ -273,10 +279,9 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const tp = await tps(), p = tp.poolOf(token);
     return { ...p, keeper: keeperOf(p), state: await poolState(tp, token, (to, data) => ethCall(to, data, 'latest')) };
   }
-  // Opens a token's pool: the one transaction (both contracts, or what is missing), from the connected wallet, for a token the relay serves
-  // (SERVED). → { hash, block } or null when open
+  // Opens a token's pool: the one transaction (both contracts, or what is missing), from the connected wallet, then names it to the relay
+  // (notifyPool), which serves it. → { hash, block } or null when open
   async function openPool(token, { onStep = () => {} } = {}) {
-    if (!SERVED[lc(token)]) throw new Error(`The relay serves private pools for ${Object.values(SERVED).map((t) => t.sym).join(', ')}; this token's would not be relayed.`);
     const tp = await tps(), have = await poolState(tp, token, (to, data) => ethCall(to, data, 'latest')), tx = tp.openTx(token, have);
     if (!tx) return null;
     if (signer.ready) await signer.ready();
@@ -284,6 +289,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const h = await signer.send({ to: tx.to, data: tx.data, value: 0n });
     onStep('waiting for it to be mined');
     const rc = await mined(h, 'The pool was not opened.');
+    notifyPool(token, globalThis.fetch, chain.keepers || KEEPERS).catch(() => {});
     return { hash: h, block: Number(BigInt(rc?.blockNumber ?? 0)) };
   }
 

@@ -11,7 +11,7 @@ register('data:text/javascript,' + encodeURIComponent(`const D = ${JSON.stringif
 export async function resolve(spec, ctx, next) { if (spec.startsWith('/') && !spec.startsWith('//')) return next(D + spec.split('?')[0], ctx); return next(spec, ctx); }`));
 const { decodeFunctionData } = createRequire(new URL('../worker-relay/package.json', import.meta.url))('viem');
 const { zapDeposit } = await import('../dapp/evm-pool-wallet.js');
-const { sizeIn, swapOf, ZAP, makeLater, relayFee, SERVED } = await import('../dapp/swap/later.js');
+const { sizeIn, swapOf, ZAP, relayFee, notifyPool, SERVED } = await import('../dapp/swap/later.js');
 
 const abi = JSON.parse(readFileSync(new URL('../docs/evm-pool/abi/TacitEvmPoolZap.json', import.meta.url)));
 const ABI = Array.isArray(abi) ? abi : abi.abi;
@@ -76,13 +76,14 @@ test('the swap is three significant figures of what the route into the pool pays
   }
 });
 
-test("a token's own pool is opened only for a token the relay serves, and a fee only from the keeper that answers for that pool", async () => {
-  let sent = 0;
-  const L = makeLater({ keyHex: async () => '11'.repeat(32), signer: { address: '0x' + '22'.repeat(20), send: async () => { sent++; return '0x'; } }, ethCall: async () => '0x', store: null });
-  await assert.rejects(L.openPool('0x' + '33'.repeat(20)), /would not be relayed/);
-  assert.strictEqual(sent, 0);
+test("a fee is taken only from the keeper that answers for the token's pool, and an open pool is named to the relay as plain text", async () => {
   const usdc = SERVED[USDC.toLowerCase()];
   const get = (pool) => async () => ({ ok: true, json: async () => ({ fee: '1500000', pool }) });
   assert.strictEqual(await relayFee(1_420_000, get(usdc.pool), 'https://k/1-xa0b86991c6/evm-pool/keeper', usdc.pool), 1_500_000n);
   await assert.rejects(relayFee(1_420_000, get('0x' + '44'.repeat(20)), 'https://k/1-xa0b86991c6/evm-pool/keeper', usdc.pool), /could not quote/);
+  const asked = [];
+  const post = async (url, init) => { asked.push([url, init.method, init.headers['content-type'], JSON.parse(init.body)]); return { ok: true, json: async () => ({ status: 'added', serving: false }) }; };
+  assert.deepStrictEqual(await notifyPool('0x6B175474E89094C44Da98b954EedeAC495271d0F', post, 'https://k'), { status: 'added', serving: false });
+  assert.deepStrictEqual(asked, [['https://k/token-pools', 'POST', 'text/plain', { token: '0x6B175474E89094C44Da98b954EedeAC495271d0F' }]]);
+  assert.strictEqual(await notifyPool(USDC, async () => ({ ok: false }), 'https://k'), null);
 });
