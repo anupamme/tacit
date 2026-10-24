@@ -99,6 +99,7 @@ import { ethStatsBody, pageStatsBody } from './stats-views.js';
 import { preauthSalesBookBody } from './book-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
+import { discordGateMessage } from '../../dapp/discord/message.js';
 import { makeTacAncestry } from './tac-ancestry.js';
 import { makeTacArchive, ARCHIVE_MAX_ROOTS, ARCHIVE_MAX_IMPORT } from './tac-archive.js';
 import { traceBurnDepositProvenance, rebuiltRawTx } from './burndep-live-tracer.js';
@@ -27299,7 +27300,7 @@ async function handleDiscordNonce(req, env, cors) {
 
 // The proof and the role are one step: the nonce is consumed only once Discord has accepted the role,
 // so a refused grant (bot below the role, member left the server, ...) leaves the link usable for a retry.
-async function completeDiscordGate(env, nonce, record, holderPubkeyHex) {
+async function completeDiscordGate(env, nonce, record, holder) {
   let res;
   try {
     res = await fetch(
@@ -27317,12 +27318,14 @@ async function completeDiscordGate(env, nonce, record, holderPubkeyHex) {
   await env.REGISTRY_KV.put(`dgate:${nonce}`, JSON.stringify({
     ...record,
     status: 'verified',
-    pubkey_hex: holderPubkeyHex,
+    holder,
     verified_at: Date.now(),
   }), { expirationTtl: 3600 });
   return { ok: true };
 }
 
+// Two ways to show the TAC: a signature from an Ethereum address that holds it in the public TAC ERC-20 (the same read a public governance vote
+// makes), or the private proof of TAC notes on Bitcoin. Either way the role is for the Discord account the link was made for.
 async function handleDiscordVerify(req, env, cors) {
   if (!env.DISCORD_BOT_TOKEN || !env.TAC_ROLE_ID) {
     return jsonResponse({ error: 'discord_gate: role grant not configured' }, 500, cors);
@@ -27331,19 +27334,29 @@ async function handleDiscordVerify(req, env, cors) {
   try { body = await req.json(); } catch { return jsonResponse({ error: 'expected JSON body' }, 400, cors); }
   const nonce = String(body?.nonce || '').toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(nonce)) return jsonResponse({ error: 'invalid nonce' }, 400, cors);
+  const ethSig = String(body?.eth_sig || '');
   const envelopeHex = String(body?.envelope_hex || '');
-  if (!/^[0-9a-f]+$/i.test(envelopeHex) || envelopeHex.length < 100) {
-    return jsonResponse({ error: 'invalid envelope_hex' }, 400, cors);
+  if (ethSig) {
+    if (!/^0x[0-9a-fA-F]{130}$/.test(ethSig)) return jsonResponse({ error: 'invalid eth_sig' }, 400, cors);
+  } else if (!/^[0-9a-f]+$/i.test(envelopeHex) || envelopeHex.length < 100) {
+    return jsonResponse({ error: 'eth_sig or envelope_hex required' }, 400, cors);
   }
   const record = await env.REGISTRY_KV.get(`dgate:${nonce}`, 'json');
   if (!record) return jsonResponse({ error: 'nonce not found or expired' }, 404, cors);
   if (record.status !== 'pending') return jsonResponse({ error: 'nonce already used' }, 409, cors);
 
-  const envelopeBytes = hexToBytes(envelopeHex);
-  const result = await verifyDiscordGateProof(env, envelopeBytes);
-  if (!result.ok) return jsonResponse({ error: result.reason }, result.status, cors);
+  let holder;
+  if (ethSig) {
+    const r = await _getGovernance().publicTacHolder(env, CER_ELIGIBILITY_NETWORK, discordGateMessage(nonce), ethSig, CER_ELIGIBILITY_MIN_TAC_BASE_UNITS);
+    if (!r.ok) return jsonResponse({ error: `discord_gate: ${r.reason}` }, r.status, cors);
+    holder = `eth:${r.address}`;
+  } else {
+    const r = await verifyDiscordGateProof(env, hexToBytes(envelopeHex));
+    if (!r.ok) return jsonResponse({ error: r.reason }, r.status, cors);
+    holder = `btc:${r.holderPubkeyHex}`;
+  }
 
-  const done = await completeDiscordGate(env, nonce, record, result.holderPubkeyHex);
+  const done = await completeDiscordGate(env, nonce, record, holder);
   if (!done.ok) return jsonResponse({ error: done.reason }, done.status, cors);
   return jsonResponse({ ok: true }, 200, cors);
 }
@@ -27403,8 +27416,7 @@ async function handleDiscordInteraction(req, env, cors) {
       ts: Date.now(),
     }), { expirationTtl: DISCORD_GATE_NONCE_TTL });
 
-    // The gate modal lives on the Classic app page; the front page has no #gate= consumer.
-    const link = `${env.DAPP_URL || 'https://tacit.finance'}/classic.html#gate=${nonce}`;
+    const link = `${env.DAPP_URL || 'https://tacit.finance'}/discord/#gate=${nonce}`;
     return new Response(JSON.stringify({
       type: 4,
       data: {

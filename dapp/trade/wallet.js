@@ -157,6 +157,16 @@ export function makeWallet({ rpc, leave = null, busy = () => false }) {
     let v = parseInt(h.slice(128, 130), 16); if (v < 27) v += 27;
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
+  // A plain-text message signed by the account (EIP-191 personal_sign): no transaction, no network switch, nothing sent. A smart-contract wallet answers in
+  // a form that is not one 65-byte signature, which a server cannot check against the address.
+  async function signMessage(message, from = null) {
+    same(from);
+    const hex = [...new TextEncoder().encode(message)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const sig = String(await req('personal_sign', ['0x' + hex, from || W.account]));
+    same(from);
+    if (!/^0x[0-9a-fA-F]{130}$/.test(sig)) throw new Error('This wallet signs in a form that cannot be checked here (a smart-contract wallet). Use an account with its own key.');
+    return sig;
+  }
   // Offers the token to the wallet (EIP-747) so that a purchase shows up in it. A wallet without the call, or a no, is not an error here.
   async function watchAsset(options) {
     if (!W.prov) return false;
@@ -172,5 +182,5 @@ export function makeWallet({ rpc, leave = null, busy = () => false }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, restore, disconnect, chooseAccount, ensureMainnet, ensureChain, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, chooseAccount, ensureMainnet, ensureChain, sendTx, signPermit, signMessage, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
 }

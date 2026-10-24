@@ -1,6 +1,6 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=42b9322f';
 import { rpc, RPCS, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=35ce60db';
 import * as A from '/swap/aggregate.js?cb=ba695973';

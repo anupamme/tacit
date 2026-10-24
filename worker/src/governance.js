@@ -407,6 +407,21 @@ export function buildGovernance(deps) {
     try { return BigInt(res); } catch { return null; }
   }
 
+  // Whether the address that signed `message` (EIP-191) holds at least `minBase` TAC, in base units, in the canonical TAC ERC-20 at the latest block.
+  // A vote asks the same of a proposal's snapshot block; the Discord holder role asks it of now.
+  async function publicTacHolder(env, network, message, sigHex, minBase) {
+    const token = govTacErc20(env, network);
+    if (!token) return { ok: false, status: 501, reason: 'the TAC ERC-20 is not configured on this network' };
+    let addr;
+    try { addr = recoverEthAddr(message, sigHex); }
+    catch (e) { return { ok: false, status: 400, reason: `eth sig recover failed: ${e.message || 'unknown'}` }; }
+    const bal = await readErc20Balance(env, network, token, addr);
+    if (bal === null) return { ok: false, status: 502, reason: 'the TAC balance could not be read, try again' };
+    const weight = bal / GOV_ERC20_TO_BASE;
+    if (weight < minBase) return { ok: false, status: 403, reason: `${addr} holds less than the TAC required` };
+    return { ok: true, address: addr, weight };
+  }
+
   // ---- tally / proposal lifecycle helpers -----------------------------------
   function emptyTally(n) { return { totals: new Array(n).fill('0'), voters: 0, total_weight: '0', public_voters: 0, private_voters: 0 }; }
   function statusOf(p) { return p.finalized ? 'closed' : (nowS() >= p.voting_ends_at ? 'ended' : 'active'); }
@@ -760,5 +775,5 @@ export function buildGovernance(deps) {
     return null;   // not a governance route — let index.js fall through
   }
 
-  return { handle, GOV_TIERS, GOV_CATEGORIES, GOV_PROPOSE_MIN_DEFAULT };
+  return { handle, publicTacHolder, GOV_TIERS, GOV_CATEGORIES, GOV_PROPOSE_MIN_DEFAULT };
 }

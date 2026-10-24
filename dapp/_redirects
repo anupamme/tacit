@@ -30,6 +30,7 @@
 /trade/cbtc  /cbtc/  301
 /vault    /vault/    301
 /tasks    /tasks/    301
+/discord    /discord/    301
 /build    /build/    301
 /swap     /swap/     301
 /splitter  /splitter/  301
