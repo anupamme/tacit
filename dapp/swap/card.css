@@ -223,6 +223,7 @@
 @media (hover: hover) { .swc .coin.one:hover { border-color: var(--hair-2); } .swc .coin.one:hover .tk { transform: none; } }
 .swc .coin:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .swc .sides .tk { width: 14px; height: 14px; }
+@media (max-width: 640px) { .swc .sides .pl { display: none; } }
 .swc .rows .c { grid-template-columns: 34px minmax(0, 1fr) auto 18px; }
 .swc .rows .c > .tk { width: 34px; height: 34px; transition: opacity .15s; }
 .swc .rows .c[aria-checked="false"] > .tk { opacity: .6; }
@@ -235,6 +236,8 @@
 .swc .rows button.fold { display: block; width: auto; padding: 2px 14px 12px; font-size: 12px; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; border-top: 0; }
 @media (hover: hover) { .swc .rows button.fold:hover { color: var(--ink); background: none; } }
 .swc .rows.folded [data-hxd]:not([hidden]) { border-top: 0; }
+.swc .rows.folded .c { grid-template-columns: 34px minmax(0, 1fr) auto; }
+.swc .rows.folded .c .rd { display: none; }
 .swc .rows [data-wait] .ra, .swc .rows [aria-disabled="true"] > :not(.rt) { opacity: .45; }
 .swc .mid .arr { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 36px; height: 36px; margin: -18px 0 0 -18px; color: var(--mute); background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; }
 .swc .mid .arr svg { width: 14px; height: 14px; }

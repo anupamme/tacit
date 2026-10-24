@@ -6690,7 +6690,7 @@ await step('hxsend', async () => {
     await q.evaluate(() => { window.__clip = []; navigator.clipboard.writeText = async (t) => { window.__clip.push(t); }; });
     await q.click('#hx-ask');
     await q.fill('#hx-amt', '5');
-    ok(/Copy payment link/.test(await text(q, '#hx-go')) && !(await q.$('#hx-rcpt')) && /You ask for/.test(await text(q, '#hx-panel')), 'hxsend: Request a payment asks for an asset and an amount and offers the link');
+    ok(/Copy payment link/.test(await text(q, '#hx-go')) && !(await q.$('#hx-rcpt')) && /You ask for/.test(await text(q, '#hx-panel')) && /^The link: opens this payment filled in, ready to send$/.test(await q.evaluate(() => window.__said())), 'hxsend: Request a payment asks for an asset and an amount and offers the link, its receipt saying what the link opens');
     await q.click('#hx-go');
     const link = await q.evaluate(() => window.__clip[0] || '');
     ok(link === `${new URL(q.url()).origin}/#card=send:cusd&to=${encodeURIComponent(long)}&amt=5`, `hxsend: the link is this key's tacit1 address with cUSD and 5 (${link.slice(0, 60)}…)`);
@@ -7463,7 +7463,7 @@ await step('hxweek', async () => {
     await p.fill('#hx-amt', '0.0001');
     await until(p, () => document.querySelector('#hx-out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
     const small = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
-    ok(/< 1 TAC points/.test(small) && !/Counts \d[\d.]*×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
+    ok(/TAC points\s*< 1/.test(small) && !/Counts \d[\d.]*×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
     // A key with nothing on Bitcoin is told so, and where to receive it.
     await p.click('[data-hxm="private"]'); await p.selectOption('#hx-from', 'btc');
     await until(p, () => /No TAC on this key’s Bitcoin address yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
@@ -7507,7 +7507,7 @@ await step('hxearn', async () => {
     await p.click('[data-hxm="borrow"]');
     await until(p, () => /Borrow cUSD:/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 60000);
     let t = await line();
-    ok(/Post a bond toward cBTC: .*1,000 per wstETH/.test(t) && /Borrow cUSD: 2 per dollar, when you send the loan yourself/.test(t) && !!(await p.$('#hx-pts a[data-link="points"]')), `hxearn: borrowing cUSD names the loan and the bond, and where the terms are (${t.slice(0, 220)})`);
+    ok(/^TAC points ?2 per dollar · 1,000 per wstETH ?how\?/.test(t) && /Post a bond toward cBTC: .*1,000 per wstETH/.test(t) && /Borrow cUSD: 2 per dollar, when you send the loan yourself/.test(t) && !!(await p.$('#hx-pts a[data-link="points"]')) && !(await p.$eval('#hx-pts [data-ptsnote]', (n) => n.hidden)), `hxearn: borrowing cUSD is one points row with the loan's and the bond's rates, its "how?" (open since the deposit's) naming each one's terms and where they all are (${t.slice(0, 220)})`);
     if (SHOTS) await (await p.$('#hx')).screenshot({ path: join(SHOTS, 'weld-hxearn-borrow.png') });
     await p.click('[data-hxd="cbtc"]');
     await until(p, () => !/Borrow cUSD:/.test(document.querySelector('#hx-pts')?.textContent || '') && /Post a bond/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 60000);

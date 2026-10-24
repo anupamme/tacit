@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-w+1zgWuIBc0h5t15CqXxePQ53AltvKOC5cxHbopLI6M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IMboLzssnN88ZGDJTUFpZG46TL1SXJxITOmNBKN0wcc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -318,9 +318,18 @@ a.di { color: inherit; text-decoration: none; }
 /* Small links keep their look and get a taller hit area (the box around them, not their size). */
 .pxs .px, .news, .kept-h a, .cta .tl { position: relative; }
 .pxs .px::after, .news::after, .kept-h a::after, .cta .tl::after { content: ''; position: absolute; inset: -7px -4px; }
-/* What the amount typed earns in the points program, and the nudge toward more of it; a held key's TAC on Bitcoin. */
+/* What the amount typed earns in the points program (a receipt row, the one right under the receipt), and the nudge toward more of it; a held key's TAC on Bitcoin. */
 .hx-pts, .hx-have { display: grid; gap: 3px; margin: 14px 2px 0; padding: 0; border: 0; font-size: 12px; line-height: 1.55; color: var(--mute); }
 .hx-pts[hidden], .hx-have[hidden] { display: none; }
+#hx-receipt:not([hidden]) + .hx-pts { margin-top: 2px; }
+.hx-b .hx-pts .rcpt { margin: 0; }
+.hx-pts dt { display: inline-flex; align-items: center; gap: 6px; }
+.hx-pts dt .tk { width: 14px; height: 14px; }
+.hx-pts dd b { font-weight: 500; }
+.hx-pts dd .link { position: relative; margin-left: 8px; padding: 0; font-size: 12px; }
+.hx-pts dd .link::after { content: ''; position: absolute; inset: -8px -6px; }
+.hx-b .hx-pts .note { display: grid; gap: 3px; margin: 4px 0 0; font-size: 12px; }
+.hx-pts .note .link { justify-self: start; font-size: 12px; }
 .hx-have b { font: 500 14px var(--mono); color: var(--ink); }
 .hx-have a { color: var(--ink); }
 .hx-pl { display: flex; align-items: center; gap: 7px; color: var(--ink); }
@@ -992,7 +1001,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=74b34a4f">
+<link rel="stylesheet" href="/swap/card.css?cb=3523a0c7">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -11169,7 +11178,7 @@ function hxSendSees(k = HX.send) {
   const r = hxRcptKind(), plain = k === 'wtac' || r === 'eth' || (k === 'btc' && r === 'btc' && !/^sp1/i.test(HX.rcpt));
   return [['Chain sees', plain ? 'the address and the amount' : k === 'btc' ? 'a payment to a fresh address only they find' : 'nothing: not how much, not to whom']];
 }
-const hxAskWhy = () => 'Whoever opens the link sees this payment filled in, ready to send.';
+const hxAskSays = () => [['The link', 'opens this payment filled in, ready to send']];
 const hxCanShare = () => typeof navigator.share === 'function' && matchMedia('(pointer: coarse)').matches;
 async function hxAskGo() {
   const a = S.key?.tacit, u = hxUnits();
@@ -11494,7 +11503,7 @@ async function hxQuote() {
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld(); HX.heldTac = hxHeldTac(); HX.heldSend = hxSendHeld();
   if (m === 'send') HX.rk = hxRcptKind() + (hxSendFit() ? '!' : '');
-  if (m === 'send' && HX.ask) return done({ line: hxAskWhy() });
+  if (m === 'send' && HX.ask) return done({ rc: hxAskSays() });
   if (m === 'send' && hxSendFit()) return done({ warn: true, line: hxSendFit() });
   if (m === 'send' && hxSendBtc()) return done({ rc: hxSendSees() });
   if (m === 'btc' && HX.dir === 'in' && S.key) loadBridge().then(() => paintHxQ(), () => paintHxQ());
@@ -11827,14 +11836,18 @@ function paintHxQ() {
     const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac), borrows = !p && HX.mode === 'borrow' ? hxBorrowPts() : null;
     pts.hidden = !p && !borrows;
     if (p) hxWantPoints();
-    if (borrows) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>TAC points</b> for borrowing <a class="link" href="#points" data-link="points">terms</a></span>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}`);
-    if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
+    // one more receipt row: the figure, with what it rests on folded under its "how?" (for borrowing, each rate's own terms)
+    const row = (v) => html`<dl class="rcpt"><div><dt><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg>TAC points</dt><dd><b>${v}</b><button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></dd></div></dl>`;
+    const lead = (m) => m.split(/[,;]\s| \(| once | when | until | while /)[0].trim();
+    if (borrows) mount(pts, html`${row(borrows.map(([, , , m]) => lead(m)).join(' · '))}
+      <span class="note" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}<a class="link" href="#points" data-link="points">All terms</a></span>`);
+    if (p) mount(pts, html`${row(p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`)}
       ${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
       <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${p.why ? `${p.why}. ` : ''}${ptsWhy(q.pk === 'dev')}</span>`);
   }
   hxHave();
   const go = $('#hx-go');
-  if (go && !HX.ask) go.classList.toggle('priv', hxPrivOut());
+  if (go && !(HX.tab === 'send' && HX.ask)) go.classList.toggle('priv', hxPrivOut());
   if (!q.busy) { const line = $('#hx-q'); if (line) { line.textContent = q.line || ''; line.classList.toggle('warn', !!q.warn); } if (go && q.go) go.textContent = q.go; }
   if (HX.goNext && !q.busy && !q.early) { HX.goNext = false; if (!q.failed) setTimeout(hxGo); }
   const alt = $('#hx-alt');
@@ -11992,7 +12005,7 @@ function paintHx() {
   };
   // where what goes in is held: a switch when it can be in more than one place
   const held = (groups, place) => (groups.length < 2 ? html`<span class="where">${HX_PLACE[place]}</span>`
-    : html`<span class="sides" role="radiogroup" aria-label="Held in" data-hxp>${groups.map(([, , p]) => html`<button type="button" role="radio" data-place="${p}" aria-checked="${p === place}" tabindex="${p === place ? 0 : -1}"${p === 'bitcoin' ? ' aria-label="Bitcoin" title="Bitcoin"' : ''}>${p === 'private' ? html`<i class="lock" aria-hidden="true"></i>Private` : p === 'bitcoin' ? html`<svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>` : 'Wallet'}</button>`)}</span>`);
+    : html`<span class="sides" role="radiogroup" aria-label="Held in" data-hxp>${groups.map(([, , p]) => html`<button type="button" role="radio" data-place="${p}" aria-checked="${p === place}" tabindex="${p === place ? 0 : -1}"${p === 'bitcoin' ? ' aria-label="Bitcoin" title="Bitcoin"' : ''}>${p === 'private' ? html`<i class="lock" aria-hidden="true"></i>Private` : p === 'bitcoin' ? html`<svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span class="pl">Bitcoin</span>` : 'Wallet'}</button>`)}</span>`);
   const field = (lbl, where, main, side = '', ff = true, priv = false, more = '') => html`<div class="f${priv ? ' priv' : ''}"><div class="fh"><span>${lbl}</span>${where}</div><div class="fm">${main}${side}</div>${ff ? html`<div class="ff"><span class="num" id="hx-sub"></span><span id="hx-bal"></span></div>` : ''}${more}</div>`;
   const mid = (flip) => html`<div class="mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : html`<span class="arr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`}</div>`;
@@ -12050,8 +12063,9 @@ function paintHx() {
     body = HX.ask ? html`${what('You ask for', 'Asset to ask for')}
       ${mid()}
       ${field('Paid to', html`<span class="where">your tacit1 address</span>`, html`<span class="say">${HX.askFor ? short(HX.askFor, 12) : 'Open your wallet to get the link'}</span>`, '', false)}
+      <dl class="rcpt" id="hx-receipt">${hxAskSays().map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
       <div class="hx-have" id="hx-have" hidden></div>
-      ${button(HX.askFor ? (hxCanShare() ? 'Share payment link' : 'Copy payment link') : 'Open your wallet', hxAskWhy())}
+      ${button(HX.askFor ? (hxCanShare() ? 'Share payment link' : 'Copy payment link') : 'Open your wallet')}
       <p class="q"><button class="link" type="button" id="hx-pay">Send instead</button></p>`
     : html`${what('You send', 'Asset to send')}
       ${mid()}
