@@ -42,18 +42,22 @@ const EXIT_TTL = 1800;
 const nonce = () => BigInt('0x' + Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')).toString();
 
 // `getUx()` gives the page's pool module; `pick(list)` chooses among several Ethereum wallets for the key sheet; `onKey(text)` is told when the key opens or is locked (`text` says why).
-export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
-  const key = makeKeySession({ moved: (why) => { lock(); onKey(why); } });
+// A page that holds a Tacit key of its own (the front page) hands it over instead: `session` (unlocked, key, priv()), `openKey(why)` to ask for it
+// (resolves once it is open), and `wait(label, ms)` for the relay's jobs to go into the page's own Activity journal.
+export function makePrivate({ getUx, pick, onKey = () => {}, session = null, openKey = null, wait = null } = {}) {
+  const key = session || makeKeySession({ moved: (why) => { lock(); onKey(why); } });
   let held = null, heldP = null, runner = null, opening = null;
   const busy = new Map();                                     // leaf -> when a step that spends it was sent and may still land
   const free = (n) => !(Date.now() - (busy.get(lc(n.leaf)) || 0) < IN_USE_MS);
-  const run = () => (runner ||= makeRunner({ api: API, base: async () => API, pub: () => key.key?.pubHex || null }));
+  const run = () => (wait ? { wait } : runner ||= makeRunner({ api: API, base: async () => API, pub: () => key.key?.pubHex || null }));
 
-  function lock() { key.lock(); forgetUx(); held = null; heldP = null; busy.clear(); }
+  // what was read under a key: dropped when it locks, or when the page's own key changes
+  function reset() { held = null; heldP = null; busy.clear(); }
+  function lock() { if (!session) key.lock(); forgetUx(); reset(); }
   // one sheet at a time: a second press while it is open waits for the same one
   function open(why = 'Open your Tacit wallet to swap privately. This page never stores the key.') {
     if (key.unlocked) return Promise.resolve();
-    return (opening ||= signInSheet(key, { pick, why }).then(() => { held = null; onKey(''); }).finally(() => { opening = null; }));
+    return (opening ||= (openKey ? openKey(why) : signInSheet(key, { pick, why })).then(() => { held = null; onKey(''); }).finally(() => { opening = null; }));
   }
 
   // What the key holds, by pool asset id: its unspent notes and their sum. Read again after every swap.
@@ -332,7 +336,7 @@ export function makePrivate({ getUx, pick, onKey = () => {} } = {}) {
   }
 
   return {
-    open, lock, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate,
+    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate,
     // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
     relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },
