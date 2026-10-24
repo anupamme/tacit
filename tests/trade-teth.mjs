@@ -343,7 +343,7 @@ try {
   ok((await p.title()) === 'tETH $2,441 · tacit', 'the tab names it and its price');
   const sub = await text(p, '#px-sub');
   const heldTxt = (Number(HELD) / 1e18).toFixed(2);
-  ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /ETH made private in 187 deposits · 64 wallets/.test(sub) && /24h: .* ETH moved/.test(sub) && !/ in .* out /.test(sub.replace(/made private in/, '')), `the line under it says what the pool holds, what has been made private in how many deposits, and what moved in a day (${sub.slice(0, 160)})`);
+  ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /ETH transacted in 187 deposits · 64 wallets/.test(sub) && /24h: .* ETH moved/.test(sub) && !/ in .* out /.test(sub.replace(/made private in/, '')), `the line under it says what the pool holds, what has been made private in how many deposits, and what moved in a day (${sub.slice(0, 160)})`);
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
   ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');

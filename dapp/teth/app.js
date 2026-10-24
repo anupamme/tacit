@@ -35,7 +35,7 @@ function renderHead() {
   const bits = [`<span title="Put in ETH, take out ETH: the pool gives one for one"><b class="num">1 tETH</b> = 1 ETH, private</span>`];
   if (P) {
     bits.push(`<span><b class="num">${esc(grp(toEth(P.held), 2))} ETH</b>${px != null ? ` (${compact(toEth(P.held) * px)})` : ''} held in the pool</span>`);
-    bits.push(`<span>${P.inWei > 0n ? `<b class="num">${esc(ethTxt(P.inWei))} ETH</b> made private in ` : ''}${grp(P.deposits, 0)} deposits${P.wallets ? ` · ${grp(P.wallets, 0)} wallets` : ''}</span>`);
+    bits.push(`<span>${P.inWei > 0n ? `<b class="num">${esc(ethTxt(P.inWei))} ETH</b> transacted in ` : ''}${grp(P.deposits, 0)} deposits${P.wallets ? ` · ${grp(P.wallets, 0)} wallets` : ''}</span>`);
   }
   if (D.hist) {
     const m = movedSince(D.hist.pts, 86400);
