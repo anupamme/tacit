@@ -214,3 +214,34 @@
 .swc .mid .flip { display: grid; margin: -18px 0 0 -18px; }
 .swc .btn:hover:not(:disabled), .swc .btn:active:not(:disabled) { transform: none; box-shadow: none; }
 .swc .tk.sm { width: 18px; height: 18px; }
+
+/* what the front page's tile draws with these parts besides the swap (Shield, Send, Earn, Borrow): a coin chosen from a list, a row that is the only
+   way, the line that opens the others, an arrow where nothing flips, an address or a word in place of an amount, a unit after a figure, a ₿ place */
+.swc .coin { position: relative; }
+.swc .coin select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; pointer-events: none; }
+.swc .coin.one { cursor: default; padding-right: 14px; }
+@media (hover: hover) { .swc .coin.one:hover { border-color: var(--hair-2); } .swc .coin.one:hover .tk { transform: none; } }
+.swc .coin:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.swc .sides .tk { width: 14px; height: 14px; }
+.swc .rows .c { grid-template-columns: 34px minmax(0, 1fr) auto 18px; }
+.swc .rows .c > .tk { width: 34px; height: 34px; transition: opacity .15s; }
+.swc .rows .c[aria-checked="false"] > .tk { opacity: .6; }
+.swc .rows > .one { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 14px 9px; border-top: 1px solid var(--hair); }
+.swc .rows > .one.c { grid-template-columns: 34px minmax(0, 1fr) auto; }
+.swc .rows-h + .one { border-top: 0; }
+.swc .rows > .one .rt b, .swc .rows > .one .ra { color: var(--ink); }
+.swc .rows .ra output { font: inherit; }
+.swc .rows .ra output.busy { opacity: .45; }
+.swc .rows button.fold { display: block; width: auto; padding: 2px 14px 12px; font-size: 12px; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; border-top: 0; }
+@media (hover: hover) { .swc .rows button.fold:hover { color: var(--ink); background: none; } }
+.swc .rows.folded [data-hxd]:not([hidden]) { border-top: 0; }
+.swc .rows [data-wait] .ra, .swc .rows [aria-disabled="true"] > :not(.rt) { opacity: .45; }
+.swc .mid .arr { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 36px; height: 36px; margin: -18px 0 0 -18px; color: var(--mute); background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; }
+.swc .mid .arr svg { width: 14px; height: 14px; }
+.swc .fm .addr { flex: 1; min-width: 0; padding: 8px 0; font: 16px var(--mono); color: var(--ink); text-overflow: ellipsis; background: none; border: 0; outline: none; }
+.swc .fm .addr::placeholder { color: var(--mute); opacity: .6; }
+.swc .fm .word { flex: 1; min-width: 0; font: 400 34px/1.15 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+.swc .fm .say { flex: 1; min-width: 0; font: 13px/1.5 var(--mono); color: var(--mute); overflow-wrap: anywhere; }
+.swc .fm .unit { flex: none; font-size: 12px; color: var(--mute); white-space: nowrap; }
+.swc .fh .where { color: var(--mute); }
+.swc .q.warn { color: var(--warn); }
