@@ -1860,7 +1860,7 @@ function startHttp(store, evmState) {
           ...lpFundingFields(await readFunding(state, BigInt(totalLedgerWei))),
           adjustments: store.listAdjustments().map((a) => ({ id: a.id, address: a.address, wei: a.wei, appliedAt: a.appliedAt })),
           rateCapSchedule: rateCapSchedule.map((e) => ({ fromDay: e.fromDay, maxWeiPerPoint: e.maxWeiPerPoint === null ? null : e.maxWeiPerPoint.toString() })),
-          budgets: budgetSchedule.map((e) => ({ fromDay: e.fromDay, groups: e.groups.map((g) => ({ name: g.name, activities: g.activities, share: g.sharePpm / 1e6, maxWeiPerPoint: g.maxWeiPerPoint === null ? null : g.maxWeiPerPoint.toString() })) })),
+          budgets: budgetSchedule.map((e) => ({ fromDay: e.fromDay, groups: e.groups.map((g) => ({ name: g.name, activities: g.activities, share: g.sharePpm / 1e6, maxWeiPerPoint: g.maxWeiPerPoint === null ? null : g.maxWeiPerPoint.toString(), ...(g.topWeiPerPoint ? { topWeiPerPoint: g.topWeiPerPoint.toString() } : {}) })) })),
           leaderboard,
         }));
         return;

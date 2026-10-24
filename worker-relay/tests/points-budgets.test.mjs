@@ -280,3 +280,67 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   assert.equal(checkSettledBudgets(settledBudgets(parseBudgets('20747:stay=holding+cbtchold@0.25/0.02,use=zswapeth@0.15/0.01'), 20748), sched).ok, true);
   console.log('ok - a capped group is paid at most its share; the rest of the day stays unpaid rather than going to it');
 }
+
+// ── a top-up ceiling: what is left after everyone is paid goes to the group that has one, and nobody is paid less for it ──
+{
+  const logs = [];
+  const text = (stay) => `20752:stay=holding+cbtchold@0.25/${stay},use=zswapeth+cusdmint+cbtcmint+weiname+pmbet+pmcreate@0.15/0.015,loop=wrap+evmpooldeposit+btcpool@0.6!/0.03`;
+  const s = parseBudgets(`${text('0.03+0.04')};20760:a=wrap@0.5/0.02+0.02;20761:a=wrap@0.5!/0.02+0.03;20762:a=wrap@0.5+0.03;20763:b=wrap@0.5/0.02+`, (m) => logs.push(m));
+  assert.deepEqual(s.map((e) => e.fromDay), [20752], 'a top-up not above the ceiling, on a capped group, with no ceiling, or empty is refused');
+  assert.equal(logs.length, 4, logs.join(' | '));
+  const [stay] = s[0].groups;
+  assert.deepEqual([stay.maxWeiPerPoint, stay.topWeiPerPoint], [3n * TAC / 100n, 4n * TAC / 100n]);
+  assert.equal(groupTerms(stay).topWeiPerPoint, (4n * TAC / 100n).toString());
+  assert.equal(groupTerms(s[0].groups[1]).topWeiPerPoint, undefined, 'a group without one says nothing of it');
+  // the record of what settled days were paid under is as it was for entries without a top-up, and tells one with a top-up from one without
+  const plain = parseBudgets('20747:stay=holding+cbtchold@0.25/0.02,use=zswapeth@0.15/0.01;20750:loop=wrap@0.6!/0.03');
+  assert.equal(settledBudgets(plain, 20750), '{"throughDay":20750,"entries":"[[20747,[[\\"stay\\",[\\"holding\\",\\"cbtchold\\"],250000,\\"20000000000000000\\"],[\\"use\\",[\\"zswapeth\\"],150000,\\"10000000000000000\\"]]],[20750,[[\\"loop\\",[\\"wrap\\"],600000,\\"30000000000000000\\",\\"capped\\"]]]]"}', 'unchanged');
+  assert.equal(checkSettledBudgets(settledBudgets(s, 20752), parseBudgets(text('0.03'))).ok, false, 'a top-up added to a settled entry is a change of it');
+
+  // a day shaped like a recent one: a few stayers, almost no one in use, a lot of loops (points: 11,853 / 887 / 2.58M)
+  const rows = [row(A('1'), { holding: 9160 }), row(A('2'), { holding: 2693 }), row(A('3'), { zswapeth: 887 }), row(A('4'), { wrap: 1_300_000 }), row(A('5'), { evmpooldeposit: 1_278_032 })];
+  const pot = 1111n * TAC, withTop = (stayText, cap) => allocateDay({ rows, budgetWei: pot, maxWeiPerPoint: cap, groups: parseBudgets(text(stayText))[0].groups });
+  const before = withTop('0.03', 4n * TAC / 100n), after = withTop('0.03+0.04', 4n * TAC / 100n);
+  const by = (r) => Object.fromEntries(r.groups.map((x) => [x.name, x.paidWei]));
+  assert.equal(by(after).use, by(before).use); assert.equal(by(after).loop, by(before).loop, 'use and loop are paid what they were');
+  assert.ok(by(after).stay > by(before).stay);
+  assert.equal(by(after).stay - by(before).stay, pot - before.pot, 'the stayers take exactly the part that was unpaid');
+  assert.equal(after.pot, pot, 'and the day is paid in full');
+  assert.equal(after.pot, by(after).stay + by(after).use + by(after).loop);
+  assert.ok(after.pot <= pot && after.pot > before.pot);
+  for (const [addr, wei] of before.paid) assert.ok(after.paid.get(addr) >= wei, 'nobody is paid less');
+  // held to the day's own ceiling: with the day at 0.03 a top-up of 0.04 changes nothing
+  const same = withTop('0.03+0.04', ceiling), none = withTop('0.03', ceiling);
+  assert.deepEqual([...same.paid], [...none.paid]); assert.equal(same.pot, none.pot);
+  // a top-up equal to the ceiling is no top-up at all
+  const g0 = parseBudgets(text('0.03'))[0].groups.map((g) => (g.name === 'stay' ? { ...g, topWeiPerPoint: g.maxWeiPerPoint } : g));
+  assert.deepEqual([...allocateDay({ rows, budgetWei: pot, maxWeiPerPoint: 4n * TAC / 100n, groups: g0 }).paid], [...before.paid]);
+
+  // and over many days, whoever is in them: no address and no group is paid less, the budget is never passed, and a capped group stays under its share
+  let seed = 4242; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const acts = ['holding', 'cbtchold', 'zswapeth', 'cusdmint', 'weiname', 'pmbet', 'wrap', 'evmpooldeposit', 'btcpool'];
+  let more = 0;
+  for (let d = 0; d < 400; d++) {
+    const rs = []; for (let i = 0, n = 1 + Math.floor(rnd() * 7); i < n; i++) { const by_ = {}; for (let j = 0, m = 1 + Math.floor(rnd() * 3); j < m; j++) by_[acts[Math.floor(rnd() * acts.length)]] = Math.round(Math.exp(rnd() * 14) * 100) / 100; rs.push(row(A(String(i + 1)), by_)); }
+    const b = BigInt(Math.round(50 + rnd() * 2000)) * TAC, cap = rnd() < 0.2 ? null : 4n * TAC / 100n;
+    const run = (stayText) => allocateDay({ rows: rs, budgetWei: b, maxWeiPerPoint: cap, groups: parseBudgets(text(stayText))[0].groups });
+    const lo = run('0.03'), hi = run('0.03+0.04');
+    for (const [addr, wei] of lo.paid) assert.ok((hi.paid.get(addr) ?? 0n) >= wei, `day ${d}: ${addr} is paid less`);
+    hi.groups.forEach((x, j) => assert.ok(x.paidWei >= lo.groups[j].paidWei, `day ${d}: group ${x.name} is paid less`));
+    assert.ok(sum(hi.paid) <= b, `day ${d}: over the budget`);
+    assert.ok(hi.groups.find((x) => x.name === 'loop').paidWei <= b * 600000n / 1000000n, `day ${d}: the capped loops are over their share`);
+    if (hi.pot > lo.pot) more++;
+  }
+  assert.ok(more > 20, `some of the days had something to give (${more})`);
+  // two groups with a top-up share what is left by points, each up to its own
+  {
+    const two = (r) => allocateDay({ rows: r, budgetWei: 1000n * TAC, maxWeiPerPoint: 5n * TAC / 100n, groups: parseBudgets('1:a=holding@0.1/0.01+0.05,b=zswapeth@0.1/0.01+0.05,c=wrap@0.5!/0.01')[0].groups });
+    const r = two([row(A('1'), { holding: 30000 }), row(A('2'), { zswapeth: 10000 }), row(A('3'), { wrap: 1_000_000 })]);
+    const paidOf = (n) => r.groups.find((x) => x.name === n).paidWei;
+    // 1: a 100 (its 300 at the ceiling is over its reservation), b 100, c 500 (capped): 700. 2: a takes 200 more, to its ceiling: 900.
+    // 2b: the last 100 is shared by points, 30,000 to 10,000: 75 and 25.
+    assert.deepEqual([paidOf('a'), paidOf('b'), paidOf('c')], [375n * TAC, 125n * TAC, 500n * TAC]);
+    assert.equal(r.pot, 1000n * TAC);
+  }
+  console.log('ok - a top-up ceiling is paid from what is left, held to the day\'s ceiling, and never takes from anyone');
+}
