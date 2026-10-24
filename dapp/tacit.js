@@ -8409,14 +8409,15 @@ function _updateBridgeBadge() {
 const _ETH_PUBLIC_RPCS = {
   1: [
     'https://ethereum-rpc.publicnode.com',
-    'https://1rpc.io/eth',
+    'https://mainnet.gateway.tenderly.co',
     'https://eth.drpc.org',
+    'https://1rpc.io/eth',
   ],
   11155111: [
     'https://ethereum-sepolia-rpc.publicnode.com',
-    'https://1rpc.io/sepolia',
-    'https://sepolia.drpc.org',
     'https://sepolia.gateway.tenderly.co',
+    'https://sepolia.drpc.org',
+    'https://1rpc.io/sepolia',
   ],
 };
 
@@ -8437,22 +8438,36 @@ async function _ethProviderOnBridgeChain() {
   return _ethProviderChainOk;
 }
 
+const _ethRpcRestUntil = new Map(); // node URL → when it may lead again
 async function _ethRpcCall(method, params) {
   if (await _ethProviderOnBridgeChain()) {
     try { return await _ethProvider().request({ method, params }); }
     catch { }
   }
+  // Each node gets 12 s. One that doesn't answer, refuses with an HTTP error or is rate-limited rests at the back of the
+  // list for a minute, so while it is down the next call goes straight to one that works. A revert is the contract's
+  // answer and ends the call; any other refusal tries the next node.
   const rpcs = _ETH_PUBLIC_RPCS[TETH_BRIDGE.chainId] || _ETH_PUBLIC_RPCS[1];
-  for (const rpc of rpcs) {
+  const now = Date.now();
+  const order = [...rpcs.filter((u) => !(_ethRpcRestUntil.get(u) > now)), ...rpcs.filter((u) => _ethRpcRestUntil.get(u) > now)];
+  for (const rpc of order) {
+    let json = null;
     try {
       const resp = await fetch(rpc, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal: AbortSignal.timeout(12_000),
       });
-      const json = await resp.json();
-      if (json.error) continue;
-      return json.result;
-    } catch { continue; }
+      json = await resp.json().catch(() => null);
+      if (!resp.ok || !json || resp.status === 429 || /rate.?limit|too many|quota|capacity/i.test(json?.error?.message || '')) json = null;
+    } catch { json = null; }
+    if (!json) { _ethRpcRestUntil.set(rpc, Date.now() + 60_000); continue; }
+    _ethRpcRestUntil.delete(rpc);
+    if (json.error) {
+      if (json.error.code === 3 || /revert/i.test(json.error.message || '')) throw Object.assign(new Error(json.error.message || 'execution reverted'), { revert: true, data: json.error.data });
+      continue;
+    }
+    return json.result;
   }
   throw new Error('all Ethereum RPCs failed');
 }

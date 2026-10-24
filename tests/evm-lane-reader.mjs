@@ -93,4 +93,25 @@ function makeEthCall(balances) {
   ok('external watch-tokens surface as display-only rows in token-native units');
 }
 
-console.log(`\n${n}/4 EVM-lane reader checks passed`);
+// ── 5. a failed balance read is not a zero balance: the last one read stands in, marked stale ──
+{
+  const USDT = '0x' + 'dd'.repeat(20), EVM2 = '0x' + '22'.repeat(20);
+  let down = false;
+  const live = makeEthCall({ [USDT.toLowerCase()]: 5000000n });
+  const ethCall = async (to, data) => { if (down && data.startsWith(BAL)) throw new Error('all Ethereum RPCs failed'); return live(to, data); };
+  const reader = (evmAddress) => makeEvmLaneReader({ ethCall, keccak256, resolver: X, evmAddress, pool: POOL, externalErc20: [{ ticker: 'USDT', address: USDT, decimals: 6 }] });
+  const first = (await reader(EVM2).readExternalErc20())[0];
+  assert.strictEqual(first.balance, 5000000n);
+  assert.strictEqual(first.stale, undefined, 'a fresh read is not marked stale');
+  down = true;
+  const again = (await reader(EVM2).readExternalErc20())[0];
+  assert.ok(again, 'the row stays while every node is down');
+  assert.strictEqual(again.balance, 5000000n, 'with the last balance read');
+  assert.strictEqual(again.stale, true, 'marked stale');
+  assert.deepStrictEqual(await reader('0x' + '33'.repeat(20)).readExternalErc20(), [], 'an address never read has no row, as before');
+  down = false;
+  assert.strictEqual((await reader(EVM2).readExternalErc20())[0].stale, undefined, 'the next good read replaces it');
+  ok('a failed balance read keeps the last balance read, marked stale, instead of reading as zero');
+}
+
+console.log(`\n${n}/5 EVM-lane reader checks passed`);

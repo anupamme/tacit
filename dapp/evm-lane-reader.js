@@ -16,6 +16,12 @@ const _selector = (keccak256, sig) =>
 const _pad32 = (hex) => String(hex).replace(/^0x/, '').toLowerCase().padStart(64, '0');
 const _isZeroAddr = (a) => !a || /^0x0*$/.test(a);
 
+// A balance read that fails (every node busy or down) is not a zero balance. The last balance read for that token and
+// address stands in for it, marked `stale`, and with none read yet the row is left out as before. A pool's canonical
+// token never changes once set, so it is read once.
+const _lastBalance = new Map();   // token|address → bigint
+const _canonicalOf = new Map();   // pool|assetId → token address
+
 export function makeEvmLaneReader({ ethCall, keccak256, resolver, evmAddress, pool, externalErc20 = [], extraReaders = [] } = {}) {
   if (!ethCall || !keccak256 || !resolver || !evmAddress || !pool) {
     return { readEvmLanes: async () => [] }; // inert until configured
@@ -25,10 +31,27 @@ export function makeEvmLaneReader({ ethCall, keccak256, resolver, evmAddress, po
 
   async function canonicalToken(d) {
     if (d.canonicalErc20 && !_isZeroAddr(d.canonicalErc20)) return d.canonicalErc20;
+    const key = `${String(pool).toLowerCase()}|${d.assetId}`;
+    if (_canonicalOf.has(key)) return _canonicalOf.get(key);
     const r = await ethCall(pool, canonSel + _pad32(d.assetId)).catch(() => null);
     if (!r || r === '0x') return null;
     const addr = '0x' + r.replace(/^0x/, '').slice(-40);
-    return _isZeroAddr(addr) ? null : addr;
+    if (_isZeroAddr(addr)) return null;
+    _canonicalOf.set(key, addr);
+    return addr;
+  }
+
+  // → { raw, stale } for `token` at evmAddress, or null when it can't be read and never has been.
+  async function balanceOf(token) {
+    const key = `${String(token).toLowerCase()}|${String(evmAddress).toLowerCase()}`;
+    try {
+      const hex = await ethCall(token, balSel + _pad32(evmAddress));
+      const raw = hex && hex !== '0x' ? BigInt(hex) : 0n;
+      _lastBalance.set(key, raw);
+      return { raw, stale: false };
+    } catch {
+      return _lastBalance.has(key) ? { raw: _lastBalance.get(key), stale: true } : null;
+    }
   }
 
   // The canonical-ERC20 EVM lane for every resolver asset with an Ethereum lane (normalized to base units).
@@ -38,11 +61,10 @@ export function makeEvmLaneReader({ ethCall, keccak256, resolver, evmAddress, po
       if (!Array.isArray(d.lanes) || !d.lanes.includes('ethereum')) continue;
       const token = await canonicalToken(d);
       if (!token) continue;
-      const balHex = await ethCall(token, balSel + _pad32(evmAddress)).catch(() => null);
-      const bal18 = balHex && balHex !== '0x' ? BigInt(balHex) : 0n;
-      if (bal18 === 0n) continue;
+      const b = await balanceOf(token);
+      if (!b || b.raw === 0n) continue;
       const scale = d.unitScale ?? unitScaleFor(d.tacitDecimals ?? 8);
-      out.push({ assetId: d.assetId, ticker: d.ticker, decimals: d.tacitDecimals, balance: bal18 / scale, source: 'eth-canonical', lane: 'ethereum' });
+      out.push({ assetId: d.assetId, ticker: d.ticker, decimals: d.tacitDecimals, balance: b.raw / scale, source: 'eth-canonical', lane: 'ethereum', ...(b.stale ? { stale: true } : {}) });
     }
     return out;
   }
@@ -56,10 +78,9 @@ export function makeEvmLaneReader({ ethCall, keccak256, resolver, evmAddress, po
     const out = [];
     for (const t of (externalErc20 || [])) {
       if (!t || _isZeroAddr(t.address)) continue;
-      const balHex = await ethCall(t.address, balSel + _pad32(evmAddress)).catch(() => null);
-      const raw = balHex && balHex !== '0x' ? BigInt(balHex) : 0n;
-      if (raw === 0n) continue;
-      out.push({ assetId: t.address.toLowerCase(), ticker: t.ticker, decimals: t.decimals, balance: raw, rawBalance: raw, source: 'eth-external', lane: 'ethereum', external: true });
+      const b = await balanceOf(t.address);
+      if (!b || b.raw === 0n) continue;
+      out.push({ assetId: t.address.toLowerCase(), ticker: t.ticker, decimals: t.decimals, balance: b.raw, rawBalance: b.raw, source: 'eth-external', lane: 'ethereum', external: true, ...(b.stale ? { stale: true } : {}) });
     }
     return out;
   }
