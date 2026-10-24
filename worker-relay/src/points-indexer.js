@@ -1956,7 +1956,7 @@ function lpDeps(store) {
 function setupLpFarms(store) {
   if (!CFG.pointsProgramStartSec) return [];
   const out = [];
-  for (const f of parseLpFarms(CFG.pointsLpFarms, log)) {
+  for (const f of parseLpFarms(CFG.pointsLpFarms, log, parseLpPools(CFG.pointsLpPools, () => {}).map((p) => p.pool))) {
     try {
       out.push(createLp({
         ...lpDeps(store), name: f.name,

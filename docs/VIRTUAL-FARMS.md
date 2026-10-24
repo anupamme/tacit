@@ -11,7 +11,8 @@ Code: [`points-lp.js`](../worker-relay/src/lib/points-lp.js) (the rules, pure), 
 
 - **Duration.** An address is paid on the *lowest* number of shares it held at any moment of the UTC day. Shares that arrive at 00:01
   earn nothing that day; shares that leave at 23:59 lose the day; a flash of liquidity earns nothing. A day of unbroken holding is a full
-  credit, and `streak` (on `/lp?address=`) counts the days in a row.
+  credit, and `streak` (on `/lp?address=`) counts the days in a row that were credited (a day the campaign credited nobody, because a pool
+  had too few readings or its pocket was spent, ends everyone's run).
 - **Value.** The lowest shares times the pool's value per share, which is the median of 24 hourly readings (at least 12 are needed).
   A pegged token (TACD, TACE) is marked at the lower of the pool's price and the peg; a pool listed with `/spot` is marked at its own price.
 - **Share.** The day's `daily` amount is shared by weighted dollars held, no address paid more than `cap` TAC per weighted dollar. What the
@@ -27,13 +28,23 @@ supply there), every hourly reading *at a block* (reserves, price, the ETH feed'
 the credits. `GET /lp/day/<n>` (with `?farm=<name>` for a farm) returns it.
 
 ```
-node tools/lp-verify.mjs <day> [--farm <name>] [--rpc <archive node>]
+node tools/lp-verify.mjs <day> [--farm <name>] [--rpc <archive node>] [--reference]
 ```
 
-reads all of it again from the chain: the readings at their blocks, the pool's logs replayed and checked against the supply, every holder's
-lowest balance, and the credits by the same rule, then compares each figure and the credits to the ledger (`/rewards`). A reading made before
-readings were pinned is a note, not a failure. What the chain cannot say is the campaign's own terms (amounts, cap, weights, who is never
-paid); those are the operator's published schedule, and the check lists the addresses left out.
+reads all of it again from the chain: each reading at its block (and the block's hash), the pool's logs replayed to the replay point, which
+has to be at or after the end of the UTC day by the chain's own clock, and checked against the supply, every holder's lowest balance, and the
+credits by the same rule, then compares each figure, and the credits to the ledger (`/rewards`) in both directions. What it shows and what it
+does not:
+
+- It shows that every reading is a real state of the chain inside its hour, that the replay and each holder's lowest shares are what the
+  transfers say, and that the credits are what the rule gives for them. A reading made before readings were pinned to blocks cannot be
+  checked and is a problem unless `--allow-unpinned` (only the day of the upgrade has them).
+- It cannot show which readings were left out. `--reference` reads the pool again at the first block of each of the 24 hours itself and
+  compares the median (an archive node); a service that picked its readings cannot match it.
+- The campaign's own terms (the day's amount, the cap, the weights, the minimums, who is never paid) are the operator's published schedule,
+  not the chain's. The check lists the addresses never paid and compares the pools and terms with what `/lp` publishes now. The record's hash
+  is the service's own and shows only that it was not altered in transit.
+- An opening bonus is a ledger credit of its own, not part of a day's record.
 
 ## Starting a farm
 
@@ -51,7 +62,9 @@ it pays is shared only among the liquidity in its own pools and never thins anot
    "exclude": ["0x<a farm contract that holds shares for others>"] }]
 ```
 
-`fromBlock` must be before the pool was created (the replay is checked against the supply and the pool is not counted if it is not).
+`fromBlock` must be before the pool was created (the replay is checked against the supply and the pool is not counted if it is not:
+`/lp` shows each pool's `replay` as `ok`, `checking` or `mismatch`). A pool is paid for by one campaign only: a farm that lists a pool another
+campaign pays for is refused at start.
 `create` pays whoever opened the pool once; `minUsd`, `minSamples` and `reserveDays` are optional. A pool that already has a staking
 farm needs that contract in `exclude`, or it is paid as one holder. A schedule entry replaces an earlier one from its day on, and `<day>:off`
 ends it; never edit an entry for a day that has been paid. The first campaign is still `POINTS_LP_SCHEDULE`, `POINTS_LP_POOLS`,

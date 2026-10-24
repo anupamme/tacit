@@ -3,18 +3,28 @@
 // When the service pays a day (lib/points-lp-service.js) it keeps a record of everything the payment rests on, with the record's hash:
 //   the terms (what the day shared, the cap, the minimums), the addresses never paid, and for each pool
 //     - its opener, and the point its transfers were replayed to and checked against the chain (a block, its time, the supply there);
-//     - each hourly reading of its value per share, at a block: the block and its time, the pool's reserves, supply and price there and the
-//       price feed's round, with the value per share they make; and the median of those, which is the day's value per share;
+//     - each hourly reading of its value per share, at a block: the block, its hash and its time, the pool's reserves, supply and price
+//       there and the price feed's round, with the value per share they make; and the median of those, which is the day's value per share;
 //   each holder's lowest number of shares at any moment of the UTC day, and what that was worth;
 //   and the credits, one for each address, with the ledger id each was given.
 // Nothing in it is a promise: every figure can be read again from the chain.
 //
 // checkDayRecord does that. It needs only a node with the history (an archive node for an old day), the record, and the pool's first block
-// (found by search when it is not given): it reads the pool's readings again at their blocks, replays the pool's Transfer logs to the same
-// point and checks the replay against the supply there, finds each address's lowest balance of the day, values it, shares the day out with
-// the same rule (allocateLpDay) and compares every figure to the record's. A record that does not match its hash, a reading that is not what the
-// chain says, a holder that was left out or added, or a credit that is not what the rule gives, is a problem; a reading made before readings
-// were pinned to blocks is a note (it cannot be checked, and the day's median still counts it).
+// (found by search when it is not given): it reads each reading again at its block, replays the pool's Transfer logs to the replay point (which
+// must be at or after the end of the UTC day, by the chain's own clock) and checks the replay against the supply there, finds each address's
+// lowest balance of the day, values it, shares the day out with the same rule (allocateLpDay), and compares every figure to the record's and
+// the credits to the ledger both ways (every credit of the record is in the ledger, and every ledger credit of the day is in the record).
+//
+// What it can and cannot show, said plainly:
+//   - It shows that every reading is a real state of the chain inside its hour, that the replay and every holder's lowest balance are what the
+//     transfers say, and that the credits are what the rule gives for those figures.
+//   - It cannot show which readings were left out: a service could keep its favourite blocks of each hour. `reference: true` reads the pool
+//     again at the first block of each of the 24 hours itself and compares the median, which a service that picked its readings cannot match.
+//   - The campaign's own terms (the day's amount, the cap, the weights, the minimums, who is never paid) are the operator's published schedule,
+//     not the chain's; the record states them and the check lists the addresses that were never paid, and verifyServiceDay compares the pools and
+//     terms with what the service publishes now. The hash is the service's own and shows only that the record was not altered in transit.
+//   - A reading made before readings were pinned to blocks cannot be checked: it is a problem unless `allowUnpinned` (the day of the upgrade).
+//   - An opening bonus (`<prefix>open:<pool>`) is a ledger credit of its own and is not part of a day's record.
 import { createHash } from 'node:crypto';
 import { parseAbi, parseAbiItem } from 'viem';
 import { WAD, dayMinimums, medianOf, allocateLpDay, poolValueUsd, classifyPool, dayId, farmPrefix, CREDIT_PREFIX } from './points-lp.js';
@@ -70,80 +80,133 @@ async function firstBlockWithCode(client, pool, last) {
   return lo;
 }
 
-// Checks a day's record against the chain. Returns { ok, problems, notes }.
+// Checks a day's record against the chain. Returns { ok, problems, notes, credits, holders }.
 //   client: a viem public client (an archive node for a day long gone); usdc and ethUsdFeed as the service was configured;
 //   fromBlocks: { <pool>: first block } when known (otherwise found by search); adjustments: the ledger's [{ id, address, wei }] to compare
-//   the credits to, or null; sha256: the hash the service kept with the record, or null.
-export async function checkDayRecord({ record, sha256 = null, client, usdc, ethUsdFeed, fromBlocks = {}, adjustments = null, chunk = 2000 }) {
+//   the credits to, or null; sha256: the hash the service kept with the record, or null;
+//   allowUnpinned: accept readings made before they were pinned (only the day of the upgrade has them);
+//   reference: also read each hour's first block itself and compare the median (an archive node), tolerating `referenceTolerance` (a fraction).
+export async function checkDayRecord({ record, sha256 = null, client, usdc, ethUsdFeed, fromBlocks = {}, adjustments = null, chunk = 2000, allowUnpinned = false, reference = false, referenceTolerance = 0.1 }) {
   const problems = [], notes = [];
   const bad = (m) => problems.push(m);
   if (!record || record.v !== RECORD_VERSION) return { ok: false, problems: [`the record is of version ${record?.v}, not ${RECORD_VERSION}`], notes };
   if (sha256 && hashRecord(record) !== sha256) bad('the record does not match its hash');
-  const day = record.day, start = day * DAY, end = start + DAY, minSamples = record.minSamples;
+  const day = record.day, minSamples = record.minSamples;
+  if (!Number.isInteger(day) || day <= 0) return { ok: false, problems: [...problems, 'the record has no day'], notes };
+  const start = day * DAY, end = start + DAY;
+  if (!Number.isInteger(minSamples) || minSamples < 1 || minSamples > 24) bad(`the record does not say how many readings a day needs (${minSamples})`);
+  if (!Array.isArray(record.pools) || record.pools.length === 0) return { ok: false, problems: [...problems, 'the record has no pools'], notes };
   const exclude = new Set((record.exclude ?? []).map(lower));
-  const rows = [], times = new Map();
-  // What the chain cannot say: the campaign's own terms (the day's amount, the cap, the weights, the minimums, who is never paid) are the
-  // operator's published schedule. The record states them and the check holds the service to applying them; this lists the addresses it left out.
-  const named = [...exclude].filter((a) => a !== ZERO && a !== DEAD && !record.pools.some((p) => lower(p.pool) === a));
-  if (named.length) notes.push(`never paid, by the campaign's configuration: ${named.join(', ')}`);
+  const rows = [], blocks = new Map();
   const read = (address, functionName, blockNumber) => client.readContract({ address, abi: POOL_ABI, functionName, ...(functionName === 'balanceOf' ? { args: [ZERO] } : {}), ...(blockNumber == null ? {} : { blockNumber }) });
-  const timeOf = async (n) => { if (!times.has(n)) times.set(n, Number((await client.getBlock({ blockNumber: BigInt(n) })).timestamp)); return times.get(n); };
+  const blockOf = async (n) => { if (!blocks.has(n)) { const b = await client.getBlock({ blockNumber: BigInt(n) }); blocks.set(n, { ts: Number(b.timestamp), hash: b.hash ? lower(b.hash) : null }); } return blocks.get(n); };
+  const timeOf = async (n) => (await blockOf(n)).ts;
+  // The first block in [lo, hi] that is at or after `want`, by the chain's own clock.
+  const blockAtOrAfter = async (want, lo, hi) => { while (lo < hi) { const mid = Math.floor((lo + hi) / 2); if ((await timeOf(mid)) >= want) hi = mid; else lo = mid + 1; } return lo; };
   const eq = (what, a, b) => { if (String(a) !== String(b)) bad(`${what}: the record has ${a}, the chain gives ${b}`); };
+  // What the pool held, and what a share was worth, at a block: the same reading the service takes.
+  async function readingAt(p, meta, spot, at, blockTs) {
+    const [r0, r1, supply, sqrtNow] = await Promise.all(['reserve0', 'reserve1', 'totalSupply', 'sqrtPriceCurrent'].map((fn) => read(p, fn, at)));
+    let quoteUsdWei = WAD, round = null, stale = false;
+    if (meta.quote === 'ETH') {
+      const f = await client.readContract({ address: ethUsdFeed, abi: FEED_ABI, functionName: 'latestRoundData', blockNumber: at });
+      stale = !(f[1] > 0n) || blockTs - Number(f[3]) > FEED_MAX_AGE;
+      round = f[0]; quoteUsdWei = f[1] * 10n ** 10n;
+    }
+    const value = supply > 0n ? poolValueUsd({ reserveSynth: meta.synthIs1 ? r1 : r0, reserveQuote: meta.synthIs1 ? r0 : r1, quoteDec: meta.quoteDec, sqrtNow, synthIs1: meta.synthIs1, quoteUsdWei, ...(spot ? { pegQuoteWei: null } : {}) }) : null;
+    return { r0, r1, supply, sqrtNow, quoteUsdWei, round, stale, vps: value === null ? null : (value * WAD) / supply };
+  }
 
   for (const rp of record.pools) {
     const p = lower(rp.pool);
-    if (rp.status !== 'ok') { notes.push(`${p}: ${rp.status}; its liquidity was not counted that day`); continue; }
-    if (!rp.cursor) { bad(`${p}: the record has no replay point`); continue; }
+    if (!['ok', 'few', 'skip'].includes(rp.status)) { bad(`${p}: its status "${rp.status}" is not one the service gives`); continue; }
+    if (!rp.cursor || !Number.isInteger(rp.cursor.block)) { bad(`${p}: the record has no replay point`); continue; }
     const [t0, t1] = await Promise.all([read(p, 'token0'), read(p, 'token1')]);
     const meta = classifyPool(t0, t1, usdc);
     if (!meta) { bad(`${p}: not a pool against ETH or USDC`); continue; }
-    if (rp.quote && (rp.quote !== meta.quote || rp.synthIs1 !== meta.synthIs1 || rp.quoteDec !== meta.quoteDec)) bad(`${p}: the record's tokens are not the pool's`);
-
-    // The readings, each again at its block.
-    const vpsList = [], hours = new Set();
-    let unpinned = 0;
-    for (const s of rp.samples ?? []) {
-      if (hours.has(s.hour)) bad(`${p}: two readings for hour ${s.hour}`);
-      hours.add(s.hour);
-      vpsList.push(BigInt(s.vps));
-      if (s.block == null) { unpinned++; continue; }
-      if (s.blockTs < start + s.hour * HOUR - HOUR_SLACK || s.blockTs >= start + (s.hour + 1) * HOUR) bad(`${p}: the reading of hour ${s.hour} was taken at ${s.blockTs}, outside that hour`);
-      const at = BigInt(s.block);
-      eq(`${p} block ${s.block} time`, s.blockTs, await timeOf(s.block));
-      const [r0, r1, supply, sqrtNow] = await Promise.all(['reserve0', 'reserve1', 'totalSupply', 'sqrtPriceCurrent'].map((fn) => read(p, fn, at)));
-      let quoteUsdWei = WAD;
-      if (meta.quote === 'ETH') {
-        const f = await client.readContract({ address: ethUsdFeed, abi: FEED_ABI, functionName: 'latestRoundData', blockNumber: at });
-        if (!(f[1] > 0n) || s.blockTs - Number(f[3]) > FEED_MAX_AGE) bad(`${p}: the price feed was stale at block ${s.block}`);
-        eq(`${p} block ${s.block} feed round`, s.feedRound, f[0]);
-        quoteUsdWei = f[1] * 10n ** 10n;
-      }
-      eq(`${p} block ${s.block} quote price`, s.quoteUsdWei, quoteUsdWei);
-      eq(`${p} block ${s.block} reserve0`, s.r0, r0); eq(`${p} block ${s.block} reserve1`, s.r1, r1); eq(`${p} block ${s.block} price`, s.sqrt, sqrtNow); eq(`${p} block ${s.block} supply`, s.supply, supply);
-      const value = supply > 0n ? poolValueUsd({ reserveSynth: meta.synthIs1 ? r1 : r0, reserveQuote: meta.synthIs1 ? r0 : r1, quoteDec: meta.quoteDec, sqrtNow, synthIs1: meta.synthIs1, quoteUsdWei, ...(rp.spot ? { pegQuoteWei: null } : {}) }) : null;
-      if (value === null) bad(`${p}: the reading of hour ${s.hour} cannot be valued from the chain`); else eq(`${p} block ${s.block} value per share`, s.vps, (value * WAD) / supply);
+    if (rp.status !== 'skip') {
+      if (!rp.quote) bad(`${p}: the record does not say which token is the quote`);
+      else if (rp.quote !== meta.quote || rp.synthIs1 !== meta.synthIs1 || rp.quoteDec !== meta.quoteDec) bad(`${p}: the record's tokens are not the pool's`);
     }
-    if (vpsList.length < minSamples) bad(`${p}: ${vpsList.length} readings, fewer than the ${minSamples} a day needs`);
-    const vps = medianOf(vpsList);
-    eq(`${p} median value per share`, rp.vps, vps);
-    if (unpinned) notes.push(`${p}: ${unpinned} reading(s) predate pinning to blocks and cannot be checked`);
 
-    // The holders, from the pool's own transfers, replayed to the point the service checked them at.
+    // The replay point must be a block of the chain at or after the end of the day, and the replay must agree with the supply there.
     const upto = rp.cursor.block;
+    if (rp.cursor.ts < end) bad(`${p}: the replay point is at ${rp.cursor.ts}, before the end of the day`);
+    eq(`${p} replay point time`, rp.cursor.ts, await timeOf(upto));
     const first = fromBlocks[p] ?? await firstBlockWithCode(client, p, upto);
     const events = await transfersOf(client, p, first, upto, chunk);
     let replay = 0n;
     for (const e of events) { if (e.from === ZERO) replay += e.value; if (e.to === ZERO) replay -= e.value; }
     const code = await client.getCode({ address: p, blockNumber: BigInt(upto) });
     const agrees = !code || code === '0x' ? replay === 0n : (await read(p, 'totalSupply', BigInt(upto))) === replay + (await read(p, 'balanceOf', BigInt(upto)));
+    if (rp.status === 'skip') {
+      if (agrees) bad(`${p}: marked as not counted because its transfers disagree with its supply, and they agree`);
+      else notes.push(`${p}: its transfers from block ${first} do not add up to its supply at block ${upto}; it was not counted that day`);
+      continue;
+    }
     if (!agrees) bad(`${p}: its transfers from block ${first} do not add up to its supply at block ${upto}`);
     eq(`${p} supply at the replay point`, rp.cursor.supply, replay);
+
+    // The readings, each again at its block.
+    const samples = Array.isArray(rp.samples) ? rp.samples : [];
+    const hours = new Set(), vpsList = [];
+    let unpinned = 0;
+    for (const s of samples) {
+      if (!Number.isInteger(s.hour) || s.hour < 0 || s.hour > 23) { bad(`${p}: a reading is of hour ${JSON.stringify(s.hour)}, which is not an hour of the day`); continue; }
+      if (hours.has(s.hour)) { bad(`${p}: two readings for hour ${s.hour}`); continue; }
+      hours.add(s.hour);
+      vpsList.push(BigInt(s.vps));
+      if (s.block == null) {
+        unpinned++;
+        if (!allowUnpinned) bad(`${p}: the reading of hour ${s.hour} was made before readings were pinned to blocks and cannot be checked`);
+        continue;
+      }
+      if (rp.status === 'few') continue;
+      if (s.blockTs < start + s.hour * HOUR - HOUR_SLACK || s.blockTs >= start + (s.hour + 1) * HOUR) bad(`${p}: the reading of hour ${s.hour} was taken at ${s.blockTs}, outside that hour`);
+      const b = await blockOf(s.block);
+      eq(`${p} block ${s.block} time`, s.blockTs, b.ts);
+      if (!s.blockHash || !b.hash) bad(`${p}: block ${s.block} has no hash to compare`); else eq(`${p} block ${s.block} hash`, lower(s.blockHash), b.hash);
+      const r = await readingAt(p, meta, rp.spot, BigInt(s.block), s.blockTs);
+      if (r.stale) bad(`${p}: the price feed was stale at block ${s.block}`);
+      if (meta.quote === 'ETH') eq(`${p} block ${s.block} feed round`, s.feedRound, r.round);
+      eq(`${p} block ${s.block} quote price`, s.quoteUsdWei, r.quoteUsdWei);
+      eq(`${p} block ${s.block} reserve0`, s.r0, r.r0); eq(`${p} block ${s.block} reserve1`, s.r1, r.r1); eq(`${p} block ${s.block} price`, s.sqrt, r.sqrtNow); eq(`${p} block ${s.block} supply`, s.supply, r.supply);
+      if (r.vps === null) bad(`${p}: the reading of hour ${s.hour} cannot be valued from the chain`); else eq(`${p} block ${s.block} value per share`, s.vps, r.vps);
+    }
+    if (unpinned && allowUnpinned) notes.push(`${p}: ${unpinned} reading(s) predate pinning to blocks and cannot be checked`);
+    if (samples.length < 24 && samples.length > 0) notes.push(`${p}: ${24 - samples.length} of the 24 hours have no reading`);
+    if (rp.status === 'few') {
+      if (samples.length >= minSamples) bad(`${p}: marked as having too few readings, and it has ${samples.length} of the ${minSamples} a day needs`);
+      continue;
+    }
+    if (samples.length < minSamples) bad(`${p}: ${samples.length} readings, fewer than the ${minSamples} a day needs`);
+    const vps = medianOf(vpsList);
+    eq(`${p} median value per share`, rp.vps, vps);
+    if (vps === null) { bad(`${p}: the record has no readings to value its liquidity by`); continue; }
+
+    // An independent median: the pool read again at the first block of each of the day's hours.
+    if (reference && vps !== null) {
+      const refs = [], dayStart = await blockAtOrAfter(start, 1, upto);
+      for (let h = 0; h < 24; h++) {
+        const at = h === 0 ? dayStart : await blockAtOrAfter(start + h * HOUR, dayStart, Math.min(upto, dayStart + 7500 * (h + 1)));
+        const r = await readingAt(p, meta, rp.spot, BigInt(at), await timeOf(at));
+        if (r.vps !== null && !r.stale) refs.push(r.vps);
+      }
+      const med = medianOf(refs);
+      if (med === null || refs.length < minSamples) bad(`${p}: the reference reading could not be made (${refs.length} hours read)`);
+      else {
+        const dev = Number(vps > med ? vps - med : med - vps) / Number(med);
+        if (dev > referenceTolerance) bad(`${p}: the record's median value per share is ${(dev * 100).toFixed(1)}% from the median of the pool at the first block of each hour`);
+        else notes.push(`${p}: the median of the pool at the first block of each hour is within ${(dev * 100).toFixed(2)}% of the record's`);
+      }
+    }
+
+    // The holders, from the pool's own transfers.
     for (const b of new Set(events.map((e) => e.block))) await timeOf(b);
     const opener = events.find((e) => e.from === ZERO && e.to !== DEAD && e.to !== ZERO)?.to ?? null;
     eq(`${p} opener`, rp.opener, opener);
-
-    const shares = dayMinimums(events.map((e) => ({ ts: times.get(e.block), from: e.from, to: e.to, value: e.value })), start, end);
-    const have = new Map(record.holders.filter((h) => lower(h.pool) === p).map((h) => [lower(h.address), h]));
+    const shares = dayMinimums(events.map((e) => ({ ts: blocks.get(e.block).ts, from: e.from, to: e.to, value: e.value })), start, end);
+    const have = new Map((record.holders ?? []).filter((h) => lower(h.pool) === p).map((h) => [lower(h.address), h]));
     const weightBps = BigInt(rp.weightBps);
     for (const [address, s] of shares) {
       const valueUsdWei = (s * vps) / WAD;
@@ -157,6 +220,10 @@ export async function checkDayRecord({ record, sha256 = null, client, usdc, ethU
     for (const address of have.keys()) bad(`${p}: ${address} is in the record and did not hold that much all day`);
   }
 
+  // What the chain cannot say: the campaign's own terms are the operator's published schedule. Who is never paid is listed.
+  const named = [...exclude].filter((a) => a !== ZERO && a !== DEAD && !record.pools.some((p) => lower(p.pool) === a));
+  if (named.length) notes.push(`never paid, by the campaign's configuration: ${named.join(', ')}`);
+
   // The day's sharing out, by the same rule.
   const prefix = record.campaign ? farmPrefix(record.campaign) : CREDIT_PREFIX;
   const want = allocateLpDay({ rows, dailyWei: BigInt(record.terms.dailyWei), capWeiPerUsdDay: BigInt(record.terms.capWeiPerUsdDay) }).filter((c) => c.wei > 0n)
@@ -164,11 +231,38 @@ export async function checkDayRecord({ record, sha256 = null, client, usdc, ethU
   if (canonical(want) !== canonical(record.credits)) bad(`the credits are not what the rule gives: the record has ${record.credits.length}, the chain gives ${want.length}${want.length === record.credits.length ? ' (their amounts or addresses differ)' : ''}`);
   if (adjustments) {
     const ledger = new Map(adjustments.map((a) => [a.id, a]));
+    const inRecord = new Set(record.credits.map((c) => c.id));
     for (const c of record.credits) {
       const a = ledger.get(c.id);
       if (!a) bad(`${c.id} is not in the ledger`);
       else if (String(a.wei) !== c.wei || lower(a.address) !== lower(c.address)) bad(`${c.id}: the ledger has ${a.wei} to ${a.address}, the record ${c.wei} to ${c.address}`);
     }
+    const dayPrefix = `${prefix}day:${day}:`;
+    for (const id of ledger.keys()) if (id.startsWith(dayPrefix) && !inRecord.has(id)) bad(`${id} is in the ledger and not in the record`);
   }
   return { ok: problems.length === 0, problems, notes, credits: record.credits.length, holders: record.holders.length };
+}
+
+// A paid day as a service publishes it, checked: the record and its hash from `get('/lp/day/<n>')` (with ?farm=<name> for a farm), the ledger
+// from `get('/rewards')`, and the pools and terms the service publishes now from `get('/lp')`. `get` takes a path and returns the parsed JSON.
+export async function verifyServiceDay({ get, day, farm = null, ...rest }) {
+  const q = farm ? `?farm=${encodeURIComponent(farm)}` : '';
+  const kept = await get(`/lp/day/${day}${q}`);
+  if (kept?.day !== day || kept?.record?.day !== day) return { ok: false, problems: [`the service answered for day ${kept?.day ?? kept?.record?.day}, not ${day}`], notes: [], sha256: kept?.sha256 ?? null, record: kept?.record ?? null };
+  if ((kept.record.campaign || null) !== (farm || null)) return { ok: false, problems: [`the record is of ${kept.record.campaign ? `farm "${kept.record.campaign}"` : 'the first campaign'}, not ${farm ? `farm "${farm}"` : 'the first campaign'}`], notes: [], sha256: kept.sha256, record: kept.record };
+  const [rewards, view] = await Promise.all([get('/rewards'), get(`/lp${q}`).catch(() => null)]);
+  const result = await checkDayRecord({ record: kept.record, sha256: kept.sha256, adjustments: rewards.adjustments, ...rest });
+  if (view?.enabled) {
+    const now = new Map(view.pools.map((p) => [lower(p.pool), p]));
+    for (const rp of kept.record.pools) {
+      const n = now.get(lower(rp.pool));
+      if (!n) result.notes.push(`${lower(rp.pool)} is in the record and not among the pools the service publishes now`);
+      else if (String(n.weightBps) !== String(rp.weightBps) || !!n.spot !== !!rp.spot) result.notes.push(`${lower(rp.pool)}: its weight or valuation differs from what the service publishes now`);
+      now.delete(lower(rp.pool));
+    }
+    for (const p of now.keys()) result.notes.push(`${p} is among the pools the service publishes now and not in the day's record`);
+    const t = kept.record.terms, v = view.terms;
+    if (v && (v.dailyWei !== t.dailyWei || v.capWeiPerUsdDay !== t.capWeiPerUsdDay || v.createWei !== t.createWei)) result.notes.push('the terms in the record differ from those the service publishes now (the schedule may have changed since that day)');
+  }
+  return { ...result, sha256: kept.sha256, record: kept.record };
 }

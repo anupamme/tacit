@@ -251,14 +251,16 @@ export function parseLpSettings(raw, log = () => {}) {
 // What a day pays is shared only among the liquidity in that farm's pools, so a deep pool in one farm cannot thin another's, and the
 // farm's pocket is the most it may ever credit. A farm that is malformed is reported and skipped, which pays nothing under it.
 export const FARM_NAME = /^[a-z][a-z0-9]{0,15}$/;
-export function parseLpFarms(raw, log = () => {}) {
+// `taken` lists pools another campaign already pays for: a pool is paid by one campaign only, so a farm that lists one of them (or one
+// that an earlier farm has) is refused. Liquidity paid twice is the one thing a separate pocket cannot bound.
+export function parseLpFarms(raw, log = () => {}, taken = []) {
   if (!String(raw || '').trim()) return [];
   let list;
   try {
     list = JSON.parse(raw);
     if (!Array.isArray(list)) throw new Error('expected a list');
   } catch (err) { log(`ignoring POINTS_LP_FARMS: ${err.message}`); return []; }
-  const out = [], seen = new Set();
+  const out = [], seen = new Set(), used = new Set(taken.map((a) => String(a).toLowerCase()));
   for (const f of list) {
     try {
       const name = String(f?.name ?? '');
@@ -268,8 +270,11 @@ export function parseLpFarms(raw, log = () => {}) {
       const settings = parseLpSettings({ pocket: f.pocketWei, endSec: f.endSec, fromBlock: f.fromBlock, reserveDays: f.reserveDays, minUsd: f.minUsd, minSamples: f.minSamples }, log);
       if (!settings) throw new Error('pocketWei and endSec are required');
       if (!schedule.length || !pools.length) throw new Error('a schedule and at least one pool are required');
+      const clash = pools.find((p) => used.has(p.pool));
+      if (clash) throw new Error(`the pool ${clash.pool} is already paid for by another campaign`);
       const exclude = (Array.isArray(f.exclude) ? f.exclude : []).filter((a) => { const ok = /^0x[0-9a-fA-F]{40}$/.test(String(a)); if (!ok) log(`ignoring a farm "${name}" exclude entry "${a}": not an address`); return ok; });
       seen.add(name);
+      for (const p of pools) used.add(p.pool);
       out.push({ name, schedule, pools, settings, exclude });
     } catch (err) { log(`ignoring a POINTS_LP_FARMS entry: ${err.message}`); }
   }

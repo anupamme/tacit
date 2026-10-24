@@ -55,6 +55,9 @@ class Hold extends Error { constructor(why) { super(why); this.why = why; } }
 // How far behind the head a reading is pinned: a few blocks, so that a node behind a load balancer which has not seen the newest block yet is
 // still asked about one it has.
 const PIN_LAG = 3;
+// The newest block a reading may be pinned at must be no older than this: a node that is behind (a stuck replica) would pin a reading to
+// a block of an earlier hour, which no check of the day could accept.
+const PIN_MAX_AGE = 300;
 
 export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSecs = 0, nowSec = () => Math.floor(Date.now() / 1000), log = () => {}, name = '' }) {
   if (name && !FARM_NAME.test(name)) throw new Error(`"${name}" is not a farm name`);
@@ -83,7 +86,7 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
     `));
     // A reading made before readings were pinned has none of these: it is still counted, and its record says it cannot be checked.
     const have = new Set(db.prepare(named('PRAGMA table_info(lp_samples)')).all().map((c) => c.name));
-    for (const [col, type] of [['block', 'INTEGER'], ['block_ts', 'INTEGER'], ['quote_usd', 'TEXT'], ['feed_round', 'TEXT'], ['r0', 'TEXT'], ['r1', 'TEXT'], ['sqrt', 'TEXT']]) {
+    for (const [col, type] of [['block', 'INTEGER'], ['block_ts', 'INTEGER'], ['block_hash', 'TEXT'], ['quote_usd', 'TEXT'], ['feed_round', 'TEXT'], ['r0', 'TEXT'], ['r1', 'TEXT'], ['sqrt', 'TEXT']]) {
       if (!have.has(col)) db.exec(named(`ALTER TABLE lp_samples ADD COLUMN ${col} ${type}`));
     }
   }
@@ -215,8 +218,9 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
         const meta = await metaOf(p);
         if (!meta) continue;
         if (!pin) {
-          const n = BigInt(Math.max(0, Number(await client.getBlockNumber()) - PIN_LAG));
-          pin = { block: n, ts: Number((await client.getBlock({ blockNumber: n })).timestamp) };
+          const n = BigInt(Math.max(0, Number(await client.getBlockNumber()) - PIN_LAG)), b = await client.getBlock({ blockNumber: n });
+          pin = { block: n, ts: Number(b.timestamp), hash: b.hash ?? null };
+          if (t - pin.ts > PIN_MAX_AGE) { noteOnce(`lag${day}${hour}`, `lp sample: the node's block ${n} is ${t - pin.ts} s old, the hour is left unsampled`); return; }
         }
         let quoteUsdWei = WAD, round = null;
         if (meta.quote === 'ETH') {
@@ -228,8 +232,8 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
         if (!(supply > 0n)) continue;                                    // an empty pool has no value per share
         const value = poolValueUsd({ reserveSynth: meta.synthIs1 ? r1 : r0, reserveQuote: meta.synthIs1 ? r0 : r1, quoteDec: meta.quoteDec, sqrtNow, synthIs1: meta.synthIs1, quoteUsdWei, ...(spot ? { pegQuoteWei: null } : {}) });
         if (value === null) { noteOnce(`val${p}${day}${hour}`, `lp sample: ${p} could not be valued`); continue; }
-        q('INSERT OR IGNORE INTO lp_samples (day, hour, pool, taken_at, pool_usd, supply, vps, block, block_ts, quote_usd, feed_round, r0, r1, sqrt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(day, hour, p, t, String(value), String(supply), String((value * WAD) / supply), Number(pin.block), pin.ts, String(quoteUsdWei), round == null ? null : String(round), String(r0), String(r1), String(sqrtNow));
+        q('INSERT OR IGNORE INTO lp_samples (day, hour, pool, taken_at, pool_usd, supply, vps, block, block_ts, block_hash, quote_usd, feed_round, r0, r1, sqrt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(day, hour, p, t, String(value), String(supply), String((value * WAD) / supply), Number(pin.block), pin.ts, pin.hash, String(quoteUsdWei), round == null ? null : String(round), String(r0), String(r1), String(sqrtNow));
       } catch (err) { log(`lp sample ${p} failed: ${String(err?.shortMessage || err?.message || err).slice(0, 200)}`); }
     }
   }
@@ -267,10 +271,10 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
     return plan;
   }
   // The readings a pool's day rests on, as the day's record keeps them: each with the block it was taken at and what was read there.
-  const samplesOf = (day, p) => q('SELECT hour, taken_at, supply, vps, block, block_ts, quote_usd, feed_round, r0, r1, sqrt FROM lp_samples WHERE day = ? AND pool = ? ORDER BY hour').all(day, p)
+  const samplesOf = (day, p) => q('SELECT hour, taken_at, supply, vps, block, block_ts, block_hash, quote_usd, feed_round, r0, r1, sqrt FROM lp_samples WHERE day = ? AND pool = ? ORDER BY hour').all(day, p)
     .map((r) => (r.block == null
       ? { hour: r.hour, ts: r.taken_at, supply: r.supply, vps: r.vps, unpinned: true }
-      : { hour: r.hour, ts: r.taken_at, block: r.block, blockTs: r.block_ts, quoteUsdWei: r.quote_usd, feedRound: r.feed_round, r0: r.r0, r1: r.r1, sqrt: r.sqrt, supply: r.supply, vps: r.vps }));
+      : { hour: r.hour, ts: r.taken_at, block: r.block, blockTs: r.block_ts, blockHash: r.block_hash, quoteUsdWei: r.quote_usd, feedRound: r.feed_round, r0: r.r0, r1: r.r1, sqrt: r.sqrt, supply: r.supply, vps: r.vps }));
 
   function computeDay(day, terms, ready) {
     const start = day * DAY, end = start + DAY, rows = [], mins = new Map(), recPools = [], recHolders = [];
@@ -356,6 +360,15 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
       if (!terms) { q('INSERT OR IGNORE INTO lp_days (day, paid_at, wei) VALUES (?, ?, ?)').run(day, t, '0'); continue; }
       const ready = readiness(day);
       if (ready.wait) { said('scan', `day ${day}: the pools' transfers are not read through its end yet`); return; }
+      // What each pool is made of goes into the day's record. It is read again if the service has just started and not yet made an hourly reading;
+      // a pool that has readings for the day and cannot be read holds the day, one that has none (not deployed yet) holds nothing.
+      for (const { pool } of pools) {
+        const p = lower(pool);
+        if (metas.has(p)) continue;
+        try { await metaOf(p); } catch (err) {
+          if (q('SELECT 1 FROM lp_samples WHERE day = ? AND pool = ?').get(day, p)) { said('tokens', `the tokens of ${p} could not be read: ${String(err?.shortMessage || err?.message || err).slice(0, 120)}`); return; }
+        }
+      }
       const { credits, bonuses, record } = planDay(day, terms, ready);
       const total = credits.reduce((s, c) => s + c.wei, 0n);
       if (total > 0n) {
@@ -430,6 +443,7 @@ export function createLp({ store, client, cfg, fundingInputs, budgetFor, graceSe
         if (me && latest) mine = (BigInt(q('SELECT bal FROM lp_bal WHERE pool = ? AND address = ?').get(p, me)?.bal ?? 0) * BigInt(latest.vps)) / WAD;
         return {
           pool: p, weightBps: String(weightBps), ...(spot ? { spot: true } : {}), valueUsdWei: latest ? latest.pool_usd : null, sampledAt: latest ? latest.day * DAY + latest.hour * HOUR : null,
+          replay: ((v) => (v === undefined ? 'unread' : v === null ? 'checking' : v === 1 ? 'ok' : 'mismatch'))(q('SELECT verified FROM lp_cursor WHERE pool = ?').get(p)?.verified),
           opened: !!opener, opener, openPaid: !!q('SELECT 1 FROM reward_adjustments WHERE id = ?').get(openId(p, prefix)),
           ...(me ? { mineUsdWei: String(mine ?? 0n) } : {}),
         };
