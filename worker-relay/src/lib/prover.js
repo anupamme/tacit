@@ -180,7 +180,7 @@ async function ethProveRpcs() {
     await rpc('eth_getLogs', [{ address: POOL, fromBlock: hex(from), toBlock: hex(Math.min(from + chunk - 1, fin)) }]);
     if (!CFG.sourceProofRpc) await proofAt(rpc, fin);
   });
-  const proof = CFG.sourceProofRpc ? await pickRpc([CFG.sourceProofRpc, ...execList],async (rpc) => proofAt(rpc, await finalized(rpc))) : null;
+  const proof = CFG.sourceProofRpc ? await pickRpc([CFG.sourceProofRpc, ...execList], async (rpc) => proofAt(rpc, await finalized(rpc))) : null;
   if (exec.failures.length || proof?.failures.length) {
     console.log(`[eth_prove] rpc: execution ${hostOf(exec.url)}${proof ? `, proof ${hostOf(proof.url)}` : ''}; passed over ${[...exec.failures, ...(proof?.failures || [])].join('; ')}`);
   }
