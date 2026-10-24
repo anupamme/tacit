@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=fc64c03a';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=edbb7881';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -208,10 +208,13 @@ function wireTile() {
 let ROWS = [];
 // Moving them on from this page (mover.js, loaded when asked): the presses it can make itself
 let MV = null, MVP = null;
+// What a row waits on its holder for, given the chains' figures; a step the chains say is ready is not put to the holder while the mover has this bridge's key open
+// and is free to take it (it takes nothing while a press of its own runs, a mint's wait for the relay lasting minutes)
+const nxt = (r) => nextOf(r, LIVE, !!(MV?.open && !MV.pressing && r.pub === MV.pub));
 
 function rowHtml(r) {
   const a = ROUTES[r.asset] || ROUTES.tac;
-  const nx = nextOf(r, LIVE), live = liveLine(r, LIVE);
+  const nx = nxt(r), live = liveLine(r, LIVE);
   const to = r.dir === 'in' ? 'to Ethereum' : 'to Bitcoin';
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
@@ -244,11 +247,11 @@ function rowHtml(r) {
 function paintMine() {
   const box = $('#mine');
   box.hidden = ROWS.length === 0;
-  const due = ROWS.filter((r) => nextOf(r, LIVE).due).length;
+  const due = ROWS.filter((r) => nxt(r).due).length;
   document.title = `${due ? `(${due}) ` : ''}${TITLE}`;               // a tab left open says when a bridge needs its holder
   if (!ROWS.length) return;
   // what needs its holder first (the chains' word counts as well as the journal's), then what is on its way, newest first; arrivals last
-  const rank = (r) => (nextOf(r, LIVE).due ? 0 : r.done || r.back ? 2 : 1);
+  const rank = (r) => (nxt(r).due ? 0 : r.done || r.back ? 2 : 1);
   ROWS.sort((a, b) => rank(a) - rank(b) || (b.since || 0) - (a.since || 0));
   const mv = $('#mine-mv');
   if (mv) mv.hidden = !ROWS.some((r) => !r.done && !r.back);
@@ -266,7 +269,7 @@ const canBell = () => { try { return 'Notification' in window; } catch { return 
 const bellOn = () => { try { return canBell() && localStorage.getItem(BELL) === '1' && Notification.permission === 'granted'; } catch { return false; } };
 let SEEN = null;
 function notifyChanges() {
-  const now = new Map(ROWS.map((r) => [`${r.dir}:${r.id}`, r.done ? 'done' : nextOf(r, LIVE).due ? 'due' : '']));
+  const now = new Map(ROWS.map((r) => [`${r.dir}:${r.id}`, r.done ? 'done' : nxt(r).due ? 'due' : '']));
   if (SEEN && bellOn()) {
     for (const r of ROWS) {
       const k = `${r.dir}:${r.id}`, was = SEEN.get(k), is = now.get(k);
@@ -276,7 +279,7 @@ function notifyChanges() {
   SEEN = now;
 }
 function ping(r, kind) {
-  const a = ROUTES[r.asset] || ROUTES.tac, amt = `${fmtAmount(r.amount, a.dp)} ${a.ticker}`, due = nextOf(r, LIVE).due;
+  const a = ROUTES[r.asset] || ROUTES.tac, amt = `${fmtAmount(r.amount, a.dp)} ${a.ticker}`, due = nxt(r).due;
   try {
     const n = new Notification(kind === 'due' ? `${amt} bridge needs you` : r.paid ? `${amt} was sent` : `${amt} has arrived`, {
       body: kind === 'due' ? `${due}: open the app to finish it.` : r.paid ? 'It is with the address you paid, to claim as a private payment.' : r.dir === 'in' ? 'It is private on Ethereum now.' : 'It is on your Bitcoin address.', tag: `${r.dir}:${r.id}`,
@@ -324,7 +327,7 @@ function paintHere() {
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
   const repaint = () => { readMine.sig = null; readMine(); };
-  (dir === 'in' ? import('/bridge/in-form.js?cb=3baa0f63') : import('/bridge/out-form.js?cb=54e0fbf3')).then((m) => {
+  (dir === 'in' ? import('/bridge/in-form.js?cb=cc2af435') : import('/bridge/out-form.js?cb=f1bb570f')).then((m) => {
     if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
     FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
@@ -336,7 +339,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=d5bfc9ed').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=17c22754').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });
@@ -374,7 +377,7 @@ function wireMove() {
 function readMine() {
   let rows = [];
   try { rows = readBridges(localStorage); } catch { rows = []; }
-  const sig = JSON.stringify(rows.map((r) => [r.id, r.stage, r.due, r.at, nextOf(r, LIVE).due]));
+  const sig = JSON.stringify(rows.map((r) => [r.id, r.stage, r.due, r.at, nxt(r).due]));
   const changed = sig !== readMine.sig;
   readMine.sig = sig;
   ROWS = rows;

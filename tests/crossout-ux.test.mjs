@@ -774,6 +774,65 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
     ok((await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'settled', 'a settle many thousands of blocks after the intent is found across the pages');
   }
 
+  // An intent left unsettled is not read from its first block on every pass: the next look resumes where the last one ended, and a settle that lands later is still found.
+  {
+    const world = makeWorld(); world.setCrossOutError(timeout);
+    let calls = 0;
+    const rpc = async (m, p) => { if (m === 'eth_getLogs') calls++; return world.rpc(m, p); };
+    const ux = makeUx(world, { ...withPool, rpc });
+    try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch {}
+    world.setCoverage({ ethHead: 26_147_613 + 40_000 });
+    calls = 0; await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    const first = calls;
+    calls = 0; await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    ok(first >= 8 && calls <= 2, `the first look reads the pages since the intent (${first}), the next only the last stretch (${calls})`);
+    land(world, settleLog(10_000n, { block: 26_147_613 + 40_020 }));
+    ok((await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'settled', 'and a settle that lands after the last look is found');
+    // a look that failed part way is not marked as done
+    const w2 = makeWorld(); w2.setCrossOutError(timeout);
+    let fail = false, c2 = 0;
+    const rpc2 = async (m, p) => { if (m === 'eth_getLogs') { c2++; if (fail) throw new Error('node down'); } return w2.rpc(m, p); };
+    const ux2 = makeUx(w2, { ...withPool, rpc: rpc2 });
+    try { await ux2.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch {}
+    w2.setCoverage({ ethHead: 26_147_613 + 40_000 });
+    fail = true; try { await ux2.advance(WALLET_PUB, TNOTE.nullifier); } catch {}
+    fail = false; c2 = 0; await ux2.advance(WALLET_PUB, TNOTE.nullifier);
+    ok(c2 >= 8, `a look that failed is read again in full (${c2} reads)`);
+  }
+
+  // A node whose logs run behind its head (the pool rotates between nodes) does not hide a settle: the overlap of each look covers a lag of hundreds of blocks.
+  {
+    const world = makeWorld(); world.setCrossOutError(timeout);
+    let head = 26_147_613 + 40_000;
+    const LAG = 300;
+    const rpc = async (m, p) => {
+      if (m !== 'eth_getLogs') return world.rpc(m, p);
+      const f = p[0], to = Math.min(Number(BigInt(f.toBlock)), head - LAG);
+      return to < Number(BigInt(f.fromBlock)) ? [] : world.rpc(m, [{ ...f, toBlock: '0x' + to.toString(16) }]);
+    };
+    const ux = makeUx(world, { ...withPool, rpc });
+    try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch {}
+    world.setCoverage({ ethHead: head });
+    await ux.advance(WALLET_PUB, TNOTE.nullifier);
+    world.setLogs([settleLog(10_000n, { block: head + 50 })]);        // lands 50 blocks on; the node serves logs 300 blocks behind its head
+    let found = false;
+    for (let i = 0; i < 40 && !found; i++) { head += 25; world.setCoverage({ ethHead: head }); found = (await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'settled'; }
+    ok(found, 'a settle that a lagging node serves late is still found by the passes that follow');
+  }
+
+  // A look that decides something (cancelling a bridge, starting a burn again for a note) reads over all the blocks, whatever the periodic looks have seen.
+  {
+    const world = makeWorld(); world.setCrossOutError(timeout);
+    const ux = makeUx(world, withPool);
+    try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch {}
+    world.setCoverage({ ethHead: 26_147_613 + 40_000 });
+    await ux.advance(WALLET_PUB, TNOTE.nullifier);                      // nothing yet: the periodic look now resumes near the head
+    world.setLogs([settleLog(10_000n, { block: 26_147_613 + 20_000 })]);   // a settle well behind that point, served late
+    ok((await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'settling', 'the periodic look does not go back that far');
+    const r = await ux.cancelIntent(WALLET_PUB, TNOTE.nullifier);
+    ok(r && r.stage === 'settled', 'but cancelling, which decides, looks over all of it and finds the burn instead of dropping the intent');
+  }
+
   // A burn this browser has no record of (another device, storage cleared) is found from the key's own spent notes and Ethereum.
   {
     const spent = [{ nullifier: TNOTE.nullifier, asset: TETH, value: TNOTE.value }];

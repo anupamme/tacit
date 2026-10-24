@@ -2,7 +2,7 @@
 // the higher, the limits in words, and the words for a proof that is behind and a Bitcoin address with no coin for the last step.
 //   node tests/bridge-out.test.mjs
 import assert from 'node:assert/strict';
-import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '../dapp/bridge-out.js';
+import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText, onTheWay } from '../dapp/bridge-out.js';
 
 assert.equal(OUT_ASSETS.tac.pool, 'cTAC'); assert.equal(OUT_ASSETS.teth.id.length, 66); assert.equal(OUT_ASSETS.tac.min, 2_000_000_000n);
 
@@ -36,4 +36,15 @@ assert.match(fundingText({ pending: 0, haveSats: 0, needSats: 1882 }, btc), /has
 assert.match(fundingText({ pending: 0, haveSats: 1000, needSats: 1882 }, btc), /largest free coin .* holds 0\.00001000 BTC/);
 assert.match(fundingText({ pending: 1, haveSats: 0, needSats: 1882 }, btc), /^A bridge under way takes a coin .* No other coin is free/);
 assert.match(fundingText({ pending: 3, haveSats: 2000, needSats: 1882 }, btc), /^3 bridges under way take a coin each .* The next free coin holds 0\.00002000 BTC/);
+// a bridge whose Bitcoin step is on Bitcoin is the note it made: counted there, not also on the way
+{
+  const rec = (claim, amount) => ({ source: { amount }, settle: claim ? { claimId: claim } : undefined });
+  const A = '0x' + 'aa'.repeat(32), B = '0x' + 'bb'.repeat(32);
+  const records = [rec(A, 100n), rec(B, 200n), rec(null, 50n)];
+  assert.deepEqual(onTheWay(records, null).map((r) => r.source.amount), [100n, 200n, 50n], 'notes not read yet: every bridge is on the way');
+  assert.deepEqual(onTheWay(records, []).map((r) => r.source.amount), [100n, 200n, 50n]);
+  assert.deepEqual(onTheWay(records, [{ claimId: '0x' + 'AA'.repeat(32), amount: 100n }]).map((r) => r.source.amount), [200n, 50n], 'a bridge whose note is on Bitcoin leaves the way (any case)');
+  assert.equal(onTheWay(records, [{ claimId: '' , amount: 1n }, {}]).length, 3, 'a note without a claim matches nothing, and neither does a record without one');
+  assert.equal(onTheWay(records, [{ claimId: A, amount: null }, { claimId: B }]).length, 3, 'an output whose amount the key could not open is not the bridge’s note: the bridge stays on the way');
+}
 console.log('bridge-out: all checks passed');

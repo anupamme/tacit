@@ -314,12 +314,13 @@ export function readyNow(row, live) {
 }
 
 // What a row says goes on next and whether it needs the holder: { due, self } (`self`: it goes on with no page open). With `live` (the
-// chains' figures, see liveLine) a step the journal has not caught up with is named too.
-export function nextOf(row, live = null) {
+// chains' figures, see liveLine) a step the journal has not caught up with is named too. `auto`: the key of this bridge is open on the page that
+// moves bridges on (mover.js), which takes the step the chains say is ready by itself on its next pass: it is not put to the holder.
+export function nextOf(row, live = null, auto = false) {
   if (row.done || row.back) return { due: '', self: false };
   if (row.due) return { due: row.due, self: false };
   const ready = readyNow(row, live);
-  if (ready) return { due: ready, self: false };
+  if (ready) return auto ? { due: '', self: true } : { due: ready, self: false };
   if (row.dir === 'in') {
     // the burn and its record happen on the chains; the mint needs the page unless the relay holds it (armed)
     if (row.at >= 3) return { due: '', self: row.armed };

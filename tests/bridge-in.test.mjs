@@ -3,7 +3,7 @@
 // to one's own address that an older note needs first.
 //   node tests/bridge-in.test.mjs
 import assert from 'node:assert/strict';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf, NO_SATS, isShort, halts, haltText, PREP_KEY, preps, prepAdd, mergeSend, startNote, tryAgain, bulkFee, sendCost, runMerge, runAll } from '../dapp/bridge-in.js';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, needsSend, firstStep, overCap, marked, longReason, listNotes, review, checkNote, priceNote, planSet, burnMaxRate, PLAN_KEY, begin, toSelf, NO_SATS, isShort, halts, haltText, PREP_KEY, preps, prepAdd, mergeSend, startNote, tryAgain, bulkFee, sendCost, prepsAfterPass, runMerge, runAll } from '../dapp/bridge-in.js';
 
 const say = (e) => `said: ${e?.message || e}`;
 
@@ -179,6 +179,20 @@ assert.equal(haltText(new Error('burndep-ux: nope'), say), 'said: Nope');
   assert.deepEqual(preps(mem, 'p', now).map((x) => [x.txid, x.amount]), [['t2', '6'], ['t1', '7']], 'a send is kept once, the latest record of it');
   assert.equal(preps(mem, 'p', now + 15 * 86400e3).length, 0, 'older than fourteen days: gone'); assert.deepEqual(preps(mem, null, now), []);
   assert.equal(mem.m.get(PREP_KEY).p.length, 2);
+}
+// a pass that read the preps once and writes them back after minutes of work: a send added meanwhile stays, a swept or started one goes, the pass's own notes are kept
+{
+  const t1 = { txid: 't1', amount: '5', at: 1 }, t2 = { txid: 't2', amount: '6', at: 2 }, t3 = { txid: 't3', amount: '7', at: 3 };
+  const mine = [{ ...t1 }, { ...t2 }, { ...t3 }];                 // the pass's copies, read at the start
+  mine[0].height = 970000; mine[2].told = true;                   // what the pass learned
+  const added = { txid: 't4', amount: '8', at: 4 };               // a send made by Bridge all while the pass ran
+  const current = [t1, t2, added];                                // read again at the end: t3 was swept, t4 is new
+  const out = prepsAfterPass(current, mine, new Set([mine[1]]));  // the pass bridged t2
+  assert.deepEqual(out.map((p) => p.txid), ['t1', 't4'], 'the new send stays, the started one and the swept one go');
+  assert.equal(out[0].height, 970000, 'a send that stays is the pass’s copy, with what it learned');
+  assert.equal(out[1], added, 'and the new one is untouched');
+  assert.deepEqual(prepsAfterPass([], mine, new Set()), [], 'all swept: none written back');
+  assert.deepEqual(prepsAfterPass(current, [], new Set()).map((p) => p.txid), ['t1', 't2', 't4'], 'no pass copies: the list as it is');
 }
 // a shortage is looked at again only when something has gone in this run
 {

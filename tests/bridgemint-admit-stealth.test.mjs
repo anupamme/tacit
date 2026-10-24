@@ -31,9 +31,10 @@ const RECIPIENT_PUB = hx(secp.getPublicKey(0x7e57c0ffee1234567n, true));
 const DEADLINE = bm.stealthDeadline(1_760_000_000);
 
 function mint(sourceClass, burnValue = 1_000_000n) {
-  const burned = { value: burnValue, blinding: randomScalar(), owner: AUTH_KEY };
+  const owner = sourceClass === 0 ? pool.outpointKey(SPENT_TXID, SPENT_VOUT) : AUTH_KEY;       // a burn-deposit note is owned by its own outpoint
+  const burned = { value: burnValue, blinding: randomScalar(), owner };
   const { cx, cy } = pool.commitXY(burned.value, burned.blinding);
-  const srcLeaf = bm.sourceLeaf({ sourceClass, asset: ASSET, cx, cy, owner: AUTH_KEY, spentTxid: SPENT_TXID, spentVout: SPENT_VOUT, chainBinding: CHAIN_BINDING });
+  const srcLeaf = bm.sourceLeaf({ sourceClass, asset: ASSET, cx, cy, owner, spentTxid: SPENT_TXID, spentVout: SPENT_VOUT, chainBinding: CHAIN_BINDING });
   const sd = bm.stealthDestFor({ asset: ASSET, lockerScanPriv: LOCKER_SCAN_PRIV, nullifier: pool.nullifier(srcLeaf), recipientSpendPub: RECIPIENT_PUB, value: burnValue, deadline: DEADLINE });
   const burnId = pool.bridgeBurnId(sourceClass === 0 ? 2 : 1, SPENT_TXID, SPENT_VOUT, srcLeaf, CHAIN_BINDING);
   const burns = pool.makeUtxoAccumulator();
@@ -45,7 +46,7 @@ function mint(sourceClass, burnValue = 1_000_000n) {
 }
 const admit = (op, knownRoot) => admitBridgeStealthMint({ pool, stealth: relayStealth, op, knownRoot });
 
-for (const cls of [1, 2]) {
+for (const cls of [0, 1, 2]) {
   test(`the stealth mint of a recorded burn (source class ${cls}) is admitted, with its burn id`, () => {
     const m = mint(cls);
     const r = admit(m.op, m.root);

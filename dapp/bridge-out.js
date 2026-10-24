@@ -39,6 +39,14 @@ export const proofWarn = (w, lag) => (w.name === 'reflection-behind' ? `Bitcoin�
   : w.name === 'coverage-behind' ? 'The proof’s view of Ethereum is further behind than usual, so this will take longer than usual. Nothing is lost by waiting.' : '');
 export const proofProblem = 'Bitcoin’s proof on Ethereum could not be read, so nothing was started. Try again in a minute.';
 
+// The bridges of an asset still on their way to Bitcoin that are not already a note there: one whose Bitcoin step is on Bitcoin shows as the note it made
+// (`notes`, as the page read them from the key's address, each with the claim it carries), so it is counted once, as that note. Only a note whose amount the key
+// could open counts as one (the same notes "on Bitcoin" adds up): an output that merely carries a claim does not take the bridge off the way.
+export function onTheWay(records, notes) {
+  const made = new Set((notes || []).filter((n) => n && n.amount != null).map((n) => String(n.claimId || '').toLowerCase()).filter(Boolean));
+  return records.filter((r) => !(r.settle?.claimId && made.has(String(r.settle.claimId).toLowerCase())));
+}
+
 // The Bitcoin step is paid from the key's own Bitcoin address, hours after the burn: what that address holds against it, in words.
 // `fmtBtc(sats)` writes an amount of bitcoin.
 export function fundingText(pf, fmtBtc) {

@@ -152,7 +152,12 @@ export function makeCrossoutUx(deps) {
     };
   }
 
-  async function reconcile(rec) {
+  // Where this page last finished looking for a burn's settle without finding it, per intent (and the fees it has tried): the next look resumes a little
+  // before that instead of reading every block since the intent again, which an intent left unsettled would do on every pass for as long as it stays.
+  // Kept in this page's memory only, so a reload looks from the start once. The overlap (about three hours of blocks, one read) is for a node whose logs run
+  // behind its head. A look that decides something (a burn started again for a note, a bridge cancelled) is made over all the blocks, whatever was seen before.
+  const scannedTo = new Map(), RESCAN_BLOCKS = 1000;
+  async function reconcile(rec, { full = false } = {}) {
     if (rec.stage !== 'settling') return rec;
     if (!poolAddress || rec.startBlock == null) return rec;
     const a = assetOf(rec.source.assetId);
@@ -161,7 +166,8 @@ export function makeCrossoutUx(deps) {
     const walletPub = hexToBytesLocal(rec.walletPub);
     const tried = (rec.source.attempts || [rec.source.fee]).map((f) => BigInt(f));
     const wanted = new Map(tried.map((f) => [lc(deriveDestFor(rec, rec.source.value - f).destCommitment), f]));
-    for (let from = Math.max(0, rec.startBlock - 2); from <= head; from += 5000) {
+    const mark = `${rec.id}:${tried.length}`, resume = full ? null : scannedTo.get(mark);
+    for (let from = Math.max(0, rec.startBlock - 2, resume != null ? resume - RESCAN_BLOCKS : 0); from <= head; from += 5000) {
       const logs = await rpc('eth_getLogs', [{ address: poolAddress, topics: [evmLog.TOPIC0.CrossOutRecorded], fromBlock: '0x' + from.toString(16), toBlock: '0x' + Math.min(head, from + 4999).toString(16) }]);
       for (const l of logs || []) {
         const ev = evmLog.decodeLog(l);
@@ -179,6 +185,7 @@ export function makeCrossoutUx(deps) {
         return putRecord(settled);
       }
     }
+    scannedTo.set(mark, head);
     return rec;
   }
   function deriveDestFor(rec, amount) {
@@ -212,7 +219,7 @@ export function makeCrossoutUx(deps) {
     });
     if (!getRecord(walletPub, id)) throw new Error('crossout-ux: this browser cannot keep the bridge record (its storage is blocked), so nothing was burned');
     if (earlier) {
-      const found = await reconcile({ ...intent, source: { ...intent.source, value } });
+      const found = await reconcile({ ...intent, source: { ...intent.source, value } }, { full: true });
       if (found.stage !== 'settling') return found;
     }
     const r = await crossOut({
@@ -404,7 +411,7 @@ export function makeCrossoutUx(deps) {
     if (!rec) return null;
     if (rec.stage !== 'settling') throw new Error('crossout-ux: only a bridge that has not settled can be cancelled');
     if (!poolAddress || rec.startBlock == null) throw new Error('crossout-ux: this bridge cannot be checked against Ethereum, so it was not cancelled');
-    const after = await reconcile(rec);
+    const after = await reconcile(rec, { full: true });
     if (after.stage !== 'settling') return after;
     if (nullifierSpent) {
       let spent;

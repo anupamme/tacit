@@ -627,9 +627,10 @@ export function makeBurnDepositUx(deps) {
   const inFlight = new Set();
   const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'traced', 'burn-submitted', 'burn-mined', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
   const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(String((e && e.message) || e)); };
-  // A signed burn that a busy or unreachable miner (429, 5xx, no network) did not take is not one the miner refused: the error is on the record, but it does
-  // not count toward "The miner did not take this burn" (three counted failures offer Move back, which costs two transactions to undo a burn that may be fine).
-  const OUTAGE_NO_COUNT = new Set(['burn-signed']);
+  // A signed burn that a busy or unreachable miner (429, 5xx, no network) did not take is not one the miner refused, so it does not count at the pace of a refusal
+  // ("The miner did not take this burn" and Move back come after three counted failures, and Move back costs two transactions to undo a burn that may be fine):
+  // it counts once in half an hour, so a miner this page cannot reach for about an hour still offers Move back, and a blip of a few minutes does not.
+  const SLOW_COUNT = new Set(['burn-signed']), SLOW_COUNT_MS = 30 * 60 * 1000;
   async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null, go = false } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`burndep-ux: no bridge record for ${id}`);
@@ -650,7 +651,9 @@ export function makeBurnDepositUx(deps) {
     } catch (e) {
       const now_ = at && getRecord(walletPub, id);
       if (now_ && now_.stage === at.stage && !(WAITS.has(at.stage) && passing(e))) {
-        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : relayFault(e) ? { relay: true } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) || (OUTAGE_NO_COUNT.has(at.stage) && passing(e)) ? 0 : 1) });
+        const slow = SLOW_COUNT.has(at.stage) && passing(e), prev = Number(now_.lastError && now_.lastError.countedAt) || 0;
+        const counted = !relayFault(e) && (!slow || now() - prev >= SLOW_COUNT_MS);
+        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(counted ? { countedAt: now() } : prev ? { countedAt: prev } : {}), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : relayFault(e) ? { relay: true } : {}) }, errorCount: (now_.errorCount || 0) + (counted ? 1 : 0) });
       }
       throw e;
     } finally { inFlight.delete(id); clearInterval(renew); releaseLease(id); }

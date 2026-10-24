@@ -871,10 +871,23 @@ let rec;
     await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed/);
   }
   const outage = ux.list(r.walletPub).find((x) => x.id === r.id);
-  ok(outage.stage === 'burn-signed' && /slipstream submit failed \(503\)/.test(outage.lastError?.message || '') && outage.errorCount === 1, 'a miner that is busy or down is on the record and costs none of the tries');
+  ok(outage.stage === 'burn-signed' && /slipstream submit failed \(503\)/.test(outage.lastError?.message || '') && outage.errorCount === 1, 'a miner that is busy or down is on the record and costs none of the tries within half an hour');
   miner = 400;
   await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed \(400\)/);
   ok(ux.list(r.walletPub).find((x) => x.id === r.id).errorCount === 2, 'while a 400 from the miner is a refusal and counts');
+  // A miner this page cannot reach for about an hour still offers the way out (three counted failures offer Move back): an outage counts once in half an hour.
+  const realNow = Date.now; let off = 0; Date.now = () => realNow() + off;
+  try {
+    const count = () => ux.list(r.walletPub).find((x) => x.id === r.id).errorCount;
+    miner = 503;
+    off += 31 * 60e3; await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed \(503\)/);
+    ok(count() === 3, 'an outage that has lasted over half an hour since the last counted failure counts once');
+    await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed/);
+    await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed/);
+    ok(count() === 3, 'and not again at once');
+    off += 31 * 60e3; await assert.rejects(() => ux.advance(r.walletPub, r.id), /slipstream submit failed/);
+    ok(count() === 4, 'but again half an hour on');
+  } finally { Date.now = realNow; }
 }
 
 // ==== a registration conflict against a DIFFERENT already-stored bundle propagates rather than being swallowed

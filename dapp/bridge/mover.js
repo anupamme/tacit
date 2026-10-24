@@ -5,7 +5,7 @@
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=fc64c03a';
+import { ROUTES } from '/bridge/track.js?cb=edbb7881';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { parseUnits } from '/trade/util.js?cb=509d6618';
 import { forgetUx } from '/trade/poolux.js?cb=b5025c37';
@@ -33,7 +33,7 @@ const BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'mint
 export function mountMover({ pick, repaint = () => {}, say = () => {}, onState = () => {} } = {}) {
   const key = makeKeySession({ moved: (why) => { lockNow(); say(why); } });
   const TS = makeTacitSession({ url: TACIT_URL, key: () => (key.unlocked ? { pubHex: key.key.pubHex, priv: bytesToHex(key.priv()) } : null), secp, bytesToHex, hexToBytes });
-  let timer = null, busy = false, last = 0, runner = null, loadSaid = false;
+  let timer = null, busy = false, pressing = false, last = 0, runner = null, loadSaid = false;     // pressing: a press is running (the tick waits for it, so a ready step is not taken by itself meanwhile)
   const rechecked = {};                                                              // when a burn whose claim was not matched was last looked at again (stepOut waits ten minutes)
   // the relay's jobs this page starts, named and followed in the activity journal it shares with the other pages
   const run = () => (runner ||= makeRunner({ api: API, base: async () => (await import('/confidential-deployments.js')).getConfidentialDeployment('mainnet')?.relayBase || API, pub: () => key.key?.pubHex || null }));
@@ -117,6 +117,8 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
   // will not take, and the holder who proves their own mints, is sent to the front page. A bridge is cancelled on the second press.
   let drop = null;                                                                   // the bridge a first press of Cancel asked about: { id, at }
   const armed = (id) => drop?.id === id && Date.now() - drop.at < 120e3;
+  // The second press counts a second after the first: a double click lands on the button the first one turned into "Yes", before the words it asks about were read.
+  const confirmed = (id) => armed(id) && Date.now() - drop.at >= 1000;
   const txt = (e) => String(e?.message || e).replace(/^(crossout-ux|burndep-ux):\s*/, '').slice(0, 200);
   const outState = (after, ticker) => (after.stage === 'minted' ? `✓ ${ticker} is on your Bitcoin address.` : after.lastError ? `Checked: ${txt(after.lastError.message)}` : 'Checked: its row says where it stands.');
 
@@ -136,8 +138,10 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     }
     if (kind === 'mint' || kind === 'poll') {
       say(kind === 'mint' ? 'Minting: the relay proves it, about a minute…' : 'Trying again…');
-      // not inside the key's turn, as the front page does it: the relay's wait (up to 15 minutes) would hold every other use of the key; a bridge of another key is refused by its own record
-      const after = await ux.advance(pub, id, { walletPriv: priv() });
+      // A mint signs nothing, and waits up to 15 minutes on the relay: it is not taken inside the key's turn, as the tick's own mint is not (a bridge of another key
+      // is refused by its own record). A "try again" may land on a step that signs a burn, which needs the key in the wallet library, so it keeps the turn.
+      const advance = () => ux.advance(pub, id, { walletPriv: priv() });
+      const after = await (kind === 'mint' ? advance() : TS.withKey(advance, pub));
       return say(after.stage === 'minted' ? '✓ Minted: it is in your private balance.'
         : after.mintJob && !after.lastError ? 'Its mint is with the relay and lands on its own, usually within minutes. It is not sent twice.' : after.lastError ? `Checked: ${txt(after.lastError.message)}` : 'Checked.');
     }
@@ -160,7 +164,7 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
       return say(after.stage === 'rburn-mined' ? 'Looking again: it is waiting for Bitcoin’s proof on Ethereum to record the burn.' : 'Checked.');
     }
     if (kind === 'cancel') {
-      if (!armed(id)) { drop = { id, at: Date.now() }; say('Cancelling drops this bridge from this page once Bitcoin is asked again and has neither of its transactions; what it holds stays where it is. Press “Yes, cancel it” to go ahead.'); return; }
+      if (!confirmed(id)) { if (!armed(id)) drop = { id, at: Date.now() }; say('Cancelling drops this bridge from this page once Bitcoin is asked again and has neither of its transactions; what it holds stays where it is. Press “Yes, cancel it” to go ahead.'); return; }
       drop = null;
       say('Asking Bitcoin for its transactions once more…');
       const txid = rec.burn?.txid || rec.migrate?.revealTxid, after = await ux.cancelSigned(pub, id);
@@ -178,7 +182,7 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     }
     // sending it anyway pays today's Bitcoin fee whatever it is: the row's own words name the rate and the sats, and a second press makes it so
     if (kind === 'force') {
-      if (!armed(id)) { drop = { id, at: Date.now() }; say(`Sending it now pays today’s Bitcoin fee. ${row.err ? `${txt(row.err)}. ` : ''}Press “Yes, send it now” to go ahead.`); return; }
+      if (!confirmed(id)) { if (!armed(id)) drop = { id, at: Date.now() }; say(`Sending it now pays today’s Bitcoin fee. ${row.err ? `${txt(row.err)}. ` : ''}Press “Yes, send it now” to go ahead.`); return; }
       drop = null;
     }
     let cur = rec;
@@ -195,7 +199,7 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     if (!row) return;
     if (row.pub && row.pub !== pub) return say('That bridge belongs to another Tacit key. Open that one to move it on.');
     if (busy) return say('Checking your bridges: press again in a moment.');
-    busy = true;
+    busy = true; pressing = true;
     try {
       const T = await TS.load();
       await (row.dir === 'out' ? pressOut : pressIn)(T, pub, row, kind);
@@ -204,8 +208,8 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
         : /another tab/i.test(txt(e)) ? 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.' : null;
       const w = relayWords(e);
       say(f || w?.text || txt(e), !!w?.front);
-    } finally { busy = false; repaint(); }
+    } finally { busy = false; pressing = false; repaint(); }
   }
 
-  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run, esplora }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run, esplora }, get pressing() { return pressing; }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

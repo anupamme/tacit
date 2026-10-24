@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IeiLyngKOGTn9BIW9MYQFwAHtFoyOKbivvfyP0DX1kw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ADtE3Jtr1C0m79v09BLUq83Gip8Hek4W0TQu4Q/eG+Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1496,9 +1496,9 @@ import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
-import { makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=4f5612d0';
+import { makeOutFee, limitText, proofWarn, fundingText, onTheWay } from '/bridge-out.js?cb=ecf49203';
 import { SERVED as SERVED_POOLS, keeperIdOf, makeTokenPools, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js?cb=cdc195bc';
-import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=37054b08';
+import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, prepsAfterPass, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=21533762';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
@@ -4900,7 +4900,9 @@ const xoUsd = ({ sats = 0, teth = 0n } = {}) => {
 // The line under the Private ETH balance for what is not in the pool: on Bitcoin, and on its way there.
 function xoBtcLine(pub) {
   if (!pub || !xoShown(pub)) return '';
-  const h = xbHeld(pub, XA.teth), way = xoRecords(pub, XA.teth).reduce((t, r) => t + BigInt(r.source.amount ?? r.source.value), 0n);
+  const XB = xbOf(XA.teth), h = xbHeld(pub, XA.teth);
+  // a bridge whose Bitcoin step is on Bitcoin already is the note it made, counted once, under "on Bitcoin"
+  const way = onTheWay(xoRecords(pub, XA.teth), XB.pub === pub ? XB.notes : null).reduce((t, r) => t + BigInt(r.source.amount ?? r.source.value), 0n);
   if (!(h?.v > 0n) && !(way > 0n)) return '';
   return html`<a class="xb-line" href="#private/bitcoin/back" data-link="private/bitcoin/back">${h?.v > 0n ? html`<b class="num">${fmt(h.v, 8, 6)}</b> on Bitcoin` : ''}${h?.v > 0n && way > 0n ? ' · ' : ''}${way > 0n ? html`<b class="num">${fmt(way, 8, 6)}</b> on the way` : ''}</a>`;
 }
@@ -7149,8 +7151,8 @@ async function brPrepTick(first = false) {
     if (p.plan?.auto && !p.autoDone) { if (await brAutoBridge(pub, p)) { started.add(p); changed = true; continue; } if (p.autoHold) changed = true; }
     if (!p.told && (!p.plan?.auto || (p.autoHold && p.autoHold !== 'check'))) { p.told = true; changed = true; toast(`${fmt(BigInt(p.amount), 8, 4)} TAC is ready to bridge: open Bridge`); }
   }
-  const stored = new Set(brPreps(pub).map((x) => x.txid));
-  if (changed && S.key?.pubHex === pub) { brPrepSet(pub, ps.filter((x) => !started.has(x) && stored.has(x.txid))); BR.at = 0; rerender('tac'); dashSoon(); }
+  // read again now: a prep added while this ran (a check takes minutes) stays, one swept or started goes
+  if (changed && S.key?.pubHex === pub) { brPrepSet(pub, prepsAfterPass(brPreps(pub), ps, started)); BR.at = 0; rerender('tac'); dashSoon(); }
 }
 const BR_HOLD = { gone: 'the note is not at this key’s Bitcoin address', check: 'it did not pass its check', untracked: 'Bitcoin’s proof does not track it', sats: 'this key’s Bitcoin address has too few sats free for the fee', fee: 'the Bitcoin fee is now over twice what was quoted' };
 async function brAutoBridge(pub, p) {

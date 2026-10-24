@@ -248,6 +248,9 @@ test('a step the chains say is ready for its holder is named before the journal 
   assert.equal(readyNow(waiting, covered), 'Send to Bitcoin', 'the proof has reached the burn, and the Bitcoin step needs the key');
   assert.equal(readyNow(waiting, { ...covered, ethCovered: 26_225_000 }), '', 'not yet');
   assert.deepEqual(nextOf(waiting, covered), { due: 'Send to Bitcoin', self: false });
+  assert.deepEqual(nextOf(waiting, covered, true), { due: '', self: true }, 'with the key open on the page that moves bridges on, that page takes the step: it is not put to the holder');
+  const stuck = outRow(outRec({ stage: 'covered', lastError: { message: 'bad', fundWait: true }, errorCount: 0 }), NOW);
+  assert.equal(nextOf(stuck, covered, true).due, stuck.due, 'while a step the journal itself says needs the holder (a coin to add, a try to repeat) is still put to them');
   assert.deepEqual(nextOf(waiting, null), { due: '', self: true }, 'with no reading it is the journal\'s word');
   assert.equal(readyNow(outRow(outRec({ stage: 'minted', mintedAt: NOW })), covered), '', 'an arrival is not due');
   const burn = inRow(inRec({ stage: 'rburn-mined', burnHeight: 972_080 }), NOW);

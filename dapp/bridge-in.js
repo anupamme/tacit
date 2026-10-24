@@ -152,6 +152,13 @@ export const haltText = (e, errText) => (isShort(e) ? NO_SATS : chainFull(e) ? C
 export const PREP_KEY = 'tacit-lite-bridge-prep-v1';
 export const PREP_DAYS = 14;
 export const preps = (mem, pub, now = Date.now()) => (!pub ? [] : (mem.get(PREP_KEY)?.[pub] || []).filter((p) => p?.txid && now - (p.at || 0) < PREP_DAYS * 86400e3));
+// The preps to write back after a pass that read them once, worked on them for a while (a note's check can take minutes) and changed some: `current` is the
+// list read again now, `mine` the pass's own copies, `started` the ones it bridged. A prep added meanwhile stays, one swept or started goes, and each that
+// remains is the pass's copy of it (its height, its notices).
+export function prepsAfterPass(current, mine, started) {
+  const own = new Map(mine.map((p) => [p.txid, p]));
+  return current.filter((p) => !started.has(own.get(p.txid))).map((p) => own.get(p.txid) || p);
+}
 export function prepAdd(mem, pub, p) {
   const all = mem.get(PREP_KEY) || {}, list = [...preps(mem, pub).filter((x) => x.txid !== p.txid), p];
   all[pub] = list;

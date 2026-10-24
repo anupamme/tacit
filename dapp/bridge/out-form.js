@@ -3,7 +3,7 @@
 // the relay cuts one to size first. Anything the relay will not take, and proving the burn oneself, is the front page's: the status line links there.
 import { getUx } from '/trade/poolux.js?cb=b5025c37';
 import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=509d6618';
-import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=4f5612d0';
+import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=ecf49203';
 import { notesOf, exactOf, cutPick, cutSized, ladder, feeShort } from '/farm-ops.js?cb=0933a4c8';
 import { advanceOut } from '/bridge-tick.js?cb=db96a3a9';
 import { proved, relayRefused, relayWords, waitRanOut } from '/relay-outcome.js?cb=26298b8e';
@@ -34,7 +34,12 @@ export function mountOutForm(el, { asset, mover, say = () => {}, repaint = () =>
     <button class="go" type="button" id="bo-go" disabled><span>Bridge to Bitcoin</span><span aria-hidden="true">→</span></button>
     <p class="bo-s" id="bo-s" role="status" hidden></p>`;
   const $ = (s) => el.querySelector(s), amt = $('#bo-amt'), rc = $('#bo-rcpt'), go = $('#bo-go'), ack = $('#bo-ack'), ackRow = $('#bo-ackrow'), maxBtn = $('#bo-max'), st = $('#bo-s');
-  const status = (h, cls = '') => { st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h; };
+  // Once the form is gone (the tile was flipped, the key locked) the page's own line carries what a burn still in flight has to say: the form's is off the page.
+  const textOf = (h) => new DOMParser().parseFromString(h, 'text/html').body.textContent;
+  const status = (h, cls = '') => {
+    if (gone) { if (h) say(textOf(h).replace(/\s*(?:Do|Try) it on the front page →\s*$/, ''), h.includes('href="/#bridge/out"')); return; }
+    st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h;
+  };
   const front = (text) => status(`${esc(text)} <a href="/#bridge/out">Do it on the front page →</a>`, 'bo-e');
   const gate = () => { go.disabled = busy || !q?.ok || !ack.checked; };
   // the quote and its acknowledgement are void as soon as the amount is touched, not when the new one has been read

@@ -9289,6 +9289,16 @@ await step('bridgein', async () => {
     await r.page.evaluate(() => { const g = window.__bi; g.release(); g.gate = null; });
     await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden && document.querySelector('#bi-ack')?.checked === false, null, 60000);
     await r.page.check('#bi-ack');
+    // Refresh pressed while a check is still reading (a long history takes minutes) does not drop it: its receipt lands when it ends, with no second Refresh
+    await r.page.evaluate(() => { window.__bi.gate = new Promise((res) => { window.__bi.release = res; }); });
+    await pickNote(('07').repeat(32));
+    await sleep(500);
+    await r.page.click('#bi-re');
+    await sleep(1500);
+    await r.page.evaluate(() => { const g = window.__bi; g.release(); g.gate = null; });
+    await until(r.page, () => !document.querySelector('#bi-ackrow')?.hidden, null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt ${(await rcpt()).slice(0, 160)}`); });
+    ok(/You get20 private TAC on Ethereum/.test(await rcpt()), 'bridgein: a Refresh pressed while a check is still reading does not drop it: its receipt lands when it ends');
     // another note picked voids the acknowledgement at once; the first picked again is checked afresh
     await pickNote(('b2').repeat(32));
     ok(await r.page.isHidden('#bi-ackrow') && await r.page.isDisabled('#bi-go'), 'bridgein: picking another note voids the acknowledgement at once');
@@ -9432,6 +9442,11 @@ await step('bridgebulk', async () => {
     export const scanHoldings = async () => new Map([[TAC, { assetIdHex: TAC, utxos: notes().map((n) => ({ utxo: { txid: n.txid, vout: n.vout, value: 546, status: { confirmed: true, block_height: 900000 } }, amount: n.amount, blinding: 'bb' })) }]]);
     export const pickSafeCommitSats = async (c) => c;
     export const getUtxos = async () => S.coins;
+    // the wallet's own fee estimates, which the price of a merge or a send is worked out from (read off tacit.js: a reveal is 422 + 70 vB a note, a commit 85 + 68 vB a coin)
+    export const DUST = 546;
+    export const feeFor = (vb, rate) => Math.max(500, Math.ceil(vb * rate));
+    export const estCommitVb = (coins) => 85 + 68 * coins;
+    export const estCXferRevealVb = ({ numAssetIn = 1 } = {}) => 422 + 70 * numAssetIn;
     export const buildAndBroadcastCXfer = async (o) => {
       S.calls.push(['send-start']);
       if (S.hold) await S.hold;
@@ -9475,7 +9490,7 @@ await step('bridgebulk', async () => {
     await r.page.waitForSelector('#bi-bulkp #bi-bgo', { timeout: 30000 });
     await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#bi-bfee')?.textContent || ''), null, 60000);
     const pm = await panel();
-    ok(/Merge3 notes into 1 note: 950 TAC/.test(pm) && /Bitcoin fee≈ 1,780 sats, and about 1,100 for the burns after/.test(pm) && /bridged here once Bitcoin’s proof/.test(pm) && /1 note too recent for Bitcoin’s proof to have seen stays out of this/.test(pm), `bridgebulk: Merge says what it will do, what it costs and what the recent note does (${pm.slice(0, 280)})`);
+    ok(/Merge3 notes into 1 note: 950 TAC/.test(pm) && /Bitcoin fee≈ 3,925 sats, and about 1,100 for the burns after/.test(pm) && /bridged here once Bitcoin’s proof/.test(pm) && /1 note too recent for Bitcoin’s proof to have seen stays out of this/.test(pm), `bridgebulk: Merge says what it will do, what it costs and what the recent note does (${pm.slice(0, 280)})`);
     ok(await r.page.isHidden('#bi-go') && await r.page.isEnabled('#bi-bgo'), 'bridgebulk: the single note’s button steps aside while a panel is open, and Merge can be pressed');
     await r.page.click('#bi-bgo');
     await until(r.page, () => /3 notes merged into 1 note: 950 TAC/.test(document.querySelector('#bi-s')?.textContent || ''), null, 60000);
@@ -9625,13 +9640,18 @@ await step('bridgepresses', async () => {
     await r.page.click(`#mine-l [data-mv-act="cancel"][data-id="${I[2]}"]`);
     await until(r.page, () => /Press “Yes, cancel it”/.test(document.querySelector('#mine-s')?.textContent || ''), null, 30000);
     ok(!(await bp()).calls.some((c) => c[0] === 'cancelSigned') && /Yes, cancel it/.test(await text(r.page, `#mine-l [data-mv-act="cancel"][data-id="${I[2]}"]`)), 'bridgepresses: the first press of Cancel asks, and sends nothing');
+    await sleep(1100);                                       // the second press counts a second after the first
     await press('cancel', I[2], 'Cancelled\\.');
     ok((await bp()).calls.some((c) => c[0] === 'cancelSigned' && c[1] === I[2]), 'bridgepresses: the second press cancels it, once Bitcoin is asked again');
     // the way out
-    // sending it anyway pays today's fee whatever it is: the first press asks, naming it, and the second goes
-    await r.page.click(`#mine-l [data-mv-act="force"][data-id="${O[3]}"]`);
+    // sending it anyway pays today's fee whatever it is: the first press asks, naming it, and the second goes. A double click is one press: the second click, 150 ms
+    // after the first, lands on the "Yes" button before the words it asks about were read, and sends nothing.
+    const forceSel = `#mine-l [data-mv-act="force"][data-id="${O[3]}"]`;
+    await r.page.evaluate((sel) => { document.querySelector(sel).click(); setTimeout(() => document.querySelector(sel)?.click(), 150); }, forceSel);
     await until(r.page, () => /pays today’s Bitcoin fee\. Bitcoin fees are high right now \(400 sat\/vB.*Press “Yes, send it now”/.test(document.querySelector('#mine-s')?.textContent || ''), null, 30000);
-    ok(!(await bp()).calls.some((c) => c[0] === 'out' && c[1] === O[3] && c[3] === true) && /Yes, send it now/.test(await text(r.page, `#mine-l [data-mv-act="force"][data-id="${O[3]}"]`)), 'bridgepresses: the first press of Send it anyway asks, naming the fee, and sends nothing');
+    await sleep(500);
+    ok(!(await bp()).calls.some((c) => c[0] === 'out' && c[1] === O[3] && c[3] === true) && /Yes, send it now/.test(await text(r.page, forceSel)), 'bridgepresses: the first press of Send it anyway asks, naming the fee, a double click sends nothing, and the button still asks');
+    await sleep(1100);
     await press('force', O[3], 'Checked');
     ok((await bp()).calls.some((c) => c[0] === 'out' && c[1] === O[3] && c[2] === 32 && c[3] === true), 'bridgepresses: the second press sends it past the fee guard, with the key');
     await press('retry', O[0], 'Checked');

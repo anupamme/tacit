@@ -4,7 +4,7 @@
 // With several notes it also merges them or bridges them all (bridge-all.js plans it, bridge-in.js runs it, the front page runs the same). Bridging a note
 // for the holder when it is ready, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
 import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=509d6618';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=37054b08';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=21533762';
 import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 
@@ -39,7 +39,12 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     <p class="bo-s" id="bi-s" role="status" hidden></p>
     <p class="bo-n"><a href="/#bridge">Make the minted TAC public, or send it to someone else: the front page →</a></p>`;
   const $ = (s) => el.querySelector(s), bar = $('#bi-bulk'), bulkp = $('#bi-bulkp'), list = $('#bi-notes'), rc = $('#bi-rcpt'), go = $('#bi-go'), ack = $('#bi-ack'), ackRow = $('#bi-ackrow'), st = $('#bi-s'), re = $('#bi-re');
-  const status = (h, cls = '') => { st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h; };
+  // Once the form is gone (the tile was flipped, the key locked) the page's own line carries what a run still in flight has to say: the form's is off the page.
+  const textOf = (h) => new DOMParser().parseFromString(h, 'text/html').body.textContent;
+  const status = (h, cls = '') => {
+    if (gone) { if (h) say(textOf(h)); return; }
+    st.hidden = !h; st.className = `bo-s ${cls}`; st.innerHTML = h;
+  };
   const gate = () => { go.disabled = busy || !rv?.r?.ok || rv.r.short || !ack.checked; };
   const warn = (html) => { rc.hidden = false; rc.insertAdjacentHTML('beforeend', `<p class="bo-n bo-e">${html}</p>`); };
   // the review and its acknowledgement are void as soon as another note is picked, not when the new one has been read; a check still being read for
@@ -136,8 +141,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     if (RUNNING) return status('A run of Merge or Bridge all is still under way. Wait for it to finish.', 'bo-e');
     busy = true; RUNNING = true; gate(); re.disabled = true; bar.querySelectorAll('button').forEach((b) => { b.disabled = true; }); $('#bi-bgo').disabled = true;
     // with the form closed meanwhile, the run stops before its next transaction and says how it ended on the page's own line
-    const textOf = (h) => new DOMParser().parseFromString(h, 'text/html').body.textContent;
-    const out = (h, cls = '') => (gone ? say(textOf(h)) : status(h, cls));
+    const out = status;
     const say2 = (m) => { if (!gone) status(esc(m)); }, plan = { at: Date.now() };
     const live = () => { if (gone) throw Object.assign(said('This form was closed, so the run stopped before its next step.'), { halt: true }); priv(); };
     const withKey = (fn) => TS.withKey(fn, pub), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -308,7 +312,13 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
   });
   ack.addEventListener('change', gate);
   go.addEventListener('click', start);
-  re.addEventListener('click', () => { if (busy) return; notes = null; reviews.clear(); stale(); rc.hidden = true; paintNotes(); load(true); });
+  re.addEventListener('click', () => {
+    if (busy) return;
+    notes = null; reviews.clear();
+    // a check still reading (a long history takes minutes) is not dropped by the refresh: it lands on the receipt when it ends, since the list read again does not start a second one
+    if (pick && flying.has(pick)) { rv = null; ack.checked = false; ackRow.hidden = true; gate(); } else { stale(); rc.hidden = true; }
+    paintNotes(); load(true);
+  });
   load();
   return { destroy() { gone = true; seq++; el.hidden = true; el.innerHTML = ''; } };
 }
