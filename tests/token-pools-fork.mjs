@@ -2,7 +2,9 @@
 // A private pool for any ERC-20 (dapp/evm-pool-tokens.js), end to end on a mainnet fork: a user opens the USDC pool with the page's one
 // transaction (Multicall3 calling CreateX twice), the REAL multi-keeper process (worker-relay/src/evm-pool-keepers.js, the ETH pool's
 // keeper and its key) finds it in CreateX's logs and starts serving it; the user deposits USDC (their own transaction), and the keeper
-// relays a withdrawal to a fresh address and a withdrawal that swaps USDC for WBTC on zRouter to another, each paid in USDC. Real proofs.
+// relays a withdrawal to a fresh address and a withdrawal that swaps USDC for WBTC on zRouter to another, each paid in USDC. Then the page's
+// own flow (later.js) swaps privately through a token's pool to each kind of output its routes build: USDC for WBTC and for ETH (zQuoter's
+// routes), USDC for TAC (into the Precision pool), and through the TAC pool (served beside it) TAC for ETH and for USDC. Real proofs.
 // USDC is priced here as a dollar (EVM_POOL_KEEPER_RATE_FEED usd:…): zQuoter's scans are too slow for a fork; the zq feed has a test of its own.
 //
 //   node tests/token-pools-fork.mjs        (FORK=<rpc url>, QUOTE_RPC=<rpc url for zQuoter at the fork's block>)
@@ -31,7 +33,9 @@ const FORK = process.env.FORK || 'https://mainnet.gateway.tenderly.co', UP = pro
 const PORT = 25700 + Math.floor(Math.random() * 300), RPC = `http://127.0.0.1:${PORT}`, KPORT = PORT + 400, K = `http://127.0.0.1:${KPORT}`;
 const ZERO = '0x0000000000000000000000000000000000000000', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4';
 const ETH_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ETH_ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5', ETHUSD = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419';
-const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', WBTC = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', WBTC = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279';
+const TAC_POOL = { pool: '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', router: '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', from: 26201971 };
+const PAIR = '0x000000cE58D7d49319252DaFB0ABdB3F02101271', TAC_HOLDER = '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2';
 const keyA = '0x' + 'a3'.repeat(32), A = privateKeyToAccount(keyA).address;
 const USER = '0x00000000000000000000000000000000000de931', DEST = '0x00000000000000000000000000000000000de941', DEST2 = '0x00000000000000000000000000000000000de942';
 let n = 0, fails = 0;
@@ -62,11 +66,14 @@ ok(JSON.stringify(await poolState(tp, USDC, ethCall)) === JSON.stringify({ pool:
 // the keepers: the ETH pool's on its knobs, watching CreateX from the fork's head for token pools, priced USDC as a dollar here
 const ART = join(ROOT, 'dapp/evm-pool/');
 const env = {
-  ...process.env, PORT: String(KPORT), EVM_POOL_CHAINS: '1', EVM_POOL_ADDR: ETH_POOL, EVM_POOL_ROUTER_ADDR: ETH_ROUTER, EVM_POOL_KEEPER_DB: join(tmp, 'keeper.db'),
+  ...process.env, PORT: String(KPORT), EVM_POOL_CHAINS: '1,1-tac', EVM_POOL_ADDR: ETH_POOL, EVM_POOL_ROUTER_ADDR: ETH_ROUTER, EVM_POOL_KEEPER_DB: join(tmp, 'keeper.db'),
   EVM_POOL_RPC_URL_1: RPC, EVM_POOL_KEEPER_SEND_RPC_URLS_1: RPC, EVM_POOL_KEEPER_PRIV_1: keyA, EVM_POOL_START_BLOCK_1: '26069245', EVM_POOL_KEEPER_MIN_FEES_1: 'eth:1000',
   EVM_POOL_CONFIRMATIONS: '0', EVM_POOL_KEEPER_POLL_SECS: '1', EVM_POOL_LOG_CHUNK: '50000', EVM_POOL_KEEPER_FACTS: '0', EVM_POOL_KEEPER_POINTS: '0',
   EVM_POOL_TOKEN_POOLS_1: String(head), EVM_POOL_TOKEN_POOLS_SECS: '2', [`EVM_POOL_KEEPER_RATE_FEED${'_' + P.id.toUpperCase().replace(/-/g, '_')}`]: `usd:${ETHUSD}`,
   [`EVM_POOL_KEEPER_POLL_SECS${'_' + P.id.toUpperCase().replace(/-/g, '_')}`]: '1',
+  // the TAC pool, as Render serves it: its own addresses, first block and price, the ETH pool's key
+  EVM_POOL_ADDR_1_TAC: TAC_POOL.pool, EVM_POOL_ROUTER_ADDR_1_TAC: TAC_POOL.router, EVM_POOL_START_BLOCK_1_TAC: String(TAC_POOL.from), EVM_POOL_KEEPER_PRIV_1_TAC: keyA,
+  EVM_POOL_KEEPER_RATE_FEED_1_TAC: `tac:${PAIR}`,
   EVM_POOL_WASM: ART + 'transact.wasm', EVM_POOL_ZKEY: ART + 'transact_final.zkey', EVM_POOL_VK: ART + 'transact_vk.json',
 };
 const klog = [];
@@ -102,7 +109,7 @@ const wasm = readFileSync(ART + 'transact.wasm'), zkey = readFileSync(ART + 'tra
 const prove = async (input) => { const t = Date.now(), r = await proveTransact(input, { wasm, zkey, snarkjs }); times.push(Date.now() - t); return r; };
 const rpc = jsonRpc([RPC]);
 const W = makeEvmPoolWallet({ zk, keys: evmPoolKeys(zk, crypto.getRandomValues(new Uint8Array(32))), keeper: `${K}/${P.id}/evm-pool/keeper`, store: null, feed: true, prove,
-  chain: { chainId: 1, pool: P.pool, router: P.router, token: USDC, deployBlock: Number(BigInt(ro.blockNumber)), rpc, confirmations: 0, logChunk: 50000, relayer: A, maxRelayFee: 10n ** 9n } });
+  chain: { chainId: 1, pool: P.pool, router: P.router, token: USDC, deployBlock: Number(BigInt(ro.blockNumber)), rpc, confirmations: 1, logChunk: 50000, relayer: A, maxRelayFee: 10n ** 9n } });
 W.connect({ address: USER, rpc, send: async ({ to, data, value }) => rpcA('eth_sendTransaction', [{ from: USER, to, data, value: hx(value || 0), gas: '0x7A1200' }]) });
 const dep = 1_500n * 10n ** 6n;
 await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: USDC, data: '0x095ea7b3' + pad(P.router) + pad(hx(dep)), gas: '0x30000' }]));
@@ -152,8 +159,10 @@ ok(W.summary().balance === dep - 400n * 10n ** 6n - swapIn - fees, `what is left
   const venues = makeEvmTradeVenues({ ethCall: pageCall, keccak256: keccak_256 });
   const mem = new Map(), store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
   const privHex = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex');
+  // one confirmation, as the pages keep three: blocks that recent are read again each time, so a node whose logs trail its head for a moment
+  // cannot leave the deposit out of what the wallet keeps
   const L = makeLater({ keyHex: async () => privHex, signer, ethCall: pageCall, venues, store, prove, tokens: tp,
-    chain: { chainId: 1, rpc: [RPC], keeper: `${K}/1/evm-pool/keeper`, keepers: K, tokenRelayer: A, deployBlock: 26069245, confirmations: 0, logChunk: 50000 } });
+    chain: { chainId: 1, rpc: [RPC], keeper: `${K}/1/evm-pool/keeper`, keepers: K, tokenRelayer: A, deployBlock: 26069245, confirmations: 1, logChunk: 50000 } });
   const hop = await L.hopOf(USDC);
   ok(hop.pool === P.pool && hop.state.pool && hop.state.router && hop.keeper === `${K}/${P.id}/evm-pool/keeper`, 'the page finds the USDC pool open, and its relay');
   const fee = BigInt((await getJson(`/${P.id}/evm-pool/keeper/quote?gas=1420000`)).body.fee), swap = 200n * 10n ** 6n;
@@ -172,6 +181,36 @@ ok(W.summary().balance === dep - 400n * 10n ** 6n - swapIn - fees, `what is left
   ok(!tx.input.toLowerCase().includes(acct.address.slice(2).toLowerCase()), 'and the swap out does not name the wallet that deposited');
   const left = (await L.blend(done)).balance;
   ok(left > 0n && left < depositWei - swap, `the rest stays private in the USDC pool (${Number(left) / 1e6} USDC)`);
+
+  // every kind of route a swap out of a token's pool takes: each deposited through the page, priced with a stand-in, sent by the relay from
+  // the escrow (an approval of exactly the swap to zRouter), paying a fresh address at least the price shown
+  await rpcA('anvil_dealERC20', [acct.address, USDC, hx(2_000n * 10n ** 6n)]);
+  await rpcA('anvil_impersonateAccount', [TAC_HOLDER]); await rpcA('anvil_setBalance', [TAC_HOLDER, hx(10n ** 18n)]);
+  await receipt(await rpcA('eth_sendTransaction', [{ from: TAC_HOLDER, to: TAC, data: '0xa9059cbb' + pad(acct.address) + pad(hx(5_000n * 10n ** 18n)), gas: '0x30000' }]));
+  const fmt = (v, d) => (Number(v) / 10 ** d).toPrecision(6);
+  const privately = async ({ pay, out, swap, dest }) => {
+    const label = `${pay.sym} pool → ${out.sym}`;
+    try {
+      const hop = await L.hopOf(pay.token), want = hop.keeper.replace(K, '');
+      if (!hop.state.pool || !hop.state.router) throw new Error(`the ${pay.sym} pool is not open`);
+      const fee = BigInt((await getJson(`${want}/quote?gas=1420000`)).body.fee || 0);
+      if (fee <= 0n) throw new Error(`no fee from ${want}`);
+      const { depositWei, extraWei } = depositFor({ swapWei: swap, feeWei: fee, pct: 20 });
+      const plan = await L.start({ swapWei: swap, extraWei, token: out.token, sym: out.sym, dec: out.dec, to: dest, depositWei, pay, hop });
+      const shown = await L.offer(plan, { slippageBps: 100 });
+      const b0 = await bal(out.token, dest), f0 = await bal(pay.token, A);
+      const done = await L.swapOut(plan, { shown, slippageBps: 100, via: 'relay' });
+      const got = (await bal(out.token, dest)) - b0, paid = (await bal(pay.token, A)) - f0, tx = await rpcA('eth_getTransactionByHash', [done.swapTx]);
+      ok(done.state === 'done' && got >= shown.min && got > 0n && tx.from.toLowerCase() === A.toLowerCase() && paid > 0n && paid <= 2n * fee,
+        `${label}: the relay swaps ${fmt(swap, pay.dec)} ${pay.sym} for ${fmt(got, out.dec)} ${out.sym} at a fresh address (at least ${fmt(shown.min, out.dec)}, ${shown.name}), paid ${fmt(paid, pay.dec)} ${pay.sym}`);
+      ok(!tx.input.toLowerCase().includes(acct.address.slice(2).toLowerCase()), `${label}: the swap out does not name the wallet that deposited`);
+    } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 300)}`); }
+  };
+  const usdc = { token: USDC, sym: 'USDC', dec: 6 }, tac = { token: TAC, sym: 'TAC', dec: 18 }, eth = { token: ZERO, sym: 'ETH', dec: 18 };
+  await privately({ pay: usdc, out: eth, swap: 150n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de944' });
+  await privately({ pay: usdc, out: tac, swap: 150n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de945' });
+  await privately({ pay: tac, out: eth, swap: 1_500n * 10n ** 18n, dest: '0x00000000000000000000000000000000000de946' });
+  await privately({ pay: tac, out: usdc, swap: 1_500n * 10n ** 18n, dest: '0x00000000000000000000000000000000000de947' });
 }
 console.log(`  proofs: ${times.map((t) => `${(t / 1000).toFixed(1)} s`).join(', ')}`);
 console.log(`\n${n} passed, ${fails} failed`);

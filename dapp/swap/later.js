@@ -129,14 +129,17 @@ export const tokenPools = () => (TP ||= globalThis.fetch('/evm-pool/token-pool-c
 export async function routeFrom({ ethCall, venues, tokenIn, token, amount, to, slippageBps = 50, deadline, random = (n) => crypto.getRandomValues(new Uint8Array(n)) }) {
   const stand = '0x' + hexOf(random(20)), amt = BigInt(amount), dl = BigInt(deadline), write = (d) => d.split(word(stand)).join(word(to));
   let q = null;
+  // A Precision route from a token is checkpointed: PrecisionRoute holds the call to a hash of its route, which names the recipient, so the
+  // stand-in cannot be written over afterwards. It is quoted for the stand-in (the node sees no more), and the call built here, for the address.
   if (lc(tokenIn) === TAC && lc(token) === ZERO) {
     // TAC for ETH: the Precision pool, as the deposit's own route in reverse, paying the address
     const rt = (await venues.route({ dir: 'TAC_TO_ETH', amountIn: amt, account: stand }))?.r?.precision;
     if (!rt || BigInt(rt.amountIn) !== amt) return null;
     const min = (BigInt(rt.amountOut) * BigInt(10000 - slippageBps)) / 10000n;
-    const tx = venues.build({ quote: rt, dir: 'TAC_TO_ETH', account: stand, to: stand, minOut: min, deadline: dl });
-    if (lc(tx.to) !== lc(ZROUTER) || BigInt(tx.value || 0) !== 0n) return null;
-    q = { callData: tx.data, min, out: BigInt(rt.amountOut), name: 'Precision pool' };
+    const build = (who) => venues.build({ quote: rt, dir: 'TAC_TO_ETH', account: who, to: who, minOut: min, deadline: dl });
+    const tx = build(stand), real = build(to);
+    if ([tx, real].some((t) => lc(t.to) !== lc(ZROUTER) || BigInt(t.value || 0) !== 0n)) return null;
+    return { callData: real.data, standData: tx.data, min, out: BigInt(rt.amountOut), name: 'Precision pool', deadline: dl };
   } else if (lc(tokenIn) === TAC) {
     const r = await quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut: token, amountIn: amt, account: stand, to: stand, slippageBps, deadline: dl });
     if (!r || r.amountIn !== amt) return null;
@@ -145,7 +148,8 @@ export async function routeFrom({ ethCall, venues, tokenIn, token, amount, to, s
     const r = await quoteAnyToTac({ ethCall, venues, token: tokenIn, amountIn: amt, account: stand, slippageBps, deadline: dl });
     if (!r) return null;
     const min = (BigInt(r.tacOut) * BigInt(10000 - slippageBps)) / 10000n;
-    q = { callData: buildAnyToTac({ quote: r, account: stand, to: stand, minOut: min, keccak256: keccak_256, access: { kind: 'approved' } }).data, min, out: BigInt(r.tacOut), name: r.hop ? `${r.hop.name} → Precision pool` : 'Precision pool' };
+    const build = (who) => buildAnyToTac({ quote: r, account: who, to: who, minOut: min, keccak256: keccak_256, access: { kind: 'approved' } }).data;
+    return { callData: build(to), standData: build(stand), min, out: BigInt(r.tacOut), name: r.hop ? `${r.hop.name} → Precision pool` : 'Precision pool', deadline: dl };
   } else {
     const r = await bestRoute({ ethCall, to: stand, refundTo: stand, tokenIn, tokenOut: token, amountIn: amt, slippageBps, deadline: dl });
     if (!r) return null;
