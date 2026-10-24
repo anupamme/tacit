@@ -808,6 +808,8 @@ export const CFG = {
   // days of the regular pot (or all that are left of it).
   pointsLpSchedule: opt('POINTS_LP_SCHEDULE', ''),
   pointsLpPools: opt('POINTS_LP_POOLS', ''),
+  // The virtual farms beside the campaign: a JSON list (see lib/points-lp.js parseLpFarms), each with its own pools, schedule, pocket and end.
+  pointsLpFarms: opt('POINTS_LP_FARMS', ''),
   // Kept as text and checked by lib/points-lp.js (parseLpSettings): a typo falls back to the safe default, or switches the campaign off, and
   // never crashes the service or turns a guard off.
   pointsLpPocket: opt('POINTS_LP_POCKET_WEI', ''),

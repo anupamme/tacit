@@ -11,7 +11,7 @@ import { openStore } from '../src/lib/points-store.js';
 
 const mode = process.argv[2] || 'on', PORT = 18600 + Math.floor(Math.random() * 300);
 const today = Math.floor(Date.now() / 86400e3), DAY = 86400, TAC = 10n ** 18n;
-const POOL = '0x' + 'ab'.repeat(20), A = '0x' + 'a'.repeat(40);
+const POOL = '0x' + 'ab'.repeat(20), POOL3 = '0x' + 'cd'.repeat(20), A = '0x' + 'a'.repeat(40);
 const dir = mkdtempSync(join(tmpdir(), 'points-lp-'));
 const db = join(dir, 'p.db');
 openStore(db);
@@ -21,6 +21,11 @@ const env = {
   ...(mode === 'on' ? {
     POINTS_LP_SCHEDULE: `${today}:daily=25,create=150,cap=0.05;${today + 30}:off`, POINTS_LP_POOLS: `${POOL}=1`, POINTS_LP_POCKET_WEI: String(1500n * TAC),
     POINTS_LP_END_SEC: String((today + 35) * DAY), POINTS_LP_FROM_BLOCK: '1000',
+    // One virtual farm beside it, and a second entry that is malformed (the service says so and goes on).
+    POINTS_LP_FARMS: JSON.stringify([
+      { name: 'taceth', schedule: `${today}:daily=40,create=0,cap=0.03`, pools: `${POOL3}=1/spot`, pocketWei: String(3000n * TAC), endSec: (today + 60) * DAY, fromBlock: 1000 },
+      { name: 'Bad Name', schedule: `${today}:daily=1,create=0,cap=1`, pools: POOL3, pocketWei: '1', endSec: 1 },
+    ]),
   } : {}),
 };
 const child = spawn('node', ['src/points-indexer.js'], { cwd: new URL('..', import.meta.url).pathname, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -43,9 +48,27 @@ try {
     assert.match(out, /liquidity campaign on: 1 pool\(s\), pocket 1500/, 'it says it started');
     const bad = await get('/lp?address=nope'); assert.equal(bad.enabled, true); assert.equal(bad.mine, undefined, 'a bad address asks for no account');
     console.log('ok - /lp with the campaign on:', JSON.stringify({ pocket: v.pocket, terms: v.terms, pools: v.pools.length }));
+    // The farm beside it: its own view, listed, with no day paid yet; the first campaign's answers are unchanged.
+    const f = await get(`/lp?farm=taceth&address=${A}`);
+    assert.equal(f.enabled, true, JSON.stringify(f)); assert.equal(f.name, 'taceth');
+    assert.equal(f.pocket.totalWei, String(3000n * TAC)); assert.equal(f.terms.dailyWei, String(40n * TAC)); assert.equal(f.terms.capWeiPerUsdDay, String(TAC * 3n / 100n));
+    assert.deepEqual(f.pools.map((p) => [p.pool, p.spot, p.weightBps]), [[POOL3, true, '10000']]);
+    assert.equal(f.mine.streak, 0); assert.equal(f.lastPaidDay, null);
+    assert.equal(v.name, undefined, 'the first campaign has no name');
+    assert.deepEqual((await get('/lp?farm=nope')), { enabled: false }, 'a farm that is not there is off');
+    const list = await get('/lp/farms'); assert.deepEqual(list.farms.map((x) => x.name), ['taceth']);
+    assert.match(out, /virtual farm "taceth" on: 1 pool\(s\), pocket 3000/); assert.match(out, /not a farm name/, 'the malformed farm is said and skipped');
+    for (const path of [`/lp/day/${today - 1}`, `/lp/day/${today - 1}?farm=taceth`, '/lp/day/1?farm=nope']) {
+      const r = await fetch(`http://127.0.0.1:${PORT}${path}`); assert.equal(r.status, 404, `${path}: no record for a day that was not paid`);
+    }
+    // The distributor's funding is not read here (no distributor), but the campaigns' pockets are listed beside it.
+    const rw = await get('/rewards');
+    assert.deepEqual(rw.pockets.map((p) => [p.name, p.remainingWei]), [[null, String(1500n * TAC)], ['taceth', String(3000n * TAC)]]);
+    console.log('ok - the farm, /lp/farms, /lp/day and the pockets on /rewards');
   } else {
     assert.deepEqual(v, { enabled: false });
     assert.doesNotMatch(out, /liquidity campaign on/);
+    assert.deepEqual(await get('/lp/farms'), { farms: [] }); assert.deepEqual((await get('/rewards')).pockets, []);
     console.log('ok - /lp with the campaign off:', JSON.stringify(v));
   }
   const lb = await get('/leaderboard?day=today&limit=1');

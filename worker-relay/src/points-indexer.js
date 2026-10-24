@@ -27,7 +27,7 @@ import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
 import { createTasks } from './lib/points-tasks-service.js';
 import { createLp } from './lib/points-lp-service.js';
-import { parseLpSchedule, parseLpPools, parseLpSettings } from './lib/points-lp.js';
+import { parseLpSchedule, parseLpPools, parseLpSettings, parseLpFarms } from './lib/points-lp.js';
 import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
@@ -1717,9 +1717,25 @@ function startHttp(store, evmState) {
         return;
       }
       // The liquidity campaign (lib/points-lp-service.js): its terms, pocket and pools, and with ?address= that account's part in it.
-      if (url.pathname === '/lp') {
-        res.setHeader('Cache-Control', 'public, max-age=30');
-        res.end(JSON.stringify(lp ? lp.view({ address: /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null }) : { enabled: false }));
+      // ?farm=<name> asks for one of the virtual farms beside it (POINTS_LP_FARMS) instead; /lp/farms lists them all; /lp/day/<n> is a paid day's
+      // record with its hash (lib/points-lp-record.js checks one against the chain).
+      if (url.pathname === '/lp' || url.pathname === '/lp/farms' || /^\/lp\/day\/\d{1,6}$/.test(url.pathname)) {
+        const addr = /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null;
+        const farm = url.searchParams.get('farm'), campaign = farm ? lpFarms.find((f) => f.name === farm) : lp;
+        if (url.pathname === '/lp/farms') {
+          res.setHeader('Cache-Control', 'public, max-age=30');
+          res.end(JSON.stringify({ farms: lpFarms.map((f) => f.view({ address: addr })) }));
+          return;
+        }
+        if (url.pathname === '/lp') {
+          res.setHeader('Cache-Control', 'public, max-age=30');
+          res.end(JSON.stringify(campaign ? campaign.view({ address: addr }) : { enabled: false }));
+          return;
+        }
+        const day = Number(url.pathname.split('/').pop()), kept = campaign?.dayRecord(day);
+        if (!kept) { res.statusCode = 404; res.end(JSON.stringify({ error: 'no record for that day' })); return; }
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.end(JSON.stringify({ day, ...kept }));
         return;
       }
       if (url.pathname === '/tasks/claim') {
@@ -1841,7 +1857,7 @@ function startHttp(store, evmState) {
           publishedRoot: state?.publishedRoot ?? null,
           publishedTotalWei: state?.publishedTotalWei ?? null,
           totalLedgerWei,
-          funding: await readFunding(state, BigInt(totalLedgerWei)),
+          ...lpFundingFields(await readFunding(state, BigInt(totalLedgerWei))),
           adjustments: store.listAdjustments().map((a) => ({ id: a.id, address: a.address, wei: a.wei, appliedAt: a.appliedAt })),
           rateCapSchedule: rateCapSchedule.map((e) => ({ fromDay: e.fromDay, maxWeiPerPoint: e.maxWeiPerPoint === null ? null : e.maxWeiPerPoint.toString() })),
           budgets: budgetSchedule.map((e) => ({ fromDay: e.fromDay, groups: e.groups.map((g) => ({ name: g.name, activities: g.activities, share: g.sharePpm / 1e6, maxWeiPerPoint: g.maxWeiPerPoint === null ? null : g.maxWeiPerPoint.toString() })) })),
@@ -1909,7 +1925,48 @@ function setupTasks(store) {
 }
 
 // The liquidity campaign (lib/points-lp-service.js): off unless POINTS_LP_SCHEDULE, POINTS_LP_POOLS, POINTS_LP_POCKET_WEI and POINTS_LP_END_SEC are set.
-let lp = null;
+let lp = null, lpFarms = [];
+const lpCampaigns = () => [lp, ...lpFarms].filter(Boolean);
+// What the campaigns have yet to credit (a pocket less what it has paid, while the campaign runs): the distributor holds it for them, so the
+// headroom that is the regular pot's is what is left after it.
+function lpFundingFields(funding) {
+  const now = Math.floor(Date.now() / 1000);
+  const pockets = lpCampaigns().map((c) => { const credited = c.credited(); return { name: c.name || null, endSec: c.endSec, remainingWei: c.pocketWei > credited ? c.pocketWei - credited : 0n }; });
+  const owing = pockets.filter((p) => p.endSec > now).reduce((n, p) => n + p.remainingWei, 0n);
+  const head = funding ? BigInt(funding.headroomWei) : 0n;
+  return {
+    funding: funding && { ...funding, pocketsWei: String(owing), headroomAfterPocketsWei: String(head > owing ? head - owing : 0n) },
+    pockets: pockets.map((p) => ({ name: p.name, endSec: p.endSec, remainingWei: String(p.remainingWei) })),
+  };
+}
+// What every campaign takes from the service: the store, the node, the day budgets and the distributor's funding.
+function lpDeps(store) {
+  return {
+    store, client: publicClient, log, budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
+    fundingInputs: async () => {
+      const state = store.loadSettleState();
+      const ledger = store.allRewards().reduce((n, r) => n + BigInt(r.cumulativeWei), 0n);
+      const f = await readFunding(state, ledger);
+      const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
+      return f && { heldWei: BigInt(f.heldWei), claimedWei: BigInt(f.claimedWei), nextDay: (state?.lastSettledDay ?? startDay - 1) + 1 };
+    },
+  };
+}
+// The virtual farms (POINTS_LP_FARMS, see lib/points-lp.js): each a campaign of its own beside the first.
+function setupLpFarms(store) {
+  if (!CFG.pointsProgramStartSec) return [];
+  const out = [];
+  for (const f of parseLpFarms(CFG.pointsLpFarms, log)) {
+    try {
+      out.push(createLp({
+        ...lpDeps(store), name: f.name,
+        cfg: { schedule: f.schedule, pools: f.pools, ...f.settings, exclude: f.exclude, usdc: CFG.pointsLpUsdc, ethUsdFeed: CFG.pointsLpEthUsdFeed, confirmations: CFG.pointsConfirmations },
+      }));
+      log(`virtual farm "${f.name}" on: ${f.pools.length} pool(s), pocket ${formatTac(f.settings.pocketWei)} TAC, until ${new Date(f.settings.endSec * 1000).toISOString()}`);
+    } catch (err) { log(`virtual farm "${f.name}" not started:`, err?.message || err); }
+  }
+  return out;
+}
 function setupLp(store) {
   const schedule = parseLpSchedule(CFG.pointsLpSchedule, log), pools = parseLpPools(CFG.pointsLpPools, log);
   const set = parseLpSettings({
@@ -1917,17 +1974,10 @@ function setupLp(store) {
   }, log);
   if (!set || !CFG.pointsProgramStartSec || !schedule.length || !pools.length) return null;
   const l = createLp({
-    store, client: publicClient, log, budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
+    ...lpDeps(store),
     cfg: {
       schedule, pools, ...set, exclude: CFG.pointsLpExclude.split(',').map((a) => a.trim()).filter(Boolean).filter((a) => { const ok = /^0x[0-9a-fA-F]{40}$/.test(a); if (!ok) log(`ignoring POINTS_LP_EXCLUDE entry "${a}": not an address`); return ok; }),
       usdc: CFG.pointsLpUsdc, ethUsdFeed: CFG.pointsLpEthUsdFeed, confirmations: CFG.pointsConfirmations,
-    },
-    fundingInputs: async () => {
-      const state = store.loadSettleState();
-      const ledger = store.allRewards().reduce((n, r) => n + BigInt(r.cumulativeWei), 0n);
-      const f = await readFunding(state, ledger);
-      const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
-      return f && { heldWei: BigInt(f.heldWei), claimedWei: BigInt(f.claimedWei), nextDay: (state?.lastSettledDay ?? startDay - 1) + 1 };
     },
   });
   log(`liquidity campaign on: ${pools.length} pool(s), pocket ${formatTac(set.pocketWei)} TAC, until ${new Date(set.endSec * 1000).toISOString()}`);
@@ -1971,6 +2021,7 @@ async function main() {
   try { holding = await setupHolding(store); } catch (err) { log('holding reward not started:', err?.message || err); holding = null; }
   tasks = setupTasks(store);
   try { lp = setupLp(store); } catch (err) { log('liquidity campaign not started:', err?.message || err); lp = null; }
+  try { lpFarms = setupLpFarms(store); } catch (err) { log('virtual farms not started:', err?.message || err); lpFarms = []; }
   startHttp(store, evmState);
 
   for (;;) {
@@ -2050,7 +2101,7 @@ async function main() {
       log('settle cycle failed:', err?.message || err);
     }
     // After the regular settlement, which comes first: the campaign's own scan and credits can wait a cycle, the daily pot cannot.
-    if (lp) { try { await lp.cycle(); } catch (err) { log('liquidity campaign cycle failed:', err?.message || err); } }
+    for (const c of lpCampaigns()) { try { await c.cycle(); } catch (err) { log(`${c.name ? `virtual farm "${c.name}"` : 'liquidity campaign'} cycle failed:`, err?.message || err); } }
     if (holding) { try { await holding.cycle(); } catch (err) { log('holding cycle failed:', err?.message || err); } }
     await new Promise((r) => setTimeout(r, CFG.pointsPollSecs * 1000));
   }

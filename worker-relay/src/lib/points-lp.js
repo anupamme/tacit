@@ -79,21 +79,24 @@ export function lpTermsForDay(schedule, day) {
 // The first entry after `day` that turns the campaign on or changes it, for a page that says what is coming.
 export const nextLpTerms = (schedule, day) => schedule.find((e) => e.fromDay > day) ?? null;
 
-// POINTS_LP_POOLS: "<pool>=<weight>,<pool>" — the pools the campaign pays for, each with the weight its liquidity counts at
-// (1 by default, at most 20). A pool that is not listed earns nothing, whoever opens it.
+// POINTS_LP_POOLS: "<pool>=<weight>,<pool>/spot" — the pools the campaign pays for, each with the weight its liquidity counts at
+// (1 by default, at most 20). A pool that is not listed earns nothing, whoever opens it. "/spot" marks a pool of a token with no peg
+// (see poolValueUsd): its token is valued at the pool's own price, which the median of the day's hourly readings keeps from being pushed.
 export function parseLpPools(raw, log = () => {}) {
   const out = [];
   const seen = new Set();
   for (const part of String(raw || '').split(',').map((s) => s.trim()).filter(Boolean)) {
     try {
-      const [addr, w = '1'] = part.split('=').map((s) => s.trim());
-      if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) throw new Error('expected <pool address>[=<weight>]');
+      const [spec, flag, ...more] = part.split('/').map((s) => s.trim());
+      if (more.length || (flag !== undefined && flag !== 'spot')) throw new Error('expected <pool address>[=<weight>][/spot]');
+      const [addr, w = '1'] = spec.split('=').map((s) => s.trim());
+      if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) throw new Error('expected <pool address>[=<weight>][/spot]');
       const weight = Number(w);
       if (!(weight > 0) || weight > 20 || !Number.isFinite(weight)) throw new Error('the weight must be more than 0 and at most 20');
       const pool = addr.toLowerCase();
       if (seen.has(pool)) throw new Error('the pool is listed twice');
       seen.add(pool);
-      out.push({ pool, weightBps: BigInt(Math.round(weight * 10_000)) });
+      out.push({ pool, weightBps: BigInt(Math.round(weight * 10_000)), ...(flag === 'spot' ? { spot: true } : {}) });
     } catch (err) {
       log(`ignoring POINTS_LP_POOLS entry "${part}": ${err.message}`);
     }
@@ -139,12 +142,14 @@ export function poolPrice({ sqrtNow, synthIs1, quoteDec }) {
 // The quote side is worth what the quote is worth. The synth side is marked at the LOWER of the pool's own price and the peg,
 // in quote per synth: nobody can earn more by moving the price up (the mark stops at the peg), and a pool whose synth really has
 // fallen is valued at the fall. `quoteUsdWei` is the dollar price of one quote token (1e18 for a dollar stablecoin, the feed's
-// ETH price for ether) and `pegQuoteWei` the quote per synth the market is built around (1e18 for both of today's pools).
+// ETH price for ether) and `pegQuoteWei` the quote per synth the market is built around (1e18 for both of today's pools). A pool of a
+// token that has no peg passes `pegQuoteWei: null` and its token is marked at the pool's own price: nothing stops a push up there but
+// the median of the day's readings (a price held up for most of a day is a price arbitrage has let stand).
 export function poolValueUsd({ reserveSynth, reserveQuote, quoteDec, sqrtNow, synthIs1, quoteUsdWei, pegQuoteWei = WAD }) {
   if (quoteUsdWei === null || quoteUsdWei === undefined || quoteUsdWei <= 0n) return null;
   const price = poolPrice({ sqrtNow, synthIs1, quoteDec });
   if (price === null) return null;
-  const mark = price < pegQuoteWei ? price : pegQuoteWei;
+  const mark = pegQuoteWei === null || price < pegQuoteWei ? price : pegQuoteWei;
   const quoteIn18 = reserveQuote * 10n ** BigInt(18 - quoteDec);
   return (quoteIn18 * quoteUsdWei) / WAD + (((reserveSynth * mark) / WAD) * quoteUsdWei) / WAD;
 }
@@ -179,9 +184,32 @@ export function allocateLpDay({ rows, dailyWei, capWeiPerUsdDay }) {
 
 // One id per pool for opening it, one per address and day for holding liquidity (an address in two pools is paid once for the
 // day): an id is credited once and for all, so a day that has been paid is never paid again however often it is looked at.
+//
+// The first campaign (TACD and TACE) keeps `lp:`; each further virtual farm has a prefix of its own, `vf:<name>:` (not `lp:…`, which would
+// count its credits in the first one's pocket), so its pocket, its days and its credits are separate from every other's.
 export const CREDIT_PREFIX = 'lp:';
-export const openId = (pool) => `${CREDIT_PREFIX}open:${pool.toLowerCase()}`;
-export const dayId = (day, address) => `${CREDIT_PREFIX}day:${day}:${address.toLowerCase()}`;
+export const farmPrefix = (name) => `vf:${name}:`;
+export const openId = (pool, prefix = CREDIT_PREFIX) => `${prefix}open:${pool.toLowerCase()}`;
+export const dayId = (day, address, prefix = CREDIT_PREFIX) => `${prefix}day:${day}:${address.toLowerCase()}`;
+
+// The run of consecutive days, ending at the latest, among the days an address was credited for holding liquidity.
+export function streakOf(days) {
+  const s = [...new Set(days)].sort((a, b) => b - a);
+  if (!s.length) return { last: null, streak: 0 };
+  let n = 1;
+  while (n < s.length && s[n] === s[n - 1] - 1) n++;
+  return { last: s[0], streak: n };
+}
+
+// What a pool's two tokens make of it: which is the quote (ETH, as the zero address, or USDC) and which the token the quote prices, and the
+// quote's decimals. null for a pool against anything else, which is not valued.
+export function classifyPool(token0, token1, usdc) {
+  const t0 = String(token0).toLowerCase(), t1 = String(token1).toLowerCase(), u = String(usdc ?? '').toLowerCase();
+  if (t0 === '0x0000000000000000000000000000000000000000') return { synthIs1: true, quote: 'ETH', quoteDec: 18 };
+  if (u && t0 === u) return { synthIs1: true, quote: 'USDC', quoteDec: 6 };
+  if (u && t1 === u) return { synthIs1: false, quote: 'USDC', quoteDec: 6 };
+  return null;
+}
 
 // The days of the regular pot the campaign must leave covered: the reserve, or fewer when fewer are left to pay (the funding report
 // counts days only while the regular program has a budget for them, so near and after its end it can never show the reserve).
@@ -214,6 +242,38 @@ export function parseLpSettings(raw, log = () => {}) {
     minSamples: int('POINTS_LP_MIN_SAMPLES', raw.minSamples, 12, 1, 24),
     minUsdWei: BigInt(int('POINTS_LP_MIN_USD', raw.minUsd, 20, 0, 1_000_000)) * WAD,
   };
+}
+
+// POINTS_LP_FARMS: the virtual farms beside the first campaign, a JSON list of
+//   { "name": "taceth", "schedule": "20752:daily=40,create=0,cap=0.03", "pools": "0x…=1/spot", "pocketWei": "3000000000000000000000",
+//     "endSec": 1797712559, "minUsd": 20, "minSamples": 12, "reserveDays": 2, "fromBlock": 24000000, "exclude": ["0x…"] }
+// Each farm is a campaign of its own: its pools, its schedule, its pocket and its end, its own tables and its own credit ids (`vf:<name>:`).
+// What a day pays is shared only among the liquidity in that farm's pools, so a deep pool in one farm cannot thin another's, and the
+// farm's pocket is the most it may ever credit. A farm that is malformed is reported and skipped, which pays nothing under it.
+export const FARM_NAME = /^[a-z][a-z0-9]{0,15}$/;
+export function parseLpFarms(raw, log = () => {}) {
+  if (!String(raw || '').trim()) return [];
+  let list;
+  try {
+    list = JSON.parse(raw);
+    if (!Array.isArray(list)) throw new Error('expected a list');
+  } catch (err) { log(`ignoring POINTS_LP_FARMS: ${err.message}`); return []; }
+  const out = [], seen = new Set();
+  for (const f of list) {
+    try {
+      const name = String(f?.name ?? '');
+      if (!FARM_NAME.test(name)) throw new Error(`"${name}" is not a farm name (lower case letters and digits, a letter first, at most 16)`);
+      if (seen.has(name)) throw new Error('the name is used twice');
+      const schedule = parseLpSchedule(f.schedule, log), pools = parseLpPools(f.pools, log);
+      const settings = parseLpSettings({ pocket: f.pocketWei, endSec: f.endSec, fromBlock: f.fromBlock, reserveDays: f.reserveDays, minUsd: f.minUsd, minSamples: f.minSamples }, log);
+      if (!settings) throw new Error('pocketWei and endSec are required');
+      if (!schedule.length || !pools.length) throw new Error('a schedule and at least one pool are required');
+      const exclude = (Array.isArray(f.exclude) ? f.exclude : []).filter((a) => { const ok = /^0x[0-9a-fA-F]{40}$/.test(String(a)); if (!ok) log(`ignoring a farm "${name}" exclude entry "${a}": not an address`); return ok; });
+      seen.add(name);
+      out.push({ name, schedule, pools, settings, exclude });
+    } catch (err) { log(`ignoring a POINTS_LP_FARMS entry: ${err.message}`); }
+  }
+  return out;
 }
 
 // Why a credit of `wei` has to wait, or null when it may go ahead: the campaign has ended, it would take the pocket past what was

@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../src/lib/points-store.js';
 import { createLp } from '../src/lib/points-lp-service.js';
-import { WAD, parseLpSchedule, parseLpPools, openId, dayId } from '../src/lib/points-lp.js';
+import { WAD, parseLpSchedule, parseLpPools, openId, dayId, farmPrefix } from '../src/lib/points-lp.js';
+import { hashRecord, checkDayRecord } from '../src/lib/points-lp-record.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000', DEAD = '0x000000000000000000000000000000000000dEaD';
 const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419';
@@ -64,7 +65,8 @@ function world(clock) {
       if (functionName === 'reserve1') return p.r1;
       if (functionName === 'sqrtPriceCurrent') return p.sqrt;
       const at = blockNumber == null ? clock.t - EPOCH : Number(blockNumber);
-      if (functionName === 'totalSupply') { if (w.failSupply && blockNumber != null) throw new Error('missing trie node'); return w.supplyAt(a, at); }
+      // A pruned node keeps the recent blocks (where a reading is pinned) and has dropped the older state a replay is checked at.
+      if (functionName === 'totalSupply') { if (w.failSupply && blockNumber != null && at < clock.t - EPOCH - 10) throw new Error('missing trie node'); return w.supplyAt(a, at); }
       if (functionName === 'balanceOf') { if (args[0] !== ZERO) throw new Error('only the zero address is asked'); return w.zeroAt(a, at); }
       throw new Error(`unexpected ${functionName}`);
     },
@@ -75,7 +77,7 @@ function world(clock) {
 // The service on a fresh store, with a clock the test moves. The scan begins two hours before day D0.
 function service(over = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'lp-'));
-  const store = openStore(join(dir, 'points.db'));
+  const store = over.store ?? openStore(join(dir, 'points.db'));
   const clock = { t: T(D0) - 2 * HOUR };
   const w = world(clock), said = [];
   const cfg = {
@@ -441,4 +443,193 @@ test('it is off unless it has a pocket, an end, a schedule and a pool', async ()
       assert.equal(s.w.logCalls, 0, 'and reads nothing');
     } finally { s.cleanup(); }
   }
+});
+
+// ── pinned readings, the day's record, and the farms beside the first campaign ──
+
+// The record of a day checked against the fake chain, with the ledger's credits.
+const check = (s, kept, over = {}) => checkDayRecord({ record: kept.record, sha256: kept.sha256, client: s.w.client, usdc: USDC, ethUsdFeed: FEED, adjustments: s.store.listAdjustments(), ...over });
+
+test('every reading is taken at a block, and a paid day keeps a hashed record that the chain bears out', async () => {
+  const s = service();
+  try {
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400); s.w.mint(P1, A, 600n * WAD, T(D0) - 5300); s.w.mint(P1, B, 400n * WAD, T(D0) - 5200);
+    s.w.mint(P2, DEAD, 1000n, T(D0) - 5400); s.w.mint(P2, C, 700n * WAD, T(D0) - 5300);
+    await hours(s, T(D0) - 2 * HOUR, T(D0 + 1));
+    const row = s.store.db.prepare('SELECT * FROM lp_samples WHERE day = ? AND hour = 7 AND pool = ?').get(D0, P2);
+    assert.equal(row.block, T(D0, 7) - EPOCH - 3, 'the reading is pinned three blocks behind the head');
+    assert.equal(row.block_ts, T(D0, 7) - 3);
+    assert.equal(row.quote_usd, String(2500n * WAD), 'with the price it used for ETH');
+    assert.equal(row.feed_round, '1', 'and the feed round it came from');
+    assert.equal(row.r0, String(2n * WAD)); assert.equal(row.r1, String(2n * WAD));
+    assert.equal(s.lp.dayRecord(D0), null, 'a day that is not paid has no record');
+    await close(s, D0);
+    const kept = s.lp.dayRecord(D0);
+    assert.ok(kept, 'the paid day has a record');
+    assert.equal(hashRecord(kept.record), kept.sha256, 'kept with its hash');
+    assert.equal(kept.record.pools.length, 2); assert.equal(kept.record.pools[1].samples.length, 24);
+    assert.deepEqual(kept.record.holders.map((h) => h.address).sort(), [A, B, C].sort());
+    assert.equal(kept.record.credits.length, 3);
+    const ok = await check(s, kept);
+    assert.deepEqual(ok.problems, [], 'the chain gives every figure in the record');
+    assert.ok(ok.ok); assert.deepEqual(ok.notes, []);
+    assert.ok((await check(s, kept, { fromBlocks: { [P1]: 1, [P2]: 1 } })).ok, 'and so it does from a known first block');
+    // Looking again changes nothing: the record is the one of the day it was paid.
+    const before = JSON.stringify(s.lp.dayRecord(D0));
+    for (let i = 0; i < 3; i++) { s.clock.t += 60; await s.lp.cycle(); }
+    assert.equal(JSON.stringify(s.lp.dayRecord(D0)), before);
+  } finally { s.cleanup(); }
+});
+
+test('a record that was changed, or a credit the rule does not give, is found', async () => {
+  const s = service();
+  try {
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400); s.w.mint(P1, A, 600n * WAD, T(D0) - 5300); s.w.mint(P1, B, 400n * WAD, T(D0) - 5200);
+    await hours(s, T(D0) - 2 * HOUR, T(D0 + 1)); await close(s, D0);
+    const kept = s.lp.dayRecord(D0), clone = () => JSON.parse(JSON.stringify(kept.record));
+    const fails = async (record, what, sha256 = null) => { const r = await check(s, { record, sha256 }); assert.ok(!r.ok && r.problems.length > 0, what); return r.problems.join(' | '); };
+    const credit = clone(); credit.credits[0].wei = String(BigInt(credit.credits[0].wei) + 1n);
+    assert.match(await fails(credit, 'a credit changed by a wei'), /credits are not what the rule gives|ledger/);
+    assert.match(await fails(credit, 'and the hash shows it', kept.sha256), /does not match its hash/);
+    const shares = clone(); shares.holders[0].minShares = String(BigInt(shares.holders[0].minShares) * 2n);
+    assert.match(await fails(shares, 'a holder given more shares'), /lowest shares/);
+    const left = clone(); left.holders = left.holders.filter((h) => h.address !== B); left.credits = left.credits.filter((c) => c.address !== B);
+    assert.match(await fails(left, 'a holder left out'), new RegExp(`${B} held`));
+    const reading = clone(); reading.pools[0].samples[5].r0 = String(BigInt(reading.pools[0].samples[5].r0) + 1n);
+    assert.match(await fails(reading, 'a reading that is not what the pool held at its block'), /reserve0/);
+    const moved = clone(); moved.pools[0].samples[5].block += 7200; moved.pools[0].samples[5].blockTs += 7200;
+    assert.match(await fails(moved, 'a reading moved to a block of another hour'), /outside that hour/);
+    const median = clone(); median.pools[0].vps = String(BigInt(median.pools[0].vps) * 2n);
+    assert.match(await fails(median, 'a median that is not the readings\''), /median value per share/);
+    // The ledger is held to it too: a credit the ledger has at another amount.
+    const ledger = s.store.listAdjustments().map((a) => (a.id === kept.record.credits[0].id ? { ...a, wei: '1' } : a));
+    const r = await check(s, kept, { adjustments: ledger });
+    assert.ok(!r.ok && /ledger has 1/.test(r.problems.join()), 'the ledger and the record must agree');
+    assert.ok((await check(s, kept)).ok, 'the untouched record still checks');
+  } finally { s.cleanup(); }
+});
+
+test('readings from before pinning still count, and the record says they cannot be checked', async () => {
+  const s = service({ cfg: { pools: parseLpPools(P1) } });
+  try {
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400); s.w.mint(P1, A, 600n * WAD, T(D0) - 5300);
+    await hours(s, T(D0) - 2 * HOUR, T(D0 + 1));
+    s.store.db.prepare('UPDATE lp_samples SET block = NULL, block_ts = NULL, quote_usd = NULL, feed_round = NULL, r0 = NULL, r1 = NULL, sqrt = NULL WHERE day = ? AND hour < 4').run(D0);
+    await close(s, D0);
+    const kept = s.lp.dayRecord(D0);
+    assert.equal(kept.record.pools[0].samples.filter((x) => x.unpinned).length, 4);
+    assert.ok(BigInt(credited(s.store, dayId(D0, A))) > 0n, 'the day is paid on all 24 readings');
+    const r = await check(s, kept);
+    assert.deepEqual(r.problems, []); assert.match(r.notes.join(), /4 reading\(s\) predate pinning/);
+  } finally { s.cleanup(); }
+});
+
+test('a day that pays nobody still keeps its record, and an address sees its streak', async () => {
+  const s = service({ cfg: { pools: parseLpPools(P1) } });
+  try {
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400);                       // the dead address holds shares all day; A comes at its end
+    s.w.mint(P1, A, 600n * WAD, T(D0 + 1) - 3000);
+    await hours(s, T(D0) - 2 * HOUR, T(D0 + 1)); await close(s, D0);
+    const kept = s.lp.dayRecord(D0);
+    assert.ok(kept && kept.record.credits.length === 0 && kept.record.holders.length === 0, 'an empty day has its record');
+    assert.ok((await check(s, kept)).ok);
+    await hours(s, T(D0 + 1), T(D0 + 3)); await close(s, D0 + 1); await close(s, D0 + 2);
+    const mine = s.lp.view({ address: A }).mine;
+    assert.deepEqual([mine.daysCredited, mine.lastDay, mine.streak], [2, D0 + 2, 2], 'A held for the whole of both days');
+    assert.equal(s.lp.view({ address: C }).mine.streak, 0, 'an address that was never credited has none');
+    assert.equal(s.lp.view({ address: C }).lastPaidDay, D0 + 2);
+  } finally { s.cleanup(); }
+});
+
+// Two campaigns on one store and one chain: the first (P1) and a farm (P2), each with its own schedule and pocket.
+function twin(farmCfg = {}, firstCfg = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'lp-'));
+  const store = openStore(join(dir, 'points.db'));
+  const clock = { t: T(D0) - 2 * HOUR };
+  const w = world(clock), said = [];
+  const base = { minUsdWei: 20n * WAD, minSamples: 12, exclude: [], fromBlock: T(D0) - 2 * HOUR - EPOCH, usdc: USDC, ethUsdFeed: FEED, confirmations: 12, chunk: 2000, reserveDays: 2, endSec: (D0 + 40) * DAY };
+  const deps = { store, client: w.client, budgetFor: () => 1111n * WAD, graceSecs: 1800, nowSec: () => clock.t, log: (...m) => said.push(m.join(' ')), fundingInputs: async () => ({ heldWei: 100_000n * WAD, claimedWei: 0n, nextDay: D0 }) };
+  const first = createLp({ ...deps, cfg: { ...base, schedule: parseLpSchedule(`${D0}:daily=50,create=150,cap=0.02`), pools: parseLpPools(P1), pocketWei: tac(1000), ...firstCfg } });
+  const farm = createLp({ ...deps, name: 'farm', cfg: { ...base, schedule: parseLpSchedule(`${D0}:daily=40,create=0,cap=0.05`), pools: parseLpPools(P2), pocketWei: tac(500), ...farmCfg } });
+  const cycle = async () => { await first.cycle(); await farm.cycle(); };
+  return { first, farm, store, clock, w, said, cycle, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+const hoursOf = async (s, from, to) => { for (let t = from; t < to; t += HOUR) { s.clock.t = t; await s.cycle(); } };
+
+test('a farm is a campaign of its own: its own tables, credits, pocket and day, and its liquidity does not thin the first campaign\'s', async () => {
+  const alone = service({ cfg: { pools: parseLpPools(P1) } });
+  const s = twin();
+  try {
+    for (const x of [alone.w, s.w]) {
+      x.mint(P1, DEAD, 1000n, T(D0) - 5400); x.mint(P1, A, 600n * WAD, T(D0) - 5300);
+    }
+    s.w.mint(P2, DEAD, 1000n, T(D0) - 5400); s.w.mint(P2, C, 700n * WAD, T(D0) - 5300);      // a pool of the farm's, far deeper than the first one's
+    await hours(alone, T(D0) - 2 * HOUR, T(D0 + 1)); await close(alone, D0);
+    await hoursOf(s, T(D0) - 2 * HOUR, T(D0 + 1)); s.clock.t = T(D0 + 1) + 1900; await s.cycle();
+    const a = credited(alone.store, dayId(D0, A)), tw = credited(s.store, dayId(D0, A));
+    assert.ok(BigInt(a) > 0n && tw === a, 'the first campaign pays A the same whether or not a farm shares the store');
+    assert.equal(credited(s.store, dayId(D0, C, farmPrefix('farm'))) > 0, true, 'the farm pays C under its own ids');
+    assert.equal(credited(s.store, dayId(D0, C)), undefined, 'and not under the first campaign\'s');
+    assert.equal(s.store.creditedWithPrefix('lp:'), alone.store.creditedWithPrefix('lp:'), 'the first pocket counts only its own credits (the day and the opening bonus), as it does alone');
+    assert.equal(s.farm.credited(), BigInt(credited(s.store, dayId(D0, C, farmPrefix('farm')))));
+    assert.ok(s.store.db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'vf_farm_samples'`).get(), 'the farm has tables of its own');
+    assert.equal(s.farm.view().name, 'farm'); assert.equal(s.first.view().name, undefined);
+    assert.ok(s.farm.dayRecord(D0) && s.first.dayRecord(D0), 'each keeps its own record of the day');
+    assert.equal(s.farm.dayRecord(D0).record.campaign, 'farm');
+    const r = await checkDayRecord({ ...{ record: s.farm.dayRecord(D0).record, sha256: s.farm.dayRecord(D0).sha256 }, client: s.w.client, usdc: USDC, ethUsdFeed: FEED, adjustments: s.store.listAdjustments() });
+    assert.deepEqual(r.problems, [], 'and the farm\'s record checks out too');
+  } finally { s.cleanup(); alone.cleanup(); }
+});
+
+test('a farm\'s pocket is its own: when it is spent the farm waits and the first campaign goes on', async () => {
+  const s = twin({ pocketWei: tac(10) });
+  try {
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400); s.w.mint(P1, A, 600n * WAD, T(D0) - 5300);
+    s.w.mint(P2, DEAD, 1000n, T(D0) - 5400); s.w.mint(P2, C, 700n * WAD, T(D0) - 5300);
+    await hoursOf(s, T(D0) - 2 * HOUR, T(D0 + 1)); s.clock.t = T(D0 + 1) + 1900; await s.cycle();
+    assert.ok(BigInt(credited(s.store, dayId(D0, A))) > 0n, 'the first campaign was paid');
+    assert.equal(credited(s.store, dayId(D0, C, farmPrefix('farm'))), undefined, 'the farm\'s day is larger than its pocket, so it waits');
+    assert.ok(s.said.some((m) => /lp credits wait: pocket/.test(m)));
+    assert.equal(s.farm.dayRecord(D0), null, 'and a day that has not been paid keeps no record');
+  } finally { s.cleanup(); }
+});
+
+test('a pool of a token with no peg is valued at its own price, and a pegged one at no more than the peg', async () => {
+  const price5 = 447213595499957939n;                         // a sqrt price that makes one token worth five ETH
+  const vpsOf = async (pools) => {
+    const s = service({ cfg: { pools: parseLpPools(pools) } });
+    try {
+      s.w.pools[P2].sqrt = price5;
+      s.w.mint(P2, DEAD, 1000n, T(D0) - 5400); s.w.mint(P2, C, 10n ** 18n, T(D0) - 5300);
+      await hours(s, T(D0) - 2 * HOUR, T(D0) + 2 * HOUR);
+      return { vps: BigInt(s.store.db.prepare('SELECT vps FROM lp_samples WHERE day = ? AND hour = 1 AND pool = ?').get(D0, P2).vps), view: s.lp.view().pools[0] };
+    } finally { s.cleanup(); }
+  };
+  const pegged = await vpsOf(P2), spot = await vpsOf(`${P2}/spot`);
+  // 2 ETH and 2 tokens at $2,500 an ETH: $10,000 with the token held to the peg of one ETH, $30,000 at five.
+  assert.ok(spot.vps > pegged.vps * 29n / 10n && spot.vps < pegged.vps * 31n / 10n, `spot ${spot.vps} against pegged ${pegged.vps}`);
+  assert.equal(spot.view.spot, true); assert.equal(pegged.view.spot, undefined);
+});
+
+test('a store from before readings were pinned is upgraded in place, and its old readings still count', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lp-old-'));
+  const store = openStore(join(dir, 'points.db'));
+  // The tables as the first version made them.
+  store.db.exec(`CREATE TABLE lp_samples (day INTEGER NOT NULL, hour INTEGER NOT NULL, pool TEXT NOT NULL, taken_at INTEGER NOT NULL, pool_usd TEXT NOT NULL, supply TEXT NOT NULL, vps TEXT NOT NULL, PRIMARY KEY (day, hour, pool));
+    CREATE TABLE lp_days (day INTEGER PRIMARY KEY, paid_at INTEGER NOT NULL, wei TEXT NOT NULL);`);
+  store.db.prepare('INSERT INTO lp_samples VALUES (?, ?, ?, ?, ?, ?, ?)').run(D0, 3, P1, T(D0, 3), '1000000000000000000', '5', '2000000000000000000');
+  const s = service({ store, cfg: { pools: parseLpPools(P1) } });
+  try {
+    const cols = store.db.prepare('PRAGMA table_info(lp_samples)').all().map((c) => c.name);
+    for (const c of ['block', 'block_ts', 'quote_usd', 'feed_round', 'r0', 'r1', 'sqrt']) assert.ok(cols.includes(c), `${c} was added`);
+    assert.ok(store.db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'lp_day_records'`).get(), 'and the records table');
+    const old = store.db.prepare('SELECT * FROM lp_samples WHERE hour = 3').get();
+    assert.equal(old.vps, '2000000000000000000'); assert.equal(old.block, null, 'the old reading is kept as it was');
+    s.w.mint(P1, DEAD, 1000n, T(D0) - 5400); s.w.mint(P1, A, 600n * WAD, T(D0) - 5300);
+    await hours(s, T(D0) - 2 * HOUR, T(D0 + 1)); await close(s, D0);
+    const kept = s.lp.dayRecord(D0);
+    assert.equal(kept.record.pools[0].samples.filter((x) => x.unpinned).length, 1, 'the old reading is in the record, marked as one that cannot be checked');
+    assert.equal(kept.record.pools[0].samples.length, 24);
+    assert.deepEqual((await check(s, kept)).problems, []);
+  } finally { s.cleanup(); rmSync(dir, { recursive: true, force: true }); }
 });

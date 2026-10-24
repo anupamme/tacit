@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import {
   WAD, parseLpSchedule, lpTermsForDay, nextLpTerms, parseLpPools, poolPrice, poolValueUsd, shareValueUsd, allocateLpDay,
   openId, dayId, dayOf, dayIsDone, holdReason, MAX_DAILY_WEI, CREDIT_PREFIX, dayMinimums, medianOf, reserveFor, parseLpSettings,
+  parseLpFarms, farmPrefix, streakOf, classifyPool,
 } from '../src/lib/points-lp.js';
+import { canonical, hashRecord } from '../src/lib/points-lp-record.js';
 
 const tac = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;
 const usdc = (n) => BigInt(Math.round(n * 1e6));
@@ -247,4 +249,73 @@ test('a typo in the settings never turns a guard off or crashes the service', ()
   assert.equal(parseLpSettings({ ...good, endSec: '' }), null);
   assert.equal(parseLpSettings({ ...good, minSamples: '0' }, () => {}).minSamples, 12);
   assert.equal(parseLpSettings({ ...good, reserveDays: '99' }, () => {}).reserveDays, 2);
+});
+
+test('a pool can be listed as one of a token with no peg, and nothing else about the entry changes', () => {
+  const said = [];
+  const p = parseLpPools(`${POOL}=0.5/spot, ${POOL2}, 0x3333333333333333333333333333333333333333/spot, 0x4444444444444444444444444444444444444444/peg, ${A}=1/spot/x`, (m) => said.push(m));
+  assert.deepEqual(p, [
+    { pool: POOL.toLowerCase(), weightBps: 5000n, spot: true },
+    { pool: POOL2.toLowerCase(), weightBps: 10000n },
+    { pool: '0x3333333333333333333333333333333333333333', weightBps: 10000n, spot: true },
+  ], 'the flag is on only the pools that carry it');
+  assert.equal(said.length, 2, 'an unknown flag and a second flag are refused');
+});
+
+test('a token with no peg is marked at the pool\'s own price, a pegged one at no more than the peg', () => {
+  const base = { reserveSynth: 2n * WAD, reserveQuote: 2n * WAD, quoteDec: 18, sqrtNow: 447213595499957939n, synthIs1: true, quoteUsdWei: 2500n * WAD };   // one token = 5 ETH
+  const pegged = poolValueUsd(base), spot = poolValueUsd({ ...base, pegQuoteWei: null });
+  assert.equal(pegged, 10_000n * WAD, '2 ETH + 2 tokens held to 1 ETH each');
+  assert.ok(spot > 29_999n * WAD && spot < 30_001n * WAD, '2 ETH + 2 tokens at 5 ETH each');
+  const cheap = { ...base, sqrtNow: 10n ** 19n };                                     // a token worth a hundredth of an ETH: under the peg either way
+  assert.equal(poolValueUsd(cheap), poolValueUsd({ ...cheap, pegQuoteWei: null }));
+});
+
+test('a farm has a name, its own credit ids, and its own pocket and pools; a malformed one is skipped and said', () => {
+  const said = [];
+  const good = { name: 'taceth', schedule: '20752:daily=40,create=0,cap=0.03', pools: `${POOL}=1/spot`, pocketWei: String(tac(3000)), endSec: 1797712559, exclude: [A, 'nope'] };
+  const farms = parseLpFarms(JSON.stringify([
+    good,
+    { ...good, name: 'taceth' },                                              // the name twice
+    { ...good, name: 'Bad Name' },
+    { ...good, name: 'nopocket', pocketWei: undefined },
+    { ...good, name: 'nopools', pools: '' },
+    { ...good, name: 'second', pools: POOL2, minUsd: 5, minSamples: 6, reserveDays: 3 },
+  ]), (m) => said.push(m));
+  assert.deepEqual(farms.map((f) => f.name), ['taceth', 'second']);
+  assert.equal(farms[0].settings.pocketWei, tac(3000)); assert.equal(farms[0].settings.endSec, 1797712559);
+  assert.deepEqual(farms[0].exclude, [A], 'an entry that is not an address is dropped');
+  assert.equal(farms[0].pools[0].spot, true); assert.equal(farms[0].schedule[0].dailyWei, tac(40));
+  assert.equal(farms[1].settings.minUsdWei, 5n * WAD); assert.equal(farms[1].settings.minSamples, 6); assert.equal(farms[1].settings.reserveDays, 3);
+  assert.ok(said.some((m) => /used twice/.test(m)) && said.some((m) => /not a farm name/.test(m)) && said.some((m) => /pocketWei and endSec/.test(m)) && said.some((m) => /at least one pool/.test(m)));
+  for (const bad of ['', '   ', 'not json', '{"name":"x"}']) assert.deepEqual(parseLpFarms(bad, () => {}), []);
+  assert.equal(farmPrefix('taceth'), 'vf:taceth:');
+  assert.equal(dayId(20800, A, farmPrefix('taceth')), `vf:taceth:day:20800:${A}`);
+  assert.equal(openId(POOL, farmPrefix('taceth')), `vf:taceth:open:${POOL.toLowerCase()}`);
+  assert.equal(dayId(20800, A), `${CREDIT_PREFIX}day:20800:${A}`, 'the first campaign\'s ids are as they were');
+  assert.ok(!farmPrefix('taceth').startsWith(CREDIT_PREFIX), 'a farm\'s credits are never counted in the first pocket');
+});
+
+test('a streak is the run of days that ends at the latest', () => {
+  assert.deepEqual(streakOf([]), { last: null, streak: 0 });
+  assert.deepEqual(streakOf([5]), { last: 5, streak: 1 });
+  assert.deepEqual(streakOf([5, 3, 4, 4, 1, 2]), { last: 5, streak: 5 });
+  assert.deepEqual(streakOf([9, 8, 6, 5, 4]), { last: 9, streak: 2 }, 'a gap ends it');
+});
+
+test('a pool is a quote and a token: ETH or USDC on either side, nothing else', () => {
+  const ZERO = '0x0000000000000000000000000000000000000000', USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+  assert.deepEqual(classifyPool(ZERO, A, USDC), { synthIs1: true, quote: 'ETH', quoteDec: 18 });
+  assert.deepEqual(classifyPool(USDC, A, USDC), { synthIs1: true, quote: 'USDC', quoteDec: 6 });
+  assert.deepEqual(classifyPool(A, USDC.toLowerCase(), USDC), { synthIs1: false, quote: 'USDC', quoteDec: 6 });
+  assert.equal(classifyPool(A, B, USDC), null);
+  assert.equal(classifyPool(A, USDC, ''), null, 'with no USDC configured only ETH pools are valued');
+});
+
+test('a record has one canonical form, and its hash follows every figure in it', () => {
+  const r = { v: 1, day: 20800, credits: [{ id: 'x', wei: 5n }], pools: [{ pool: A, spot: undefined, n: null }] };
+  assert.equal(canonical(r), '{"credits":[{"id":"x","wei":"5"}],"day":20800,"pools":[{"n":null,"pool":"' + A + '"}],"v":1}');
+  assert.equal(hashRecord(r), hashRecord({ pools: [{ n: null, pool: A }], v: 1, credits: [{ wei: 5n, id: 'x' }], day: 20800 }), 'key order does not matter');
+  assert.notEqual(hashRecord(r), hashRecord({ ...r, credits: [{ id: 'x', wei: 6n }] }));
+  assert.equal(hashRecord(r).length, 64);
 });

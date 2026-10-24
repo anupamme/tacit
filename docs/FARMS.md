@@ -379,6 +379,7 @@ returned the shares. Harvest before unbonding: unbond does not pay out reward th
 
 - [`BUILD-A-TACIT-DAPP.md`](./BUILD-A-TACIT-DAPP.md) — the base guide, with a minimal farms example
 - [`DEPLOYMENTS.md`](./DEPLOYMENTS.md) — every live address
+- [`VIRTUAL-FARMS.md`](./VIRTUAL-FARMS.md) — farms for public pools without staking (the TACD/TACE liquidity campaign), and how a paid day is checked
 - [SPEC §6.4](../SPEC.md#64-ethereum--bitcoin) — TAC notes to Bitcoin
 - [`contracts/src/FarmManager.sol`](../contracts/src/FarmManager.sol) — the program contract; the governance bounds
   above are constants there
