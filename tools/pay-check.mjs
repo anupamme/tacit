@@ -1071,6 +1071,26 @@ try {
     ok(relays.length === 2, `and the relay sent it (${relays.length} relayed so far)`);
     await p.waitForFunction(() => /^149\.6$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 120e3 }).catch(() => {});
     ok(/^149\.6$/.test((await p.textContent('#bal .v')).trim()), `what stays private, less the two fees: ${await p.textContent('#bal .v')} USDC`);
+    // USDT: no permit, and an allowance of 1 already in place that USDT will not change but through zero. The page resets it, approves exactly
+    // the 40, and deposits (a deposit that tried approve(40) from 1 would revert, so a deposit that lands shows the reset was sent).
+    const USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7', POOLT = '0x73872ceEaADd2C603BD057073D403f08DCB31EB9', ROUTERT = '0x5650c850872bc89FC6E22CBB7a51b0e0DAC97198';
+    const word = (a) => a.slice(2).toLowerCase().padStart(64, '0');
+    const read = async (to, data) => BigInt(await rpc('eth_call', [{ to, data }, 'latest']));
+    await rpc('anvil_dealERC20', [ACCT, USDT, '0x' + (500n * 10n ** 6n).toString(16)]);
+    await rpc('eth_sendTransaction', [{ from: ACCT, to: USDT, data: '0x095ea7b3' + word(ROUTERT) + (10n ** 6n).toString(16).padStart(64, '0'), gas: '0x30000' }]);
+    ok((await read(USDT, '0xdd62ed3e' + word(ACCT) + word(ROUTERT))) === 10n ** 6n, 'USDT: an allowance of 1 is in place for its router');
+    await p.click('#assets [data-tok="usdt"]');
+    ok(/USDT, private on Ethereum/.test(await p.textContent('#bal')), 'the USDT pool is picked');
+    await p.click('#tabs [data-tab="deposit"]');
+    await p.waitForFunction(() => /500/.test(document.querySelector('#f-wb')?.textContent || ''), null, { timeout: 60e3 }).catch(() => {});
+    await p.fill('#f-amt', '40');
+    const heldT = await read(USDT, '0x70a08231' + word(POOLT));
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Deposited/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Deposited 40 USDT/.test(await p.textContent('#status')), `USDT: deposit of 40 after the allowance is reset: ${(await p.textContent('#status')).trim()}`);
+    ok((await read(USDT, '0x70a08231' + word(POOLT))) - heldT === 40n * 10n ** 6n && (await read(USDT, '0xdd62ed3e' + word(ACCT) + word(ROUTERT))) === 0n, 'the USDT pool took exactly 40 and no allowance is left');
+    await p.waitForFunction(() => /^40$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 120e3 }).catch(() => {});
+    ok(/^40$/.test((await p.textContent('#bal .v')).trim()), `private USDT: ${await p.textContent('#bal .v')}`);
     // a request for 25 USDC, from the other key, paid from a wallet by someone with no Tacit key
     await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
     await openKey(p, other);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-KBWecaH/XbzgEY45YAz60NvyK4uy5Q5tdgzcIPrK+D4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MVuvBSiyS7kqYrhrKUrEqMw0/SfFpjS2KimgAUmpcEY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1111,6 +1111,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="i-key" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="12" cy="16" r="4.3" fill="none" stroke="#f4efe6" stroke-width="2.3"/><path d="M16.3 16H25.5M22.4 16v3.4M25.5 16v2.6" fill="none" stroke="#f7931a" stroke-width="2.3" stroke-linecap="round"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
     <symbol id="tk-peth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="#8ea2f0"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="tk-usdc" viewBox="0 0 32 32"><g fill="none"><circle fill="#2775CA" cx="16" cy="16" r="16"/><g fill="#FFF"><path d="M20.022 18.124c0-2.124-1.28-2.852-3.84-3.156-1.828-.243-2.193-.728-2.193-1.578 0-.85.61-1.396 1.828-1.396 1.097 0 1.707.364 2.011 1.275a.458.458 0 00.427.303h.975a.416.416 0 00.427-.425v-.06a3.04 3.04 0 00-2.743-2.489V9.142c0-.243-.183-.425-.487-.486h-.915c-.243 0-.426.182-.487.486v1.396c-1.829.242-2.986 1.456-2.986 2.974 0 2.002 1.218 2.791 3.778 3.095 1.707.303 2.255.668 2.255 1.639 0 .97-.853 1.638-2.011 1.638-1.585 0-2.133-.667-2.316-1.578-.06-.242-.244-.364-.427-.364h-1.036a.416.416 0 00-.426.425v.06c.243 1.518 1.219 2.61 3.23 2.914v1.457c0 .242.183.425.487.485h.915c.243 0 .426-.182.487-.485V21.34c1.829-.303 3.047-1.578 3.047-3.217z"/><path d="M12.892 24.497c-4.754-1.7-7.192-6.98-5.424-11.653.914-2.55 2.925-4.491 5.424-5.402.244-.121.365-.303.365-.607v-.85c0-.242-.121-.424-.365-.485-.061 0-.183 0-.244.06a10.895 10.895 0 00-7.13 13.717c1.096 3.4 3.717 6.01 7.13 7.102.244.121.488 0 .548-.243.061-.06.061-.122.061-.243v-.85c0-.182-.182-.424-.365-.546zm6.46-18.936c-.244-.122-.488 0-.548.242-.061.061-.061.122-.061.243v.85c0 .243.182.485.365.607 4.754 1.7 7.192 6.98 5.424 11.653-.914 2.55-2.925 4.491-5.424 5.402-.244.121-.365.303-.365.607v.85c0 .242.121.424.365.485.061 0 .183 0 .244-.06a10.895 10.895 0 007.13-13.717c-1.096-3.46-3.778-6.07-7.13-7.162z"/></g></g></symbol>
+    <symbol id="tk-usdt" viewBox="0 0 32 32"><g fill="none" fill-rule="evenodd"><circle cx="16" cy="16" r="16" fill="#26A17B"/><path fill="#FFF" d="M17.922 17.383v-.002c-.11.008-.677.042-1.942.042-1.01 0-1.721-.03-1.971-.042v.003c-3.888-.171-6.79-.848-6.79-1.658 0-.809 2.902-1.486 6.79-1.66v2.644c.254.018.982.061 1.988.061 1.207 0 1.812-.05 1.925-.06v-2.643c3.88.173 6.775.85 6.775 1.658 0 .81-2.895 1.485-6.775 1.657m0-3.59v-2.366h5.414V7.819H8.595v3.608h5.414v2.365c-4.4.202-7.709 1.074-7.709 2.118 0 1.044 3.309 1.915 7.709 2.118v7.582h3.913v-7.584c4.393-.202 7.694-1.073 7.694-2.116 0-1.043-3.301-1.914-7.694-2.117"/></g></symbol>
     <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
     <symbol id="lg-zfi" viewBox="0 0 400 400"><rect width="400" height="400" fill="#000"/><path fill="#fff" d="M-60-20H460V90L80 310H460V420H-60V310L320 90H-60Z"/></symbol>
@@ -1569,13 +1571,13 @@ const SEEN_POOLS = (() => { try { return (JSON.parse(localStorage.getItem('tacit
 const tokenPoolRow = ({ token, sym, dec, pool, router, maxRelayFee }) => {
   const id = keeperIdOf(token);
   if (TOKEN_POOLS.some((p) => p.pool.toLowerCase() === pool.toLowerCase() || p.slug === id.slice(2))) return null;
-  const row = { slug: id.slice(2), name: sym, sym, dec, icon: 'tk-peth', chainId: 1, token: token.toLowerCase(), permit: null,
+  const row = { slug: id.slice(2), name: sym, sym, dec, icon: ['usdc', 'usdt'].includes(sym.toLowerCase()) ? `tk-${sym.toLowerCase()}` : 'tk-peth', chainId: 1, token: token.toLowerCase(), permit: null,
     keeper: `${POOL_KEEPERS}/${id}/evm-pool/keeper`, relayer: POOL_RELAYER, maxRelayFee, pool, router, deployBlock: 26262000,
     rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations };
   TOKEN_POOLS.push(row);
   return row;
 };
-for (const x of SEEN_POOLS) { const v = SERVED_POOLS[x.token.toLowerCase()]; if (v) tokenPoolRow({ token: x.token, ...v }); }
+for (const [token, v] of Object.entries(SERVED_POOLS)) tokenPoolRow({ token, ...v });          // the pools the relay serves: always listed
 const OTHER_POOLS = SEEN_POOLS.filter((x) => !SERVED_POOLS[x.token.toLowerCase()] && !TOKEN_POOLS.some((p) => p.token.toLowerCase() === x.token.toLowerCase())).slice(0, 20);
 if (OTHER_POOLS.length) (async () => {
   const tp = makeTokenPools({ code: await fetch('/evm-pool/token-pool-code.json').then((r) => r.json()), keccak256: keccak_256 });
@@ -6357,6 +6359,7 @@ function renderTokenPool(el) {
       else { mount(rc, html`<div class="kv"><span>To</span><b>${dsv.r.label ? `${dsv.r.label} → ` : ''}${short(dsv.r.bp, 8)}</b></div>${idRow(dsv.r.id || dsv.r.bp)}${feeRow()}${combine(m)}`); rc.hidden = false; }
     };
     toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
+    { const dr = hxLive('tsend'); if (dr?.slug === t.slug) { toEl.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (toEl.value || amt.value) check(); } }   // what the tile gathered
     go.onclick = () => busy(go, async (run) => {
       try {
         const amount = parseUnits(amt.value, D), raw = toEl.value.trim();
@@ -6398,6 +6401,7 @@ function renderTokenPool(el) {
       else if (!bad) { mount(rc, html`${feeRow()}${combine(m)}`); rc.hidden = !m && !feeRow(); }
     };
     toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
+    { const dr = hxLive('tsend'); if (dr?.slug === t.slug) { toEl.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (toEl.value || amt.value) check(); } }
     go.onclick = () => busy(go, async (run) => {
       try {
         const amount = parseUnits(amt.value, D);
@@ -10985,7 +10989,14 @@ function hxNorm() {
   else HX.mode = t;
   if (HX.send === 'wtac') HX.ask = false;
 }
-const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 'cUSD', 'cusd', 2], ['cbtc', 'cBTC', 'cbtc', 6], ['wtac', 'TAC', 'tac', 2], ['tacb', 'TAC', 'tac', 2], ['btc', 'BTC', 'btc', 8]];
+const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 'cUSD', 'cusd', 2], ['cbtc', 'cBTC', 'cbtc', 6], ['wtac', 'TAC', 'tac', 2], ['tacb', 'TAC', 'tac', 2], ['btc', 'BTC', 'btc', 8],
+  ['ptac', 'TAC', 'tac', 2], ['usdc', 'USDC', 'usdc', 2], ['usdt', 'USDT', 'usdt', 2]];
+// The payments pools (TOKEN_POOLS): TAC, USDC and USDT held privately on this device, in their own decimals. The tile gathers what is sent and
+// where, and finishes in the device sheet's send form for that pool, which proves it here and sends it through the relay or the wallet.
+const HX_DEVK = { ptac: ADDR.tac.toLowerCase(), usdc: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', usdt: '0xdac17f958d2ee523a2206206994597c13d831ec7' };
+const hxDevSlug = (k) => TOKEN_POOLS.find((p) => p.token.toLowerCase() === HX_DEVK[k])?.slug;
+const hxDev = (k = HX.send) => (HX.tab === 'send' && HX_DEVK[k] ? TOKEN_POOLS.find((p) => p.token.toLowerCase() === HX_DEVK[k]) || null : null);
+const hxDec = () => hxDev()?.dec ?? 8;
 const HX_SEND_G = [['Private on Ethereum', HX_SEND.slice(0, 4)], ['In your wallet', HX_SEND.slice(4, 5)], ['On Bitcoin', HX_SEND.slice(5)]];
 const hxSendOf = (k = HX.send) => HX_SEND.find(([x]) => x === k) || HX_SEND[0];
 const hxSendBtc = (k = HX.send) => k === 'tacb' || k === 'btc';
@@ -10998,7 +11009,7 @@ const hxOut = () => [...(xoOn(XA.teth) ? [HX_ETHER, HX_TETH] : []), ...(xoOn(XA.
 const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', wtac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a', sats: '#f7931a' };
 const HX_WTAC = ['wtac', 'TAC', 'tac', 2];
 const hxAsset = (k) => (k === 'ether' ? HX_ETHER : k === 'wtac' ? HX_WTAC : swapAsset(k));
-const hxUnits = () => parseUnits(HX.amt, 8);
+const hxUnits = () => parseUnits(HX.amt, hxDec());
 const hxHeld = () => (S.key && P.scan ? spendable('eth') : null), hxHeldTac = () => (S.key && P.scan ? spendable('tac') : null);
 const hxTwo = (units) => HX.from === 'ether' && !(units && hxHeld() >= units);
 const hxDraft = (d) => { HX.draft = { ...d, at: Date.now() }; };
@@ -11058,12 +11069,12 @@ async function hxFarms(amt) {
   }
   return out;
 }
-const HX_QUICK = { eth: ['0.1', '0.5', '1'], tac: ['500', '1000'], sats: ['50000', '200000'], btc: ['0.005', '0.01'], cusd: ['100', '500'], cbtc: ['0.005', '0.01'] };
+const HX_QUICK = { eth: ['0.1', '0.5', '1'], tac: ['500', '1000'], sats: ['50000', '200000'], btc: ['0.005', '0.01'], cusd: ['100', '500'], cbtc: ['0.005', '0.01'], usd: ['25', '100'] };
 function hxAmtKind() {
   const t = HX.tab;
   if (t === 'private') return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac', wtac: 'tac' }[HX.sf];
   if (t === 'borrow') return 'btc';
-  if (t === 'send') return { eth: 'eth', tac: 'tac', wtac: 'tac', tacb: 'tac', cusd: 'cusd', cbtc: 'cbtc', btc: 'btc' }[HX.send];
+  if (t === 'send') return { eth: 'eth', tac: 'tac', wtac: 'tac', tacb: 'tac', ptac: 'tac', cusd: 'cusd', cbtc: 'cbtc', btc: 'btc', usdc: 'usd', usdt: 'usd' }[HX.send];
   const f = HX.from;
   return f === 'ether' || f === 'eth' ? 'eth' : f === 'wtac' ? 'tac' : f;
 }
@@ -11071,13 +11082,13 @@ function hxUsd(kind, n) {
   const v = TPX.v;
   if (!v || !(n > 0)) return '';
   const ethUsd = v.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null;
-  const usd = kind === 'eth' ? ethUsd && n * ethUsd : kind === 'tac' ? ethUsd && v.mid && n * v.mid * ethUsd : kind === 'cusd' ? n : kind === 'btc' || kind === 'cbtc' ? v.usdBtc && n * v.usdBtc : kind === 'sats' ? v.usdBtc && n * v.usdBtc / 1e8 : null;
+  const usd = kind === 'eth' ? ethUsd && n * ethUsd : kind === 'tac' ? ethUsd && v.mid && n * v.mid * ethUsd : kind === 'cusd' || kind === 'usd' ? n : kind === 'btc' || kind === 'cbtc' ? v.usdBtc && n * v.usdBtc : kind === 'sats' ? v.usdBtc && n * v.usdBtc / 1e8 : null;
   return usd ? (usd >= 100 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toPrecision(2)}`) : '';
 }
 function hxSub() {
   const el = $('#hx-sub');
   if (!el) return;
-  const units = hxUnits(), v = units ? hxUsd(hxAmtKind(), Number(units) / 1e8) : '';
+  const units = hxUnits(), v = units ? hxUsd(hxAmtKind(), Number(units) / 10 ** hxDec()) : '';
   if (units && !TPX.v) loadTacPrice().then(() => { if (TPX.v) hxSub(); }, () => {});
   mount(el, v ? html`≈ ${v}` : html``);
 }
@@ -11111,8 +11122,15 @@ function hxSendWalletQuote(units) {
   return { warn: over, line: over ? `You hold ${fmt(held, 18, 4)} TAC in your wallet.` : '',
     rc: over ? [] : [['They get', `${fmt(units, 8, 6)} TAC`], ['Network fee', `paid by ${your()}`], ...hxSendSees()] };
 }
+async function hxSendDevQuote(units) {
+  const p = hxDev(), out = hxRcptKind() === 'eth', held = S.key ? devBal(p.slug, S.key.pubHex) : null, show = (v) => `${fmt(v, p.dec, p.dec === 6 ? 2 : 4)} ${p.sym}`;
+  const fee = await hxDevFee(p), cap = fee ? (fee * 5n) / 4n : 0n, over = held != null && units + cap > held;
+  return { warn: over, line: over ? `You hold ${show(held)} here${fee ? `, and the relay’s fee comes out of it` : ''}.` : '',
+    rc: over ? [] : [['They get', `${show(units)}${out ? ' at that address' : ''}`], fee ? ['Relay fee', `about ${show(fee)}, out of your private ${p.sym}`] : ['Relay fee', `in ${p.sym}, shown before you send`], ...hxSendSees()] };
+}
 async function hxSendQuote(units) {
   if (hxSendWallet()) return hxSendWalletQuote(units);
+  if (hxDev()) return hxSendDevQuote(units);
   if (hxRcptKind() === 'eth') return hxSendOutQuote(units);
   const k = HX.send, [, unit, , dp] = hxSendOf(k), tk = POOL_TK[k], show = (v) => `${fmt(v, 8, dp)} ${unit}`;
   const t = await getUx(), held = S.key && P.scan ? spendable(k) : null, notes = freeNotes(P.scan?.[k]?.notes), exact = notes.some((n) => BigInt(n.value) === units);
@@ -11156,18 +11174,23 @@ const hxCanShare = () => typeof navigator.share === 'function' && matchMedia('(p
 async function hxAskGo() {
   const a = S.key?.tacit, u = hxUnits();
   if (!a) return openSheet('wallet');
-  const url = `${location.origin}/#card=send:${HX.send}&to=${encodeURIComponent(a)}${u ? `&amt=${plain(u, 8)}` : ''}`;
+  // a payments pool's request is a tacit pay link (it also takes a payment from a plain wallet); the others open this tile on the asset
+  const dp = hxDev();
+  const url = dp ? `${location.origin}/pay/eth/#pay=${encodeURIComponent(a)}&asset=${dp.sym.toLowerCase()}${u ? `&amount=${plain(u, dp.dec)}` : ''}` : `${location.origin}/#card=send:${HX.send}&to=${encodeURIComponent(a)}${u ? `&amt=${plain(u, hxDec())}` : ''}`;
   if (hxCanShare()) { try { await navigator.share({ url, title: 'Payment request' }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
   copy(url, 'Payment link copied');
 }
 function hxSendAuto() {
   if (HX.tab !== 'send' || HX.sendPick || HX.amt || HX.ask || !S.key || !P.scan || spendable(HX.send) > 0n) return false;
-  const k = HX_SEND.slice(0, 4).find(([x]) => spendable(x) > 0n)?.[0] || (hxWalletTac() > 0n ? 'wtac' : null);
+  const k = HX_SEND.slice(0, 4).find(([x]) => spendable(x) > 0n)?.[0] || HX_SEND.slice(7).find(([x]) => (devBal(hxDevSlug(x), S.key.pubHex) || 0n) > 0n)?.[0] || (hxWalletTac() > 0n ? 'wtac' : null);
   if (!k || k === HX.send) return false;
   HX.send = k;
   return true;
 }
 function hxSendRead() {
+  const dp = hxDev();
+  // the sheet's pool state (TK) is one pool's at a time: read again when it is another's, and left alone while the sheet is open
+  if (dp && S.key && !$('#sheet-eth')?.open && !TK.syncing) { tokenSync(TK.key !== S.key.pubHex + dp.slug, dp).then(() => { hxBalPaint(); hxHave(); }, () => {}); hxDevFee(dp).catch(() => {}); return; }
   if (!S.key || !hxSendBtc()) return;
   const drawn = () => { hxBalPaint(); hxHave(); };
   (HX.send === 'btc' ? loadBtc() : loadHeld()).then(drawn, () => {});
@@ -11221,9 +11244,11 @@ function hxSendGo() {
   if (HX.ask) return hxAskGo();
   if (hxSendFit()) return;
   if (!hxUnits() && (!HX.rcpt || !hxSendBtc())) return hxAskAmt();
-  const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
+  const k = HX.send, u = hxUnits(), amt = u ? plain(u, hxDec()) : HX.amt, to = HX.rcpt;
   HX.draft = null;
   hxRecentAdd(to);
+  { const dp = hxDev(k);
+    if (dp) { if (S.key && devBal(dp.slug, S.key.pubHex) === 0n) return; hxDraft({ mode: 'tsend', slug: dp.slug, to, amt }); return openLink(`device/${dp.slug}/${hxRcptKind() === 'eth' ? 'withdraw' : 'send'}`); } }
   if (hxSendBtc(k)) { const a = u ? plain(u, 8) : ''; location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || a ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(a)}` : ''}`; return; }
   if (k === 'wtac') { readPublicTac().catch(() => {}).then(() => { hxDraft({ mode: 'asend', k: 'tac', pub: true, to, amt }); TACSEND.pick = 'pub-tac'; openLink('tac'); }); return; }
   if (S.key && P.scan && spendable(k) === 0n) return;
@@ -11235,9 +11260,9 @@ function hxSendGo() {
 }
 const HX_GET = { eth: ['shield:ether:defi', 'Make ETH private first'], tac: ['swap:ether:tac:private', 'Buy TAC'], wtac: ['swap:ether:tac', 'Buy TAC'], cusd: ['borrow:cusd', 'Borrow some'], cbtc: ['borrow:cbtc', 'Mint some'], tacb: ['shield:btc:pool', 'Shield TAC on Bitcoin'] };
 function hxHaveSend(el, pub) {
-  const k = HX.send, [, unit, ic] = hxSendOf(k), h = pub || hxSendWallet(k) ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = k === 'tac' && hxWalletTac() > 0n ? ['shield:wtac:defi', 'Make your TAC private'] : HX_GET[k], go = $('#hx-go');
+  const k = HX.send, [, unit, ic] = hxSendOf(k), dp = hxDev(k), h = pub || hxSendWallet(k) ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = dp ? [`device/${dp.slug}/deposit`, `Deposit ${dp.sym}`] : k === 'tac' && hxWalletTac() > 0n ? ['shield:wtac:defi', 'Make your TAC private'] : HX_GET[k], go = $('#hx-go');
   if (go) { go.disabled = (none && !hxSendBtc()) || !!hxSendFit(); go.textContent = hxSendLabel(); }
-  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : k === 'wtac' ? `TAC in ${your()}` : `private ${unit}`} yet.</span><button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button></span>` : null;
+  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : k === 'wtac' ? `TAC in ${your()}` : dp ? `${unit} held privately for payments` : `private ${unit}`} yet.</span>${dp ? html`<a class="link" href="#${get[0]}" data-link="${get[0]}">${get[1]}</a>` : html`<button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button>`}</span>` : null;
   el.hidden = !view;
   if (view && el.__h !== view.s) { el.__h = view.s; mount(el, view); }
   if (!view) el.__h = '';
@@ -11484,7 +11509,7 @@ async function hxQuote() {
   if (m === 'btcpool' || m === 'tbback' || m === 'tacpub') return done(hxHandoff(m, null));
   if (units === null && /\d|[^\d.,\s]/.test(HX.amt)) {
     const t = HX.amt.trim(), two = /^[1-9]\d{0,2},\d{3}$/.test(t);
-    return done({ out: null, line: two ? `Write ${t.replace(',', '')} or ${Number(t.replace(',', '.'))}: a comma before three digits could mean either.` : /^\d*[.,]\d{9,}$/.test(t) ? 'Enter an amount with up to 8 decimals.' : 'Enter the amount as a number, like 0.5.' });
+    return done({ out: null, line: two ? `Write ${t.replace(',', '')} or ${Number(t.replace(',', '.'))}: a comma before three digits could mean either.` : new RegExp(`^\\d*[.,]\\d{${hxDec() + 1},}$`).test(t) ? `Enter an amount with up to ${hxDec()} decimals.` : 'Enter the amount as a number, like 0.5.' });
   }
   if (m === 'send' || (m === 'unwrap' && units)) {
     if (!units) return done({ rc: hxSendSees() });
@@ -11668,6 +11693,8 @@ function hxHeldOf(k) {
   if (k === 'ether') { const v = hxWalletEth(); return v == null ? null : [v, 18, 'ETH']; }
   if (k === 'wtac') { const v = hxWalletTac(); return v == null ? null : [v, 18, 'TAC']; }
   if (!S.key) return null;
+  const dp = hxDev(k);
+  if (dp) { const v = devBal(dp.slug, S.key.pubHex); return v == null ? null : [v, dp.dec, dp.sym]; }
   if (HX.tab === 'send' && hxSendBtc(k)) {
     const pub = S.key.pubHex, a = k === 'tacb' && HELD.pub === pub ? HELD.sats?.find((x) => x.ticker === 'TAC') : null;
     if (k === 'btc') return BTC.pub === pub && BTC.got === 3 ? [BTC.sats + BTC.silent, 8, 'BTC'] : null;
@@ -11678,6 +11705,16 @@ function hxHeldOf(k) {
   if (!P.scan || !['eth', 'tac', 'cusd', 'cbtc'].includes(k)) return null;
   return [spendable(k), 8, { eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' }[k]];
 }
+// What a payments pool's relay asks for a send now, in the pool's token (its keeper's quote, read without a key and kept a minute); null when it cannot be read
+const HXD = {};
+function hxDevFee(p) {
+  const c = HXD[p.slug] ||= { fee: null, at: 0, p: null };
+  if (c.p || Date.now() - c.at < 60e3) return c.p || Promise.resolve(c.fee);
+  return (c.p = fetch(`${p.keeper}/quote?gas=700000`, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null))
+    .then((q) => { c.fee = q && q.pool && q.pool.toLowerCase() === p.pool.toLowerCase() && /^\d+$/.test(String(q.fee)) ? BigInt(q.fee) : null; }, () => { c.fee = null; })
+    .finally(() => { c.at = Date.now(); c.p = null; }).then(() => c.fee));
+}
+const hxDevKeep = async (p) => { const f = await hxDevFee(p).catch(() => null); return f ? (f * 5n) / 4n : 0n; };
 const hxAmtSrc = () => (HX.tab === 'private' ? HX.sf : HX.tab === 'borrow' ? 'btc' : HX.tab === 'send' ? HX.send : HX.from);
 async function hxKeep(src) {
   if (src === 'ether') return hxWalletChain() !== 1 ? 2n * 10n ** 14n : ethKeep(hxWrapMode() && ownNow(['wrap']));
@@ -11697,21 +11734,21 @@ function hxBalPaint() {
     if (el.__h !== view.s) { el.__h = view.s; mount(el, view); }
     return;
   }
-  const [v, dec] = h, typed = hxUnits(), over = !!typed && v > 0n && (dec === 18 ? typed * E10 : typed) > v, max = v > 0n && !(HX.tab === 'send' && hxSendBtc());
+  const [v, dec] = h, typed = hxUnits(), dev = hxDev(), over = !!typed && v > 0n && (!dev && dec === 18 ? typed * E10 : typed) > v, max = v > 0n && !(HX.tab === 'send' && hxSendBtc());
   const view = html`<button type="button" id="hx-max"${over ? ' class="over"' : ''} ${max ? '' : 'disabled'}>Balance ${fmt(v, dec, dec === 18 ? 4 : 6)}${max ? ' · Max' : ''}</button>`;
   if (el.__h === view.s) return;
   el.__h = view.s; mount(el, view);
   $('#hx-max').onclick = async () => {
-    const keep = await hxKeep(src), left = v > keep ? v - keep : 0n;
-    const units = dec === 18 ? left / E10 : left;
-    HX.amt = units ? plain(units, 8) : ''; const a = $('#hx-amt'); if (a) { a.value = HX.amt; a.focus(); }
+    const keep = dev ? await hxDevKeep(dev) : await hxKeep(src), left = v > keep ? v - keep : 0n;
+    const units = dev || dec !== 18 ? left : left / E10;
+    HX.amt = units ? plain(units, dev ? dev.dec : 8) : ''; const a = $('#hx-amt'); if (a) { a.value = HX.amt; a.focus(); }
     hxTyped(true);
     HX.max = src === 'pp';
   };
 }
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `for payments on ${hxChain().name}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
-  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'ERC-20 in your wallet', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay' }[k] || '';
+  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'ERC-20 in your wallet', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', ptac: 'for payments, proved on device', usdc: 'for payments, proved on device', usdt: 'for payments, proved on device' }[k] || '';
   return k === 'ether' || k === 'wtac' ? 'in your wallet' : 'private on Ethereum';
 }
 // Where a coin is held, as each field's switch names it: the wallet, private (Tacit's pool, or the payments pool), or Bitcoin
@@ -11725,7 +11762,7 @@ function hxGroups(tab) {
 // A place chosen for what goes in: the same coin held there when there is one (ETH and tETH, TAC wherever it is), else the first held there
 function hxPlace(place) {
   const tab = HX.tab, cur = tab === 'private' ? HX.sf : tab === 'send' ? HX.send : HX.ern, sel = $(tab === 'send' ? '#hx-sa' : '#hx-from');
-  const asset = (k) => (tab === 'private' && k === 'btc' ? 'tac' : ['ether', 'eth', 'pp', 'tb'].includes(k) ? 'eth' : ['wtac', 'tac', 'tacb'].includes(k) ? 'tac' : k);
+  const asset = (k) => (tab === 'private' && k === 'btc' ? 'tac' : ['ether', 'eth', 'pp', 'tb'].includes(k) ? 'eth' : ['wtac', 'tac', 'tacb', 'ptac'].includes(k) ? 'tac' : k);
   const coins = hxGroups(tab).find(([, , p]) => p === place)?.[1].map(([k]) => k) || [], k = coins.find((x) => asset(x) === asset(cur)) || coins[0];
   if (!k || !sel || sel.value === k) return;
   sel.value = k; sel.dispatchEvent(new Event('change'));
