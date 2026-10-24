@@ -44,20 +44,28 @@ these addresses). On any other chain, treat code at these addresses as unrelated
 | PoseidonT5 (four-input Poseidon, used by receive boxes) | `0x555333f3f677Ca3930Bf7c56ffc75144c51D9767` |
 | Zap (`TacitEvmPoolZap`, shields a token in one transaction; not on MegaETH) | `0x0000008EbBF2323f95c4fBc18254f3D65C53998c` |
 
-**A TAC pool, on Ethereum only.** `TacitEvmPool` takes its asset in its constructor and the proof's `asset` input is
-`keccak256(abi.encode(chainId, pool, token)) mod p`, so the same circuit, proving key and verifier serve an ERC-20 pool. The
-TAC pool was deployed with the TAC vaults ([`contracts/deployments/tac-vaults.json`](../contracts/deployments/tac-vaults.json));
-its first block is 26,201,971 and its router's is 26,201,972. No keeper serves it: every deposit, private transfer and
-withdrawal is sent by the user's own wallet, which pays the network fee in ETH. A deposit goes through the router, which takes
-the TAC from an allowance already in place, an EIP-2612 permit (`depositWithPermit`) or a Permit2 signature
-(`depositWithPermit2`), so a signature can stand in for the approval; the "On this device" TAC pool on the
-[tacit.finance](https://tacit.finance/) front page asks for them in that order, then an approval and the deposit in one
+**The TAC vaults' token pools, on Ethereum only: TAC, TACD and TACE.** `TacitEvmPool` takes its asset in its constructor and the
+proof's `asset` input is `keccak256(abi.encode(chainId, pool, token)) mod p`, so the same circuit, proving key and verifier serve an
+ERC-20 pool. Three were deployed with the TAC vaults ([`contracts/deployments/tac-vaults.json`](../contracts/deployments/tac-vaults.json)),
+for TAC and the vaults' two synths, TACD (a dollar) and TACE (an ether); each pool's first block is 26,201,971 and its router's 26,201,972.
+The relay serves them: the keeper service runs one keeper per pool beside the ETH pool's, at
+`https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper` (and `/1-tacd/`, `/1-tace/`), with the same routes as every
+keeper (quote, relay, deposit boxes, receive boxes, the history feed). The three share one keeper address,
+`0x89A7b3e812105800F8B91BbaBc1714E886db2c93`, which fronts the gas in ETH and is paid in the pool's token: the fee for a relay is its
+gas, plus the keeper's margin, at the token's price in ETH, which the keeper reads from the chain every minute (TAC: the lower of the
+two venues' spot prices the vaults' pair oracle `0x000000cE58D7…1271` reads; TACD: a dollar at Chainlink's ETH/USD; TACE: one ETH). With no
+price it can read for a quarter of an hour, it refuses fees in that token rather than guess. A wallet can still send anything itself, paying
+the network fee in ETH. A deposit goes through the router, which takes the token from an allowance already in place, an EIP-2612 permit
+(`depositWithPermit`) or a Permit2 signature (`depositWithPermit2`), so a signature can stand in for the approval; the "On this device" TAC
+pool on the [tacit.finance](https://tacit.finance/) front page asks for them in that order, then an approval and the deposit in one
 EIP-5792 batch, and only otherwise an approval transaction first, always for exactly the deposit's amount.
 
 | Contract | Address (Ethereum) |
 |---|---|
 | TAC pool (`TacitEvmPool`, asset TAC `0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`) | `0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe` |
 | TAC router (`TacitEvmPoolRouter`, bound to the TAC pool) | `0x000000fA029Eaf69840C1490Bf9AA6C094794D5a` |
+| TACD pool (asset TACD `0xA0f6B02561C8ef08335B69aD25e022C0B342147C`) and router | `0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA`, `0x000000e96fcFf90F220fa65F8b82C6114Cd1Cc30` |
+| TACE pool (asset TACE `0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570`) and router | `0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1`, `0x000000e66C32bEC739180A5eDeeB40A8225c5223` |
 
 The catch-up registry (`TacitEvmPoolCheckpoints`, see Catch-up points under Keys and recovery) is deployed through CreateX's
 CREATE2 under one salt anyone may use (20 zero bytes and the flag `0x00`, which CreateX guards as `keccak256(salt)` alone, so

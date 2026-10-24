@@ -84,4 +84,16 @@ await test('a critical reading must be read twice: one odd answer does not stand
   const real = await poolBooks({ keeper: 'k', pool: 'p', fetchImpl: async () => json(200, totals()), rpc: rpcOf(1n * E, 8) });
   assert.equal(real.level, 'critical');
 });
+await test('a token pool is held against its token balance, and named in its own unit', async () => {
+  const POOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', asked = [];
+  const t = { deposits: String(3n * E), withdrawals: String(E), fees: String(E / 100n), leaves: 6, events: 3, through: 100 };
+  const rpc = async (m, p) => { asked.push([m, p[0].to || p[0]]); if (m === 'eth_getBalance') return '0x0'; return p[0].data === '0xfc7e9c6f' ? '0x6' : '0x' + (2n * E).toString(16); };
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => t });
+  const v = await poolBooks({ keeper: 'k', pool: POOL, token: TAC, unit: 'TAC', rpc, fetchImpl });
+  assert.equal(v.level, 'ok'); assert.match(v.why, /TAC held/);
+  assert.ok(asked.some(([m, to]) => m === 'eth_call' && to === TAC) && !asked.some(([m]) => m === 'eth_getBalance'), 'the token balance is read, not the ETH balance');
+  const short = await poolBooks({ keeper: 'k', pool: POOL, token: TAC, unit: 'TAC', rpc: async (m, p) => (p[0].data === '0xfc7e9c6f' ? '0x6' : '0x' + E.toString(16)), fetchImpl });
+  assert.equal(short.level, 'critical'); assert.match(short.why, /TAC/);
+});
+
 console.log(`\n${n} checks passed`);

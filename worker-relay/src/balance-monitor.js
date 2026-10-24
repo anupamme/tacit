@@ -505,6 +505,11 @@ const EVM_POOL_KEEPERS_DEFAULT = [
   { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'] },
   { chainId: 4663, name: 'Robinhood Chain', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', address: '0xc1F8DAc6BC910A5A794b4795b5F9997e0E8A5Fad', rpc: ['https://rpc.mainnet.chain.robinhood.com'] },
   { chainId: 4326, name: 'MegaETH', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', address: '0x69e4ea1992561Ce129713899244209Fd955E7D89', rpc: ['https://mainnet.megaeth.com/rpc'], relayGas: 900_000, gasCap: 3_000_000 },
+  // the TAC vaults' token pools on Ethereum: one keeper key between them, paid in each pool's token, its gas fronted in ETH
+  ...[['TAC', 'tac', '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279'], ['TACD', 'tacd', '0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA', '0xA0f6B02561C8ef08335B69aD25e022C0B342147C'],
+    ['TACE', 'tace', '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570']].map(([sym, id, pool, token]) => ({
+    chainId: 1, name: `Ethereum (${sym} pool)`, keeper: `https://tacit-evm-pool-keepers.onrender.com/1-${id}/evm-pool/keeper`, address: '0x89A7b3e812105800F8B91BbaBc1714E886db2c93',
+    rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], minTipWei: '50000000', pool, token, sym })),
 ];
 // The keeper's own gas figures (evm-pool-keeper-config.js defaults, unless the entry gives `relayGas` and `gasCap`): an
 // ordinary relay's budget, sent with 30% on the estimate, and the cap on any one transaction.
@@ -526,6 +531,10 @@ async function checkEvmPoolKeepers() {
   const raw = process.env.EVM_POOL_KEEPERS;
   if (raw === 'off') return;
   const keepers = raw ? JSON.parse(raw) : EVM_POOL_KEEPERS_DEFAULT;
+  // keepers that share an address (the token pools' one key) page once about it: its balance is one, and so is the reason it cannot quote
+  const firstOf = new Map();
+  for (const k of keepers) { const a = `${k.chainId}:${String(k.address).toLowerCase()}`; if (!firstOf.has(a)) firstOf.set(a, k); }
+  const lead = (k) => firstOf.get(`${k.chainId}:${String(k.address).toLowerCase()}`) === k;
   await Promise.all(keepers.map(async (k) => {
     const who = `EVM pool keeper on ${k.name}`;
     let info = null;
@@ -544,10 +553,11 @@ async function checkEvmPoolKeepers() {
       try {
         const r = await fetch(`${k.keeper}/quote?gas=${k.relayGas ?? KEEPER_RELAY_GAS}`, { signal: AbortSignal.timeout(20_000) });
         const j = await r.json().catch(() => ({}));
-        if (r.ok && j.fee) quote = j; else quoteWhy = j.error || `HTTP ${r.status}`;
+        // a fee of nothing is no quote: a keeper with no price for its pool's token answers so
+        if (r.ok && /^\d+$/.test(String(j.fee ?? '')) && BigInt(j.fee) > 0n) quote = j; else quoteWhy = j.error || (r.ok ? `a fee of ${j.fee}` : `HTTP ${r.status}`);
       } catch (e) { quoteWhy = safeErr(e); }
     }
-    if (!quote) await alert('critical', `${who} (${k.keeper}) answers /info but cannot quote (${quoteWhy}): relayed sends and withdrawals on ${k.name} show "the relay is not answering" and users send from their own wallets. Its reads of the chain are likely failing: check its RPC`, { chainId: k.chainId });
+    if (!quote && (lead(k) || !/busy with other sends/.test(quoteWhy))) await alert('critical', `${who} (${k.keeper}) answers /info but cannot quote (${quoteWhy}): relayed sends and withdrawals on ${k.name} show "the relay is not answering" and users send from their own wallets. ${k.token ? 'Check its price feed (EVM_POOL_KEEPER_RATE_FEED) and its RPC' : 'Its reads of the chain are likely failing: check its RPC'}`, { chainId: k.chainId });
     let address = k.address;
     if (info.keeper && info.keeper.toLowerCase() !== String(address).toLowerCase()) {
       await alert('warning', `${who} now signs as ${info.keeper}, not ${address}; checking the new account (update EVM_POOL_KEEPERS)`, { chainId: k.chainId });
@@ -562,8 +572,9 @@ async function checkEvmPoolKeepers() {
     const relayGas = BigInt(k.relayGas ?? KEEPER_RELAY_GAS) * 13n / 10n, gasCap = BigInt(k.gasCap ?? KEEPER_GAS_CAP);
     const now = relayGas * (base + tip), spike = relayGas * (8n * base + tip), largest = gasCap * (2n * base + tip);
     const extra = { chainId: k.chainId, address, ethWei: bal.toString(), baseFeeWei: base.toString() };
-    log(`${who} ${address} quote ${quote ? `fee ${formatEther(BigInt(quote.fee))} ETH` : 'FAILED'}, holds ${formatEther(bal)} ETH (a relay now needs ${formatEther(now)}; after a 4x base-fee rise ${formatEther(spike)}; the largest send ${formatEther(largest)})`);
-    if (bal < now) await alert('critical', `${who} ${address} holds ${formatEther(bal)} ETH, under the ${formatEther(now)} ETH it must front for one relay at today's gas: it refuses relays until topped up, and users fall back to their own wallets`, extra);
+    log(`${who} ${address} quote ${quote ? `fee ${formatEther(BigInt(quote.fee))} ${k.sym ?? 'ETH'}` : 'FAILED'}, holds ${formatEther(bal)} ETH (a relay now needs ${formatEther(now)}; after a 4x base-fee rise ${formatEther(spike)}; the largest send ${formatEther(largest)})`);
+    if (!lead(k)) { /* the same address as a keeper above: its balance was judged there */ }
+    else if (bal < now) await alert('critical', `${who} ${address} holds ${formatEther(bal)} ETH, under the ${formatEther(now)} ETH it must front for one relay at today's gas: it refuses relays until topped up, and users fall back to their own wallets`, extra);
     else if (bal < spike) await alert('warning', `${who} ${address} holds ${formatEther(bal)} ETH: enough now, but a 4x base-fee rise would stop its relays (needs ${formatEther(spike)} ETH). Top it up`, extra);
     else if (bal < largest) await alert('warning', `${who} ${address} holds ${formatEther(bal)} ETH, under the ${formatEther(largest)} ETH to front its largest transaction (up to ${gasCap} gas, e.g. a bridge move) with full headroom`, extra);
     // The history feed a new device reads first. Far behind, and every new device reads the gap from public nodes, which on a busy
@@ -585,10 +596,10 @@ async function checkEvmPoolKeepers() {
     // same block. A balance under the net, or outflows above inflows, is what a flaw in the proof system would look like, so it pages;
     // a keeper that has no totals yet, or a node without the block's state, is only logged.
     try {
-      const books = await poolBooks({ keeper: k.keeper, pool: k.pool ?? EVM_POOL_ADDR, rpc: (m, p) => keeperRpc(k.rpc, m, p) });
+      const books = await poolBooks({ keeper: k.keeper, pool: k.pool ?? EVM_POOL_ADDR, token: k.token ?? null, unit: k.sym ?? 'ETH', rpc: (m, p) => keeperRpc(k.rpc, m, p) });
       log(`${who} pool books: ${books.level} — ${books.why}`);
       if (books.level === 'critical' || books.level === 'warning') {
-        await alert(books.level, `The ETH pool on ${k.name}: its events and its balance disagree: ${books.why}. Run tools/evm-pool-solvency.mjs --chain ${k.chainId} to check it from the chain's own logs`, { chainId: k.chainId, through: books.totals?.through, deposits: books.totals?.deposits, withdrawals: books.totals?.withdrawals, fees: books.totals?.fees, balance: books.chain?.balance });
+        await alert(books.level, `The ${k.sym ?? 'ETH'} pool on ${k.name}: its events and its balance disagree: ${books.why}. ${k.token ? `Check it from the chain: the pool's Transact events (deposits, withdrawals, fees) against its ${k.sym} balance` : `Run tools/evm-pool-solvency.mjs --chain ${k.chainId} to check it from the chain's own logs`}`, { chainId: k.chainId, through: books.totals?.through, deposits: books.totals?.deposits, withdrawals: books.totals?.withdrawals, fees: books.totals?.fees, balance: books.chain?.balance });
       }
     } catch (e) { log(`${who} pool books check failed: ${safeErr(e)}`); }
   }));

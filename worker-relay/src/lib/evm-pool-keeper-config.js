@@ -7,6 +7,7 @@
 import { getAddress, isAddress } from 'viem';
 import { privateSettleUrl } from './private-settle-url.js';
 import { RECEIVE_FEE_BPS } from '../../../dapp/evm-pool-gateway.js';
+import { parseRateFeed } from './evm-pool-keeper-rates.js';
 
 const ETH = '0x0000000000000000000000000000000000000000';
 // The catch-up registry, the same address on every chain the pool is on: CreateX CREATE2 under a salt anyone may use
@@ -63,6 +64,7 @@ export function loadKeeperConfig(env = process.env) {
   const chainId = str(env, 'EVM_POOL_CHAIN_ID') ? Number(str(env, 'EVM_POOL_CHAIN_ID')) : null;
 
   const minFees = parseTokenMap(str(env, 'EVM_POOL_KEEPER_MIN_FEES'), 'EVM_POOL_KEEPER_MIN_FEES');
+  const rateFeed = parseRateFeed(str(env, 'EVM_POOL_KEEPER_RATE_FEED'));
   const rates = parseTokenMap(str(env, 'EVM_POOL_KEEPER_TOKEN_RATES'), 'EVM_POOL_KEEPER_TOKEN_RATES');
   rates.set(ETH, 10n ** 18n);
 
@@ -111,6 +113,13 @@ export function loadKeeperConfig(env = process.env) {
     maxChecksPerTick: int(env, 'EVM_POOL_KEEPER_MAX_CHECKS_PER_TICK', 200),
     minFees,
     rates,
+    // A token pool's price in ETH read from the chain (evm-pool-keeper-rates.js): how often, and how long the last one stands when a
+    // read fails before fees in the token are refused.
+    rateFeed,
+    rateSecs: Math.max(10, int(env, 'EVM_POOL_KEEPER_RATE_SECS', 60)),
+    rateMaxAgeSecs: int(env, 'EVM_POOL_KEEPER_RATE_MAX_AGE_SECS', 900),
+    // TAC: the lowest price read over this long is the one fees are counted at
+    rateWindowSecs: int(env, 'EVM_POOL_KEEPER_RATE_WINDOW_SECS', 600),
     marginBps: big(env, 'EVM_POOL_KEEPER_MARGIN_BPS', 2000n),
     depositGas: big(env, 'EVM_POOL_KEEPER_DEPOSIT_GAS', 500000n),
     wrapGas: big(env, 'EVM_POOL_KEEPER_WRAP_GAS', 300000n),

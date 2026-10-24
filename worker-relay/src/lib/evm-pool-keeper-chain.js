@@ -73,6 +73,7 @@ export const ROUTER_ABI = [
 const RECEIVED_EVENT = parseAbi(['event Received(address indexed box, uint256 indexed n, uint256 index, uint256 value, uint256 rho, uint256 fee)'])[0];
 // The catch-up registry: the tree's edge at a count, kept only if the pool held its root (TacitEvmPoolCheckpoints).
 const CHECKPOINTS_ABI = parseAbi([
+  'function POOL() view returns (address)',
   'function latest() view returns (uint256)',
   'function pointAt(uint256 size) view returns (uint256 blockNumber, uint256 prev, bytes32[32] filled)',
   'function postedAt(uint256 size) view returns (uint256)',
@@ -115,6 +116,17 @@ export function frontFees({ base, prio, balance, gas }) {
   return { ok: afford >= floor, maxFeePerGas, maxPriorityFeePerGas: prio, balance, need: g * floor, headroom: afford >= full };
 }
 
+// One queue and one nonce count per signer on a chain, shared by every keeper in the process that signs with it (several pools on one
+// chain may share a key): their sends go one at a time, so two pools never pick the same nonce.
+const SIGNERS = new Map();
+const signerOf = (chainId, address) => {
+  const k = `${chainId}:${address.toLowerCase()}`;
+  if (!SIGNERS.has(k)) SIGNERS.set(k, { sending: Promise.resolve(), sentNonce: -1, sentAt: 0, users: 0 });
+  const s = SIGNERS.get(k);
+  s.users++;
+  return s;
+};
+
 export async function makeKeeperChain({ cfg, account, log = () => {} }) {
   const pub = createPublicClient({ transport: fallback(cfg.rpcUrls.map((u) => http(u))) });
   // History facts (a transaction's sender and target, a block's time, an old range of logs) are read from their own list of
@@ -143,17 +155,19 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     : functionName === 'checkpoints.post'
       ? { address: cfg.pointsAddress, abi: CHECKPOINTS_ABI, functionName: 'post' }
       : { address: cfg.router, abi: ROUTER_ABI, functionName });
-  // One signer, one nonce: the loop and relay requests send through this queue one at a time.
-  let sending = Promise.resolve();
-  const serial = (f) => { const run = sending.then(f, f); sending = run.catch(() => {}); return run; };
-  // The next nonce: the chain's pending count; with the queue on (public mempool only), past what this process last
-  // sent while the RPC has not seen it yet. A private endpoint can drop a transaction without using its nonce, so
-  // there only the chain's count is trusted; and a send never seen within a minute is forgotten.
-  let sentNonce = -1, sentAt = 0;
+  // One signer, one nonce: the loop and relay requests (and any other pool's keeper on this chain with the same key) send through this
+  // queue one at a time.
+  const signer = signerOf(chainId, account.address);
+  const serial = (f) => { const run = signer.sending.then(f, f); signer.sending = run.catch(() => {}); return run; };
+  // The next nonce: the chain's pending count; with the queue on (public mempool only), or a key several pools' keepers share, past
+  // what this signer last sent while the RPC has not seen it yet. A private endpoint can drop a transaction without using its nonce,
+  // so a keeper with a key of its own behind one trusts only the chain's count; a shared key cannot (a private send stays unseen by
+  // the read node until it is mined, and the next pool's send would take the same nonce), so it counts on, and a send never seen
+  // within a minute is forgotten, as with the queue.
   const nextNonce = async () => {
     const pending = await pub.getTransactionCount({ address: account.address, blockTag: 'pending' });
-    if (!cfg.pipeline || (pending <= sentNonce && Date.now() - sentAt > 60_000)) return pending;
-    return Math.max(pending, sentNonce + 1);
+    if ((!cfg.pipeline && signer.users < 2) || (pending <= signer.sentNonce && Date.now() - signer.sentAt > 60_000)) return pending;
+    return Math.max(pending, signer.sentNonce + 1);
   };
   // Fees that survive several blocks of base-fee rises, with at least the configured tip (a private builder skips a
   // transaction that pays it nothing), within what the keeper can front for `gas` (see frontFees).
@@ -186,6 +200,10 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     // The catch-up registry: the newest point's count, and the time a count was posted (0 for one never posted).
     pointLatest: async () => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'latest')),
     pointPostedAt: async (size) => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'postedAt', [BigInt(size)])),
+    // The pool the registry keeps points for (one registry per pool: another pool's keeper must not post there).
+    pointPool: async () => getAddress(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'POOL')),
+    // Any view on the chain (a price feed the fee checks read).
+    readContract: (address, abi, functionName, args = []) => read(address, abi, functionName, args),
     knownRoot: async (root) => read(cfg.pool, POOL_ABI, 'everKnownRoot', [b32(root)]),
     spent: async (nfs) => read(cfg.pool, POOL_ABI, 'isSpent', [nfs.map(b32)]),
     async poolState(blockNumber) {
@@ -270,8 +288,8 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
           const [nonce, fee] = await Promise.all([nextNonce(), fees(gas)]);
           const h = await via(urls, nonce, fee, urls === publicUrls);
           if (!h) throw lastErr || new Error('no submission endpoint took it');
-          sentNonce = nonce;
-          sentAt = Date.now();
+          signer.sentNonce = nonce;
+          signer.sentAt = Date.now();
           return h;
         }, { log }).catch((e) => { if (revertName(e)) throw e; lastErr = e; return null; });
         if (hash) return hash;

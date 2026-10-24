@@ -26,6 +26,12 @@ export function makePointPoster({ chain, cfg, log = () => {}, now = () => Date.n
       const was = enabled;
       enabled = await chain.hasCode(cfg.pointsAddress).catch(() => null);
       if (enabled === false && was !== false) log(`catch-up registry ${cfg.pointsAddress} has no code on this chain yet; not posting points`);
+      // the registry keeps one pool's points: a keeper for another pool on the chain (a token pool) leaves it alone
+      if (enabled && chain.pointPool && chain.pool) {
+        const p = await chain.pointPool().catch(() => null);
+        if (!p) enabled = null;
+        else if (p.toLowerCase() !== chain.pool.toLowerCase()) { enabled = false; checkedAt = Infinity; log(`catch-up registry ${cfg.pointsAddress} keeps pool ${p}'s points, not this pool's; not posting points`); }
+      }
     }
     if (!enabled) return null;
     // One attempt every ten minutes at most: a failed send (short of ETH, a race) is not retried every tick.

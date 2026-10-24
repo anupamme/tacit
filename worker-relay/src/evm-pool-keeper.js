@@ -21,6 +21,7 @@ import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
 import { createIntakeHandler } from './lib/evm-pool-keeper-intake.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
 import { makePointPoster } from './lib/evm-pool-keeper-points.js';
+import { makeRateFeed } from './lib/evm-pool-keeper-rates.js';
 import { safeErr } from './lib/safe-err.js';
 
 const log = (...a) => console.log(`[evm-pool-keeper ${new Date().toISOString()}]`, ...a);
@@ -35,6 +36,11 @@ async function main() {
   cfg.keeperAddress = account.address;
 
   const chain = await makeKeeperChain({ cfg, account, log });
+  // a pool that holds a token: its price in ETH, kept current from the chain (EVM_POOL_KEEPER_RATE_FEED)
+  const ethPool = BigInt(chain.asset) === 0n;
+  if (cfg.rateFeed && ethPool) log('EVM_POOL_KEEPER_RATE_FEED ignored: this pool holds ETH, whose price is one');
+  const rates = cfg.rateFeed && !ethPool ? makeRateFeed({ feed: cfg.rateFeed, token: chain.asset, read: chain.readContract, cfg, log }) : null;
+  if (rates) { await rates.refresh(); setInterval(() => { rates.refresh().catch(() => {}); }, cfg.rateSecs * 1000).unref?.(); }
   const assetField = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token: chain.asset });
   const zk = await loadZk();
   const prover = await makeKeeperProver(cfg);
@@ -45,7 +51,7 @@ async function main() {
   const poster = makePointPoster({ chain, cfg, log });
 
   const assetKey = chain.asset.toLowerCase();
-  if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey)) log(`warning: no EVM_POOL_KEEPER_MIN_FEES or _TOKEN_RATES entry for the pool asset ${assetKey}; deposits will be skipped`);
+  if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey) && !rates) log(`warning: no EVM_POOL_KEEPER_MIN_FEES or _TOKEN_RATES entry for the pool asset ${assetKey}; deposits will be skipped`);
   log(`keeper ${account.address} on chain ${chain.chainId}: pool ${chain.pool} router ${chain.router} asset ${chain.asset} vk ${prover.vkHash.slice(0, 16)}${cfg.dryRun ? ' (dry run)' : ''}`);
 
   let lastTickOk = true;

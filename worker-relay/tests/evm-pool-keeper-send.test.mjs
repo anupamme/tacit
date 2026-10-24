@@ -96,6 +96,74 @@ const args = [1n, 25, [[0n, 0n], [[0n, 0n], [0n, 0n]], [0n, 0n], Array(11).fill(
   ok(err instanceof Error && a.seen.length >= 1 && b.seen.length >= 1, 'and when every read node refuses, the send fails', String(err?.message || err).slice(0, 60));
   a.close(); b.close();
 }
+// Two pools on one chain with one key (the TAC pool and the TACD pool): their keepers' sends go through one queue, so sends made at the
+// same moment by both never read the nonce together: each read comes after the last send went out, and every send has a nonce of its own.
+{
+  const order = [];
+  const relay = (target, tag) => http.createServer(async (q, r) => {
+    let body = ''; for await (const c of q) body += c;
+    const req = JSON.parse(body), one = async (x) => {
+      if (x.method === 'eth_getTransactionCount') order.push('nonce');
+      if (x.method === 'eth_sendRawTransaction') order.push('send');
+      const f = await rpc(x.method, x.params); return { jsonrpc: '2.0', id: x.id, ...(f.error ? { error: f.error } : { result: f.result }) };
+    };
+    const out = Array.isArray(req) ? await Promise.all(req.map(one)) : await one(req);
+    r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(out));
+  }).listen(0);
+  const readSrv = relay(), sendSrv = relay();
+  const urlOf = (srv) => `http://127.0.0.1:${srv.address().port}/`;
+  const TAC_POOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC_ROUTER = '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a';
+  const TACD_POOL = '0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA', TACD_ROUTER = '0x000000e96fcFf90F220fa65F8b82C6114Cd1Cc30';
+  const KEY2 = '0x' + '6e'.repeat(32), acct2 = privateKeyToAccount(KEY2);
+  await rpc('anvil_setBalance', [acct2.address, '0x' + (10n ** 18n).toString(16)]);
+  const cfgOf = (pool, router) => ({ ...base, pool, router, rpcUrls: [urlOf(readSrv)], sendRpcUrls: [urlOf(sendSrv)] });
+  const tac = await makeKeeperChain({ cfg: cfgOf(TAC_POOL, TAC_ROUTER), account: acct2 });
+  const tacd = await makeKeeperChain({ cfg: cfgOf(TACD_POOL, TACD_ROUTER), account: acct2 });
+  order.length = 0;
+  const hashes = await Promise.all([tac, tacd, tac, tacd].map((c) => c.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e)));
+  const txs = await Promise.all(hashes.map((h) => (typeof h === 'string' ? rpc('eth_getTransactionByHash', [h]).then((r) => r.result) : null)));
+  const seq = order.join(' ');
+  ok(!/nonce nonce/.test(seq) && (seq.match(/nonce/g) || []).length === 4, 'four sends made at once by two pools\' keepers with one key: each reads the nonce only after the last send went out', seq);
+  ok(hashes.every((h) => typeof h === 'string') && new Set(txs.map((x) => x?.nonce)).size === 4, 'and each has a nonce of its own', txs.map((x) => (x ? Number(x.nonce) : '?')).join());
+  ok(txs.filter((x) => x?.to?.toLowerCase() === TAC_ROUTER.toLowerCase()).length === 2 && txs.filter((x) => x?.to?.toLowerCase() === TACD_ROUTER.toLowerCase()).length === 2, "each to its own pool's router");
+  readSrv.close(); sendSrv.close();
+}
+// The same two pools behind a private endpoint that keeps what it is sent out of sight until it is mined (as Flashbots does): the read
+// node's pending count does not move between the sends, so a key two keepers share counts on from its own last nonce, and both land.
+{
+  const { keccak256 } = await import('viem');
+  const held = [];
+  const hold = http.createServer(async (q, r) => {
+    let body = ''; for await (const c of q) body += c;
+    const req = JSON.parse(body), one = async (x) => {
+      if (x.method !== 'eth_sendRawTransaction') { const f = await rpc(x.method, x.params); return { jsonrpc: '2.0', id: x.id, ...(f.error ? { error: f.error } : { result: f.result }) }; }
+      held.push(x.params[0]);
+      return { jsonrpc: '2.0', id: x.id, result: keccak256(x.params[0]) };
+    };
+    const out = Array.isArray(req) ? await Promise.all(req.map(one)) : await one(req);
+    r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(out));
+  }).listen(0);
+  const holdUrl = `http://127.0.0.1:${hold.address().port}/`;
+  const TAC_POOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC_ROUTER = '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a';
+  const TACE_POOL = '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', TACE_ROUTER = '0x000000e66C32bEC739180A5eDeeB40A8225c5223';
+  const KEY3 = '0x' + '7f'.repeat(32), acct3 = privateKeyToAccount(KEY3);
+  await rpc('anvil_setBalance', [acct3.address, '0x' + (10n ** 18n).toString(16)]);
+  const cfgOf = (pool, router) => ({ ...base, pool, router, rpcUrls: [pubUrl], sendRpcUrls: [holdUrl], allowPublicSend: false });
+  const tac = await makeKeeperChain({ cfg: cfgOf(TAC_POOL, TAC_ROUTER), account: acct3 });
+  const tace = await makeKeeperChain({ cfg: cfgOf(TACE_POOL, TACE_ROUTER), account: acct3 });
+  const n0 = Number((await rpc('eth_getTransactionCount', [acct3.address, 'pending'])).result);
+  const h1 = await tac.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
+  const h2 = await tace.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
+  const pendingSeen = Number((await rpc('eth_getTransactionCount', [acct3.address, 'pending'])).result);
+  const { parseTransaction } = await import('viem');
+  const nonces = held.map((raw) => parseTransaction(raw).nonce);
+  ok(typeof h1 === 'string' && typeof h2 === 'string' && pendingSeen === n0, 'two pools\' keepers send one after the other through an endpoint that keeps both out of the read node\'s sight', `pending ${pendingSeen}`);
+  ok(nonces.join() === `${n0},${n0 + 1}`, 'and the shared key counts on from its own last nonce, not the read node\'s count', nonces.join());
+  for (const raw of held) await rpc('eth_sendRawTransaction', [raw]);
+  const landed = await Promise.all([h1, h2].map((h) => rpc('eth_getTransactionReceipt', [h]).then((x) => x.result)));
+  ok(landed.every((x) => x && x.status === '0x1' || x?.status === '0x0'), 'both are mined once the endpoint lets them go', landed.map((x) => x?.status).join());
+  hold.close();
+}
 pubSrv.close();
 console.log(`\n${passed} passed${failures ? `, ${failures} failed` : ''}`);
 process.exit(failures ? 1 : 0);

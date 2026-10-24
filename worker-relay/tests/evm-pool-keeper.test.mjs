@@ -1158,6 +1158,23 @@ await test('a keeper that cannot front a send says so on /quote and /relay (503)
   } finally { server.close(); }
 });
 
+await test('a token pool with no price for its token and no fixed minimum quotes nothing (503), and quotes again once a price is read', async () => {
+  const cfg = mkCfg({ ratePerMin: 100 });
+  cfg.minFees.delete(TOKEN.toLowerCase()); cfg.rates.delete(TOKEN.toLowerCase());
+  const handler = createIntakeHandler({ store: openKeeperStore(':memory:'), chain: mockChain(), zk, assetField, cfg, now: () => T0, log: () => {} });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}/evm-pool/keeper`;
+  try {
+    const r = await fetch(`${base}/quote`);
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /can't price its fee/);
+    cfg.rates.set(TOKEN.toLowerCase(), 5n * 10n ** 14n);
+    const q = await (await fetch(`${base}/quote`)).json();
+    assert.ok(BigInt(q.fee) > 0n, `a fee once priced (${q.fee})`);
+  } finally { server.close(); }
+});
+
 console.log(`\n${n} passed`);
 
 test('the nodes that serve logs can be named apart from the read fallbacks', () => {

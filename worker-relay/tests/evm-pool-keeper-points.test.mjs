@@ -68,5 +68,19 @@ const now = () => t;
   ok((await makePointPoster({ chain: fakeChain(), cfg, now }).maybePost(synced(401, 123))) === null, 'an odd count is never posted');
   ok((await makePointPoster({ chain: fakeChain(), cfg, now }).maybePost({ tree: tree(400) })) === null, 'a sync without the confirmed tree posts nothing');
 }
+{
+  // The registry keeps one pool's points: a keeper for another pool on the chain (the TAC pool) posts nothing to it, and looks no more.
+  const ETH_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', TAC_POOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe';
+  let asked = 0;
+  const other = { ...fakeChain(), pool: TAC_POOL, pointPool: async () => { asked++; return ETH_POOL; } }, logs = [];
+  let clock = t; const op = makePointPoster({ chain: other, cfg, now: () => clock, log: (m) => logs.push(m) });
+  ok((await op.maybePost(synced(400, 123))) === null && !other.sent.length && /keeps pool 0x000000c2/.test(logs.join()), 'a keeper for another pool posts nothing to the registry, and says why', logs.join());
+  clock += 2 * 3600_000;
+  ok((await op.maybePost(synced(4000, 999))) === null && asked === 1 && !other.sent.length, 'and does not ask again');
+  const own = { ...fakeChain(), pool: ETH_POOL, pointPool: async () => ETH_POOL.toLowerCase() };
+  ok((await makePointPoster({ chain: own, cfg, now }).maybePost(synced(400, 123))) === '0xhash1', "the registry's own pool's keeper still posts");
+  const blind = { ...fakeChain(), pool: ETH_POOL, pointPool: async () => { throw new Error('node down'); } };
+  ok((await makePointPoster({ chain: blind, cfg, now }).maybePost(synced(400, 123))) === null && !blind.sent.length, "a registry whose pool cannot be read is not posted to");
+}
 console.log(`\n${passed} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -920,7 +920,12 @@ services:
   #   envVars:
   #     # DELIBERATELY NOT `fromGroup: tacit-relay-shared`: public, and signs only with its own keys.
   #     - key: EVM_POOL_CHAINS
-  #       value: "1,8453,4663,4326"
+  #       value: "1,8453,4663,4326,1-tac,1-tacd,1-tace"
+  #     # the TAC vaults' token pools (1-tac, 1-tacd, 1-tace), each on its own knobs with the suffix _1_TAC etc. and Ethereum's nodes otherwise:
+  #     # EVM_POOL_ADDR / EVM_POOL_ROUTER_ADDR (contracts/deployments/tac-vaults.json TAC_POOL/TAC_ROUTER, USD_POOL/USD_ROUTER, ETH_POOL/ETH_ROUTER),
+  #     # EVM_POOL_START_BLOCK 26201971, EVM_POOL_KEEPER_POLL_SECS 30, one key for the three (EVM_POOL_KEEPER_PRIV_1_TAC = _1_TACD = _1_TACE, keychain
+  #     # tacit-evm-pool-keeper-1-tac, address 0x89A7b3e812105800F8B91BbaBc1714E886db2c93), and the price they are paid in:
+  #     # EVM_POOL_KEEPER_RATE_FEED_1_TAC tac:0x000000cE58D7d49319252DaFB0ABdB3F02101271, _1_TACD usd:0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419, _1_TACE eth
   #     - key: EVM_POOL_ADDR
   #       value: "0x000000c2A20657CE25f2Ba99737933D031AFBEE9"
   #     - key: EVM_POOL_ROUTER_ADDR

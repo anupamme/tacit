@@ -384,6 +384,9 @@ export function createIntakeHandler({
       if (gas < cfg.relayGas) gas = cfg.relayGas;
       if (gas > cfg.gasCap) throw bad(`gas above the ${cfg.gasCap} cap`);
     }
+    // a token pool whose price is not known (none read yet, or dropped) and has no fixed minimum quotes nothing: it would take no fee in it
+    const asset = chain.asset.toLowerCase();
+    if (!cfg.rates.has(asset) && !cfg.minFees.has(asset)) throw new IntakeError(503, "the relay can't price its fee in this token right now; try again in a few minutes. Sending it from your own wallet also works, and shows your address as the sender");
     const price = await gasPrice();
     await mustFront((gas * 13n) / 10n);
     const q = quoteFee({ token: chain.asset, gas, gasPrice: price, cfg });
