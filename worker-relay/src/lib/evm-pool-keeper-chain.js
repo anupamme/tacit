@@ -203,7 +203,7 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     // The pool the registry keeps points for (one registry per pool: another pool's keeper must not post there).
     pointPool: async () => getAddress(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'POOL')),
     // Any view on the chain (a price feed the fee checks read).
-    readContract: (address, abi, functionName, args = []) => read(address, abi, functionName, args),
+    readContract: (address, abi, functionName, args = [], opts = {}) => pub.readContract({ address, abi, functionName, args, ...opts }),
     knownRoot: async (root) => read(cfg.pool, POOL_ABI, 'everKnownRoot', [b32(root)]),
     spent: async (nfs) => read(cfg.pool, POOL_ABI, 'isSpent', [nfs.map(b32)]),
     async poolState(blockNumber) {

@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -259,6 +259,11 @@ const withdrawToV1Data = (t, i) => calldata(`withdrawToV1(${TX_SIG},${WRAP_SIG})
 const TAC_POOL_ADDR = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC_KEEPER = '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', TAC_RELAY_FEE = 25n * 10n ** 16n;
 const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, [t.pA.map(B), t.pB.map((r) => r.map(B)), t.pC.map(B), t.publicInputs.map(B), t.recipient, BigInt.asUintN(256, B(t.extAmount)), t.relayer, B(t.fee), t.memo0, t.memo1]);
 const tacRelay = { refuse: 0 };   // how many TAC pool relays the stub refuses next, as a keeper that cannot front the gas refuses them
+// Token pools opened under dapp/evm-pool-tokens.js's salts: the stub's keeper answers their routes (/1-x<token>/) the same way, for USDC's.
+const { makeTokenPools } = await import(new URL('../dapp/evm-pool-tokens.js', import.meta.url));
+const TOKEN_TP = makeTokenPools({ code: JSON.parse(readFileSync(new URL('../dapp/evm-pool/token-pool-code.json', import.meta.url), 'utf8')), keccak256: keccak_256 });
+const USDC_TP = TOKEN_TP.poolOf('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
+const STUB_POOLS = { '1-tac': { pool: TAC_POOL_ADDR, asset: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', fee: TAC_RELAY_FEE }, [USDC_TP.id]: { pool: USDC_TP.pool, asset: USDC_TP.token, fee: 200_000n } };
 const fromJsonText = (t) => JSON.parse(t || 'null');
 const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
@@ -326,15 +331,16 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
   // Keepers: quotes are canned and the queue is absent (wallets prove against their own tree). A move into V1 is
   // relayed for real, router.withdrawToV1 sent as a keeper would; any other relay is recorded and refused.
   await ctx.route('https://tacit-evm-pool-keeper*.onrender.com/**', async (route) => {
-    const p = new URL(route.request().url()).pathname, tacPool = p.startsWith('/1-tac/');
-    // The TAC pool's keeper quotes in TAC from its own address, and relays its spends for real (or refuses one, when a scenario asks).
-    if (tacPool && /\/quote$/.test(p)) return json(route, { chainId: 1, pool: TAC_POOL_ADDR, relayer: TAC_KEEPER, asset: TAC, fee: String(TAC_RELAY_FEE), gas: '450000', sweepFee: String(TAC_RELAY_FEE), receiveMin: String(TAC_RELAY_FEE * 400n) });
-    if (tacPool && /\/relay$/.test(p)) {
+    const p = new URL(route.request().url()).pathname, sp = STUB_POOLS[(p.match(/^\/(1-[a-z0-9]+)\//) || [])[1]];
+    // A token pool's keeper (the TAC pool's, or one opened under the token salts) quotes in its token from the Ethereum keeper's address, and
+    // relays its spends for real (or refuses one, when a scenario asks).
+    if (sp && /\/quote$/.test(p)) return json(route, { chainId: 1, pool: sp.pool, relayer: TAC_KEEPER, asset: sp.asset, fee: String(sp.fee), gas: '450000', sweepFee: String(sp.fee), receiveMin: String(sp.fee * 400n) });
+    if (sp && /\/relay$/.test(p)) {
       const b = JSON.parse(route.request().postData() || '{}');
-      relays.push({ ...b, pool: 'tac' });
+      relays.push({ ...b, pool: sp === STUB_POOLS['1-tac'] ? 'tac' : sp.asset.toLowerCase() });
       if (tacRelay.refuse > 0) { tacRelay.refuse--; return route.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: 'the relay is busy with other sends; try again in a minute. Sending it from your own wallet also works, and shows your address as the sender' }) }); }
       await rpc('anvil_impersonateAccount', [TAC_KEEPER]); await rpc('anvil_setBalance', [TAC_KEEPER, '0xde0b6b3a7640000']);
-      b.txHash = await rpc('eth_sendTransaction', [{ from: TAC_KEEPER, to: TAC_POOL_ADDR, data: transactData(b.tx), gas: '0x1e8480' }]);
+      b.txHash = await rpc('eth_sendTransaction', [{ from: TAC_KEEPER, to: sp.pool, data: transactData(b.tx), gas: '0x1e8480' }]);
       return json(route, { txHash: b.txHash });
     }
     // A quote names its chain and pool, which the wallet checks before it signs anything (its host says which chain).
@@ -1199,6 +1205,47 @@ await step('devtac', async () => {
     ok(true, 'devtac: Your Tacit lists the TAC held in this pool, and it opens the pool');
     if (r.errors.length) { fails++; console.log('FAIL devtac page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { Object.assign(walletWays, { batch: false, noTyped: false, rejectTyped: false, badPermit: false }); await r.browser.close(); }
+});
+
+// A token pool a private swap went through (dapp/swap/later.js keeps it in the browser): the device sheet lists it in its own token and decimals
+// (USDC's six), takes a deposit into it from the wallet, lets the relay take some out for a fee in USDC, and Your Tacit lists what it holds.
+await step('devtokpool', async () => {
+  const USDC = USDC_TP.token, unit = 10n ** 6n, BEEF = '0x000000000000000000000000000000000000beef';
+  const usdcOf = async (a) => BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + addrWord(a) }, 'latest']));
+  const open = TOKEN_TP.openTx(USDC);
+  if (open) { const h = await rpc('eth_sendTransaction', [{ from: A0, to: open.to, data: open.data, gas: '0x' + open.gas.toString(16) }]); for (let i = 0; i < 100 && !(await rpc('eth_getTransactionReceipt', [h])); i++) await sleep(100); }
+  const from = Number(BigInt(await rpc('eth_blockNumber', [])));
+  await rpc('anvil_dealERC20', [A0, USDC, '0x' + (100n * unit).toString(16)]);
+  const seen = [{ token: USDC.toLowerCase(), sym: 'USDC', dec: 6, pool: USDC_TP.pool, router: USDC_TP.router, id: USDC_TP.id, from: from - 5 }];
+  const r = await openPage({ account: A0, key: K0, init: { arg: { seen }, fn: ({ seen }) => { try { localStorage.setItem('tacit-token-pools-v1', JSON.stringify(seen)); } catch { /* storage is a convenience */ } } } });
+  const p = r.page, st = () => text(p, '#d-status'), shown = async () => (await text(p, '.bal .v')).trim(), slug = USDC_TP.id.slice(2);
+  try {
+    await p.goto(r.url + `#device/${slug}/deposit`);
+    if (await p.$('#eth-dev [data-in="eth"]')) await p.click('#eth-dev [data-in="eth"]');
+    await p.waitForSelector('#d-amt', { timeout: 120000 });
+    await until(p, () => /^\d/.test(document.querySelector('.bal .v')?.textContent || ''), null, 240000);
+    ok((await shown()) === '0' && /USDC, private on this device/.test(await text(p, '.bal .u')) && await p.$(`[data-chain="${slug}"][aria-selected="true"]`), `devtokpool: the sheet lists the USDC pool a swap went through, in USDC (${await shown()})`);
+    await p.fill('#d-amt', '25');
+    await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    await p.click('#d-go');
+    await until(p, () => /Deposited|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    ok(/Deposited/.test(await st()) && (await usdcOf(USDC_TP.pool)) === 25n * unit, `devtokpool: 25 USDC deposited from the wallet, six decimals read right (${(await st()).slice(0, 50)})`);
+    await until(p, () => /^25(\.0+)?$/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 120000);
+    await p.click('[data-dev="out"]');
+    await p.waitForSelector('#d-to', { timeout: 30000 });
+    await p.fill('#d-to', BEEF); await p.fill('#d-amt', '5');
+    await until(p, () => !document.querySelector('#d-go').disabled && /Relay fee/.test(document.querySelector('#d-rcpt')?.textContent || ''), null, 60000);
+    ok(/Relay fee\s*0\.2 USDC/.test(await text(p, '#d-rcpt')), `devtokpool: Withdraw goes through the relay, its fee in USDC (${(await text(p, '#d-rcpt')).replace(/\s+/g, ' ').trim()})`);
+    const r0 = relays.length, b0 = await usdcOf(BEEF);
+    await p.click('#d-go');
+    await until(p, () => /Withdrawn|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    ok(/Withdrawn/.test(await st()) && relays.length - r0 === 1 && (await usdcOf(BEEF)) - b0 === 5n * unit && (await usdcOf(USDC_TP.pool)) === 25n * unit - 5n * unit - 200_000n,
+      `devtokpool: the relay takes 5 USDC out to the address, 0.2 USDC its fee (${(await st()).slice(0, 40)})`);
+    await until(p, () => /^19\.8/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 120000);
+    await until(p, (s) => !!document.querySelector(`#dash-g [data-dash-open="device/${s}"]`), slug, 120000);
+    ok(true, `devtokpool: the balance reads 19.8 USDC, and Your Tacit lists it`);
+    if (r.errors.length) { fails++; console.log('FAIL devtokpool page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // The card hands the device sheet an amount as a draft (hxDraft) and opens it by link. A draft for the TAC pool ({ tac: true }) fills the TAC

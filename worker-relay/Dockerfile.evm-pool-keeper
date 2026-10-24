@@ -14,6 +14,8 @@ WORKDIR /app
 COPY dapp/package.json /app/dapp/package.json
 COPY dapp/*.js /app/dapp/
 COPY dapp/vendor/*.js /app/dapp/vendor/
+# token pools: the creation code their addresses are derived from (dapp/evm-pool-tokens.js)
+COPY dapp/evm-pool/token-pool-code.json /app/dapp/evm-pool/token-pool-code.json
 
 WORKDIR /app/worker-relay
 COPY worker-relay/package.json worker-relay/package-lock.json ./

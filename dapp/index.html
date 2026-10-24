@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IMboLzssnN88ZGDJTUFpZG46TL1SXJxITOmNBKN0wcc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Uxn5QvaQT7PPLAhOLKJ/WF5+w+96b7hWAuak/GOewlA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1001,7 +1001,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=3523a0c7">
+<link rel="stylesheet" href="/swap/card.css?cb=eb94439c">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -1533,6 +1533,7 @@ import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladde
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
 import { makeOutFee, limitText, proofWarn, fundingText } from '/bridge-out.js?cb=4f5612d0';
+import { SERVED as SERVED_POOLS, keeperIdOf, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js';
 import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=5a42e68b';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
@@ -1593,7 +1594,28 @@ const TOKEN_POOLS = [
     keeper: 'https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper', relayer: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', maxRelayFee: 1000n * 10n ** 18n,
     pool: '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', router: '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', deployBlock: 26201900,
     rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations },
+  { slug: 'tacd', name: 'TACD', sym: 'TACD', icon: 'tk-tacd', chainId: 1, token: '0xA0f6B02561C8ef08335B69aD25e022C0B342147C', permit: null,
+    keeper: 'https://tacit-evm-pool-keepers.onrender.com/1-tacd/evm-pool/keeper', relayer: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', maxRelayFee: 500n * 10n ** 18n,
+    pool: '0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA', router: '0x000000e96fcFf90F220fa65F8b82C6114Cd1Cc30', deployBlock: 26201900,
+    rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations },
+  { slug: 'tace', name: 'TACE', sym: 'TACE', icon: 'tk-tace', chainId: 1, token: '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570', permit: null,
+    keeper: 'https://tacit-evm-pool-keepers.onrender.com/1-tace/evm-pool/keeper', relayer: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', maxRelayFee: 2n * 10n ** 17n,
+    pool: '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', router: '0x000000e66C32bEC739180A5eDeeB40A8225c5223', deployBlock: 26201900,
+    rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations },
 ];
+// The token pools a private swap went through (dapp/swap/later.js keeps them in this browser, dapp/evm-pool-tokens.js opens them): each the
+// same pool with its own ERC-20, served by the relay at the route its token names, listed here so what is left in one can be sent or taken out.
+// Only the pools the relay serves (SERVED, their addresses fixed there): what this browser kept says which to show, never where they are.
+for (const x of (() => { try { return JSON.parse(localStorage.getItem('tacit-token-pools-v1') || '[]') || []; } catch { return []; } })()) {
+  const t = String(x?.token || '').toLowerCase(), v = SERVED_POOLS[t];
+  if (!v) continue;
+  const id = keeperIdOf(t);
+  if (TOKEN_POOLS.some((p) => p.pool.toLowerCase() === v.pool.toLowerCase() || p.slug === id.slice(2))) continue;
+  const from = Number.isInteger(x.from) && x.from >= 26262000 ? x.from : 26262000;
+  TOKEN_POOLS.push({ slug: id.slice(2), name: v.sym, sym: v.sym, dec: v.dec, icon: 'tk-peth', chainId: 1, token: t, permit: null,
+    keeper: `${POOL_KEEPERS}/${id}/evm-pool/keeper`, relayer: POOL_RELAYER, maxRelayFee: v.maxRelayFee,
+    pool: v.pool, router: v.router, deployBlock: from, rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations });
+}
 const PERMIT2_ADDR = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -5454,7 +5476,7 @@ function xoOut(el, status, a) {
 const DEV = { chain: DEVICE_CHAINS.find((c) => c.chainId === store.get('tacit-lite-device-chain')) || DEVICE_CHAINS[1], tok: null, mode: 'deposit', dest: 'addr', W: null, bal: null, key: null, quote: null, gq: {}, err: null, self: false };
 const getDeviceMods = lazy(async () => {
   const [zkm, wm, pm, pos] = await Promise.all([
-    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=6123816d'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
+    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=4763bf01'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
   ]);
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
   return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), ...wm, vkHash: pm.vkHash };
@@ -5526,7 +5548,7 @@ function poolSyncInWorker(c) {
     if (S.key?.pubHex !== pub) return resolve(false);
     let w;
     try {
-      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=3b99bd05', { type: 'module' });
+      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=e5ab1498', { type: 'module' });
       w.onmessage = (e) => { const f = PSW.wait.get(e.data?.id); if (f) { if (!e.data.write) PSW.wait.delete(e.data.id); f(e.data); } };
       w.onerror = () => { for (const f of PSW.wait.values()) f({ ok: false }); PSW.wait.clear(); PSW.w = null; };
     } catch { return resolve(false); }
@@ -6241,7 +6263,7 @@ async function tokRecipient(raw) {
 }
 
 function renderTokenPool(el) {
-  const t = DEV.tok;
+  const t = DEV.tok, D = t.dec ?? 18;
   if (!needKey(el, `Keep ${t.sym} private on Ethereum, proved in your browser.`)) return;
   const W = TK.W && TK.key === S.key.pubHex + t.slug ? TK.W : null;
   const last = TK.bal == null ? devBal(t.slug, S.key.pubHex) : null;
@@ -6249,7 +6271,7 @@ function renderTokenPool(el) {
     ${segSub('chain', t.slug, devPools())}
     <div class="bal">
       <span class="pair"><svg class="tk md" aria-hidden="true"><use href="#${t.icon}"/></svg></span>
-      <div><div class="v num">${TK.bal != null ? fmt(TK.bal, 18, 6) : TK.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 18, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">${t.sym}, private on this device</div></div>
+      <div><div class="v num">${TK.bal != null ? fmt(TK.bal, D, 6) : TK.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, D, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">${t.sym}, private on this device</div></div>
       <div class="side">${TK.err ? html`<button class="link" type="button" id="d-rescan">retry</button>` : TK.bal != null ? html`<button class="link" type="button" id="d-rescan">refresh</button>` : 'updating…'}</div>
     </div>
     ${segSub('dev', DEV.mode, [['deposit', 'Deposit'], ['send', 'Send'], ['out', 'Withdraw'], ['receive', 'Receive']])}
@@ -6297,7 +6319,7 @@ function renderTokenPool(el) {
   if (W && !TK.plan && DEV.mode !== 'deposit' && DEV.mode !== 'receive') getDeviceMods().then((m) => { TK.plan = m.mergePlan; rerender('eth'); }).catch(() => {});
   const merges = (amount, fee = relayFee()) => (W && TK.plan ? TK.plan(W.notes().map((n) => n.v), amount + fee, fee) : TK.bal != null && amount + fee <= TK.bal ? 0 : null);
   const maxOut = (fee = relayFee()) => { let lo = 0n, hi = TK.bal ?? 0n; while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if (merges(mid, fee) != null) lo = mid; else hi = mid - 1n; } return lo; };
-  const maxPriv = TK.bal != null ? html`<button type="button" id="d-maxp" aria-label="Use all: ${fmt(TK.bal, 18, 4)} ${t.sym} private">Private ${fmt(TK.bal, 18, 4)} ${t.sym}</button>` : '';
+  const maxPriv = TK.bal != null ? html`<button type="button" id="d-maxp" aria-label="Use all: ${fmt(TK.bal, D, 4)} ${t.sym} private">Private ${fmt(TK.bal, D, 4)} ${t.sym}</button>` : '';
   const overText = () => (relayFee() ? 'More than your private balance, once the relay fee is counted.' : 'More than your private balance.');
   // over only because of the relay's fee (its own, or what combining notes through it would cost): the paying account can still send it
   const over = (rc, amount) => {
@@ -6305,12 +6327,12 @@ function renderTokenPool(el) {
     RETRY['d-self'] = () => { TK.self = true; rerender('eth'); };
     mount(rc, html`<p class="note err">${overText()} <button class="link" type="button" data-retry="d-self">Send it from ${your()} instead</button></p>`); rc.hidden = false;
   };
-  const combine = (m) => (!m ? '' : viaRelay() ? html`<div class="kv"><span>Relay fee to combine notes${m > 1 ? ` (${m}×)` : ''}</span><b>at most ${fmt(capOf(relayFee()) * BigInt(m), 18, 4)} ${t.sym}</b></div>`
+  const combine = (m) => (!m ? '' : viaRelay() ? html`<div class="kv"><span>Relay fee to combine notes${m > 1 ? ` (${m}×)` : ''}</span><b>at most ${fmt(capOf(relayFee()) * BigInt(m), D, 4)} ${t.sym}</b></div>`
     : html`<div class="kv"><span>Combines your notes first</span><b>${m} more transaction${m > 1 ? 's' : ''} from ${your()}</b></div>`);
-  const feeRow = () => (viaRelay() && quoteNow() ? html`<div class="kv"><span>Relay fee</span><b>${fmt(relayFee(), 18, 4)} ${t.sym}</b></div>` : '');
-  const wireMax = () => $('#d-maxp')?.addEventListener('click', () => { const v = maxOut(), amt = $('#d-amt'); amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); });
+  const feeRow = () => (viaRelay() && quoteNow() ? html`<div class="kv"><span>Relay fee</span><b>${fmt(relayFee(), D, 4)} ${t.sym}</b></div>` : '');
+  const wireMax = () => $('#d-maxp')?.addEventListener('click', () => { const v = maxOut(), amt = $('#d-amt'); amt.value = v ? plain(v, D) : ''; amt.dispatchEvent(new Event('input')); });
   const fail = (run, amt, rc, e) => {
-    if (e?.feeMoved != null) { TK.quote = null; TK.qAt = 0; rerender('eth'); say($('#d-status'), html`<span class="err">The relay fee changed to ${fmt(e.feeMoved, 18, 4)} ${t.sym}. Check it and press again.</span>`); return; }
+    if (e?.feeMoved != null) { TK.quote = null; TK.qAt = 0; rerender('eth'); say($('#d-status'), html`<span class="err">The relay fee changed to ${fmt(e.feeMoved, D, 4)} ${t.sym}. Check it and press again.</span>`); return; }
     if (viaRelay() && keeperTrouble(e)) {
       RETRY['d-self'] = () => { TK.self = true; rerender('eth'); say($('#d-status'), `Press it again: ${your()} sends it, with no relay fee.`); };
       say(status, html`<span class="err">${errText(e)}</span> <button class="link" type="button" data-retry="d-self">Send it from ${your()} instead</button>`);
@@ -6329,7 +6351,7 @@ function renderTokenPool(el) {
     let wb = null;
     const amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt'), wbEl = $('#d-wb');
     const check = () => {
-      const amount = parseUnits(amt.value);
+      const amount = parseUnits(amt.value, D);
       go.disabled = true; rc.hidden = true; mount(rc, html``);
       if (!amount) return;
       const over = wb != null && amount > wb;
@@ -6338,22 +6360,22 @@ function renderTokenPool(el) {
     };
     if (S.address) ethCall(t.token, SEL.balanceOf + addrWord(S.address)).then((b) => {
       if (!wbEl.isConnected) return;
-      wb = BigInt(b); wbEl.textContent = fmt(wb, 18, 4); $('#d-max')?.setAttribute('aria-label', `Use all: ${fmt(wb, 18, 4)} ${t.sym} in ${payName()}`); check();
+      wb = BigInt(b); wbEl.textContent = fmt(wb, D, 4); $('#d-max')?.setAttribute('aria-label', `Use all: ${fmt(wb, D, 4)} ${t.sym} in ${payName()}`); check();
     }).catch(() => { if (wbEl.isConnected) wbEl.textContent = '—'; });
     else wbEl.textContent = '—';
     if (payer() === 'tacit') ethBalance().then((b) => { if (b === 0n) noEthYet($('#d-fund'), b, '', 'deposit it'); });
-    $('#d-max').onclick = () => { if (wb != null) { amt.value = wb ? plain(wb, 18) : ''; amt.dispatchEvent(new Event('input')); } };
+    $('#d-max').onclick = () => { if (wb != null) { amt.value = wb ? plain(wb, D) : ''; amt.dispatchEvent(new Event('input')); } };
     amt.addEventListener('input', check); check();
     takeDraft('dep', amt, (d) => d.tac === true);
     amt.addEventListener('focus', warm, { once: true });
     go.onclick = () => busy(go, async (run) => {
       try {
-        const amount = parseUnits(amt.value);
+        const amount = parseUnits(amt.value, D);
         if (!amount) throw new Error('Enter an amount.');
         const owner = await payingAccount();
         if (amount > BigInt(await ethCall(t.token, SEL.balanceOf + addrWord(owner)))) throw new Error(`More than ${your()} holds.`);
         const [m, W2] = await Promise.all([getDeviceMods(), tokenWallet(t)]);
-        const label = `Deposit ${fmt(amount, 18, 6)} ${t.sym} on this device`;
+        const label = `Deposit ${fmt(amount, D, 6)} ${t.sym} on this device`;
         let pull = await tokenPull(t, amount, step, status), h;
         for (;;) {
           W2.connect(payFromTok(label));
@@ -6376,7 +6398,7 @@ function renderTokenPool(el) {
     const toEl = $('#d-to'), amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt'), dsv = { raw: '', r: null };
     for (const x of [toEl, amt]) x.addEventListener('focus', warm, { once: true });
     const check = () => {
-      const amount = parseUnits(amt.value), raw = toEl.value.trim();
+      const amount = parseUnits(amt.value, D), raw = toEl.value.trim();
       go.disabled = true; rc.hidden = true; mount(rc, html``);
       if (raw && dsv.raw !== raw) { dsv.raw = raw; dsv.r = null; tokRecipient(raw).then((r) => { if (dsv.raw === raw) { dsv.r = r; check(); } }); }
       if (raw && !dsv.r) { mount(rc, html`<p class="note">Looking it up…</p>`); rc.hidden = false; return; }
@@ -6391,13 +6413,13 @@ function renderTokenPool(el) {
     toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
     go.onclick = () => busy(go, async (run) => {
       try {
-        const amount = parseUnits(amt.value), raw = toEl.value.trim();
+        const amount = parseUnits(amt.value, D), raw = toEl.value.trim();
         if (!amount) throw new Error('Enter an amount.');
         const r = await tokRecipient(raw);
         if (r.error) throw new Error(r.error);
         if (r.bp !== dsv.r?.bp) throw new Error('Where that address or name points changed. Check it and send again.');
         const W2 = await tokenWallet(t);
-        await payingAccount(); W2.connect(payFromTok(`Send ${fmt(amount, 18, 6)} ${t.sym} privately from this device`));
+        await payingAccount(); W2.connect(payFromTok(`Send ${fmt(amount, D, 6)} ${t.sym} privately from this device`));
         const relay = viaRelay(), h = await W2.send({ to: r.bp, amount, via: relay ? 'relay' : 'self', maxFee: relay ? capOf(relayFee()) : null, onStep: step });
         await waitTx(h, { timeoutMs: 20e3, chainId: 1 });
         clearField(amt); clearField(toEl); rc.hidden = true;
@@ -6416,7 +6438,7 @@ function renderTokenPool(el) {
     $('#d-me').addEventListener('click', () => busy($('#d-me'), async () => { try { toEl.value = await payingAccount(); toEl.dispatchEvent(new Event('input')); } catch (e) { sayErr(status, e); } }));
     for (const x of [toEl, amt]) x.addEventListener('focus', warm, { once: true });
     const check = () => {
-      const amount = parseUnits(amt.value), raw = toEl.value.trim();
+      const amount = parseUnits(amt.value, D), raw = toEl.value.trim();
       go.disabled = true; rc.hidden = true; mount(rc, html``);
       if (!amount) return;
       let bad = null;
@@ -6432,10 +6454,10 @@ function renderTokenPool(el) {
     toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
     go.onclick = () => busy(go, async (run) => {
       try {
-        const amount = parseUnits(amt.value);
+        const amount = parseUnits(amt.value, D);
         if (!amount) throw new Error('Enter an amount.');
         const to = recipientOf(toEl.value), W2 = await tokenWallet(t);
-        await payingAccount(); W2.connect(payFromTok(`Withdraw ${fmt(amount, 18, 6)} ${t.sym} from this device`));
+        await payingAccount(); W2.connect(payFromTok(`Withdraw ${fmt(amount, D, 6)} ${t.sym} from this device`));
         const relay = viaRelay(), h = await W2.withdraw({ to, amount, via: relay ? 'relay' : 'self', maxFee: relay ? capOf(relayFee()) : null, onStep: step });
         await waitTx(h, { timeoutMs: 20e3, chainId: 1 });
         clearField(amt); rc.hidden = true;
@@ -10705,6 +10727,12 @@ function dashItems() {
     out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
     const devTac = devBal('tac', k);
     out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
+    // the other token pools on this device (TACD and TACE beside the vaults, and any a private swap went through), each a row when it holds some
+    for (const p of TOKEN_POOLS) {
+      if (p.slug === 'tac') continue;
+      const v = devBal(p.slug, k);
+      out.push({ key: p.slug === 'tacd' || p.slug === 'tace' ? `dev${p.slug}` : `devtok-${p.slug}`, icon: p.icon, label: p.sym, dec: p.dec ?? 18, max: 4, v, meta: 'private on this device', open: `device/${p.slug}`, show: v > 0n });
+    }
     // What a key holds on its Bitcoin address: read again whenever it is known to have held some (or has a bridge under way), and shown from
     // what it last held until the read is back, so it is there on every visit and not only the first of the day.
     const xb = xbOf(XA.teth), xbH = xbHeld(k, XA.teth);
@@ -10761,8 +10789,8 @@ function dashItems() {
 }
 const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac-finish'], borrow: ['borrow', 'borrow', 'bw-finish'], claim: ['private', 'eth', 'v1-claim'], back: ['private', 'eth', 'v1-back'],
   pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
-const DASH_PX = { teth: 'eth', dev: 'eth', devtac: 'tac', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
-const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
+const DASH_PX = { teth: 'eth', dev: 'eth', devtac: 'tac', devtacd: 'usd', devtace: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
+const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'devtacd', 'devtace', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
 function dashWorth(items) {
   const v = TPX.v;
   if (!v?.usdBtc || !v.ethBtc) { if (!TPX.p && S.key) loadTacPrice().then(dashSoon, () => {}); return null; }
@@ -11964,7 +11992,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=0927cd1f').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=1862a14d').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) s.replaceWith(SWC.el); swcAsk(); };

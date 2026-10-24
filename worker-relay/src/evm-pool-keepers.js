@@ -12,15 +12,21 @@
 //   EVM_POOL_KEEPER_DB_<chainId>             the chain's store (default <EVM_POOL_KEEPER_DB dir>/keeper-<chainId>.db; keeper-1-tac.db …)
 //   EVM_POOL_SEED_FEED_<chainId>             another keeper's feed base (…/evm-pool/keeper) an empty store is seeded from, root-checked
 //   EVM_POOL_SEED_RESET_<chainId>=1          empty a part-replayed store first (one time; unset after)
+//   EVM_POOL_TOKEN_POOLS_<chainId>=<block>   serve the token pools anyone opens on Ethereum (dapp/evm-pool-tokens.js) for the tokens in
+//                                            its SERVED and EVM_POOL_TOKEN_POOLS_ALLOW_<chainId> (addresses, comma-separated), found from
+//                                            CreateX's logs from that block on, each as the named pool <chainId>-x<token's first ten hex
+//                                            digits> with the chain's key and zQuoter's price (EVM_POOL_TOKEN_POOLS_MAX, default 30)
 //
 // Pools on one chain may share a key: their sends go through one queue per signer (evm-pool-keeper-chain.js), so they never race for a
 // nonce. A pool that holds a token is paid in it; EVM_POOL_KEEPER_RATE_FEED keeps its price in ETH current (evm-pool-keeper-rates.js).
 //
 // HTTP, on PORT: /<id>/evm-pool/keeper/* and /<id>/health are that keeper's routes, exactly as its own service served them at
 // /evm-pool/keeper/* and /health; the unprefixed routes are the first keeper's, so a page built for one keeper still works. GET /health
-// is 200 only while every keeper's last tick succeeded; GET /chains lists them.
+// is 200 only while every chain pool's (1, 8453 …) last tick succeeded; a named pool's trouble shows in its own /health and in GET /chains,
+// which lists them all.
 
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
 import { poolAsset } from '../../dapp/evm-pool-zk.js';
@@ -33,13 +39,16 @@ import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
 import { createIntakeHandler } from './lib/evm-pool-keeper-intake.js';
 import { seedFromFeed } from './lib/evm-pool-keeper-seed.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
-import { makeRateFeed } from './lib/evm-pool-keeper-rates.js';
+import { makeRateFeed, parseRateFeed } from './lib/evm-pool-keeper-rates.js';
+import { makeTokenPoolDiscovery } from './lib/evm-pool-token-discovery.js';
+import { makeTokenPools, keeperIdOf, SERVED, CHAIN_ID as TOKEN_POOLS_CHAIN } from '../../dapp/evm-pool-tokens.js';
+import { keccak_256 } from '../../dapp/vendor/tacit-deps.min.js';
 import { safeErr } from './lib/safe-err.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const ID = /^(\d+)(?:-([a-z][a-z0-9]*))?$/;
-const suffixOf = (id) => `_${id.toUpperCase().replace(/-/g, '_')}`;
+export const suffixOf = (id) => `_${id.toUpperCase().replace(/-/g, '_')}`;
 // The keepers named, in order: { id, chainId, suffix } ('1' → chain 1's pool; '1-tac' → another pool on chain 1); none = disabled.
 export function instancesOf(env = process.env) {
   const out = String(env.EVM_POOL_CHAINS || '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
@@ -102,6 +111,20 @@ export function serialProver(prover) {
   };
 }
 
+// A plain JSON-RPC call over `urls`, each tried in turn (the token pools' discovery reads logs and views through the chain keeper's nodes).
+const rpcOver = (urls) => async (method, params) => {
+  let last;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(30_000) });
+      const j = await r.json();
+      if (j.error) { if (method === 'eth_call') throw Object.assign(new Error(j.error.message), { revert: true }); throw new Error(j.error.message); }
+      return j.result;
+    } catch (e) { if (e?.revert) throw e; last = e; }
+  }
+  throw last || new Error('no node');
+};
+
 async function main() {
   const insts = instancesOf();
   if (!insts.length) { console.log('[evm-pool-keepers] disabled: EVM_POOL_CHAINS is not set'); return; }
@@ -110,77 +133,55 @@ async function main() {
   const provers = new Map(); // one per distinct (wasm, zkey, vk), shared by the pools that use it
   const keepers = new Map();
   const pools = new Map();    // chainId:pool → id, so two keepers never watch one pool
-  for (const inst of insts) {
-    const named = inst.suffix !== `_${inst.chainId}`;
-    const clog = (...a) => console.log(`[evm-pool-keeper ${inst.id} ${new Date().toISOString()}]`, ...a);
-    try {
-      const { id, chainId } = inst;
-      const env = envFor(inst);
-      const cfg = loadKeeperConfig(env);
-      if (!cfg.enabled) { clog(`disabled: ${cfg.reason}`); continue; }
-      if (!cfg.keeperKey) throw new Error(`EVM_POOL_KEEPER_PRIV${named ? inst.suffix : ` (or _${chainId})`} is not set`);
-      const poolKey = `${chainId}:${cfg.pool.toLowerCase()}`;
-      if (pools.has(poolKey)) throw new Error(`keeper ${id} watches pool ${cfg.pool}, which keeper ${pools.get(poolKey)} watches already`);
-      pools.set(poolKey, id);
-      const account = privateKeyToAccount(cfg.keeperKey.startsWith('0x') ? cfg.keeperKey : `0x${cfg.keeperKey}`);
-      checkKeeperSigner(cfg, account.address);
-      cfg.keeperAddress = account.address;
-      const chain = await makeKeeperChain({ cfg, account, log: clog });
-      if (chain.chainId !== chainId) throw new Error(`keeper ${id}: its node is on chain ${chain.chainId}, not ${chainId}`);
-      // a pool that holds a token: its price in ETH, kept current from the chain, before the first fee is checked
-      const ethPool = BigInt(chain.asset) === 0n;
-      if (cfg.rateFeed && ethPool) clog('EVM_POOL_KEEPER_RATE_FEED ignored: this pool holds ETH, whose price is one');
-      const rates = cfg.rateFeed && !ethPool ? makeRateFeed({ feed: cfg.rateFeed, token: chain.asset, read: chain.readContract, cfg, log: clog }) : null;
-      if (rates) await rates.refresh();
-      const assetField = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token: chain.asset });
-      const pk = [cfg.wasm, cfg.zkey, cfg.vk, cfg.vkHash, cfg.wasmSha256, cfg.zkeySha256].join('|');
-      if (!provers.has(pk)) provers.set(pk, serialProver(await makeKeeperProver(cfg)));
-      const prover = provers.get(pk);
-      const store = openKeeperStore(cfg.dbPath);
-      // An empty store (a new instance, a replaced disk) is seeded from another keeper's feed when one is named, checked against the pool's
-      // root; EVM_POOL_SEED_RESET=1 empties a store part-way through a log replay first. Else, or on any failure, the log replay runs as before.
-      if (env.EVM_POOL_SEED_FEED) {
-        try { await seedFromFeed({ store, chain, zk, feedUrl: env.EVM_POOL_SEED_FEED, startBlock: cfg.startBlock, reset: env.EVM_POOL_SEED_RESET === '1', log: clog }); }
-        catch (e) { clog(`seed from ${env.EVM_POOL_SEED_FEED} not taken: ${safeErr(e)}`); }
-      }
-      const leafSync = makeLeafSync({ store, chain, zk, startBlock: cfg.startBlock, confirmations: cfg.confirmations, logChunk: cfg.logChunk, log: clog });
-      const pipeline = cfg.pipeline ? makePipeline({ chain, verify: prover.verify, assetField, baseTree: () => leafSync.sync(), maxDepth: cfg.pipelineDepth, log: clog }) : null;
-      const keeper = createKeeper({ store, chain, prover, zk, assetField, leafSync, pipeline, cfg, log: clog });
-      const assetKey = chain.asset.toLowerCase();
-      if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey) && !rates) clog(`warning: no EVM_POOL_KEEPER_MIN_FEES, _TOKEN_RATES or _RATE_FEED entry for the pool asset ${assetKey}; deposits will be skipped`);
-      clog(`keeper ${account.address} on chain ${chain.chainId}: pool ${chain.pool} router ${chain.router} asset ${chain.asset} vk ${prover.vkHash.slice(0, 16)} store ${cfg.dbPath}${cfg.dryRun ? ' (dry run)' : ''}`);
-      const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, lastTickOk: true, log: clog };
-      k.handler = createIntakeHandler({ store, chain, zk, assetField, cfg, log: clog, leafSync, pipeline, isReady: () => k.lastTickOk });
-      keepers.set(id, k);
-    } catch (e) {
-      // a chain's own pool failing stops the process as it always has; another pool on a chain is left out, and the rest run
-      if (!named) throw e;
-      clog(`not started: ${safeErr(e)}`);
+  const running = [];
+  const chainPool = (id) => /^\d+$/.test(id);
+
+  // One keeper, made ready to serve (its nodes, price, prover, store, intake), or an error. `needPrice`: a token pool found on chain starts
+  // only once its token can be priced (one no pool trades is not worth a keeper's loop). → the keeper, or null when it is not configured.
+  async function startKeeper(inst, env, { needPrice = false } = {}) {
+    const { id, chainId } = inst;
+    const clog = (...a) => console.log(`[evm-pool-keeper ${id} ${new Date().toISOString()}]`, ...a);
+    const cfg = loadKeeperConfig(env);
+    if (!cfg.enabled) { clog(`disabled: ${cfg.reason}`); return null; }
+    if (!cfg.keeperKey) throw new Error(`EVM_POOL_KEEPER_PRIV${inst.suffix !== `_${chainId}` ? inst.suffix : ` (or _${chainId})`} is not set`);
+    const poolKey = `${chainId}:${cfg.pool.toLowerCase()}`;
+    if (pools.has(poolKey)) throw new Error(`keeper ${id} watches pool ${cfg.pool}, which keeper ${pools.get(poolKey)} watches already`);
+    const account = privateKeyToAccount(cfg.keeperKey.startsWith('0x') ? cfg.keeperKey : `0x${cfg.keeperKey}`);
+    checkKeeperSigner(cfg, account.address);
+    cfg.keeperAddress = account.address;
+    const chain = await makeKeeperChain({ cfg, account, log: clog });
+    if (chain.chainId !== chainId) throw new Error(`keeper ${id}: its node is on chain ${chain.chainId}, not ${chainId}`);
+    // a pool that holds a token: its price in ETH, kept current from the chain, before the first fee is checked
+    const ethPool = BigInt(chain.asset) === 0n;
+    if (cfg.rateFeed && ethPool) clog('EVM_POOL_KEEPER_RATE_FEED ignored: this pool holds ETH, whose price is one');
+    const rates = cfg.rateFeed && !ethPool ? makeRateFeed({ feed: cfg.rateFeed, token: chain.asset, read: chain.readContract, cfg, log: clog }) : null;
+    if (rates) await rates.refresh();
+    if (needPrice && !rates?.rate()) throw Object.assign(new Error(`no price for ${chain.asset} yet`), { noPrice: true });
+    const assetField = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token: chain.asset });
+    const pk = [cfg.wasm, cfg.zkey, cfg.vk, cfg.vkHash, cfg.wasmSha256, cfg.zkeySha256].join('|');
+    if (!provers.has(pk)) provers.set(pk, serialProver(await makeKeeperProver(cfg)));
+    const prover = provers.get(pk);
+    const store = openKeeperStore(cfg.dbPath);
+    // An empty store (a new instance, a replaced disk) is seeded from another keeper's feed when one is named, checked against the pool's
+    // root; EVM_POOL_SEED_RESET=1 empties a store part-way through a log replay first. Else, or on any failure, the log replay runs as before.
+    if (env.EVM_POOL_SEED_FEED) {
+      try { await seedFromFeed({ store, chain, zk, feedUrl: env.EVM_POOL_SEED_FEED, startBlock: cfg.startBlock, reset: env.EVM_POOL_SEED_RESET === '1', log: clog }); }
+      catch (e) { clog(`seed from ${env.EVM_POOL_SEED_FEED} not taken: ${safeErr(e)}`); }
     }
+    const leafSync = makeLeafSync({ store, chain, zk, startBlock: cfg.startBlock, confirmations: cfg.confirmations, logChunk: cfg.logChunk, log: clog });
+    const pipeline = cfg.pipeline ? makePipeline({ chain, verify: prover.verify, assetField, baseTree: () => leafSync.sync(), maxDepth: cfg.pipelineDepth, log: clog }) : null;
+    const keeper = createKeeper({ store, chain, prover, zk, assetField, leafSync, pipeline, cfg, log: clog });
+    const assetKey = chain.asset.toLowerCase();
+    if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey) && !rates) clog(`warning: no EVM_POOL_KEEPER_MIN_FEES, _TOKEN_RATES or _RATE_FEED entry for the pool asset ${assetKey}; deposits will be skipped`);
+    clog(`keeper ${account.address} on chain ${chain.chainId}: pool ${chain.pool} router ${chain.router} asset ${chain.asset} vk ${prover.vkHash.slice(0, 16)} store ${cfg.dbPath}${cfg.dryRun ? ' (dry run)' : ''}`);
+    const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, lastTickOk: true, log: clog };
+    k.handler = createIntakeHandler({ store, chain, zk, assetField, cfg, log: clog, leafSync, pipeline, isReady: () => k.lastTickOk });
+    pools.set(poolKey, id);
+    return k;
   }
-  const running = insts.map((x) => x.id).filter((id) => keepers.has(id));
-  if (!running.length) { log('no chain is enabled'); return; }
 
-  const port = Number(process.env.PORT || 10000);
-  createServer((req, res) => {
-    const url = req.url || '/';
-    if (url === '/health' || url === '/health/') {
-      const ok = running.every((c) => keepers.get(c).lastTickOk);
-      res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ ok, chains: Object.fromEntries(running.map((c) => [c, keepers.get(c).lastTickOk])) }));
-    }
-    if (url === '/chains' || url === '/chains/') {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=60' });
-      return res.end(JSON.stringify({ chains: running.map((id) => { const k = keepers.get(id); return { id, chainId: k.chainId, keeper: k.cfg.keeperAddress, pool: k.cfg.pool, router: k.cfg.router, asset: k.chain.asset, base: `/${id}/evm-pool/keeper` }; }) }));
-    }
-    const r = routeOf(url, running);
-    if (!r) { res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); return res.end(JSON.stringify({ error: 'no such chain' })); }
-    req.url = r.path;
-    return keepers.get(r.id).handler(req, res);
-  }).listen(port, () => log(`listening on ${port}: keepers ${running.join(', ')} (unprefixed routes are ${running[0]}'s)`));
-
-  for (const id of running) {
-    const k = keepers.get(id);
+  // A keeper's loops: its price, the history's facts, and its ticks.
+  function runKeeper(k) {
     if (k.rates) setInterval(() => { k.rates.refresh().catch(() => {}); }, k.cfg.rateSecs * 1000).unref?.();
     // The history's public facts fill in on their own loop: a backfill or a slow node never delays a relay or a proof.
     if (k.cfg.facts) {
@@ -203,6 +204,90 @@ async function main() {
           try { await k.leafSync.sync(); } catch (e) { k.log(`history sync: ${safeErr(e)}`); }
         }
         await sleep(k.cfg.pollSecs * 1000);
+      }
+    })();
+  }
+
+  for (const inst of insts) {
+    try {
+      const k = await startKeeper(inst, envFor(inst));
+      if (k) { keepers.set(inst.id, k); running.push(inst.id); }
+    } catch (e) {
+      // a chain's own pool failing stops the process as it always has; another pool on a chain is left out, and the rest run
+      if (inst.suffix === `_${inst.chainId}`) throw e;
+      console.log(`[evm-pool-keeper ${inst.id} ${new Date().toISOString()}] not started: ${safeErr(e)}`);
+    }
+  }
+  if (!running.length) { log('no chain is enabled'); return; }
+
+  const port = Number(process.env.PORT || 10000);
+  createServer((req, res) => {
+    const url = req.url || '/';
+    if (url === '/health' || url === '/health/') {
+      // the chains' own pools decide the service's health; another pool's trouble (a token pool's node, its price) shows, and restarts nothing
+      const ok = running.filter(chainPool).every((c) => keepers.get(c).lastTickOk);
+      res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ ok, chains: Object.fromEntries(running.map((c) => [c, keepers.get(c).lastTickOk])) }));
+    }
+    if (url === '/chains' || url === '/chains/') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=60' });
+      return res.end(JSON.stringify({ chains: running.map((id) => { const k = keepers.get(id); return { id, chainId: k.chainId, keeper: k.cfg.keeperAddress, pool: k.cfg.pool, router: k.cfg.router, asset: k.chain.asset, base: `/${id}/evm-pool/keeper` }; }) }));
+    }
+    const r = routeOf(url, running);
+    if (!r) { res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); return res.end(JSON.stringify({ error: 'no such chain' })); }
+    req.url = r.path;
+    return keepers.get(r.id).handler(req, res);
+  }).listen(port, () => log(`listening on ${port}: keepers ${running.join(', ')} (unprefixed routes are ${running[0]}'s)`));
+
+  for (const id of running) runKeeper(keepers.get(id));
+
+  // Token pools anyone opens (dapp/evm-pool-tokens.js), found on chain and served as they appear: EVM_POOL_TOKEN_POOLS_<chainId>=<first block>
+  // turns it on for Ethereum's own pool running here; each runs on that chain's nodes and key, paid in its token at zQuoter's price. Only the
+  // tokens listed are served: deep enough that whoever opens a pool cannot set the price its fees are taken at.
+  for (const chainId of [...new Set(running.filter(chainPool).map((id) => keepers.get(id).chainId))]) {
+    const from = process.env[`EVM_POOL_TOKEN_POOLS_${chainId}`];
+    if (!from) continue;
+    const tlog = (...a) => console.log(`[evm-pool-token-pools ${chainId} ${new Date().toISOString()}]`, ...a);
+    if (chainId !== TOKEN_POOLS_CHAIN) { tlog(`token pools are on chain ${TOKEN_POOLS_CHAIN} only`); continue; }
+    const ck = keepers.get(String(chainId));
+    const code = JSON.parse(readFileSync(new URL('../../dapp/evm-pool/token-pool-code.json', import.meta.url), 'utf8'));
+    const tp = makeTokenPools({ code, keccak256: keccak_256 });
+    const extra = String(process.env[`EVM_POOL_TOKEN_POOLS_ALLOW_${chainId}`] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const tokens = [...new Set([...Object.keys(SERVED), ...extra.map((x) => x.toLowerCase())])];
+    for (const t of extra) tp.poolOf(t);   // a bad address stops here, at start
+    const disc = makeTokenPoolDiscovery({ tp, tokens, rpc: rpcOver([...(ck.cfg.logRpcUrls?.length ? ck.cfg.logRpcUrls : []), ...ck.cfg.rpcUrls]), fromBlock: BigInt(from),
+      statePath: join(dirname(ck.cfg.dbPath), `token-pools-${chainId}.json`), confirmations: BigInt(process.env.EVM_POOL_TOKEN_POOLS_CONFIRMATIONS || 3), log: tlog });
+    const chainKey = process.env[`EVM_POOL_KEEPER_PRIV_${chainId}`] || process.env.EVM_POOL_KEEPER_PRIV;
+    const max = Number(process.env.EVM_POOL_TOKEN_POOLS_MAX || 30), served = new Set();
+    // whether zQuoter prices the token now, read through the chain's own keeper before a keeper is made for it (so a token with no price
+    // costs one read a round, not a keeper's start)
+    const priced = async (token, feed) => {
+      const f = makeRateFeed({ feed: parseRateFeed(feed), token, read: ck.chain.readContract, cfg: { rates: new Map(), rateWindowSecs: 0, rateMaxAgeSecs: 0 } });
+      return (await f.refresh()) != null;
+    };
+    const serve = async (p) => {
+      const id = keeperIdOf(p.token), inst = { id, chainId, suffix: suffixOf(id) };
+      if (keepers.has(id)) return;
+      if (served.size >= max) { tlog(`${max} token pools served already; ${p.token}'s waits`); return; }
+      const feed = process.env[`EVM_POOL_KEEPER_RATE_FEED${inst.suffix}`] || 'zq';
+      if (!(await priced(p.token, feed).catch(() => false))) { tlog(`${p.token}'s pool not served yet: no price for it (${feed})`); return; }
+      // its own knobs, which an EVM_POOL_<KNOB>_<CHAINID>_X… set in the environment still overrides
+      const own = { ADDR: p.pool, ROUTER_ADDR: p.router, START_BLOCK: String(p.block), KEEPER_PRIV: chainKey, KEEPER_RATE_FEED: 'zq', KEEPER_POLL_SECS: '60' };
+      const env = envFor(inst, { ...Object.fromEntries(Object.entries(own).map(([kk, v]) => [`EVM_POOL_${kk}${inst.suffix}`, v])), ...process.env });
+      try {
+        const k = await startKeeper(inst, env, { needPrice: true });
+        if (!k) return;
+        keepers.set(id, k); running.push(id); served.add(id); runKeeper(k);
+        tlog(`serving the ${p.token} pool at /${id}/evm-pool/keeper`);
+      } catch (e) { tlog(`${p.token}'s pool not served yet: ${safeErr(e)}`); }
+    };
+    (async () => {
+      for (const p of disc.known()) await serve(p);
+      for (;;) {
+        try { for (const p of await disc.scan()) await serve(p); } catch (e) { tlog(`scan: ${safeErr(e)}`); }
+        // a pool found before its token could be priced is tried again each round
+        for (const p of disc.known()) if (!keepers.has(keeperIdOf(p.token))) await serve(p);
+        await sleep(Number(process.env.EVM_POOL_TOKEN_POOLS_SECS || 300) * 1000);
       }
     })();
   }

@@ -9,7 +9,9 @@
 import { hexToBytes, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { checkZRouterCall } from '/zrouter-guard.js';
 import { bestRoute } from '/swap/aggregate.js?cb=9759a1ca';
-import { readAccess, readToken, permitTyped, permit2Typed, splitSig, randomNonce as permit2Nonce, encApprove } from '/swap/route.js?cb=ce610210';
+import { readAccess, readToken, permitTyped, permit2Typed, splitSig, randomNonce as permit2Nonce, encApprove, quoteTacitToToken, buildTacitToToken, quoteAnyToTac, buildAnyToTac } from '/swap/route.js?cb=ce610210';
+import { makeTokenPools, poolState, RELAYER, KEEPERS, SERVED } from '/evm-pool-tokens.js';
+export { SERVED };
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 export const CHAIN = { chainId: 1, rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
@@ -19,6 +21,10 @@ const USDT = '0xdac17f958d2ee523a2206206994597c13d831ec7', DAI = '0x6b175474e890
 // TacitEvmPoolZap: shields a token into the ETH pool above in one transaction (contracts/src/TacitEvmPoolZap.sol; docs/EVM-POOL.md)
 export const ZAP = '0x0000008EbBF2323f95c4fBc18254f3D65C53998c';
 const PLANS_KEY = 'tacit-swap-later-v1', ARTIFACT_CACHE = 'tacit-evm-pool-artifacts-v1';
+// The token pools a swap here has gone through (dapp/evm-pool-tokens.js): kept so the front page shows what is left in them, and lets it out.
+export const TOKEN_POOLS_KEY = 'tacit-token-pools-v1';
+// No token pool under these salts is older than this block, where a wallet reads one from (the fixed pools carry their own first block).
+const TOKEN_POOLS_FROM = 26262000;
 const lc = (s) => String(s || '').toLowerCase();
 const word = (a) => lc(a).replace(/^0x/, '').padStart(64, '0');
 const hexOf = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -112,6 +118,45 @@ export async function quoteThrough({ ethCall, venues, pay, get, amountIn, slippa
   return r1 ? { r0, ethWei: x, r1 } : null;
 }
 // A wallet's own stop (declined in the wallet), as against a signature that would not check out.
+// The token pools' creation code, fetched once, from which a token's pool and router are found (a test hands its own to makeLater).
+let TP = null;
+export const tokenPools = () => (TP ||= globalThis.fetch('/evm-pool/token-pool-code.json').then((r) => { if (!r.ok) throw new Error(`token pools: HTTP ${r.status}`); return r.json(); })
+  .then((code) => makeTokenPools({ code, keccak256: keccak_256 })).catch((e) => { TP = null; throw e; }));
+// The route that sells `amount` of a token pool's token (`tokenIn`) for `token` (ETH as the zero address), paid to `to`, from a withdrawal's
+// escrow (it approves zRouter for exactly `amount`): asked of the nodes with a random stand-in in place of `to`, then written with `to`.
+// zQuoter's best route held to the guard, or where TAC is on either side, the swap page's own routes through the Precision pool.
+// → { callData, standData, min, out, name, deadline } or null.
+export async function routeFrom({ ethCall, venues, tokenIn, token, amount, to, slippageBps = 50, deadline, random = (n) => crypto.getRandomValues(new Uint8Array(n)) }) {
+  const stand = '0x' + hexOf(random(20)), amt = BigInt(amount), dl = BigInt(deadline), write = (d) => d.split(word(stand)).join(word(to));
+  let q = null;
+  if (lc(tokenIn) === TAC && lc(token) === ZERO) {
+    // TAC for ETH: the Precision pool, as the deposit's own route in reverse, paying the address
+    const rt = (await venues.route({ dir: 'TAC_TO_ETH', amountIn: amt, account: stand }))?.r?.precision;
+    if (!rt || BigInt(rt.amountIn) !== amt) return null;
+    const min = (BigInt(rt.amountOut) * BigInt(10000 - slippageBps)) / 10000n;
+    const tx = venues.build({ quote: rt, dir: 'TAC_TO_ETH', account: stand, to: stand, minOut: min, deadline: dl });
+    if (lc(tx.to) !== lc(ZROUTER) || BigInt(tx.value || 0) !== 0n) return null;
+    q = { callData: tx.data, min, out: BigInt(rt.amountOut), name: 'Precision pool' };
+  } else if (lc(tokenIn) === TAC) {
+    const r = await quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut: token, amountIn: amt, account: stand, to: stand, slippageBps, deadline: dl });
+    if (!r || r.amountIn !== amt) return null;
+    q = { callData: buildTacitToToken({ quote: r, account: stand, to: stand, venues, access: { kind: 'approved' } }).data, min: r.min, out: r.out, name: r.hop ? `Precision pool → ${r.hop.name}` : 'Precision pool' };
+  } else if (lc(token) === TAC) {
+    const r = await quoteAnyToTac({ ethCall, venues, token: tokenIn, amountIn: amt, account: stand, slippageBps, deadline: dl });
+    if (!r) return null;
+    const min = (BigInt(r.tacOut) * BigInt(10000 - slippageBps)) / 10000n;
+    q = { callData: buildAnyToTac({ quote: r, account: stand, to: stand, minOut: min, keccak256: keccak_256, access: { kind: 'approved' } }).data, min, out: BigInt(r.tacOut), name: r.hop ? `${r.hop.name} → Precision pool` : 'Precision pool' };
+  } else {
+    const r = await bestRoute({ ethCall, to: stand, refundTo: stand, tokenIn, tokenOut: token, amountIn: amt, slippageBps, deadline: dl });
+    if (!r) return null;
+    const data = write(r.callData);
+    if (data === r.callData || checkZRouterCall(data, { to, tokenIn, tokenOut: token, exactOut: false, amount: amt, maxIn: amt, minOut: r.min, deadline: dl, curvePools: r.curvePools || [] }) !== null) return null;
+    return { callData: data, standData: r.callData, min: r.min, out: r.out, name: r.name, deadline: dl };
+  }
+  const data = write(q.callData);
+  if (data === q.callData) return null;
+  return { ...q, callData: data, standData: q.callData, deadline: dl };
+}
 const declined = (e) => e?.code === 4001 || e?.userStopped || e?.name === 'UserStopped' || /reject|denied|cancel/i.test(String(e?.message || ''));
 
 // A deposit that is not an amount of its own: the swap, the relay's fee twice and an extra (the slider's share of the swap, drawn at random
@@ -129,11 +174,14 @@ const unsure = (e) => /may still have sent|did not answer|already on its way|wai
 // A refusal by the relay itself (nothing sent): the one case a swap out may be sent from a wallet instead.
 const refused = (e) => /relay(er)? returned|relay could not|cannot front|too low|fee went up|is full|refus/i.test(String(e?.message || e));
 
-// The keeper's fee for a withdrawal into a swap, read without a key (the card quotes the deposit before the key is open). → wei.
-export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalThis.fetch) {
-  const r = await get(`${CHAIN.keeper}/quote?gas=${gas}`, { signal: AbortSignal.timeout(10_000) });
+// The gas a swap out of a token pool is quoted and sent with: the withdrawal, its escrow's approval and the route.
+export const HOP_GAS = BASE_GAS + 900_000n;
+// The keeper's fee for a withdrawal into a swap, read without a key (the card quotes the deposit before the key is open). → wei, or for a
+// token pool's keeper (`keeper`, its route; `pool`, the pool it must answer for) the token's base units.
+export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalThis.fetch, keeper = CHAIN.keeper, pool = null) {
+  const r = await get(`${keeper}/quote?gas=${gas}`, { signal: AbortSignal.timeout(10_000) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !/^\d+$/.test(String(j.fee ?? ''))) throw new Error('The relay could not quote its fee right now. Try again in a moment.');
+  if (!r.ok || !/^\d+$/.test(String(j.fee ?? '')) || (pool && lc(j.pool) !== lc(pool))) throw new Error('The relay could not quote its fee right now. Try again in a moment.');
   return BigInt(j.fee);
 }
 
@@ -144,8 +192,11 @@ export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalTh
 // `chain` and `prove` are for tests (another chain's nodes and keeper, a prover that needs no worker).
 // `venues` is the swap page's evm-trade-venues instance, for a swap into TAC; `ux()` gives the pool module (confidential-pool-ux.js) and
 // `sendPrivate` the page's send of a private note to a Tacit address (swap/private.js), both for a swap that ends in a private balance.
-export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, sendPrivate = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null }) {
-  let modsP = null, W = null, Wfor = null, proverP = null, rpc = null;
+// `tokens` (a makeTokenPools instance), `chain.keepers` (the keeper service's base) and `chain.tokenRelayer` (its address) are for tests, as
+// `chain` is.
+export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, sendPrivate = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null, tokens = null }) {
+  let modsP = null, proverP = null, rpc = null;
+  const wallets = new Map();      // pool → the key's wallet for it (the ETH pool's, and each token pool a swap goes through)
   // A plan's destination: { kind: 'address' } pays `to`; { kind: 'me' } pays the key's own Tacit account and makes the TAC private there;
   // { kind: 'tacit', pubHex, name } does that and sends the note on to that Tacit address. Only TAC is a pool asset this flow makes private.
   const poolDest = (plan) => !!plan?.dest && plan.dest.kind !== 'address';
@@ -160,7 +211,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   }
   const prover = { ms: null, ready: false };
   const mods = () => (modsP ||= (async () => {
-    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=6123816d'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
+    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=4763bf01'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
     const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
     return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), wm, gw, vkHash: pm.vkHash };
   })().catch((e) => { modsP = null; throw e; }));
@@ -195,25 +246,82 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   }
   const prove = async (input) => (await warm())(input);
 
-  // The key's pool wallet, its state kept where /pay/eth keeps it, so either page sees the same notes.
-  async function wallet() {
-    const priv = await keyHex(), m = await mods(), keys = m.wm.evmPoolKeys(m.zk, hexToBytes(priv));
-    if (W && Wfor === keys.address) return W;
+  // The key's pool wallet, its state kept where /pay/eth keeps it, so either page sees the same notes: the ETH pool's, or with `hop` (a plan's
+  // token pool) that pool's, its fees in the token and sent by the same relay.
+  async function wallet(hop = null) {
+    const priv = await keyHex(), m = await mods(), keys = m.wm.evmPoolKeys(m.zk, hexToBytes(priv)), key = `${keys.address}:${lc(hop?.pool || POOL)}`;
+    if (wallets.has(key)) return wallets.get(key);
     const kv = { open: true, get: (k) => { try { return store.getItem(k); } catch { return null; } }, set: (k, v) => { try { store.setItem(k, v); } catch { } } };
     rpc ||= m.wm.jsonRpc(chain.rpc);
-    W = m.wm.makeEvmPoolWallet({ zk: m.zk, keys, keeper: chain.keeper, store: kv, feed: true, prove,
-      chain: { chainId: chain.chainId, pool: POOL, router: ROUTER, rpc, deployBlock: chain.deployBlock, confirmations: chain.confirmations, logChunk: chain.logChunk } });
-    W.connect(signer);
-    Wfor = keys.address;
-    return W;
+    const base = { chainId: chain.chainId, rpc, confirmations: chain.confirmations, logChunk: chain.logChunk };
+    const w = hop
+      ? m.wm.makeEvmPoolWallet({ zk: m.zk, keys, keeper: keeperOf(hop), store: kv, feed: true, prove,
+        chain: { ...base, pool: hop.pool, router: hop.router, token: hop.token, deployBlock: hop.from || TOKEN_POOLS_FROM, relayer: chain.tokenRelayer || RELAYER, maxRelayFee: SERVED[lc(hop.token)]?.maxRelayFee ?? 10n ** 36n } })
+      : m.wm.makeEvmPoolWallet({ zk: m.zk, keys, keeper: chain.keeper, store: kv, feed: true, prove, chain: { ...base, pool: POOL, router: ROUTER, deployBlock: chain.deployBlock } });
+    w.connect(signer);
+    wallets.set(key, w);
+    return w;
+  }
+  const keeperOf = (hop) => (chain.keepers ? `${chain.keepers}/${hop.id}/evm-pool/keeper` : hop.keeper || `${KEEPERS}/${hop.id}/evm-pool/keeper`);
+  const tps = () => (tokens ? Promise.resolve(tokens) : tokenPools());
+  // A token's own pool: where it is and whether it is open (pool and router on chain). → poolOf's fields, `keeper`, and `state`
+  async function hopOf(token) {
+    const tp = await tps(), p = tp.poolOf(token);
+    return { ...p, keeper: keeperOf(p), state: await poolState(tp, token, (to, data) => ethCall(to, data, 'latest')) };
+  }
+  // Opens a token's pool: the one transaction (both contracts, or what is missing), from the connected wallet, for a token the relay serves
+  // (SERVED). → { hash, block } or null when open
+  async function openPool(token, { onStep = () => {} } = {}) {
+    if (!SERVED[lc(token)]) throw new Error(`The relay serves private pools for ${Object.values(SERVED).map((t) => t.sym).join(', ')}; this token's would not be relayed.`);
+    const tp = await tps(), have = await poolState(tp, token, (to, data) => ethCall(to, data, 'latest')), tx = tp.openTx(token, have);
+    if (!tx) return null;
+    if (signer.ready) await signer.ready();
+    onStep('open the pool');
+    const h = await signer.send({ to: tx.to, data: tx.data, value: 0n });
+    onStep('waiting for it to be mined');
+    const rc = await mined(h, 'The pool was not opened.');
+    return { hash: h, block: Number(BigInt(rc?.blockNumber ?? 0)) };
   }
 
 
-  // A transaction the wallet sent, until it is in a block (an approval that must land before the call that uses it).
-  async function mined(h) {
+  // A transaction the wallet sent, until it is in a block (an approval that must land before the call that uses it). → its receipt
+  async function mined(h, failed = 'The approval did not go through. Nothing was deposited.') {
+    rpc ||= (await mods()).wm.jsonRpc(chain.rpc);
     const rc = signer.receipt ? await signer.receipt(h) : await (async () => { for (let i = 0; i < 80; i++) { const r = await rpc('eth_getTransactionReceipt', [h]).catch(() => null); if (r) return r; await sleep(3000); } return null; })();
-    if (rc?.status !== '0x1') throw new Error('The approval did not go through. Nothing was deposited.');
+    if (rc?.status !== '0x1') throw new Error(failed);
+    return rc;
   }
+  // How a token pool's router takes `amount` of its token from the wallet: an allowance it has; an EIP-2612 permit signed for it (checked on
+  // chain first; not DAI's); the approval and the deposit in one batch where the wallet sends batches; else an approval of exactly the amount,
+  // mined first (USDT's set to zero before). → the pull routerDeposit takes.
+  async function routerPull({ token, router, sym, amount, deadline, onStep }) {
+    const owner = signer.address, acc = await readAccess({ ethCall, token, owner, spender: router });
+    if (acc.balance < amount) throw new Error(`Not enough ${sym} in the wallet for the deposit. Nothing was sent.`);
+    if (acc.allowed >= amount) return { kind: 'allowance' };
+    if (signer.signTyped) {
+      const t = await readToken({ ethCall, keccak256: keccak_256, address: token }).catch(() => null);
+      if (t?.permit && acc.nonce != null && lc(token) !== DAI) {
+        try {
+          onStep('sign the permit');
+          const p = splitSig(await signer.signTyped(permitTyped({ token, name: t.name, version: t.permit, owner, spender: router, value: amount, nonce: acc.nonce, deadline })));
+          await ethCall(token, '0xd505accf' + word(owner) + word(router) + amount.toString(16).padStart(64, '0') + BigInt(deadline).toString(16).padStart(64, '0') + p.v.toString(16).padStart(64, '0') + word(p.r) + word(p.s), 'latest');
+          return { kind: 'permit', value: amount, deadline: BigInt(deadline), ...p };
+        } catch (e) { if (declined(e)) throw e; }
+      }
+    }
+    if (acc.allowed > 0n && lc(token) === USDT) { onStep('reset the allowance'); await mined(await signer.send({ to: token, data: encApprove(router, 0n), value: 0n })); }
+    if (signer.batch && signer.canBatch && await Promise.resolve(signer.canBatch()).catch(() => false)) return { kind: 'batch', token };
+    onStep('approve');
+    await mined(await signer.send({ to: token, data: encApprove(router, amount), value: 0n }));
+    return { kind: 'allowance' };
+  }
+  // The token pools a swap here has gone through, for the front page (TOKEN_POOLS_KEY).
+  const keepPool = (hop, sym, dec) => {
+    try {
+      const all = (JSON.parse(store.getItem(TOKEN_POOLS_KEY) || '[]') || []).filter((x) => x?.pool && lc(x.pool) !== lc(hop.pool));
+      store.setItem(TOKEN_POOLS_KEY, JSON.stringify([{ token: lc(hop.token), sym, dec, pool: hop.pool, router: hop.router, id: hop.id, from: hop.from || TOKEN_POOLS_FROM }, ...all].slice(0, 40)));
+    } catch { }
+  };
   // The approvals of exactly `amount` to the zap (USDT's set to zero first where it has one, as USDT asks).
   const approvals = (token, amount, had) => [...(had > 0n && lc(token) === USDT ? [{ to: token, data: encApprove(ZAP, 0n), value: 0n }] : []), { to: token, data: encApprove(ZAP, amount), value: 0n }];
   // How the zap takes `amount` of a token from the wallet, asking the least of it (as the page's own swaps do): an allowance it has already; an
@@ -257,7 +365,10 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   // `pay`, for a deposit from a token: { token, sym, dec, amountIn, min, most, slippageBps }: the amount the card quoted and its route's floor,
   // from which the amount sold for exactly the deposit is found again here (refused above `most`, the most the card showed); then the zap's pull,
   // and the zap's one transaction with the proof in it.
-  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, toName = null, depositWei, dest = { kind: 'address' }, gasWei = 0n, pay = null, onStep = () => {} }) {
+  // `hop`, for a deposit of a token into its own pool (hopOf, open): the token goes in as it is, `depositWei` of it, and the swap out sells
+  // `swapWei` of it; `pay` names the token ({ token, sym, dec }).
+  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, toName = null, depositWei, dest = { kind: 'address' }, gasWei = 0n, pay = null, hop = null, onStep = () => {} }) {
+    if (hop) return startHop({ swapWei, extraWei, token, sym, dec, to, toName, depositWei, pay, hop, onStep });
     if (!signer.address) throw new Error('Connect a wallet to deposit from.');
     if (dest.kind !== 'address') {
       if (lc(token) !== TAC) throw new Error(`Only TAC can go to a private balance from here: ${sym} is not a pool asset.`);
@@ -301,13 +412,41 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
     return plan;
   }
+  async function startHop({ swapWei, extraWei, token, sym, dec, to, toName, depositWei, pay, hop, onStep }) {
+    if (!signer.address) throw new Error('Connect a wallet to deposit from.');
+    if (lc(to) === lc(signer.address)) throw new Error('Send it to another address: the wallet that deposits would tie the two together.');
+    if (!hop.state?.pool || !hop.state?.router) throw new Error(`The private ${pay.sym} pool is not open yet.`);
+    const w = await wallet(hop), m_ = await mods(), amount = BigInt(depositWei);
+    warm().catch(() => {});
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
+    const pull = await routerPull({ token: hop.token, router: hop.router, sym: pay.sym, amount, deadline, onStep });
+    const s0 = await w.sync();
+    const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), from: lc(signer.address), swapWei: String(swapWei), extraWei: String(extraWei),
+      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), dest: { kind: 'address' }, gasWei: '0',
+      hop: { token: lc(hop.token), pool: hop.pool, router: hop.router, id: hop.id, from: hop.from || TOKEN_POOLS_FROM, sym: pay.sym, dec: pay.dec }, state: 'depositing', leaves0: s0.leaves };
+    keepPlans([plan, ...readPlans(store)], store);
+    keepPool(hop, pay.sym, pay.dec);
+    try {
+      plan.depositTx = await w.deposit({ amount, selfCall: (tx) => m_.wm.routerDeposit(hop.router, tx, pull), onStep }).catch(async (e) => {
+        if (!e?.noBatch || pull.kind !== 'batch') throw e;
+        onStep('approve');
+        await mined(await signer.send({ to: hop.token, data: encApprove(hop.router, amount), value: 0n }));
+        return w.deposit({ amount, selfCall: (tx) => m_.wm.routerDeposit(hop.router, tx, { kind: 'allowance' }), onStep });
+      });
+      plan.state = 'waiting'; plan.depositedAt = Date.now(); plan.leaves0 = (await w.sync()).leaves; plan.err = null;
+    } catch (e) {
+      plan.state = /cancel|rejected|denied|nothing was sent/i.test(String(e?.message || e)) ? 'stopped' : 'unsure';
+      plan.err = String(e?.message || e).slice(0, 200); throw e;
+    } finally { save(plan); }
+    return plan;
+  }
   function save(plan) { keepPlans([plan, ...readPlans(store).filter((p) => p.id !== plan.id)], store); }
   const forget = (id) => keepPlans(readPlans(store).filter((p) => p.id !== id), store);
   // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a new note of exactly its amount; its swap out
   // spent the swap's ETH, so the balance is at least that much under what it was before.
   async function check(plan) {
     if (poolDest(plan) && (plan.state === 'shielding' || plan.state === 'held')) return plan;        // its swap is done: what is left is the making private, pressed again
-    const w = await wallet(), s = await w.sync(), notes = w.notes();
+    const w = await wallet(plan.hop), s = await w.sync(), notes = w.notes();
     if (!plan.depositedAt) {
       // a note of exactly its amount that the pool made after the plan began: an older note of the same size is some other money
       if (notes.some((n) => BigInt(n.v) === BigInt(plan.depositWei) && Number(n.index) >= Number(plan.leaves0 || 0))) { plan.state = 'waiting'; plan.depositedAt = plan.at; plan.err = null; }
@@ -322,14 +461,21 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
 
   // How the wait goes: the notes the pool has made since the deposit (each deposit, payment, change and withdrawal makes one or two) and the time since.
   async function blend(plan) {
-    const s = await (await wallet()).sync();
+    const s = await (await wallet(plan.hop)).sync();
     return { since: Math.max(0, s.leaves - Number(plan.leaves0 || 0)), mins: Math.floor((Date.now() - (plan.depositedAt || plan.at)) / 60000), balance: s.balance };
   }
 
   // The swap out in two presses: the route quoted now (with the stand-in) and shown, then sent only while it still pays at least what was shown.
   async function offer(plan, { slippageBps = 50 } = {}) {
-    if (plan.token === ZERO) return { min: BigInt(plan.swapWei), out: BigInt(plan.swapWei), name: 'ETH itself', at: Date.now() };
+    // out of a token pool: the same token is paid out as it is; anything else is the token sold on the way out
+    const same = plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO;
+    if (same) return { min: BigInt(plan.swapWei), out: BigInt(plan.swapWei), name: plan.hop ? `${plan.hop.sym} itself` : 'ETH itself', at: Date.now() };
     const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
+    if (plan.hop) {
+      const r = await routeFrom({ ethCall, venues, tokenIn: plan.hop.token, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
+      if (!r) throw new Error(`No onchain route sells ${plan.hop.sym} for ${plan.sym} right now. Nothing was sent; try again in a while.`);
+      return { ...r, at: Date.now() };
+    }
     const r = lc(plan.token) === TAC
       ? await routeOutTac({ venues, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline })
       : await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
@@ -340,11 +486,14 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   async function swapOut(plan, { shown, slippageBps = 50, via = 'relay', onStep = () => {} } = {}) {
     if (!shown) throw new Error('Read the price first.');
     if (via === 'self' && plan.from && lc(signer.address) === plan.from) throw new Error('Not from the wallet that deposited: that would tie the deposit to the swap. Connect another wallet, or let the relay send it.');
-    const w = await wallet(), amount = BigInt(plan.swapWei), gas = BigInt(plan.gasWei || 0);
+    const w = await wallet(plan.hop), amount = BigInt(plan.swapWei), gas = BigInt(plan.gasWei || 0);
+    // from a token pool the relay's fee is the token's, at a price that moves: never more than the deposit set aside for it (twice the fee shown)
+    const aside = plan.hop ? BigInt(plan.depositWei) - amount - BigInt(plan.extraWei || 0) : null, maxFee = aside != null && aside > 0n ? aside : null;
     const s = await w.sync();
-    if (s.balance < amount + gas) throw new Error('The deposit is not in the pool yet, or was spent. Check it on the private ETH page.');
+    if (s.balance < amount + gas) throw new Error(`The deposit is not in the pool yet, or was spent. Check it on ${plan.hop ? 'the front page' : 'the private ETH page'}.`);
+    const same = plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO;
     let r = shown;
-    if (plan.token !== ZERO && (Date.now() - shown.at > 60e3 || !shown.callData)) {
+    if (!same && (Date.now() - shown.at > 60e3 || !shown.callData)) {
       onStep('reading the price again');
       r = await offer(plan, { slippageBps });
       if (r.min < shown.min) throw Object.assign(new Error(`The price moved: it now pays at least ${r.min} where ${shown.min} was shown. Nothing was sent; read it again.`), { moved: true });
@@ -353,8 +502,14 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     try {
       warm().catch(() => {});
       let h;
-      if (plan.token === ZERO) h = await w.withdraw({ to: plan.to, amount, via: via === 'self' ? 'self' : null, onStep });
-      else {
+      if (same) h = await w.withdraw({ to: plan.to, amount, via: via === 'self' ? 'self' : null, maxFee, onStep });
+      else if (plan.hop) {
+        // the escrow holds the token: one call approves zRouter for exactly the swap's amount and runs the route, which pays the address
+        const m = await mods(), refund = await w.refundBox();
+        const intent = m.gw.callIntent({ calls: [{ target: ZROUTER, value: 0n, token: plan.hop.token, amount, push: false, data: r.callData }], refund, deadline: r.deadline, nonce: randomNonce() });
+        plan.min = String(r.min); plan.route = r.name;
+        h = await w.withdrawAndCall({ intent, amount, gas: Number(HOP_GAS), maxFee, via, onStep });
+      } else {
         const m = await mods(), refund = await w.refundBox();
         // a swap into a private balance pays the key's own account, and hands it the gas to make the TAC private from there, in the same withdrawal
         const calls = [{ target: ZROUTER, value: amount, data: r.callData }, ...(gas > 0n ? [{ target: plan.to, value: gas }] : [])];
@@ -434,5 +589,5 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
   }
 
-  return { start, blend, offer, swapOut, shield, check, forget, warm, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
+  return { start, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
 }

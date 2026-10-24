@@ -21,7 +21,7 @@ exit/entry (["Moving between V1 and this pool"](#moving-between-v1-and-this-pool
 |---|---|---|
 | [anon.wei.limo](https://anon.wei.limo/) | The reference app: one page that shields, sends privately, withdraws, takes payments at a deposit address, and shields from or withdraws as a token. Also served by name as `anon.wei` ([the reference app](#the-reference-app-anonwei)). | Ethereum, Base, Robinhood Chain |
 | [tacit.finance/pay/eth](https://tacit.finance/pay/eth/), and "On this device" on the [tacit.finance](https://tacit.finance/) front page | The same pool without token swaps: shield, send, withdraw, a deposit address, payment links. The front page also holds a TAC pool, on Ethereum ([addresses](#addresses)). | Ethereum, Base, Robinhood Chain and **MegaETH** |
-| [tacit.finance/swap](https://tacit.finance/swap/) and the front page's Swap tab, "Swap privately" | A swap in two halves: the wallet's ETH or a token (a token through the zap, below) deposited now; later the swap's share withdrawn into a swap that pays another address (withdraw-and-call, sent by the keeper), the rest left a note. | Ethereum |
+| [tacit.finance/swap](https://tacit.finance/swap/) and the front page's Swap tab, "Swap privately" | A swap in two halves: the wallet's ETH or a token deposited now (into the ETH pool, a token through the zap, below, or into the token's own pool where it is open, [addresses](#addresses)); later the swap's share withdrawn into a swap that pays another address (withdraw-and-call, sent by the keeper), the rest left a note. | Ethereum |
 | [Secret Sats](https://tacit.finance/sats/), ETH tab | The same pool beside the Bitcoin pool: one address (`bp1…`) receives in both. | Ethereum, Base, Robinhood Chain |
 | [The standalone wallet](#standalone-wallet) | The whole wallet as one ES module, for your own app. | Ethereum, Base, Robinhood Chain and MegaETH |
 | Your own app | The contracts are at the same addresses on every chain they are on ([build one](#megaeth-and-building-an-app-on-another-chain)). | Any chain with the suite |
@@ -68,6 +68,30 @@ EIP-5792 batch, and only otherwise an approval transaction first, always for exa
 | TAC router (`TacitEvmPoolRouter`, bound to the TAC pool) | `0x000000fA029Eaf69840C1490Bf9AA6C094794D5a` |
 | TACD pool (asset TACD `0xA0f6B02561C8ef08335B69aD25e022C0B342147C`) and router | `0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA`, `0x000000e96fcFf90F220fa65F8b82C6114Cd1Cc30` |
 | TACE pool (asset TACE `0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570`) and router | `0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1`, `0x000000e66C32bEC739180A5eDeeB40A8225c5223` |
+
+**Any other ERC-20: a pool anyone opens, on Ethereum.** Every other token's pool is the same two contracts with that token as the asset:
+`TacitEvmPool(verifier, token)` and its own `TacitEvmPoolRouter(pool, zRouter, Permit2, V1, PoseidonT5)` (a router is bound to one pool and
+takes its token by an allowance, an EIP-2612 permit, Permit2 or a wallet batch, so no other router is needed). Both sit at CreateX CREATE2
+addresses fixed by the token alone, under open salts: 20 zero bytes, the flag `0x00`, then the first 11 bytes of
+`keccak256("tacit-evm-token-pool-v1" ‖ uint256(chainId) ‖ token)` (the router's salt says `router`). The init code is the creation code the
+live TAC pool and router were built from ([`dapp/evm-pool/token-pool-code.json`](../dapp/evm-pool/token-pool-code.json), written by
+`tools/token-pool-code.mjs` only if it rebuilds their init-code hashes), so whoever sends it, the contract is the same, and
+[`dapp/evm-pool-tokens.js`](../dapp/evm-pool-tokens.js) gives any page a token's pool and router from the token alone (`poolOf`) and
+checks they are there (`poolState`).
+- **Opening one.** One transaction from anyone, `openTx(token)`: Multicall3's `aggregate3` calling CreateX's `deployCreate2` for the
+  pool and then its router (about 4.4M gas, paid in ETH by whoever sends it), or only the router if the pool is there. The swap page
+  offers it to the first person who swaps privately from a token the relay serves whose pool is not open, beside the ETH pool's route.
+- **The relay.** It serves the pools of the tokens in `SERVED` (USDC, USDT, DAI, wstETH, WBTC; their pool and router addresses are listed
+  there) and any its operator adds (`EVM_POOL_TOKEN_POOLS_ALLOW_1`): tokens deep enough on chain that whoever opens a pool cannot set the
+  price its fees are taken at. The keeper service reads CreateX's `ContractCreation` logs under those tokens' pool salts, keeps a creation
+  only at the address the salts give, and serves the pool once its router answers `POOL()` with it, at
+  `https://tacit-evm-pool-keepers.onrender.com/1-x<the token's first ten hex digits>/evm-pool/keeper`, with the routes every keeper has.
+  It sends from `0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0` like the others and is paid in the token, at the lowest price zQuoter gave for
+  one token in ETH over the last ten minutes; with no quote it refuses fees in the token. A wallet takes a quote only from that address, for
+  that pool, and at most `maxRelayFee` (about 0.05 ETH's worth). Any other token's pool can be opened the same way and used from a wallet
+  that sends itself, paying gas in ETH.
+- **What it hides.** A withdrawal hides which of the pool's deposits paid it; a pool's crowd is its own deposits, so a new one has few.
+  Moving notes to V1 works only for an asset V1 has registered.
 
 The catch-up registry (`TacitEvmPoolCheckpoints`, see Catch-up points under Keys and recovery) is deployed through CreateX's
 CREATE2 under one salt anyone may use (20 zero bytes and the flag `0x00`, which CreateX guards as `keccak256(salt)` alone, so
@@ -465,8 +489,8 @@ the pool; each piece is optional and a chain without it still has the full pool.
 - **Shield from a token.** The zap takes the token from its caller, swaps it through zRouter for exactly the deposit's ETH
   and deposits it with the caller's proof, in one transaction (see "Shielding a token in one transaction" under Router).
   Its approval can be an allowance, an EIP-2612 permit, a Permit2 signature or part of a wallet batch.
-- **Swapping inside the pool.** The pool is ETH only. A swap is a withdrawal into a call, and the result is public at the
-  destination; the pool hides which deposit paid, not the swap.
+- **Swapping inside the pool.** A pool holds one asset (the ETH pool ETH, a token pool its token). A swap is a withdrawal into a
+  call, and the result is public at the destination; the pool hides which deposit paid, not the swap.
 - **A chain without them (MegaETH today).** The pool, router, deposit addresses and withdraw-and-call to any target work.
   The zap cannot be deployed until zRouter exists on the chain (its constructor requires code there), and the router on
   MegaETH was deployed with zRouter set to zero, so its own zap functions stay off. A page for such a chain is the

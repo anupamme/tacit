@@ -1,5 +1,5 @@
 // A token pool in the EVM-pool wallet: its asset names the token, the router calls that pay a deposit take exactly the deposit's
-// amount, and the ETH-only actions refuse.
+// amount, and the ETH-only actions refuse (a withdrawal into calls runs, its calls moving the token, not ETH).
 import assert from 'node:assert/strict';
 import { makeEvmPoolWallet, evmPoolKeys, routerDeposit, approveCall } from '../dapp/evm-pool-wallet.js';
 import { poolAsset, makeEvmPoolZk } from '../dapp/evm-pool-zk.js';
@@ -28,12 +28,12 @@ await check('a token pool\'s asset names the token, an ETH pool\'s does not', as
   assert.notEqual(eth.asset, tok.asset);
 });
 
-await check('the receive box, the bridges and the move into V1 refuse on a token pool', async () => {
+await check('the receive box, the bridges and the move into V1 refuse on a token pool, and so does a call that would send ETH', async () => {
   const tok = wallet({ token: TAC });
   await assert.rejects(tok.sweep(), /ETH pools/);
   await assert.rejects(tok.bridgeOut({ toChainId: 8453, amount: 1n }), /ETH pools/);
   await assert.rejects(tok.toV1({ amount: 10n ** 10n, commit: '0x' + '11'.repeat(32) }), /ETH pools/);
-  await assert.rejects(tok.withdrawAndCall({ intent: { calls: [] }, amount: 1n }), /ETH pools/);
+  await assert.rejects(tok.withdrawAndCall({ intent: { calls: [{ target: ROUTER, value: 1n, data: '0x' }] }, amount: 1n }), /send no value/);
 });
 
 const amount = 5n * 10n ** 18n;

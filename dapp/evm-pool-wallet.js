@@ -1047,12 +1047,12 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       return boxOf(i);
     },
 
-    // Withdraws `amount` wei into `intent`'s escrow (gateway callIntent) and runs it in the same transaction
-    // (router.withdrawAndCall): sent by the relayer, or with `via: 'self'` by the signer (who pays the gas and is seen
-    // sending it). → tx hash.
+    // Withdraws `amount` (wei, or the token pool's base units) into `intent`'s escrow (gateway callIntent) and runs it in the same
+    // transaction (router.withdrawAndCall): sent by the relayer, or with `via: 'self'` by the signer (who pays the gas and is seen
+    // sending it). In a token pool the escrow holds the token, and a call approves or pushes it (a call's token, amount and push). → tx hash.
     // gas: what the withdrawal and its calls need; by default the relay's plus 250k per call.
     async withdrawAndCall({ intent, amount, gas = null, maxFee = null, via = 'relay', onStep = () => {} }) {
-      ethOnly('Withdrawing into a call');
+      if (isToken && (intent.calls || []).some((c) => BigInt(c.value || 0) !== 0n)) throw new Error('a token pool\'s escrow holds the token, not ETH: its calls send no value');
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');
       await sync();

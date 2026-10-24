@@ -6,6 +6,8 @@
 //                           so raising the fee's worth takes holding both venues up for that long
 //   usd:<Chainlink feed>    a token worth one US dollar (TACD): ETH per dollar from an ETH/USD feed, refused once its answer is stale
 //   eth                     a token worth one ETH (TACE)
+//   zq[:<zQuoter>]          any token zQuoter routes (an opened token pool): what one whole token sells for, the best pool's quote, and the
+//                           lowest over the window, as TAC's
 // A price that cannot be read keeps the last one for cfg.rateMaxAgeSecs, then is dropped, and fees in the token are refused until one is
 // read again: the keeper never relays at a price it does not know. A pool that holds ETH has no feed (its price is one, always).
 import { getAddress, isAddress, parseAbi } from 'viem';
@@ -13,6 +15,8 @@ import { safeErr } from './safe-err.js';
 
 const E18 = 10n ** 18n;
 const PAIR_ABI = parseAbi(['function spot() view returns (uint256)', 'function latest() view returns (uint256)']);
+const ZQ_ABI = parseAbi(['function getQuotes(bool exactOut, address tokenIn, address tokenOut, uint256 swapAmount) view returns ((uint8 source, uint256 feeBps, uint256 amountIn, uint256 amountOut) best, (uint8 source, uint256 feeBps, uint256 amountIn, uint256 amountOut)[] quotes)']);
+export const ZQUOTER = '0x000000bd2DB80567c23E353ca95a251c573cBf9B';
 const FEED_ABI = parseAbi(['function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)', 'function decimals() view returns (uint8)']);
 const TOKEN_ABI = parseAbi(['function decimals() view returns (uint8)']);
 // Chainlink's ETH/USD heartbeat is an hour; an answer older than two is not a price.
@@ -24,9 +28,11 @@ export function parseRateFeed(v) {
   const s = String(v || '').trim();
   if (!s) return null;
   if (s === 'eth') return { kind: 'eth' };
+  if (s === 'zq') return { kind: 'zq', address: ZQUOTER };
   const [kind, address] = s.split(':').map((x) => x.trim());
+  if (kind === 'zq' && isAddress(address || '')) return { kind, address: getAddress(address) };
   if ((kind === 'tac' || kind === 'usd') && isAddress(address || '')) return { kind, address: getAddress(address) };
-  throw new Error(`EVM_POOL_KEEPER_RATE_FEED: bad value "${s}" (tac:<pair oracle>, usd:<ETH/USD feed> or eth)`);
+  throw new Error(`EVM_POOL_KEEPER_RATE_FEED: bad value "${s}" (tac:<pair oracle>, usd:<ETH/USD feed>, eth or zq[:<zQuoter>])`);
 }
 
 // `read(address, abi, functionName, args)` is a view call (makeKeeperChain's readContract). → { refresh, rate } where refresh() reads the
@@ -35,7 +41,13 @@ export function makeRateFeed({ feed, token, read, cfg, log = () => {}, now = () 
   const key = token.toLowerCase();
   if (key === ETH) throw new Error('a pool that holds ETH takes no EVM_POOL_KEEPER_RATE_FEED: its price is one ETH');
   let at = 0, decimals = null;
-  const seen = [];   // TAC: [time, price] read within the window
+  const seen = [];   // TAC and zq: [time, price] read within the window
+  const lowest = (p) => {
+    const t = now(), window = (cfg.rateWindowSecs ?? 600) * 1000;
+    seen.push([t, p]);
+    while (seen.length && t - seen[0][0] > window) seen.shift();
+    return seen.reduce((m, [, x]) => (x < m ? x : m), p);
+  };
   // wei per 10^18 base units, from wei per whole token
   const perBase = (weiPerToken) => (decimals === 18 ? weiPerToken : (weiPerToken * E18) / 10n ** BigInt(decimals));
   async function price() {
@@ -46,10 +58,15 @@ export function makeRateFeed({ feed, token, read, cfg, log = () => {}, now = () 
       const [spot, latest] = await Promise.all([read(feed.address, PAIR_ABI, 'spot'), read(feed.address, PAIR_ABI, 'latest').catch(() => 0n)]);
       const p = BigInt(latest) > 0n && BigInt(latest) < BigInt(spot) ? BigInt(latest) : BigInt(spot);
       if (p <= 0n) throw new Error('the pair oracle has no price');
-      const t = now(), window = (cfg.rateWindowSecs ?? 600) * 1000;
-      seen.push([t, p]);
-      while (seen.length && t - seen[0][0] > window) seen.shift();
-      return seen.reduce((m, [, x]) => (x < m ? x : m), p);
+      return lowest(p);
+    }
+    if (feed.kind === 'zq') {
+      // one whole token sold for ETH at the best pool zQuoter finds (a larger sale moves a thin pool more, which only asks a higher fee)
+      const one = 10n ** BigInt(decimals);
+      const [best] = await read(feed.address, ZQ_ABI, 'getQuotes', [false, token, ETH, one], { gas: 30_000_000n });
+      const out = BigInt(best?.amountOut ?? 0n);
+      if (out <= 0n) throw new Error('no pool zQuoter reads sells this token for ETH');
+      return lowest(perBase(out));
     }
     const [[, answer, , updatedAt], fdec] = await Promise.all([read(feed.address, FEED_ABI, 'latestRoundData'), read(feed.address, FEED_ABI, 'decimals')]);
     if (BigInt(answer) <= 0n) throw new Error('the ETH/USD feed has no answer');

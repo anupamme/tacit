@@ -78,3 +78,27 @@ test('a pool that holds ETH takes no feed, and the ETH price is never dropped', 
   await f.refresh(); await f.refresh();
   assert.equal(cfg.rates.get('0x0000000000000000000000000000000000000000'), 10n ** 18n);
 });
+
+test('an opened token pool is priced from zQuoter: one whole token sold for ETH at the best pool, per 1e18 base units, the lowest over the window', async () => {
+  const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', asked = [];
+  let out = 422_168_809_698_834n, t = 1_000_000;
+  const read = async (address, abi, fn, args, opts) => {
+    asked.push({ address, fn, args, opts });
+    if (fn === 'decimals') return 6;
+    if (fn === 'getQuotes') return [{ source: 4, feeBps: 1n, amountIn: args[3], amountOut: out }, []];
+    throw new Error(fn);
+  };
+  const cfg = cfgOf(), f = makeRateFeed({ feed: parseRateFeed('zq'), token: USDC, read, cfg, now: () => t });
+  assert.equal(await f.refresh(), 422_168_809_698_834n * 10n ** 12n, 'per 1e18 base units of a six-decimal token');
+  const q = asked.find((x) => x.fn === 'getQuotes');
+  assert.deepEqual(q.args, [false, USDC, '0x0000000000000000000000000000000000000000', 1_000_000n]);
+  assert.equal(q.address, '0x000000bd2DB80567c23E353ca95a251c573cBf9B'); assert.ok(q.opts?.gas >= 10_000_000n && q.opts.gas <= 30_000_000n, 'with the gas its scan takes (wstETH takes 1.6M), within what every node allows');
+  // 0.5 USDC against a 450k-gas relay at 1 gwei (0.00054 ETH with the margin): too little; 1.3 USDC covers it
+  assert.equal(coverCheck({ reward: 500_000n, token: USDC, gas: 450_000n, gasPrice: 10n ** 9n, cfg }).ok, false);
+  assert.equal(coverCheck({ reward: 1_300_000n, token: USDC, gas: 450_000n, gasPrice: 10n ** 9n, cfg }).ok, true);
+  out = 900_000_000_000_000n; t += 60_000;
+  assert.equal(await f.refresh(), 422_168_809_698_834n * 10n ** 12n, 'pushed up: still the low');
+  out = 0n; t += 60_000;
+  assert.equal(await f.refresh(), null, 'no pool sells it: no price read');
+  assert.deepEqual(parseRateFeed('zq:0x000000bd2DB80567c23E353ca95a251c573cBf9B'), { kind: 'zq', address: '0x000000bd2DB80567c23E353ca95a251c573cBf9B' });
+});

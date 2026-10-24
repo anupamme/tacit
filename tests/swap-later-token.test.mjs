@@ -1,5 +1,6 @@
 // "Swap privately" from a token, the parts that need no chain: the zap's call (TacitEvmPoolZap) for each way it takes the token, read back
-// against the deployed contract's ABI; the token amount sized so its route pays at least the deposit; the swap's ETH in three figures.
+// against the deployed contract's ABI; the token amount sized so its route pays at least the deposit; the swap's ETH in three figures; and
+// for a token's own pool, that only the relay's tokens are opened and a fee is taken only from the keeper answering for that pool.
 //   node --test tests/swap-later-token.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert';
@@ -10,7 +11,7 @@ register('data:text/javascript,' + encodeURIComponent(`const D = ${JSON.stringif
 export async function resolve(spec, ctx, next) { if (spec.startsWith('/') && !spec.startsWith('//')) return next(D + spec.split('?')[0], ctx); return next(spec, ctx); }`));
 const { decodeFunctionData } = createRequire(new URL('../worker-relay/package.json', import.meta.url))('viem');
 const { zapDeposit } = await import('../dapp/evm-pool-wallet.js');
-const { sizeIn, swapOf, ZAP } = await import('../dapp/swap/later.js');
+const { sizeIn, swapOf, ZAP, makeLater, relayFee, SERVED } = await import('../dapp/swap/later.js');
 
 const abi = JSON.parse(readFileSync(new URL('../docs/evm-pool/abi/TacitEvmPoolZap.json', import.meta.url)));
 const ABI = Array.isArray(abi) ? abi : abi.abi;
@@ -73,4 +74,15 @@ test('the swap is three significant figures of what the route into the pool pays
   for (const [w, want] of [[50_637_430_135_075_603n, 50_600_000_000_000_000n], [95_699_999n, 95_600_000n], [999n, 999n], [12n, 12n], [1_000_000_000_000_000_000n, 1_000_000_000_000_000_000n]]) {
     assert.strictEqual(swapOf(w), want); assert.ok(swapOf(w) <= w);
   }
+});
+
+test("a token's own pool is opened only for a token the relay serves, and a fee only from the keeper that answers for that pool", async () => {
+  let sent = 0;
+  const L = makeLater({ keyHex: async () => '11'.repeat(32), signer: { address: '0x' + '22'.repeat(20), send: async () => { sent++; return '0x'; } }, ethCall: async () => '0x', store: null });
+  await assert.rejects(L.openPool('0x' + '33'.repeat(20)), /would not be relayed/);
+  assert.strictEqual(sent, 0);
+  const usdc = SERVED[USDC.toLowerCase()];
+  const get = (pool) => async () => ({ ok: true, json: async () => ({ fee: '1500000', pool }) });
+  assert.strictEqual(await relayFee(1_420_000, get(usdc.pool), 'https://k/1-xa0b86991c6/evm-pool/keeper', usdc.pool), 1_500_000n);
+  await assert.rejects(relayFee(1_420_000, get('0x' + '44'.repeat(20)), 'https://k/1-xa0b86991c6/evm-pool/keeper', usdc.pool), /could not quote/);
 });
