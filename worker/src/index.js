@@ -103,7 +103,8 @@ import { discordGateMessage, DISCORD_MIN_TAC_BASE_UNITS } from '../../dapp/disco
 import { makeTacAncestry } from './tac-ancestry.js';
 import { makeTacArchive, ARCHIVE_MAX_ROOTS, ARCHIVE_MAX_IMPORT } from './tac-archive.js';
 import { traceBurnDepositProvenance, rebuiltRawTx } from './burndep-live-tracer.js';
-import { admitBridgeMint, BURN_ROOT_SLOT } from './bridgemint-admit.js';
+import { admitBridgeMint, admitBridgeStealthMint, BURN_ROOT_SLOT } from './bridgemint-admit.js';
+import { makeConfidentialStealth } from '../../dapp/confidential-stealth.js';
 import { makeArmedMints } from './bridge-armed.js';
 import { admitOpShape, SHAPED_TYPES } from './op-admit.js';
 import { makeConfidentialBridgeMint } from '../../dapp/confidential-bridge-mint.js';
@@ -3431,7 +3432,7 @@ async function freeRelayBudget(env) {
 // to send it from the holder's own account (the relay still proves it).
 // A private send's lock (stealthlock) carries no fee leg by design: its relay fee was paid by the cut that made its note, so it has a
 // class of its own (FREE_RELAY_CAP_SEND) and the day's merges, pool adds and the rest cannot use up the sends.
-const FREE_CLASS = { bridgemint: 'bridge', cbtcmint: 'onboard', cdpmint: 'cusd', cdpclose: 'cusd', cdptopup: 'cusd', cdpliquidate: 'cusd', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap', stealthlock: 'send', stealthlockbatch: 'send' };
+const FREE_CLASS = { bridgemint: 'bridge', bridgestealthmint: 'bridge', cbtcmint: 'onboard', cdpmint: 'cusd', cdpclose: 'cusd', cdptopup: 'cusd', cdpliquidate: 'cusd', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap', stealthlock: 'send', stealthlockbatch: 'send' };
 const FREE_CLASSES = ['onboard', 'bridge', 'cusd', 'farm', 'wrap', 'send', 'other'];
 const freeClassOf = (type) => FREE_CLASS[String(type)] || 'other';
 const freeClassCap = (env, cls) => { const raw = env[`FREE_RELAY_CAP_${cls.toUpperCase()}`]; return raw == null || String(raw).trim() === '' || !(Number(raw) >= 0) ? null : Math.floor(Number(raw)); };
@@ -3552,12 +3553,19 @@ let _admitPool = null;
 // A bridge mint is taken only when it is the mint of a recorded burn (worker/src/bridgemint-admit.js), so junk cannot use up the day's
 // free settles or its proofs. Only on the mainnet pool, whose root is read here; elsewhere nothing is checked. A root that was read a few
 // seconds ago and no longer matches is read again before the mint is called stale.
-async function admitBridgeMintOp(env, op) {
+// A stealth bridge mint (a burn that pays someone else) is held to the same check, against the stealth lock its burn pinned.
+let _admitStealth = null;
+async function admitBridgeMintOp(env, op, type = 'bridgemint') {
   const pool = confPool(env), main = _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.pool;
   if (!pool || !main || String(pool).toLowerCase() !== String(main).toLowerCase()) return { ok: true };
   _admitPool ||= makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
-  let r = admitBridgeMint({ pool: _admitPool, op, knownRoot: await poolBurnRoot(pool) });
-  if (!r.ok && r.code === 'stale_root') r = admitBridgeMint({ pool: _admitPool, op, knownRoot: await poolBurnRoot(pool, true) });
+  let admit = (knownRoot) => admitBridgeMint({ pool: _admitPool, op, knownRoot });
+  if (type === 'bridgestealthmint') {
+    _admitStealth ||= makeConfidentialStealth({ keccak256: keccak_256, secp, curveOrder: secp.CURVE.n, pool: _admitPool });
+    admit = (knownRoot) => admitBridgeStealthMint({ pool: _admitPool, stealth: _admitStealth, op, knownRoot });
+  }
+  let r = admit(await poolBurnRoot(pool));
+  if (!r.ok && r.code === 'stale_root') r = admit(await poolBurnRoot(pool, true));
   return r;
 }
 
@@ -3781,11 +3789,11 @@ async function handleConfidentialSubmit(req, env, cors) {
   // A bridge mint is the mint of a recorded burn, built on the burn set the pool holds, or it is not taken (it would cost a proof and a
   // free settle to find that out).
   let mintBurn = null;
-  if (body.type === 'bridgemint' && (submitMode === 'settle' || submitMode === 'prove')) {
-    let adm = await admitBridgeMintOp(env, body.op);
+  if ((body.type === 'bridgemint' || body.type === 'bridgestealthmint') && (submitMode === 'settle' || submitMode === 'prove')) {
+    let adm = await admitBridgeMintOp(env, body.op, body.type);
     // A mint built on a burn root the pool has moved past is made current here instead of turned back: only its public half is read again,
-    // and only against the reflected state the pool's own root was taken from.
-    if (!adm.ok && adm.code === 'stale_root') {
+    // and only against the reflected state the pool's own root was taken from. (A stealth mint is turned back, and its page builds it again.)
+    if (!adm.ok && adm.code === 'stale_root' && body.type === 'bridgemint') {
       const armed = armedMints(env);
       const renewed = armed ? await armed.renew(body.op).catch(() => null) : null;
       if (renewed && renewed.ok) { body.op = renewed.op; adm = await admitBridgeMintOp(env, body.op); }

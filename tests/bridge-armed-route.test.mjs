@@ -88,6 +88,23 @@ test('a mint armed before its burn is recorded is queued by the relay\'s poll on
   assert.equal((await get(`/confidential/armed?dest=${b.parts.destLeaf}`)).body.status, 'minted');
 });
 
+test('a round amount\'s mint, which seals an empty memo, is armed and queued with that memo', async () => {
+  const b = burn(20);
+  W.burns = [burn(29)]; W.minted.clear(); publish();
+  const arm = await post('/confidential/arm', { type: 'bridgemint', op: b.parts.op, memos: ['0x'] });
+  assert.equal(arm.status, 200, JSON.stringify(arm.body));
+  assert.equal(arm.body.status, 'armed');
+  W.burns.push(b); publish();
+  W.poolRoot = state().root;
+  await claim(); await wait(300);
+  const st = (await get(`/confidential/armed?dest=${b.parts.destLeaf}`)).body;
+  assert.equal(st.status, 'queued', JSON.stringify(st));
+  const job = await claim();
+  assert.equal(job.body.jobId, st.jobId);
+  assert.deepEqual(job.body.memos, ['0x'], 'the job carries the empty memo');
+  W.minted.add(b.parts.burnId);
+});
+
 test('arming is refused for a mint that does not verify, and answers for a destination it does not know', async () => {
   const b = burn(2), o = burn(3);
   const bad = await post('/confidential/arm', { type: 'bridgemint', op: { ...b.parts.op, rangeProof: o.parts.op.rangeProof }, memos: b.memos });

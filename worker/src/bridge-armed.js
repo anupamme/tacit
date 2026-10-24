@@ -54,7 +54,8 @@ export function readArmedOp(raw) {
 
 export function readArmedMemos(raw) {
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_MEMOS) return { error: `memos: one to ${MAX_MEMOS} sealed memos are required` };
-  if (!raw.every((m) => typeof m === 'string' && /^0x(?:[0-9a-f]{2})+$/i.test(m) && m.length <= MAX_MEMO_HEX)) return { error: 'memos must be hex strings' };
+  // '0x' alone is a valid memo: a round amount's note is rebuilt from the holder's seed, so its mint seals none.
+  if (!raw.every((m) => typeof m === 'string' && /^0x(?:[0-9a-f]{2})*$/i.test(m) && m.length <= MAX_MEMO_HEX)) return { error: 'memos must be hex strings' };
   return { memos: raw.map(lc) };
 }
 

@@ -71,7 +71,8 @@ test('the shape of a mint op and of its memos is checked, and only the holder\'s
     assert.ok(readArmedOp(bad).error, `refused: ${JSON.stringify(bad).slice(0, 60)}`);
   }
   assert.ok(readArmedMemos(['0xabcd']).memos);
-  for (const bad of [[], 'x', ['zz'], ['0x' + 'ab'.repeat(3000)], new Array(5).fill('0xab')]) assert.ok(readArmedMemos(bad).error);
+  assert.deepEqual(readArmedMemos(['0x']).memos, ['0x'], 'a seed-derived (round amount) mint seals an empty memo, and is armed');
+  for (const bad of [[], 'x', ['zz'], ['0xabc'], ['0x' + 'ab'.repeat(3000)], new Array(5).fill('0xab')]) assert.ok(readArmedMemos(bad).error);
 });
 
 test('arming keeps only the holder\'s half, until the burn is recorded', async () => {
@@ -100,6 +101,13 @@ test('a mint that does not verify, or is not a mint, is refused and keeps no roo
   assert.equal((await a.arm({ op: {}, memos: b.memos })).code, 'bad_op');
   assert.equal((await a.arm({ op: b.parts.op, memos: [] })).code, 'bad_memos');
   assert.equal(kv._m.size, 0);
+});
+
+test('a mint with an empty memo (a round amount, rebuilt from the seed) is armed like any other', async () => {
+  const w = world(), { a } = build(w), b = burn(1);
+  const r = await a.arm({ op: b.parts.op, memos: ['0x'] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.status, 'armed');
 });
 
 test('once its burn is recorded on the root the pool holds, the mint is completed and queued as an ordinary job', async () => {
