@@ -80,7 +80,8 @@ live TAC pool and router were built from ([`dapp/evm-pool/token-pool-code.json`]
 checks they are there (`poolState`).
 - **Opening one.** One transaction from anyone, `openTx(token)`: Multicall3's `aggregate3` calling CreateX's `deployCreate2` for the
   pool and then its router (about 4.4M gas, paid in ETH by whoever sends it), or only the router if the pool is there. The swap page
-  offers it to the first person who swaps privately from a token the relay serves whose pool is not open, beside the ETH pool's route.
+  offers it to the first person who swaps privately from a token the relay serves whose pool is not open, beside the ETH pool's route;
+  `tools/token-pool-open.mjs` writes the transaction for each served pool not open yet, for any wallet to send.
 - **The relay.** It serves the pools of the tokens in `SERVED` (USDC, USDT, DAI, wstETH, WBTC; their pool and router addresses are listed
   there) and any its operator adds (`EVM_POOL_TOKEN_POOLS_ALLOW_1`): tokens deep enough on chain that whoever opens a pool cannot set the
   price its fees are taken at. The keeper service reads CreateX's `ContractCreation` logs under those tokens' pool salts, keeps a creation
