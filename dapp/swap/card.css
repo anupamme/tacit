@@ -122,11 +122,18 @@
 .swc .later .tgl[aria-checked="true"] .pill { background: var(--ink); }
 .swc .later .tgl[aria-checked="true"] .pill::after { transform: translateX(14px); }
 .swc .later .buf { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; font-size: 12.5px; color: var(--mute); }
-.swc .later .via { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 10px 0 0; font-size: 12.5px; color: var(--mute); }
+.swc .later .via { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 4px; margin: 12px 0 0; font-size: 12.5px; color: var(--mute); }
 .swc .later .via > span { flex: 1; }
-.swc .later .via .vp { padding: 4px 10px; border: 1px solid var(--hair-2); border-radius: 999px; background: none; color: var(--mute); font: inherit; cursor: pointer; }
-.swc .later .via .vp[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); }
+/* the pool pills are the slippage pills: an ink fill when chosen */
+.swc .later .via .vp { min-height: 26px; padding: 1px 9px; font: 12px var(--mono); color: var(--mute); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s, background-color .15s, color .15s; }
+.swc .later .via .vp:hover:not(:disabled) { border-color: var(--ink); }
+.swc .later .via .vp[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
 .swc .later .via .vp:disabled { opacity: .5; cursor: default; }
+.swc .later .via .link { position: relative; }
+.swc .later .via .link::after { content: ''; position: absolute; inset: -8px -6px; }
+@media (pointer: coarse) { .swc .later .via .vp { min-height: 34px; padding: 1px 12px; } }
+/* figures of the other route, while this one is priced */
+.swc .later.stale .buf b, .swc .later.stale .st.pre { opacity: .5; transition: opacity .15s; }
 .swc .later .buf input { flex: 1; min-width: 0; accent-color: var(--ink); }
 .swc .later .buf b { min-width: 76px; text-align: right; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .swc .st { display: grid; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
@@ -154,7 +161,7 @@
 .swc .st.pre li + li { flex: 1 1 auto; min-width: 0; }
 .swc .st.pre li + li::before { content: ''; display: block; position: static; flex: 1; min-width: 8px; height: 1px; margin: 0 8px; background: var(--hair-2); }
 .swc .st.pre li span { font-size: 12.5px; color: var(--ink); } .swc .st.pre li b { font-weight: 500; }
-.swc .st.pre .mk { width: 18px; height: 18px; font-size: 10px; }
+.swc .st.pre .mk { flex: none; width: 18px; height: 18px; font-size: 10px; }
 .swc .steps { display: grid; gap: 10px; margin: 12px 2px 0; font-size: 12.5px; }
 .swc .steps .plan { padding: 12px 14px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
 .swc .steps header { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0 0 14px; }

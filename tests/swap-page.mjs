@@ -808,11 +808,11 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const direct = await page.textContent('#rcpt');
   await page.click('#later-on');
   bodies.length = 0;                                                            // what is read once it is on
-  await until(page, () => /private pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
-  ok(!/private pool/.test(direct) && /→ private pool →/.test(await page.textContent('#rcpt')), `turned on, it is priced through the pool: ${(await page.$$eval('#rcpt div', (ds) => ds.map((d) => d.textContent)).then((r) => r.find((x) => /^Route/.test(x)) || '')).replace(/^Route/, '')}`);
+  await until(page, () => /ETH pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(!/ETH pool/.test(direct) && /→ ETH pool →/.test(await page.textContent('#rcpt')), `turned on, it is priced through the pool: ${(await page.$$eval('#rcpt div', (ds) => ds.map((d) => d.textContent)).then((r) => r.find((x) => /^Route/.test(x)) || '')).replace(/^Route/, '')}`);
   await until(page, () => /USDC$/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
   const dep = await page.textContent('#later-dep'), depN = Number(dep.split(' ')[0].replace(/,/g, ''));
-  ok(/^[\d.,]+ USDC$/.test(dep) && depN > 150 && depN < 400 && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')), `the deposit is in USDC, more than the swap by the fee and the buffer (${dep}, ${await page.textContent('#later-xv')})`);
+  ok(/^[\d.,]+ USDC$/.test(dep) && depN > 150 && depN < 400 && /^\+[\d.,]+ USDC$/.test(await page.textContent('#later-xv')), `the deposit is in USDC, more than the swap by the fee and the buffer (${dep}, ${await page.textContent('#later-xv')})`);
   ok(/sold for [\d.]+ ETH in the same transaction/.test(await page.getAttribute('#later-dep', 'title')), 'its tooltip says the USDC is sold for the deposit\'s ETH in the same transaction');
   const DEST = '0x' + '4d'.repeat(20);
   await page.fill('#to-in', DEST);
@@ -823,8 +823,8 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   { const bad = bodies.filter((b) => b.toLowerCase().includes('4d'.repeat(20)) || (b.toLowerCase().includes(w.account.slice(2).toLowerCase()) && b.toLowerCase().includes(ZQUOTER.slice(2))));
     ok(!bad.length, `no node is sent the destination, nor a route naming the wallet (${bodies.length} reads)${bad.length ? ': ' + bad[0].slice(0, 300) : ''}`); }
   await page.click('#later-on');
-  await until(page, () => !/private pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
-  ok(!/private pool/.test(await page.textContent('#rcpt')) && !/USDC$/.test(await page.textContent('#go')), 'turned off, it is the one direct swap again');
+  await until(page, () => !/ETH pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(!/ETH pool/.test(await page.textContent('#rcpt')) && !/USDC$/.test(await page.textContent('#go')), 'turned off, it is the one direct swap again');
   ok(walletLog.sends.length === 0, 'nothing was sent');
   { const own = errors.filter((e) => !/status of 404/.test(e));                 // the 404 of the USDC pool's route, which this relay does not serve
     ok(!own.length, `no page errors${own.length ? ': ' + own.slice(0, 3).join(' | ') : ''}`); }
@@ -873,15 +873,15 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   await quoted(page); await ackIf(page);
   await page.click('#later-on');
-  await until(page, () => !!document.querySelector('#later [data-open-pool]') && /→ private pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
-  ok(/No private DAI pool yet/.test(await page.textContent('#later .via')) && /Open one/.test(await page.textContent('#later [data-open-pool]')) && /→ private pool →/.test(await page.textContent('#rcpt')), 'with no DAI pool yet it says so, offers to open one, and goes through the ETH pool');
+  await until(page, () => !!document.querySelector('#later [data-open-pool]') && /→ ETH pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(/No private DAI pool yet/.test(await page.textContent('#later .via')) && /Open one/.test(await page.textContent('#later [data-open-pool]')) && /→ ETH pool →/.test(await page.textContent('#rcpt')), 'with no DAI pool yet it says so, offers to open one, and goes through the ETH pool');
   const sent = walletLog.sends.length;
   await page.click('#later [data-open-pool]');
   await until(page, () => /pool is open/.test(document.querySelector('#q')?.textContent || ''), null, 120000);
   ok(walletLog.sends.length === sent + 1 && walletLog.sends[sent].to.toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11', `one transaction opens it (Multicall3 calling CreateX): ${await page.textContent('#q')}`);
   await until(page, () => document.querySelector('#later [data-via="token"]')?.getAttribute('aria-pressed') === 'true', null, 90000);
   ok(keeper.notified.map((t) => String(t).toLowerCase()).includes('0x6b175474e89094c44da98b954eedeac495271d0f'), `and it is named to the relay (${keeper.notified.join(', ')})`);
-  ok(/DAI pool · 0/.test(await page.textContent('#later .via')) && /ETH pool · [\d,]+/.test(await page.textContent('#later .via')), `then it goes through the DAI pool, each pool's notes beside it (${(await page.textContent('#later .via')).trim()})`);
+  ok(/DAI · 0/.test(await page.textContent('#later .via')) && /ETH · [\d,]+/.test(await page.textContent('#later .via')), `then it goes through the DAI pool, each pool's notes beside it (${(await page.textContent('#later .via')).trim()})`);
   await until(page, () => /DAI pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
   await page.fill('#to-in', '0x' + '5d'.repeat(20));
   await until(page, () => /^Deposit [\d.,]+ DAI$/.test(document.querySelector('#go').textContent), null, 60000);
@@ -889,8 +889,11 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(dep > 150 && dep < 300 && /^\+[\d.,]+ DAI$/.test(await page.textContent('#later-xv')), `the deposit is the 150 DAI as it is, the relay's fee twice in DAI and the buffer (${await page.textContent('#go')}, ${await page.textContent('#later-xv')})`);
   ok(/into the private DAI pool as it is/.test(await page.getAttribute('#later-dep', 'title')), 'its tooltip says the DAI goes into its own pool as it is');
   await page.click('#later [data-via="eth"]');
-  await until(page, () => /→ private pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
-  ok(/→ private pool →/.test(await page.textContent('#rcpt')) && (await page.getAttribute('#later [data-via="eth"]', 'aria-pressed')) === 'true', 'the ETH pool is a press away: priced through it again');
+  await until(page, () => /→ ETH pool →/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(/→ ETH pool →/.test(await page.textContent('#rcpt')) && (await page.getAttribute('#later [data-via="eth"]', 'aria-pressed')) === 'true', 'the ETH pool is a press away: priced through it again');
+  await page.focus('#later [data-via="token"]'); await page.keyboard.press('Enter');
+  await until(page, () => document.querySelector('#later [data-via="token"]')?.getAttribute('aria-pressed') === 'true', null, 30000);
+  ok(await page.evaluate(() => document.activeElement?.dataset?.via === 'token'), 'a pool chosen from the keyboard keeps the focus on its pill');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
@@ -900,9 +903,11 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await quoted(page); await ackIf(page);
   ok(await page.isVisible('#later'), 'selling TAC for USDC offers Swap privately');
   await page.click('#later-on');
-  await until(page, () => /Precision pool → private pool →/.test(document.querySelector('#rcpt')?.textContent || ''), null, 90000);
+  await until(page, () => /Precision pool → ETH pool →/.test(document.querySelector('#rcpt')?.textContent || ''), null, 90000);
   await until(page, () => /TAC$/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
   ok(/^[\d.,]+ TAC$/.test(await page.textContent('#later-dep')), `through the Precision pool, the deposit in TAC (${await page.textContent('#later-dep')})`);
+  { const mk = await page.$$eval('#later .st.pre .mk', (ms) => ms.map((m) => Math.round(m.getBoundingClientRect().width)));
+    ok(mk.length >= 3 && mk.every((w) => w >= 17), `the steps' numbers stay round on a phone (${mk.join(', ')} px)`); }
   ok((await overflow(page)) <= 0, 'no sideways scroll on a dark phone');
   await page.evaluate(() => localStorage.setItem('tacit-swap-later-v1', JSON.stringify([{ id: 'tk1', at: Date.now() - 20 * 60e3, depositedAt: Date.now() - 20 * 60e3, from: '0x' + '11'.repeat(20), swapWei: '95600000000000000', extraWei: '20000000000000000', depositWei: '120000000000000000', token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', sym: 'USDC', dec: 6, to: '0x' + '22'.repeat(20), pay: { token: '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', sym: 'TAC', dec: 18, amountWei: '1916212996554052800000', route: 'Precision pool' }, state: 'waiting', leaves0: 500, depositTx: '0x' + 'cd'.repeat(32) }])));
   await page.reload();

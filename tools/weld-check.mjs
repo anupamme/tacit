@@ -7764,7 +7764,7 @@ await step('hxlater', async () => {
     await until(p, () => !!document.querySelector('#hx-swap #later-on') && !document.querySelector('#hx-swap #later').hidden, null, 300000);
     ok(true, 'hxlater: selling wallet TAC on the card offers Swap privately');
     await p.click('#hx-swap #later-on');
-    await until(p, () => /Precision pool → private pool → ETH/.test(document.querySelector('#hx-swap #rcpt')?.textContent || '') && / TAC$/.test(document.querySelector('#hx-swap #later-dep')?.textContent || ''), null, 300000);
+    await until(p, () => /Precision pool → ETH pool → ETH/.test(document.querySelector('#hx-swap #rcpt')?.textContent || '') && / TAC$/.test(document.querySelector('#hx-swap #later-dep')?.textContent || ''), null, 300000);
     ok(true, `hxlater: turned on, it is priced through the private pool and the deposit is in TAC (${await q('#later-dep')})`);
     await p.fill('#hx-swap #to-in', '0x' + '4f'.repeat(20));
     await until(p, () => { const a = document.querySelector('#hx-swap #ack:not(:checked)'); if (a) a.click(); return /^Deposit [\d.,]+ TAC$/.test(document.querySelector('#hx-swap #go')?.textContent || ''); }, null, 120000);

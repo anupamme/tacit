@@ -292,7 +292,7 @@ async function quote(my, wei) {
   if (laterOn(kind) && !isEth(S.pay)) {
     const lt = await ltLoad(), v = await within(lt.mod.quoteThrough({ ethCall, venues, pay: S.pay, get: S.get, amountIn: wei, slippageBps: S.slip, deadline: chainDeadline(1200) }), 25e3, 'zQuoter did not answer in time. Try again.');
     if (!v) return done({ rows: [], why: `No onchain route takes ${esc(pay.sym)} through the private pool to ${esc(get.sym)} right now.`, lt: 'zap' });
-    return done({ rows: [{ k: 'later', name: `${v.r0.name} → private pool → ${v.r1.name}`, note: '', out: v.r1.out, min: v.r1.min, via: { ...v, spend: (wei * v.ethWei) / v.r0.out }, gas: GAS.zap, best: true }], lt: 'zap' });
+    return done({ rows: [{ k: 'later', name: `${v.r0.name} → ETH pool → ${v.r1.name}`, note: '', out: v.r1.out, min: v.r1.min, via: { ...v, spend: (wei * v.ethWei) / v.r0.out }, gas: GAS.zap, best: true }], lt: 'zap' });
   }
   if (kind === 'tac') {
     const dir = isEth(S.pay) ? 'ETH_TO_TAC' : 'TAC_TO_ETH';
@@ -945,7 +945,7 @@ function readFee() {
 // The box under the receipt: one row that switches it and, while it is on, the buffer and the three steps it takes. Drawn again only when it is
 // switched, so the slider keeps its hold while dragged; its figures are written in place.
 const eth2 = (wei) => { const n = Number(wei) / 1e18; return tidy(n >= 1 ? n.toFixed(2) : n.toPrecision(2)); };
-const LATER_TIP = 'Deposit now into the private ETH pool and swap out later, so nothing on chain links your wallet to where the tokens go.';
+const LATER_TIP = 'Deposit now into a private pool and swap out later, so nothing on chain links your wallet to where the tokens go.';
 function paintLater(q, r, kind) {
   // kept while on with no route through the pool, so it can be switched off again
   const el = $('#later'), fits = laterFits(kind) && (!!r || (LATER.on && !!q?.lt));
@@ -953,19 +953,25 @@ function paintLater(q, r, kind) {
   if (!fits) return;
   if (LATER.on) readHop();
   const th = tokHop(), viaRow = LATER.on && !isEth(S.pay) && viaShown(th), hopOn = viaToken();
-  const k = `${LATER.on}:${laterPool() && laterDest().kind !== 'address'}:${viaRow ? `${S.pay}:${hopOpen(th)}:${hopOn}:${th.leaves}:${LATER.ethLeaves}:${th.fee != null}` : ''}`;
+  // drawn again only when its parts change (the pool row's pills and counts are written in place, so a press keeps the focus)
+  const k = `${LATER.on}:${laterPool() && laterDest().kind !== 'address'}:${viaRow ? `${S.pay}:${hopOpen(th)}` : ''}`;
   if (el.dataset.k !== k) {
     el.dataset.k = k;
     el.classList.toggle('on', LATER.on);
     el.innerHTML = `<button type="button" class="tgl" id="later-on" role="switch" aria-checked="${LATER.on}" title="${esc(LATER_TIP)}"><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg><b>Swap privately</b><span class="pill" aria-hidden="true"></span></button>`
-      + (LATER.on ? `<div class="buf"><span>Buffer</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="Buffer added to the deposit, as a share of the swap"><b id="later-xv"></b></div>`
-        + (viaRow ? viaHtml(th, hopOn) : '')
+      + (LATER.on ? (viaRow ? viaHtml(th) : '')
+        + `<div class="buf"><span>Buffer</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="Buffer added to the deposit, as a share of the swap"><b id="later-xv"></b></div>`
         + `<ol class="st pre" aria-label="How it goes"><li><i class="mk" aria-hidden="true">1</i><span>Deposit <b id="later-dep"></b></span></li><li><i class="mk" aria-hidden="true">2</i><span>Wait</span></li><li><i class="mk" aria-hidden="true">3</i><span>Swap</span></li>${laterPool() && laterDest().kind !== 'address' ? '<li><i class="mk" aria-hidden="true">4</i><span>Private</span></li>' : ''}</ol>` : '');
   }
   if (!LATER.on) return;
+  if (viaRow) viaPaint(th, hopOn);
+  // the figures of a quote priced for the other route (or being priced) are shown dimmed until this one's are in
+  const shape = laterOn(kind) && !isEth(S.pay) ? (hopOn ? 'hop' : 'zap') : false;
+  el.classList.toggle('stale', !!q?.busy || !!(q && (q.lt || false) !== shape));
   const dep = laterDeposit(q), pay = tokenOf(S.pay), hopQ = !!picked(q)?.hop, tin = isEth(S.pay) ? null : laterIn(q);
   const inTok = (v) => `${tidy(amtFmt(v, pay.dec))} ${pay.sym}`;
-  $('#later-xv').textContent = hopQ ? `+${inTok(laterExtra(q))}` : `+${eth2(laterExtra(q))} ETH`;
+  // the buffer in what is paid: the token (through its own pool, or sold into the ETH pool at the deposit's rate), else ETH
+  $('#later-xv').textContent = hopQ ? `+${inTok(laterExtra(q))}` : tin != null && dep ? `+${inTok((laterExtra(q) * tin) / dep)}` : `+${eth2(laterExtra(q))} ETH`;
   $('#later-dep').textContent = dep == null ? (LATER.err ? '(fee unavailable)' : '…') : isEth(S.pay) ? `${eth2(dep)} ETH` : tin != null ? inTok(tin) : '…';
   $('#later-dep').title = dep == null ? '' : hopQ
     ? `${inTok(dep)} into the private ${pay.sym} pool as it is: the swap (${inTok(laterSwapWei(q))}), the relay's fee for the swap out set aside twice (${inTok(2n * laterFee(q))}) and the buffer (${inTok(laterExtra(q))}), rounded up. What is not swapped stays private in that pool.`
@@ -973,11 +979,17 @@ function paintLater(q, r, kind) {
 }
 // The row that says which pool the swap goes through, from a wallet token: its own (with the notes each holds), or the offer to open it.
 const LT_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
-function viaHtml(th, hopOn) {
-  const sym = esc(tokenOf(S.pay).sym), n = (x) => (x == null ? '' : ` · ${x.toLocaleString('en-US')}`);
-  if (!hopOpen(th)) return `<div class="via"><span>No private ${sym} pool yet</span><button type="button" class="link" data-open-pool title="One transaction from your wallet (about 4.4M gas) opens a private ${sym} pool for everyone. The relay serves it${th.served ? '' : ' on a daily allowance of gas'}; until then, and while it holds little, the swap goes through the ETH pool.">Open one</button></div>`;
-  const pill = (v, label, on, dis = false) => `<button type="button" class="vp" data-via="${v}" aria-pressed="${on}"${dis ? ' disabled' : ''}>${label}</button>`;
-  return `<div class="via" role="group" aria-label="Through">${pill('token', `${sym} pool${n(th.leaves)}`, hopOn, th.fee == null)}${pill('eth', `ETH pool${n(LATER.ethLeaves)}`, !hopOn)}</div>`;
+function viaHtml(th) {
+  const sym = esc(tokenOf(S.pay).sym);
+  if (!hopOpen(th)) return `<div class="via"><span>No private ${sym} pool yet</span><button type="button" class="link" data-open-pool title="One transaction from your wallet (about 4.4M gas) opens a private ${sym} pool for everyone, served by the relay${th.served ? '' : ' on a daily allowance of gas'}. Its first deposits have little company; until it is open, the swap goes through the ETH pool.">Open one</button></div>`;
+  return `<div class="via" role="group" aria-label="Pool"><span>Pool</span><button type="button" class="vp" data-via="token"></button><button type="button" class="vp" data-via="eth"></button></div>`;
+}
+// The pool pills, written in place: each pool's notes (the company a deposit keeps there), which is chosen, and whether the relay serves it yet
+function viaPaint(th, hopOn) {
+  const sym = tokenOf(S.pay).sym, n = (x) => (x == null ? '' : ` · ${x.toLocaleString('en-US')}`), notes = (x, of) => (x == null ? `The private ${of} pool` : `${x.toLocaleString('en-US')} notes in the private ${of} pool`);
+  const t = $('#later [data-via="token"]'), e = $('#later [data-via="eth"]');
+  if (t) { t.textContent = `${sym}${n(th.leaves)}`; t.title = th.fee == null ? `${notes(th.leaves, sym)}. The relay is picking it up.` : notes(th.leaves, sym); t.disabled = th.fee == null; t.setAttribute('aria-pressed', String(hopOn)); }
+  if (e) { e.textContent = `ETH${n(LATER.ethLeaves)}`; e.title = notes(LATER.ethLeaves, 'ETH'); e.setAttribute('aria-pressed', String(!hopOn)); }
 }
 const laterStep = (s) => ({ 'proving on this device': 'Proving on this device…', 'confirm in your wallet': 'Confirm the deposit in your wallet…', 'waiting for it to be mined': 'Waiting for it to land…',
   'sending through the relayer': 'The relay is sending it…', 'reading the price again': 'Reading the price again…', 'waiting for the TAC': 'Swapped. Waiting for the TAC to reach your Tacit account…',
