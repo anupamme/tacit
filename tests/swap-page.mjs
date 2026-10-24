@@ -64,7 +64,7 @@ const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', USDC = '0xA0b86991c621
 const DEPLOYED = (await rpcA('eth_getCode', [ammRouteAddress(), 'latest'])) !== '0x';
 const bal = async (t, a) => BigInt(await rpcA('eth_call', [{ to: t, data: '0x70a08231' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
 
-async function stubWallet(ctx, { account, key }) {
+async function stubWallet(ctx, { account, key, eip6963 = false }) {
   const log = { sends: [], signs: 0 };
   await ctx.exposeFunction('__wallet', async (method, params) => {
     if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
@@ -72,10 +72,18 @@ async function stubWallet(ctx, { account, key }) {
     if (method === 'wallet_switchEthereumChain') return null;
     if (method === 'wallet_watchAsset') { (log.watched ||= []).push(params); return true; }
     if (method === 'eth_signTypedData_v4') { log.signs++; (log.typed ||= []).push(JSON.parse(params[1])); return cast('wallet', 'sign', '--private-key', key, '--data', params[1]); }
+    if (method === 'personal_sign') { log.signs++; (log.personal ||= 0); log.personal++; return cast('wallet', 'sign', '--private-key', key, params[0]); }
     if (method === 'eth_sendTransaction') { log.sends.push(params[0]); return rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x4c4b40' }]); }
     throw new Error(`the stub wallet does not do ${method}`);
   });
   await ctx.addInitScript(() => { window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on() {}, removeListener() {} }; });
+  // announced through EIP-6963 instead, for the Tacit key's sign-in, which asks an announced wallet to sign (one wallet, so connecting asks no choice)
+  if (eip6963) await ctx.addInitScript(() => {
+    const detail = Object.freeze({ info: Object.freeze({ uuid: 'stub-1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' }), provider: window.ethereum });
+    delete window.ethereum;
+    const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
+    window.addEventListener('eip6963:requestProvider', announce); announce();
+  });
   return log;
 }
 async function fundedWallet() {
@@ -753,6 +761,90 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '0.02');
   await quoted(page);
   ok(!bodies.some((b) => b.toLowerCase().includes('3c'.repeat(20))), `no node is sent the destination (${bodies.length} reads)`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+// ── Swap privately from a token: sold for ETH into the private pool by the zap in one transaction, the swap's share sold on the way out ──
+{
+  const w = await fundedWallet();
+  const { browser, page, errors, walletLog } = await openPage({ width: 1280, height: 900 }, { wallet: w, path: '/swap/?from=USDC&to=WBTC&amt=150' });
+  const bodies = [];
+  page.on('request', (q) => { if (q.method() === 'POST') bodies.push(q.postData() || ''); });
+  await page.click('#wallet-chip');
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  await quoted(page); await ackIf(page);
+  ok(await page.isVisible('#later') && (await page.getAttribute('#later-on', 'aria-checked')) === 'false', 'a wallet USDC swap offers Swap privately too, off to start');
+  const direct = await page.textContent('#rcpt');
+  await page.click('#later-on');
+  bodies.length = 0;                                                            // what is read once it is on
+  await until(page, () => /private pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(!/private pool/.test(direct) && /→ private pool →/.test(await page.textContent('#rcpt')), `turned on, it is priced through the pool: ${(await page.$$eval('#rcpt div', (ds) => ds.map((d) => d.textContent)).then((r) => r.find((x) => /^Route/.test(x)) || '')).replace(/^Route/, '')}`);
+  await until(page, () => /USDC$/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  const dep = await page.textContent('#later-dep'), depN = Number(dep.split(' ')[0].replace(/,/g, ''));
+  ok(/^[\d.,]+ USDC$/.test(dep) && depN > 150 && depN < 400 && /^\+[\d.]+ ETH$/.test(await page.textContent('#later-xv')), `the deposit is in USDC, more than the swap by the fee and the buffer (${dep}, ${await page.textContent('#later-xv')})`);
+  ok(/sold for [\d.]+ ETH in the same transaction/.test(await page.getAttribute('#later-dep', 'title')), 'its tooltip says the USDC is sold for the deposit\'s ETH in the same transaction');
+  const DEST = '0x' + '4d'.repeat(20);
+  await page.fill('#to-in', DEST);
+  await until(page, () => /^Deposit [\d.,]+ USDC$/.test(document.querySelector('#go').textContent), null, 30000);
+  ok(/^Deposit [\d.,]+ USDC$/.test(await page.textContent('#go')) && !(await page.isDisabled('#go')), `the button deposits USDC (${await page.textContent('#go')})`);
+  await page.$eval('#later-x', (el) => { el.value = '90'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  ok(Number((await page.textContent('#later-dep')).split(' ')[0].replace(/,/g, '')) > depN, 'a larger buffer takes more USDC');
+  { const bad = bodies.filter((b) => b.toLowerCase().includes('4d'.repeat(20)) || (b.toLowerCase().includes(w.account.slice(2).toLowerCase()) && b.toLowerCase().includes(ZQUOTER.slice(2))));
+    ok(!bad.length, `no node is sent the destination, nor a route naming the wallet (${bodies.length} reads)${bad.length ? ': ' + bad[0].slice(0, 300) : ''}`); }
+  await page.click('#later-on');
+  await until(page, () => !/private pool/.test(document.querySelector('#rcpt')?.textContent || '') && !document.querySelector('#out').classList.contains('busy'), null, 90000);
+  ok(!/private pool/.test(await page.textContent('#rcpt')) && !/USDC$/.test(await page.textContent('#go')), 'turned off, it is the one direct swap again');
+  ok(walletLog.sends.length === 0, 'nothing was sent');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+{
+  // and made: the key opened on the card, the USDC taken by a permit signed for the zap, the proof made in this browser, one transaction to the zap
+  const w = { ...(await fundedWallet()), eip6963: true };
+  const { browser, page, errors, walletLog } = await openPage({ width: 1280, height: 900 }, { wallet: w, path: '/swap/?from=USDC&to=WBTC&amt=120' });
+  // the keeper's feed of the pool's history is left out: the wallet reads the fork's own logs
+  await page.context().route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/events/, (route) => route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: '{}' }));
+  const ZAP = '0x0000008EbBF2323f95c4fBc18254f3D65C53998c', POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
+  await page.click('#wallet-chip');
+  await page.click('button:has-text("Test Wallet")');                         // an announced wallet beside WalletConnect: chosen
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  await quoted(page); await ackIf(page);
+  await page.click('#later-on');
+  const DEST = '0x' + '4e'.repeat(20);
+  await page.fill('#to-in', DEST);
+  await until(page, () => /^Deposit [\d.,]+ USDC$/.test(document.querySelector('#go').textContent), null, 90000);
+  const shownIn = Number((await page.textContent('#go')).match(/[\d.,]+/)[0].replace(/,/g, '')) * 1e6;
+  const u0 = await bal(USDC, w.account), p0 = BigInt(await rpcA('eth_getBalance', [POOL, 'latest']));
+  await page.click('#go');
+  await page.waitForSelector('.bsheet.top [data-in="eth"]', { timeout: 60000 });
+  await page.click('.bsheet.top [data-in="eth"]');
+  await until(page, () => /Deposited\.|did not|failed|revert|Not enough|moved|Nothing was sent/i.test(document.querySelector('#q')?.textContent || ''), null, 480000).catch(() => {});
+  const msg = await page.textContent('#q');
+  const plan = await page.evaluate(() => JSON.parse(localStorage.getItem('tacit-swap-later-v1') || '[]')[0] || null);
+  const spent = u0 - (await bal(USDC, w.account)), into = BigInt(await rpcA('eth_getBalance', [POOL, 'latest'])) - p0;
+  ok(/Deposited\./.test(msg) && plan?.state === 'waiting' && plan.pay?.sym === 'USDC', `pressed, the USDC is deposited and the plan waits (${msg.trim().slice(0, 120)})`);
+  ok(plan && into === BigInt(plan.depositWei) && spent === BigInt(plan.pay.amountWei) && Number(spent) <= shownIn * 1.005 + 1, `the pool took exactly the deposit (${Number(into) / 1e18} ETH) for ${Number(spent) / 1e6} USDC, within the ${shownIn / 1e6} shown`);
+  ok(walletLog.sends.length === 1 && walletLog.sends[0].to.toLowerCase() === ZAP.toLowerCase() && (walletLog.typed || []).some((t) => t.primaryType === 'Permit' && t.message.spender.toLowerCase() === ZAP.toLowerCase()), `one transaction, to the zap, after a permit signed for it (${walletLog.sends.length} sent, ${(walletLog.typed || []).length} typed)`);
+  await until(page, () => /USDC in/.test(document.querySelector('#steps')?.textContent || ''), null, 30000).catch(() => {});
+  ok(/USDC in/.test(await page.textContent('#steps')) && /→ WBTC/.test(await page.textContent('#steps')), 'the kept swap shows below, with what went in');
+  { const own = errors.filter((e) => !/status of 404/.test(e));                 // the browser logs the 404 the keeper's feed stub returns on purpose
+    ok(!own.length, `no page errors${own.length ? ': ' + own.slice(0, 3).join(' | ') : ''}`); }
+  await browser.close();
+}
+{
+  // TAC: sold through the Precision pool into the private pool; and a kept swap that began from a token says what went in
+  const { browser, page, errors } = await openPage({ width: 390, height: 844 }, { path: '/swap/?from=TAC&to=USDC&amt=1500', scheme: 'dark' });
+  await quoted(page); await ackIf(page);
+  ok(await page.isVisible('#later'), 'selling TAC for USDC offers Swap privately');
+  await page.click('#later-on');
+  await until(page, () => /Precision pool → private pool →/.test(document.querySelector('#rcpt')?.textContent || ''), null, 90000);
+  await until(page, () => /TAC$/.test(document.querySelector('#later-dep')?.textContent || ''), null, 30000);
+  ok(/^[\d.,]+ TAC$/.test(await page.textContent('#later-dep')), `through the Precision pool, the deposit in TAC (${await page.textContent('#later-dep')})`);
+  ok((await overflow(page)) <= 0, 'no sideways scroll on a dark phone');
+  await page.evaluate(() => localStorage.setItem('tacit-swap-later-v1', JSON.stringify([{ id: 'tk1', at: Date.now() - 20 * 60e3, depositedAt: Date.now() - 20 * 60e3, from: '0x' + '11'.repeat(20), swapWei: '95600000000000000', extraWei: '20000000000000000', depositWei: '120000000000000000', token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', sym: 'USDC', dec: 6, to: '0x' + '22'.repeat(20), pay: { token: '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', sym: 'TAC', dec: 18, amountWei: '1916212996554052800000', route: 'Precision pool' }, state: 'waiting', leaves0: 500, depositTx: '0x' + 'cd'.repeat(32) }])));
+  await page.reload();
+  await until(page, () => !!document.querySelector('#steps .plan'), null, 30000);
+  ok(/1,?916\.?\d* TAC in/.test(await page.textContent('#steps .plan')) && /0\.0956 ETH → USDC/.test(await page.textContent('#steps .plan header')), `its card says what went in and what the swap is (${(await page.textContent('#steps .plan header')).trim()})`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }

@@ -1,4 +1,4 @@
-import { makeConnect } from '/trade/connect.js?cb=42b9322f';
+import { makeConnect } from '/trade/connect.js?cb=5ca12f8f';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { API, $, short, fmtUnits, rpc } from '/trade/util.js?cb=509d6618';
 import { discordGateMessage, DISCORD_MIN_TAC_BASE_UNITS, DISCORD_MIN_TAC_ERC20 } from '/discord/message.js?cb=0232a98d';

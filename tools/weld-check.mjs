@@ -182,7 +182,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -7642,6 +7642,34 @@ await step('hxsell', async () => {
     await until(p, () => /^Done/.test(document.querySelector('#hx-swap #q')?.textContent || ''), null, 300000).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok((await tacOf(who)) > t2, `hxsell: 0.05 ETH bought TAC from the same card (${await line()})`);
     if (r.errors.length) { fails++; console.log('FAIL hxsell page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
+});
+
+// Swap privately from wallet TAC on the Swap tab's card: the TAC sold through the Precision pool into the private ETH pool (the zap, one
+// transaction), the swap's share taken out later as ETH to another address; the card prices both, shows the deposit in TAC and asks the address.
+await step('hxlater', async () => {
+  const key = '0x' + Buffer.from(secp.utils.randomPrivateKey()).toString('hex');
+  const who = '0x' + Buffer.from(keccak_256(secp.getPublicKey(key.slice(2), false).slice(1)).slice(12)).toString('hex');
+  await rpc('anvil_impersonateAccount', [who]); await rpc('anvil_setBalance', [who, '0x' + (10n ** 18n).toString(16)]);
+  await fundTac(who, 40000n * 10n ** 18n);
+  const r = await openPage({ account: who, key });
+  const p = r.page, q = (s) => text(p, `#hx-swap ${s}`);
+  // the private ETH pool's keeper quotes its fee for the swap out: stubbed, so the step does not wait on a service that may be asleep
+  await p.context().route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ fee: '300000000000000', relayer: '0x' + '00'.repeat(20) }) }));
+  try {
+    await p.goto(r.url + '#card=swap:tac:ether&amt=1500');
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await until(p, () => /Connect wallet|Sell TAC/.test(document.querySelector('#hx-swap #go')?.textContent || ''), null, 300000);
+    if (/Connect wallet/.test(await q('#go'))) await p.click('#hx-swap #go');
+    await until(p, () => !!document.querySelector('#hx-swap #later-on') && !document.querySelector('#hx-swap #later').hidden, null, 300000);
+    ok(true, 'hxlater: selling wallet TAC on the card offers Swap privately');
+    await p.click('#hx-swap #later-on');
+    await until(p, () => /Precision pool → private pool → ETH/.test(document.querySelector('#hx-swap #rcpt')?.textContent || '') && / TAC$/.test(document.querySelector('#hx-swap #later-dep')?.textContent || ''), null, 300000);
+    ok(true, `hxlater: turned on, it is priced through the private pool and the deposit is in TAC (${await q('#later-dep')})`);
+    await p.fill('#hx-swap #to-in', '0x' + '4f'.repeat(20));
+    await until(p, () => { const a = document.querySelector('#hx-swap #ack:not(:checked)'); if (a) a.click(); return /^Deposit [\d.,]+ TAC$/.test(document.querySelector('#hx-swap #go')?.textContent || ''); }, null, 120000);
+    ok(!(await p.$eval('#hx-swap #go', (b) => b.disabled)), `hxlater: with an address, the button deposits TAC (${await q('#go')})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxlater page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
 });
 

@@ -6,7 +6,7 @@
 // is a step the service has read from the chain), so that a visit does not download the code of every contract a job deployed.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=42b9322f';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=509d6618';
 import { bodyType } from '/trade/rpc.js?cb=63f04503';

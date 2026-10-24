@@ -383,12 +383,12 @@ export const daiPermitTyped = ({ owner, nonce, expiry }) => ({
   primaryType: 'Permit', domain: { name: 'Dai Stablecoin', version: '1', chainId: 1, verifyingContract: DAI },
   message: { holder: owner, spender: ZROUTER, nonce: String(nonce), expiry: String(expiry), allowed: true },
 });
-export const permit2Typed = ({ token, amount, nonce, deadline }) => ({
+export const permit2Typed = ({ token, amount, nonce, deadline, spender = ZROUTER }) => ({
   types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
     PermitTransferFrom: [{ name: 'permitted', type: 'TokenPermissions' }, { name: 'spender', type: 'address' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }],
     TokenPermissions: [{ name: 'token', type: 'address' }, { name: 'amount', type: 'uint256' }] },
   primaryType: 'PermitTransferFrom', domain: { name: 'Permit2', chainId: 1, verifyingContract: PERMIT2 },
-  message: { permitted: { token, amount: String(amount) }, spender: ZROUTER, nonce: String(nonce), deadline: String(deadline) },
+  message: { permitted: { token, amount: String(amount) }, spender, nonce: String(nonce), deadline: String(deadline) },
 });
 // A signature as { v, r, s }.
 export function splitSig(sig) {

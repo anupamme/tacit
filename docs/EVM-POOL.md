@@ -21,6 +21,7 @@ exit/entry (["Moving between V1 and this pool"](#moving-between-v1-and-this-pool
 |---|---|---|
 | [anon.wei.limo](https://anon.wei.limo/) | The reference app: one page that shields, sends privately, withdraws, takes payments at a deposit address, and shields from or withdraws as a token. Also served by name as `anon.wei` ([the reference app](#the-reference-app-anonwei)). | Ethereum, Base, Robinhood Chain |
 | [tacit.finance/pay/eth](https://tacit.finance/pay/eth/), and "On this device" on the [tacit.finance](https://tacit.finance/) front page | The same pool without token swaps: shield, send, withdraw, a deposit address, payment links. The front page also holds a TAC pool, on Ethereum ([addresses](#addresses)). | Ethereum, Base, Robinhood Chain and **MegaETH** |
+| [tacit.finance/swap](https://tacit.finance/swap/) and the front page's Swap tab, "Swap privately" | A swap in two halves: the wallet's ETH or a token (a token through the zap, below) deposited now; later the swap's share withdrawn into a swap that pays another address (withdraw-and-call, sent by the keeper), the rest left a note. | Ethereum |
 | [Secret Sats](https://tacit.finance/sats/), ETH tab | The same pool beside the Bitcoin pool: one address (`bp1…`) receives in both. | Ethereum, Base, Robinhood Chain |
 | [The standalone wallet](#standalone-wallet) | The whole wallet as one ES module, for your own app. | Ethereum, Base, Robinhood Chain and MegaETH |
 | Your own app | The contracts are at the same addresses on every chain they are on ([build one](#megaeth-and-building-an-app-on-another-chain)). | Any chain with the suite |
@@ -406,7 +407,8 @@ Its three entry points differ only in how the token is taken:
   signed with the zap as spender, for a token already approved to Permit2.
 
 `swap` is zRouter calldata that pays at least `extAmount` ETH to the zap: an exact-out route from zQuoter with the zap
-as recipient. The proof is an ordinary deposit, built against the pool's head; if another deposit lands first, the call
+as recipient, or an exact-in route for an amount of the token sized so its floor covers `extAmount` (the swap page's
+Swap privately sizes it that way, so splits and two-hop routes can be used; the ETH over the deposit comes back). The proof is an ordinary deposit, built against the pool's head; if another deposit lands first, the call
 reverts (`StaleRoot`) and nothing moves. The zap holds nothing between transactions, takes tokens only from
 `msg.sender`, allows zRouter only within the call (reset to zero after the swap), and accepts ETH only during a zap.
 The router has the same idea in one entry point of its own, `zapTokenToDepositWithPermit2(tx, amountIn, permit, sig,

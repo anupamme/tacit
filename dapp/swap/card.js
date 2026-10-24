@@ -3,10 +3,10 @@
 // pool module and its Activity journal). One card to a page: its state is this module's.
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
-import { UserStopped } from '/trade/wallet.js?cb=22eef0cb';
+import { UserStopped } from '/trade/wallet.js?cb=fe7a26b6';
 import { rpc, RPCS, api, esc, fmtUnits, parseUnits, plain, usd, sig, E10, E18, ago } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=35ce60db';
-import * as A from '/swap/aggregate.js?cb=ba695973';
+import * as R from '/swap/route.js?cb=ce610210';
+import * as A from '/swap/aggregate.js?cb=9759a1ca';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -160,9 +160,9 @@ function kindOf(pay, get, inP = S.inP, outP = S.outP) {
   return isListed(pay) && isListed(get) && !wrapPair && !(tin && tout) ? 'agg' : null;                   // any token to any token
 }
 // A token the pool does not hold can still be got privately: paid out of the private balance to an address ('pout'), or bought from the
-// wallet's ETH through the private ETH pool (Swap privately). Either way the token itself lands at an address, so its side reads Wallet
-// underneath; a Get side shown as Private with such a token is Swap privately switched on.
-const outRoute = (k) => (inPool(k) ? 'pool' : S.inP ? (kindOf(S.pay, k, true, false) === 'pout' ? 'out' : null) : isEth(S.pay) && kindOf(S.pay, k, false, false) === 'agg' ? 'later' : null);
+// wallet's ETH or a wallet token through the private ETH pool (Swap privately). Either way the token itself lands at an address, so its side
+// reads Wallet underneath; a Get side shown as Private with such a token is Swap privately switched on.
+const outRoute = (k) => (inPool(k) ? 'pool' : S.inP ? (kindOf(S.pay, k, true, false) === 'pout' ? 'out' : null) : !isEth(k) && laterPair(kindOf(S.pay, k, false, false), S.pay, k) ? 'later' : null);
 const hidden = () => LATER.on && !S.inP && !S.outP && !inPool(S.get) && outRoute(S.get) === 'later';
 const getPriv = () => S.outP || hidden();
 const outside = () => listed().map((t) => t.addr).filter((k) => !inPool(k) && outRoute(k));
@@ -261,7 +261,7 @@ async function signTyped(typed, from) {
 }
 
 const PREVIEW = '0x0000000000000000000000000000000000000001';           // who a quote pays before a wallet is connected
-const GAS = { single: 160000n, twohop: 260000n, hybrid: 480000n, tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n };
+const GAS = { single: 160000n, twohop: 260000n, hybrid: 480000n, tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n, zap: 700000n };
 const picked = (q = S.q) => (q?.rows || []).find((r) => r.k === S.pick) || q?.rows?.find((r) => r.best) || q?.rows?.[0] || null;
 
 let qTimer = 0;
@@ -279,6 +279,13 @@ async function quote(my, wei) {
   const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!S.hold || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); };
   if (!kind) return done({ none: true });
   const account = W.account || undefined;
+  // Swap privately from a token: sold for ETH into the private pool (the zap), and the swap's share of that ETH sold for the token on the way
+  // out, both quoted for stand-ins, so no node is shown the wallet or the address
+  if (laterOn(kind) && !isEth(S.pay)) {
+    const lt = await ltLoad(), v = await within(lt.mod.quoteThrough({ ethCall, venues, pay: S.pay, get: S.get, amountIn: wei, slippageBps: S.slip, deadline: chainDeadline(1200) }), 25e3, 'zQuoter did not answer in time. Try again.');
+    if (!v) return done({ rows: [], why: `No onchain route takes ${esc(pay.sym)} through the private pool to ${esc(get.sym)} right now.`, lt: true });
+    return done({ rows: [{ k: 'later', name: `${v.r0.name} → private pool → ${v.r1.name}`, note: '', out: v.r1.out, min: v.r1.min, via: { ...v, spend: (wei * v.ethWei) / v.r0.out }, gas: GAS.zap, best: true }], lt: true });
+  }
   if (kind === 'tac') {
     const dir = isEth(S.pay) ? 'ETH_TO_TAC' : 'TAC_TO_ETH';
     const rt = await venues.route({ dir, amountIn: wei, account, gasPrice: await gasPrice() });
@@ -419,7 +426,7 @@ function warmPrivate() {
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
 // What the swap itself spends: for a private one the payment less the relay's fee, so the price and its impact are the pool's, not the fee's.
-const spentOf = (q, r) => (r?.pin ? q.wei : r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : r?.priv && q.fee != null ? q.wei - q.fee * E10 : q.wei);
+const spentOf = (q, r) => (r?.via ? r.via.spend : r?.pin ? q.wei : r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : r?.priv && q.fee != null ? q.wei - q.fee * E10 : q.wei);
 function vsMarket(q = S.q, r = picked(q)) {
   if (!q || !r) return null;
   const vin = usdOf(S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get, r.val ?? r.out);
@@ -524,6 +531,8 @@ function feeLines(q, r) {
 function paintQuote() {
   const q = S.q, out = $('#out'), get = tokenOf(S.get), pay = tokenOf(S.pay), rows = $('#rows'), rc = $('#rcpt'), go = $('#go'), ackbox = $('#ackbox');
   const r = picked(q), kind = kindOf(S.pay, S.get);
+  // Swap privately from a token is priced as two swaps through the pool, any other swap as one: a quote of the other shape is asked again
+  if (q && !q.busy && !q.err && !q.none && !!q.lt !== (laterOn(kind) && !isEth(S.pay))) { requote(true); return; }
   out.classList.toggle('busy', !!q?.busy);
   if (r && !q.busy) { out.textContent = tidy(amtFmt(r.out, get.dec)); out.classList.remove('ph'); }
   else if (!q?.busy) { out.textContent = '0'; out.classList.add('ph'); }
@@ -549,7 +558,7 @@ function paintQuote() {
     else if (!r.priv || (r.pout && !isEth(S.get))) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
     else if (r.priv && !r.pout) lines.push(['At least', `${tidy(amtFmt(((r.out / E10) * 99n / 100n) * E10, get.dec))} ${get.sym}`]);
     if (r.sell?.rest > 0n) lines.push(['Plus', `about ${tidy(amtFmt(r.sell.rest, 18))} WETH`]);
-    if (r.any?.hop || r.sell || r.buy || r.agg || r.pin) lines.push(['Route', r.name, '', r.agg?.quotes?.length ? `Compared with ${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''}` : '']);
+    if (r.any?.hop || r.sell || r.buy || r.agg || r.pin || r.via) lines.push(['Route', r.name, '', r.agg?.quotes?.length ? `Compared with ${r.agg.quotes.length} pool${r.agg.quotes.length > 1 ? 's' : ''}` : '']);
     // what the route adds over the best single pool, and how KyberSwap's figure for the same trade compares (a reference: the swap itself goes
     // through zRouter), each shown only when it is 0.1% or more
     if (r.agg?.quotes?.length) {
@@ -635,16 +644,18 @@ function button(q, r, kind, gate) {
   if (S.toBad) return ['Check the address', false];
   if (!W.account) return ['Connect wallet', true];
   if (laterOn(kind)) {
-    const dep = laterDeposit(q), eth = S.bal[lc(R.ZERO)], typed = $('#to-in').value.trim(), pool = laterPool();
+    const dep = laterDeposit(q), eth = S.bal[lc(R.ZERO)], typed = $('#to-in').value.trim(), pool = laterPool(), tok = !isEth(S.pay), tin = tok ? laterIn(q) : null, held = tok ? S.bal[S.pay] : null;
     if (pool && typed && !/^0x/i.test(typed)) { if (S.toTacitBad) return ['Check the address', false]; if (!S.toTacit) return ['Finding their address…', false]; }
     else if (!pool && !S.to) return ['Add the address it goes to', false];
     else if (typed && S.toBad) return ['Check the address', false];
     if (S.to && lc(S.to) === lc(W.account)) return ['Use another address than this wallet', false];
     if (dep == null) return [LATER.err ? 'Try again' : 'Reading the relay’s fee…', !!LATER.err];
-    if (eth != null && dep + gasKeep() > eth) return ['Not enough ETH for the deposit', false];
+    if (tok && tin == null) return ['Finding the best price…', false];
+    if (tok && held != null && tin > held) return [`Not enough ${pay.sym} for the deposit`, false];
+    if (tok ? eth != null && 2n * gasKeep() > eth : eth != null && dep + gasKeep() > eth) return [tok ? 'Leave some ETH for the network fee' : 'Not enough ETH for the deposit', false];
     if (gate && !S.ack) return ['Accept the price above to swap', false];
     const d = laterDest(), tail = d.kind === 'me' ? ' → private' : d.kind === 'tacit' ? ` → ${tacitName(S.toTacit)}` : '';
-    return [`Deposit ${tidy(amtFmt(dep, 18))} ETH${tail}`, true, 'priv'];
+    return [`Deposit ${tok ? `${tidy(amtFmt(tin, pay.dec))} ${pay.sym}` : `${tidy(amtFmt(dep, 18))} ETH`}${tail}`, true, 'priv'];
   }
   const bal = S.bal[S.pay], wei = q.wei;
   if (bal != null && wei > bal) return [`Not enough ${pay.sym}`, false];
@@ -841,10 +852,20 @@ const PLANS_KEY = 'tacit-swap-later-v1';
 const plans = () => { try { return (JSON.parse(localStorage.getItem(PLANS_KEY) || '[]') || []).filter((p) => p?.id); } catch { return []; } };
 let LTP = null, LT = null;
 const pageSigner = { get address() { return W.account; }, ready: async () => { if (!W.account) await H.connect(); await wallet.ensureMainnet(); },
-  send: ({ to, data, value }) => wallet.sendTx({ to, data, value: BigInt(value || 0), from: W.account, label: 'Swap privately' }), rpc: (m, p) => rpc(m, p) };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=dd3bd765').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
-// a wallet ETH swap for a token on the onchain route, or for TAC through the pools the ticket uses
-const laterFits = (kind) => (kind === 'agg' || (kind === 'tac' && S.get === lc(R.TAC))) && isEth(S.pay) && !S.inP && !S.outP;
+  send: ({ to, data, value }) => wallet.sendTx({ to, data, value: BigInt(value || 0), from: W.account, label: 'Swap privately' }), rpc: (m, p) => rpc(m, p),
+  signTyped: (typed) => signTyped(typed, W.account), receipt: (h) => wallet.receipt(h),
+  // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
+  canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
+  get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=4c3bdc95').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+// what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
+// the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
+const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));
+// from ETH: a token on the onchain route, or TAC through the pools the ticket uses; from a token: any listed token or ETH, or TAC, out of the pool
+// (the pair alone, for the Get picker; the card's two sides must both read Wallet underneath for it to be offered)
+const laterPair = (kind, pay = S.pay, get = S.get) => laterPay(pay)
+  && (isEth(pay) ? kind === 'agg' || (kind === 'tac' && get === lc(R.TAC)) : (kind === 'agg' && get !== lc(R.WETH)) || kind === 'any' || kind === 'out' || kind === 'tac');
+const laterFits = (kind) => !S.inP && !S.outP && laterPair(kind);
 const laterOn = (kind) => LATER.on && laterFits(kind);
 // TAC can end in a private balance: the key's own (the field empty), or a Tacit address typed there (tacit1… or name.wei); a 0x address is paid as such
 const laterPool = () => LATER.on && S.get === lc(R.TAC) && laterFits(kindOf(S.pay, S.get));
@@ -852,9 +873,13 @@ const laterDest = () => (!laterPool() || S.to ? { kind: 'address' } : S.toTacit 
 // the gas the key's own account is handed to make the TAC private: one wrap at twice the gas price now, between 0.0005 and 0.003 ETH
 const laterGas = () => { if (laterDest().kind === 'address') return 0n; const g = S.gasPrice ? 350_000n * BigInt(S.gasPrice) * 2n : 15n * 10n ** 14n; return g < 5n * 10n ** 14n ? 5n * 10n ** 14n : g > 3n * 10n ** 15n ? 3n * 10n ** 15n : g; };
 // the deposit and its extra as later.js draws them (a random share around the slider's, rounded up), drawn again only when the slider moves
-const laterAmounts = (q) => (q?.wei && LATER.fee != null && LT ? LT.mod.depositFor({ swapWei: q.wei, feeWei: LATER.fee, pct: LATER.pct, rand: () => LATER.rand, gasWei: laterGas() }) : null);
+// (from a token the swap is the ETH its route into the pool pays, three figures rounded down)
+const laterSwapWei = (q) => (isEth(S.pay) ? q?.wei : picked(q)?.via?.ethWei);
+const laterAmounts = (q) => (laterSwapWei(q) && LATER.fee != null && LT ? LT.mod.depositFor({ swapWei: laterSwapWei(q), feeWei: LATER.fee, pct: LATER.pct, rand: () => LATER.rand, gasWei: laterGas() }) : null);
 const laterExtra = (q) => laterAmounts(q)?.extraWei ?? 0n;
 const laterDeposit = (q) => laterAmounts(q)?.depositWei ?? null;
+// the token a deposit from a token takes, as later.js sizes it: the amount typed, scaled from its route's floor up to the deposit, with a little over
+const laterIn = (q) => { const v = picked(q)?.via, dep = laterDeposit(q); return v && dep != null && v.r0.min > 0n ? (q.wei * dep * 10020n + v.r0.min * 10000n - 1n) / (v.r0.min * 10000n) : null; };
 // Swap privately warms what it uses: the private ETH pool (its fee read loads it); the Tacit pool's module only for TAC into the private balance
 function laterUp() { S.toOpen = true; if (LATER.fee == null) readFee(); if (laterPool()) warmPrivate(); }
 function readFee() {
@@ -866,7 +891,8 @@ function readFee() {
 const eth2 = (wei) => { const n = Number(wei) / 1e18; return tidy(n >= 1 ? n.toFixed(2) : n.toPrecision(2)); };
 const LATER_TIP = 'Deposit now into the private ETH pool and swap out later, so nothing on chain links your wallet to where the tokens go.';
 function paintLater(q, r, kind) {
-  const el = $('#later'), fits = !!r && laterFits(kind);
+  // kept while on with no route through the pool, so it can be switched off again
+  const el = $('#later'), fits = laterFits(kind) && (!!r || (LATER.on && !!q?.lt));
   el.hidden = !fits;
   if (!fits) return;
   const k = `${LATER.on}:${laterPool() && laterDest().kind !== 'address'}`;
@@ -879,28 +905,40 @@ function paintLater(q, r, kind) {
   }
   if (!LATER.on) return;
   $('#later-xv').textContent = `+${eth2(laterExtra(q))} ETH`;
-  const dep = laterDeposit(q);
-  $('#later-dep').textContent = dep != null ? `${eth2(dep)} ETH` : LATER.err ? '(fee unavailable)' : '…';
-  $('#later-dep').title = dep != null ? `The swap (${eth2(q.wei)} ETH), the relay's fee for the swap out set aside twice (${eth2(2n * LATER.fee)} ETH) and the buffer (${eth2(laterExtra(q))} ETH), rounded up. What is not swapped stays in your private balance.` : '';
+  const dep = laterDeposit(q), pay = tokenOf(S.pay), tin = isEth(S.pay) ? null : laterIn(q);
+  $('#later-dep').textContent = dep == null ? (LATER.err ? '(fee unavailable)' : '…') : isEth(S.pay) ? `${eth2(dep)} ETH` : tin != null ? `${tidy(amtFmt(tin, pay.dec))} ${pay.sym}` : '…';
+  $('#later-dep').title = dep != null ? `${tin != null ? `${tidy(amtFmt(tin, pay.dec))} ${pay.sym} sold for ${eth2(dep)} ETH in the same transaction: ` : ''}The swap (${eth2(laterSwapWei(q))} ETH), the relay's fee for the swap out set aside twice (${eth2(2n * LATER.fee)} ETH) and the buffer (${eth2(laterExtra(q))} ETH), rounded up. What is not swapped stays in your private balance.` : '';
 }
 const laterStep = (s) => ({ 'proving on this device': 'Proving on this device…', 'confirm in your wallet': 'Confirm the deposit in your wallet…', 'waiting for it to be mined': 'Waiting for it to land…',
   'sending through the relayer': 'The relay is sending it…', 'reading the price again': 'Reading the price again…', 'waiting for the TAC': 'Swapped. Waiting for the TAC to reach your Tacit account…',
-  'making it private': 'Making it private, from your Tacit account…', 'sending it on': 'Private. Sending it on…' }[s] || `${s.charAt(0).toUpperCase()}${s.slice(1)}…`);
+  'making it private': 'Making it private, from your Tacit account…', 'sending it on': 'Private. Sending it on…',
+  'sign the permit': 'Sign the permit in your wallet. The signature costs nothing…', 'approve': 'Approve exactly the deposit’s amount in your wallet, once…', 'reset the allowance': 'Your USDT allowance is reset to zero first (USDT asks for this)…' }[s] || `${s.charAt(0).toUpperCase()}${s.slice(1)}…`);
 async function laterGo() {
   const q = S.q, to = S.to, get = tokenOf(S.get), dest = laterDest();
   if (!q || (!to && dest.kind === 'address') || laterDeposit(q) == null || S.busy) return;
   if (now() - (q.at || 0) > 60) { say('The price was read again. Check it and press once more.', '', true); requote(true); return; }
-  // the relay's fee read again if it is old: the deposit is shown again when it has moved
-  if (Date.now() - LATER.feeAt > 120e3) { const was = laterDeposit(q); await readFee(); if (laterDeposit(q) !== was) { say('The relay’s fee moved, so the deposit is shown again. Check it and press once more.', '', true); return; } }
-  const dep = laterDeposit(q), extra = laterExtra(q);
+  // the relay's fee read again if it is old: the deposit is shown again when it has moved (busy meanwhile, so a second press starts nothing)
+  if (Date.now() - LATER.feeAt > 120e3) {
+    const was = laterDeposit(q);
+    S.busy = true;
+    try { await readFee(); } finally { S.busy = false; }
+    if (laterDeposit(q) !== was) { say('The relay’s fee moved, so the deposit is shown again. Check it and press once more.', '', true); paint(); return; }
+  }
+  const dep = laterDeposit(q), extra = laterExtra(q), v = isEth(S.pay) ? null : picked(q)?.via, tin = v ? laterIn(q) : null, pt = tokenOf(S.pay);
+  if (!isEth(S.pay) && tin == null) return;
+  // from a token: the amount typed and its route's floor, from which later.js sizes the token sold for the deposit again, refused above what the
+  // button showed by more than the slippage
+  const pay = v ? { token: S.pay, sym: pt.sym, dec: pt.dec, amountIn: q.wei, min: v.r0.min, most: (tin * BigInt(10000 + S.slip)) / 10000n, slippageBps: S.slip } : null;
   S.busy = true; S.note = ''; paintQuote();
+  let moved = false;
   try {
     const lt = await ltLoad();
-    await lt.start({ swapWei: q.wei, extraWei: extra, token: S.get, sym: get.sym, dec: get.dec, to, toName: to && S.toName?.addr === lc(to) ? S.toName.name : null, depositWei: dep, dest, gasWei: laterGas(), onStep: (s) => say(esc(laterStep(s))) });
+    await lt.start({ swapWei: laterSwapWei(q), extraWei: extra, token: S.get, sym: get.sym, dec: get.dec, to, toName: to && S.toName?.addr === lc(to) ? S.toName.name : null, depositWei: dep, dest, gasWei: laterGas(), pay, onStep: (s) => say(esc(laterStep(s))) });
     LATER.on = false; S.amt = ''; S.q = null; S.to = null; S.toTacit = null; S.toTacitBad = ''; S.toOpen = false; $('#to-in').value = '';
     say('<span class="ok">Deposited.</span> The swap waits below.', 'ok', true);
-  } catch (e) { say(e instanceof UserStopped || e?.userStopped ? 'Nothing was sent.' : esc(e?.message || String(e)), e instanceof UserStopped || e?.userStopped ? '' : 'err', true); }
+  } catch (e) { moved = !!e?.moved; say(e instanceof UserStopped || e?.userStopped ? 'Nothing was sent.' : esc(e?.message || String(e)), e instanceof UserStopped || e?.userStopped ? '' : 'err', true); }
   finally { S.busy = false; changed(); paint(); paintSteps(); H.onDone?.(); readBalances().then(paintSides, () => {}); }
+  if (moved) requote(true);
 }
 // Each kept swap as steps: its deposit, its wait (the pool's new notes since, once the key is open here) and its swap out, with the price to
 // confirm and what went wrong in the swap's own card.
@@ -923,7 +961,7 @@ function paintSteps() {
     const mix = b ? `${b.since ? `mixed with ${b.since} since yours` : 'nothing new in the pool yet'} · ${inFor}${meter}` : left ? inFor : `${inFor} so far`;
     const check = `<button type="button" class="btn sm ghost" data-later-check="${id}">Check it</button>`;
     const s1 = stopped ? stepLi('fail', 1, 'Deposit', 'did not go through') : depDoubt ? stepLi('fail', 1, 'Deposit', 'not confirmed', check)
-      : deposited ? stepLi('done', 1, 'Deposit', '', p.depositTx ? link(p.depositTx) : 'in the pool') : stepLi('now', 1, 'Deposit', 'sending…');
+      : deposited ? stepLi('done', 1, 'Deposit', p.pay ? `${tidy(amtFmt(BigInt(p.pay.amountWei), Number(p.pay.dec)))} ${esc(p.pay.sym)} in` : '', p.depositTx ? link(p.depositTx) : 'in the pool') : stepLi('now', 1, 'Deposit', 'sending…');
     const s2 = !deposited ? stepLi('todo', 2, 'In the pool') : swapped || swapping || swapDoubt || (waiting && o) ? stepLi('done', 2, 'In the pool', mix) : stepLi('now', 2, 'In the pool', mix);
     const got = p.min ? `${tidy(amtFmt(BigInt(p.min), Number(p.dec)))} ${esc(p.sym)} or more` : '';
     const s3 = swapped ? stepLi('done', 3, 'Swap out', got, p.swapTx ? link(p.swapTx) : 'done') : swapDoubt ? stepLi('fail', 3, 'Swap out', 'not confirmed', check)

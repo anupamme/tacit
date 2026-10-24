@@ -19,6 +19,7 @@ function plain(e) {
 const lacks = (e) => e?.code === -32601 || e?.code === 4200 || /not (supported|implemented|found)|unsupported|does not (exist|support)|unknown method|invalid method/i.test(e?.message || '');
 // Hands this site's permission back to the wallet, so the next Connect asks which account (EIP-2255). A wallet without the call keeps the permission, which is
 // then the wallet's to revoke; it is not waited for longer than a moment, and never an error here.
+const lcs = (a) => String(a || '').toLowerCase();
 const revokeSite = (provider) => Promise.race([
   Promise.resolve().then(() => provider?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })).catch(() => {}),
   new Promise((done) => setTimeout(done, 1500)),
@@ -140,6 +141,45 @@ export function makeWallet({ rpc, leave = null, busy = () => false }) {
     same(from);
     return req('eth_sendTransaction', [{ from: from || W.account, to, data, ...(value ? { value: '0x' + BigInt(value).toString(16) } : {}) }]);
   }
+  // Atomic batches (EIP-5792): calls the wallet sends together in one confirmation (an approval and the call that uses it), where it takes them.
+  // A wallet that turns out not to take batches throws { noBatch }, so the caller can send them one by one; one that took a batch and does not
+  // say how it went throws { said }. → the hash of the transaction that carried the calls, once it is in a block.
+  const BATCH_NO = [4200, -32601, -32602, 5700, 5710, 5740, 5750, 5760], noBatch = new Set();
+  async function canBatch() {
+    if (!W.prov || !W.account || noBatch.has(lcs(W.account))) return false;
+    const caps = await Promise.race([W.prov.request({ method: 'wallet_getCapabilities', params: [W.account] }), new Promise((r) => setTimeout(() => r(null), 4000))]).catch(() => null);
+    if (!caps || typeof caps !== 'object') return false;
+    const at = (id) => Object.keys(caps).find((k) => { try { return BigInt(k) === BigInt(id); } catch { return false; } });
+    return ['supported', 'ready'].includes(caps[at(1) ?? at(0)]?.atomic?.status);
+  }
+  async function sendCalls(calls, { from = null, sent = () => {} } = {}) {
+    same(from);
+    await ensureMainnet();
+    same(from);
+    let id;
+    try {
+      const r = await W.prov.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: MAINNET, from: from || W.account, atomicRequired: true,
+        calls: calls.map(({ to, data, value }) => ({ to, data, value: '0x' + BigInt(value || 0).toString(16) })) }] });
+      id = typeof r === 'string' ? r : r?.id;
+    } catch (e) {
+      if (!BATCH_NO.includes(e?.code)) throw plain(e);
+      noBatch.add(lcs(W.account));
+      throw Object.assign(new Error('Your wallet does not send these together.'), { noBatch: true });
+    }
+    const unknown = (m) => Object.assign(new Error(m), { said: true });
+    if (!id) throw unknown('Your wallet did not say what it sent. Check its activity before trying again.');
+    sent();
+    for (let i = 0, quiet = 0; i < 600; i++) {
+      const st = await Promise.race([W.prov.request({ method: 'wallet_getCallsStatus', params: [id] }), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 9000))])
+        .then((x) => { quiet = 0; return x; }, () => { if (++quiet > 9) throw unknown('Your wallet sent it but cannot say how it went. Check its activity before trying again.'); return null; });
+      const rs = st?.receipts || [], q = String(st?.status ?? '');
+      if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed on chain, so nothing was sent.');
+      const last = rs[rs.length - 1], h = last && (q === '200' || /CONFIRMED|SUCCESS/i.test(q) || rs.length >= calls.length) ? last.transactionHash || last.hash : null;
+      if (h) return h;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw unknown('Your wallet has not confirmed it yet. Check its activity before trying again.');
+  }
   // TAC's permit to `spender`: the typed data the wallet shows, and the split signature.
   async function signPermit({ token, name, spender, value, deadline, nonce, owner = null }) {
     same(owner);
@@ -182,5 +222,5 @@ export function makeWallet({ rpc, leave = null, busy = () => false }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, restore, disconnect, chooseAccount, ensureMainnet, ensureChain, sendTx, signPermit, signMessage, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, chooseAccount, ensureMainnet, ensureChain, sendTx, canBatch, sendCalls, signPermit, signMessage, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
 }

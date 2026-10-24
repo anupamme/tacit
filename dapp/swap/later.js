@@ -3,14 +3,21 @@
 // pays exactly the swap's ETH into a call intent's escrow (router.withdrawAndCall) whose one call swaps it on zRouter and pays the token to the
 // address given, so nothing on chain ties the deposit to where the token goes. The pool's keeper sends the withdrawal (no wallet is seen); the
 // signer can send it instead. What is left of the deposit stays a private note in the pool. Each swap's plan is kept in this browser until done.
-import { hexToBytes } from '/vendor/tacit-deps.min.js';
+// A wallet that starts from a token (any listed token, or TAC) deposits through the zap (TacitEvmPoolZap): one transaction sells the token on
+// zRouter for exactly the deposit's ETH and deposits it with this device's proof; from there the swap is the same. (The TAC pool deployed with
+// the TAC vaults could hold TAC itself, but nothing is in it yet and no keeper sends for it, so a hop through it would hide nothing.)
+import { hexToBytes, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { checkZRouterCall } from '/zrouter-guard.js';
-import { bestRoute } from '/swap/aggregate.js?cb=ba695973';
+import { bestRoute } from '/swap/aggregate.js?cb=9759a1ca';
+import { readAccess, readToken, permitTyped, permit2Typed, splitSig, randomNonce as permit2Nonce, encApprove } from '/swap/route.js?cb=ce610210';
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 export const CHAIN = { chainId: 1, rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org', 'https://1rpc.io/eth'],
   keeper: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper', deployBlock: 26069245, confirmations: 3 };
 const ZERO = '0x0000000000000000000000000000000000000000', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4', TAC = '0xa1313eb9f3a445606d9583bcac3ebeb56a858279';
+const USDT = '0xdac17f958d2ee523a2206206994597c13d831ec7', DAI = '0x6b175474e89094c44da98b954eedeac495271d0f', PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+// TacitEvmPoolZap: shields a token into the ETH pool above in one transaction (contracts/src/TacitEvmPoolZap.sol; docs/EVM-POOL.md)
+export const ZAP = '0x0000008EbBF2323f95c4fBc18254f3D65C53998c';
 const PLANS_KEY = 'tacit-swap-later-v1', ARTIFACT_CACHE = 'tacit-evm-pool-artifacts-v1';
 const lc = (s) => String(s || '').toLowerCase();
 const word = (a) => lc(a).replace(/^0x/, '').padStart(64, '0');
@@ -53,6 +60,60 @@ export async function routeOutTac({ venues, amount, to, slippageBps, deadline, r
   if (copy.data === real.data || copy.data.split(word(stand)).join(word(to)) !== real.data) return null;
   return { kind: 'tac', callData: real.data, standData: copy.data, min, out: BigInt(q.amountOut), amountIn: BigInt(q.amountIn), name: q.venue === 'precision' ? 'Precision pool' : 'Tacit pool', to, deadline: BigInt(deadline) };
 }
+// The deposit's route for a token: `amountIn` of it sold on zRouter for ETH paid to the zap, which deposits the ETH with this device's proof in
+// the same transaction. A listed token goes by zQuoter's best route, held to the guard by bestRoute (exactly `amountIn`, the zap paid, at least
+// its floor); TAC, which zQuoter does not route, by the Precision pool, built as zRouter's calls (the Tacit pool's own door is not a zRouter call,
+// so it cannot run inside the zap). `from` gets back what a route leaves unspent. → { callData, out, min, name, amountIn } or null.
+export async function routeIn({ ethCall, venues, token, amountIn, from, slippageBps = 50, deadline }) {
+  const amt = BigInt(amountIn);
+  if (lc(token) === TAC) {
+    if (!venues) throw new Error('TAC swaps need the page\'s venues.');
+    const q = (await venues.route({ dir: 'TAC_TO_ETH', amountIn: amt, account: from }))?.r?.precision;
+    if (!q || BigInt(q.amountIn) !== amt) return null;
+    const out = BigInt(q.amountOut), min = (out * BigInt(10000 - slippageBps)) / 10000n;
+    if (min <= 0n) return null;
+    const tx = venues.build({ quote: q, dir: 'TAC_TO_ETH', account: from, to: ZAP, minOut: min, deadline: BigInt(deadline) });
+    if (lc(tx.to) !== lc(ZROUTER) || BigInt(tx.value || 0) !== 0n || !lc(tx.data).includes(word(ZAP))) return null;
+    return { callData: tx.data, out, min, name: 'Precision pool', amountIn: amt };
+  }
+  const q = await bestRoute({ ethCall, to: ZAP, refundTo: from, tokenIn: token, tokenOut: ZERO, amountIn: amt, slippageBps, deadline });
+  return q && q.min > 0n ? { callData: q.callData, out: q.out, min: q.min, name: q.name, amountIn: amt } : null;
+}
+// The amount of a token whose route pays the zap at least `depositWei`: `amountIn` (whose route's floor is `min`) scaled up to the deposit with
+// a little over, and asked again while its floor still falls short (a route pays less per token as it grows). → that route, or null.
+export async function sizeIn({ route, amountIn, min, depositWei, tries = 3 }) {
+  let a = BigInt(amountIn), m = BigInt(min);
+  const d = BigInt(depositWei);
+  if (a <= 0n || m <= 0n || d <= 0n) return null;
+  for (let i = 0; i < tries; i++) {
+    a = (a * d * 10020n + m * 10000n - 1n) / (m * 10000n);
+    const r = await route(a);
+    if (!r) return null;
+    if (r.min >= d) return r;
+    m = r.min;
+  }
+  return null;
+}
+// The swap's ETH, from what a token's route into the pool pays: three significant figures, rounded down (the rest stays in the pool with the
+// buffer), so the swap out is no exact image of the deposit.
+export const swapOf = (wei) => { const v = BigInt(wei), unit = 10n ** BigInt(Math.max(0, v.toString().length - 3)); return (v / unit) * unit; };
+// What a swap that starts from a token comes to, for the card: `amountIn` of `pay` sold for ETH by the route into the pool, and the swap's share
+// of that ETH sold for `get` on the way out (ETH itself when `get` is ETH), each quoted for a random stand-in, so no node is shown the wallet or
+// the address. → { r0 (the route in), ethWei (the swap), r1 (the route out) } or null.
+export async function quoteThrough({ ethCall, venues, pay, get, amountIn, slippageBps = 50, deadline, random = (n) => crypto.getRandomValues(new Uint8Array(n)) }) {
+  const stand = () => '0x' + hexOf(random(20));
+  const r0 = await routeIn({ ethCall, venues, token: pay, amountIn, from: stand(), slippageBps, deadline });
+  if (!r0) return null;
+  const x = swapOf(r0.out);
+  if (x <= 0n) return null;
+  const r1 = lc(get) === ZERO ? { out: x, min: x, name: 'ETH' }
+    : lc(get) === TAC ? await routeOutTac({ venues, amount: x, to: stand(), slippageBps, deadline, random })
+      : await routeOut({ ethCall, token: get, amount: x, to: stand(), slippageBps, deadline, random });
+  return r1 ? { r0, ethWei: x, r1 } : null;
+}
+// A wallet's own stop (declined in the wallet), as against a signature that would not check out.
+const declined = (e) => e?.code === 4001 || e?.userStopped || e?.name === 'UserStopped' || /reject|denied|cancel/i.test(String(e?.message || ''));
+
 // A deposit that is not an amount of its own: the swap, the relay's fee twice and an extra (the slider's share of the swap, drawn at random
 // between three quarters and one and a quarter of it, never under a twentieth), rounded up to two significant figures.
 // `gasWei`: for a swap into a private balance, the gas the key's own account is handed with the TAC, to make it private from there.
@@ -76,7 +137,9 @@ export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalTh
   return BigInt(j.fee);
 }
 
-// `keyHex()` opens the Tacit key and gives its private key (hex); `signer` sends from the connected wallet ({ address, ready, send, rpc });
+// `keyHex()` opens the Tacit key and gives its private key (hex); `signer` sends from the connected wallet ({ address, ready, send, rpc }, and for
+// a deposit from a token `signTyped(typed)` for a permit, `receipt(hash)` for an approval it waits on, `canBatch()` and `batch(calls, sent)` for an
+// approval and the zap in one confirmation);
 // `ethCall(to, data, block, { gas })` is the page's (zQuoter's scans need a node that allows a large call).
 // `chain` and `prove` are for tests (another chain's nodes and keeper, a prover that needs no worker).
 // `venues` is the swap page's evm-trade-venues instance, for a swap into TAC; `ux()` gives the pool module (confidential-pool-ux.js) and
@@ -97,7 +160,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   }
   const prover = { ms: null, ready: false };
   const mods = () => (modsP ||= (async () => {
-    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=cc1570cb'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
+    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=6123816d'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
     const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
     return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), wm, gw, vkHash: pm.vkHash };
   })().catch((e) => { modsP = null; throw e; }));
@@ -146,22 +209,90 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   }
 
 
+  // A transaction the wallet sent, until it is in a block (an approval that must land before the call that uses it).
+  async function mined(h) {
+    const rc = signer.receipt ? await signer.receipt(h) : await (async () => { for (let i = 0; i < 80; i++) { const r = await rpc('eth_getTransactionReceipt', [h]).catch(() => null); if (r) return r; await sleep(3000); } return null; })();
+    if (rc?.status !== '0x1') throw new Error('The approval did not go through. Nothing was deposited.');
+  }
+  // The approvals of exactly `amount` to the zap (USDT's set to zero first where it has one, as USDT asks).
+  const approvals = (token, amount, had) => [...(had > 0n && lc(token) === USDT ? [{ to: token, data: encApprove(ZAP, 0n), value: 0n }] : []), { to: token, data: encApprove(ZAP, amount), value: 0n }];
+  // How the zap takes `amount` of a token from the wallet, asking the least of it (as the page's own swaps do): an allowance it has already; an
+  // EIP-2612 permit signed for it (not DAI's, whose own permit the zap has no door for); a Permit2 transfer signed for it, where the token allows
+  // Permit2; the approval and the zap in one batch, where the wallet sends batches (`before`); else an approval of exactly the amount, mined first.
+  // A signature is checked on chain as the zap would use it before it is, and one that does not check out falls through to the next way. Either
+  // way the deposit is one transaction.
+  async function zapPull({ token, sym, amount, deadline, onStep }) {
+    const owner = signer.address, acc = await readAccess({ ethCall, token, owner, spender: ZAP });
+    if (acc.balance < amount) throw new Error(`Not enough ${sym} in the wallet for the deposit. Nothing was sent.`);
+    if (acc.allowed >= amount) return { kind: 'allowance' };
+    if (signer.signTyped) {
+      const t = await readToken({ ethCall, keccak256: keccak_256, address: token }).catch(() => null);
+      if (t?.permit && acc.nonce != null && lc(token) !== DAI) {
+        try {
+          onStep('sign the permit');
+          const p = splitSig(await signer.signTyped(permitTyped({ token, name: t.name, version: t.permit, owner, spender: ZAP, value: amount, nonce: acc.nonce, deadline })));
+          await ethCall(token, '0xd505accf' + word(owner) + word(ZAP) + amount.toString(16).padStart(64, '0') + BigInt(deadline).toString(16).padStart(64, '0') + p.v.toString(16).padStart(64, '0') + word(p.r) + word(p.s), 'latest');
+          return { kind: 'permit', value: amount, deadline: BigInt(deadline), ...p };
+        } catch (e) { if (declined(e)) throw e; }
+      }
+      if (acc.permit2 >= amount) {
+        try {
+          onStep('sign the permit');
+          const nonce = permit2Nonce(), sig = await signer.signTyped(permit2Typed({ token, amount, nonce, deadline, spender: ZAP }));
+          // as the zap calls it: Permit2 pays the zap, from the zap
+          const { gw } = await mods();
+          await ethCall(PERMIT2, gw.calldata('permitTransferFrom(((address,uint256),uint256,uint256),(address,uint256),address,bytes)', [{ tuple: [{ tuple: ['address', 'uint256'] }, 'uint256', 'uint256'] }, { tuple: ['address', 'uint256'] }, 'address', 'bytes'],
+            [[[token, amount], nonce, BigInt(deadline)], [ZAP, amount], owner, sig]), 'latest', { from: ZAP });
+          return { kind: 'permit2', nonce, deadline: BigInt(deadline), sig };
+        } catch (e) { if (declined(e)) throw e; }
+      }
+    }
+    const ask = approvals(token, amount, acc.allowed);
+    if (signer.batch && signer.canBatch && await Promise.resolve(signer.canBatch()).catch(() => false)) return { kind: 'allowance', before: ask };
+    for (const c of ask) { onStep(c.data === encApprove(ZAP, 0n) ? 'reset the allowance' : 'approve'); await mined(await signer.send(c)); }
+    return { kind: 'allowance' };
+  }
+
   // The deposit: a plan is kept before anything is sent, so a closed tab finds it again; the prover starts loading at once.
-  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, toName = null, depositWei, dest = { kind: 'address' }, gasWei = 0n, onStep = () => {} }) {
+  // `pay`, for a deposit from a token: { token, sym, dec, amountIn, min, most, slippageBps }: the amount the card quoted and its route's floor,
+  // from which the amount sold for exactly the deposit is found again here (refused above `most`, the most the card showed); then the zap's pull,
+  // and the zap's one transaction with the proof in it.
+  async function start({ swapWei, extraWei = 0n, token, sym, dec, to, toName = null, depositWei, dest = { kind: 'address' }, gasWei = 0n, pay = null, onStep = () => {} }) {
     if (!signer.address) throw new Error('Connect a wallet to deposit from.');
     if (dest.kind !== 'address') {
       if (lc(token) !== TAC) throw new Error(`Only TAC can go to a private balance from here: ${sym} is not a pool asset.`);
       to = (await tacitAccount()).acct.address;
     }
     if (lc(to) === lc(signer.address)) throw new Error('Send it to another address: the wallet that deposits would tie the two together.');
-    const w = await wallet();
+    if (pay && (lc(pay.token) === ZERO || lc(pay.token) === lc(token))) throw new Error('Pay with another token than the one it buys.');
+    const w = await wallet(), m_ = await mods();
     warm().catch(() => {});
+    let selfCall = null, paid = null, batched = null;
+    if (pay) {
+      onStep('reading the price again');
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S), slippageBps = pay.slippageBps ?? 50;
+      const size = () => sizeIn({ route: (a) => routeIn({ ethCall, venues, token: pay.token, amountIn: a, from: signer.address, slippageBps, deadline }), amountIn: pay.amountIn, min: pay.min, depositWei });
+      // a node that failed a heavy read looks like no route: asked once more before saying so
+      const r = (await size()) || (await sleep(1500), await size());
+      if (!r) throw new Error(`No onchain route sells ${pay.sym} for the deposit right now. Nothing was sent.`);
+      if (pay.most != null && r.amountIn > BigInt(pay.most)) throw Object.assign(new Error(`The price moved: the deposit takes more ${pay.sym} than was shown. Nothing was sent; check it and press again.`), { moved: true, amountIn: r.amountIn });
+      const pull = await zapPull({ token: pay.token, sym: pay.sym, amount: r.amountIn, deadline, onStep });
+      const zap = (tx) => m_.wm.zapDeposit(ZAP, tx, { token: pay.token, amountIn: r.amountIn, swap: r.callData, pull });
+      selfCall = (tx) => ({ ...zap(tx), ...(pull.before?.length ? { before: pull.before } : {}) });
+      // a wallet that said it batches and then will not: the approvals are sent one by one, then the deposit alone
+      batched = pull.before?.length ? { calls: pull.before, alone: zap } : null;
+      paid = { token: lc(pay.token), sym: pay.sym, dec: pay.dec, amountWei: String(r.amountIn), route: r.name };
+    }
     const s0 = await w.sync();
     const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), from: lc(signer.address), swapWei: String(swapWei), extraWei: String(extraWei),
-      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), dest, gasWei: String(gasWei), state: 'depositing', leaves0: s0.leaves };
+      depositWei: String(depositWei), token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), ...(paid ? { pay: paid } : {}), dest, gasWei: String(gasWei), state: 'depositing', leaves0: s0.leaves };
     keepPlans([plan, ...readPlans(store)], store);
     try {
-      plan.depositTx = await w.deposit({ amount: BigInt(depositWei), onStep });
+      plan.depositTx = await w.deposit({ amount: BigInt(depositWei), selfCall, onStep }).catch(async (e) => {
+        if (!e?.noBatch || !batched) throw e;
+        for (const c of batched.calls) { onStep(c.data === encApprove(ZAP, 0n) ? 'reset the allowance' : 'approve'); await mined(await signer.send(c)); }
+        return w.deposit({ amount: BigInt(depositWei), selfCall: batched.alone, onStep });
+      });
       plan.state = 'waiting'; plan.depositedAt = Date.now(); plan.leaves0 = (await w.sync()).leaves; plan.err = null;
     } catch (e) {
       // declined or refused before it was sent: nothing went; anything else may have landed, and is checked against the pool

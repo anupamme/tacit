@@ -359,6 +359,23 @@ export function routerDeposit(router, tx, pull = { kind: 'allowance' }) {
   if (pull.kind === 'batch') return { ...permit(NO_PERMIT), before: [approveCall(pull.token, router, amount)] };
   throw new Error(`evm-pool-wallet: unknown way to pay, ${pull.kind}`);
 }
+// The zap's call that shields a token into the ETH pool (TacitEvmPoolZap), as the `selfCall` of deposit/depositTo: it takes `amountIn` of
+// `token` from the signer, runs `swap` (zRouter calldata paying the zap at least the deposit's ETH) and deposits exactly the proof's
+// `extAmount`; what the swap leaves goes back to the signer. It is sent no ETH. `pull` is how the zap takes the token:
+//   { kind: 'allowance' }                          an allowance to the zap is in place already
+//   { kind: 'permit', value, deadline, v, r, s }   an EIP-2612 permit of exactly `amountIn` for the zap, which the zap applies first
+//   { kind: 'permit2', nonce, deadline, sig }      a Permit2 signature transfer of exactly `amountIn` naming the zap
+export function zapDeposit(zap, tx, { token, amountIn, swap, pull = { kind: 'allowance' } }) {
+  const a = BigInt(amountIn), T = { tuple: TX_TYPES };
+  if (BigInt(tx.extAmount) <= 0n) throw new Error('evm-pool-wallet: a deposit has a positive amount');
+  if (pull.kind === 'allowance') return { to: zap, value: 0n, data: calldata(`zapToken(${TX_SIG},address,uint256,bytes)`, [T, 'address', 'uint256', 'bytes'], [txValues(tx), token, a, swap]) };
+  if (pull.kind === 'permit') {
+    if (BigInt(pull.value) !== a) throw new Error('evm-pool-wallet: the permit is for another amount than the zap takes');
+    return { to: zap, value: 0n, data: calldata(`zapTokenWithPermit(${TX_SIG},address,uint256,uint256,uint8,bytes32,bytes32,bytes)`, [T, 'address', 'uint256', 'uint256', 'uint8', 'bytes32', 'bytes32', 'bytes'], [txValues(tx), token, a, BigInt(pull.deadline), pull.v, pull.r, pull.s, swap]) };
+  }
+  if (pull.kind === 'permit2') return { to: zap, value: 0n, data: calldata(`zapTokenWithPermit2(${TX_SIG},address,uint256,uint256,uint256,bytes,bytes)`, [T, 'address', 'uint256', 'uint256', 'uint256', 'bytes', 'bytes'], [txValues(tx), token, a, BigInt(pull.nonce), BigInt(pull.deadline), pull.sig, swap]) };
+  throw new Error(`evm-pool-wallet: unknown way to pay, ${pull.kind}`);
+}
 
 // ── wallet ──
 
@@ -890,7 +907,8 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
         h = r.body.txHash;
       } else {
         const c = selfCall ? selfCall(tx) : { to: chain.pool, data: transactData(tx) };
-        h = await sendSelf(c.to, c.data, extAmount > 0n && !isToken ? extAmount : 0n, onStep, c.before);
+        // a call that names its own value (the zap, sent no ETH) is sent that; a deposit into the ETH pool is otherwise sent its amount
+        h = await sendSelf(c.to, c.data, c.value ?? (extAmount > 0n && !isToken ? extAmount : 0n), onStep, c.before);
         if (!h) { treeRefused = true; continue; }
       }
       for (const n of ins) pending.add(n.nf);
@@ -1063,8 +1081,9 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     },
 
     // Deposits `amount` wei from the signer into a private note here. → tx hash.
-    // `selfCall(tx)` → { to, data, before? }: what the signer submits in place of pool.transact; a token pool takes its
-    // deposit through the router (routerDeposit), with `before` (an approval) sent in the same batch.
+    // `selfCall(tx)` → { to, data, value?, before? }: what the signer submits in place of pool.transact; a token pool takes its
+    // deposit through the router (routerDeposit), with `before` (an approval) sent in the same batch; the ETH pool can take one
+    // through the zap (zapDeposit), from a token swapped for the deposit's ETH in the same transaction.
     async deposit({ amount, selfCall = null, onStep = () => {} }) {
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');

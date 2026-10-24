@@ -5454,7 +5454,7 @@ function xoOut(el, status, a) {
 const DEV = { chain: DEVICE_CHAINS.find((c) => c.chainId === store.get('tacit-lite-device-chain')) || DEVICE_CHAINS[1], tok: null, mode: 'deposit', dest: 'addr', W: null, bal: null, key: null, quote: null, gq: {}, err: null, self: false };
 const getDeviceMods = lazy(async () => {
   const [zkm, wm, pm, pos] = await Promise.all([
-    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=cc1570cb'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
+    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=6123816d'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
   ]);
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
   return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), ...wm, vkHash: pm.vkHash };
@@ -5526,7 +5526,7 @@ function poolSyncInWorker(c) {
     if (S.key?.pubHex !== pub) return resolve(false);
     let w;
     try {
-      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=310e2c90', { type: 'module' });
+      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=3b99bd05', { type: 'module' });
       w.onmessage = (e) => { const f = PSW.wait.get(e.data?.id); if (f) { if (!e.data.write) PSW.wait.delete(e.data.id); f(e.data); } };
       w.onerror = () => { for (const f of PSW.wait.values()) f({ ok: false }); PSW.wait.clear(); PSW.w = null; };
     } catch { return resolve(false); }
@@ -11944,6 +11944,11 @@ const swcWallet = {
     try { return await sendTx({ to, data, value: BigInt(value || 0), via: 'wallet', label }); } catch (e) { throw swcNo(e); }
   },
   async receipt(h) { const r = await receipt(h); if (!r) throw new Error('Sent, not confirmed yet. Check it on Etherscan before sending anything again.'); return r; },
+  canBatch: () => canBatch(),
+  async sendCalls(calls, { from, sent = () => {}, label = 'Swap' } = {}) {
+    if (from && String(from).toLowerCase() !== S.wallet) throw new Error('The wallet’s account changed. Nothing was sent; review it again.');
+    try { return await sendBatch(calls, label, sent); } catch (e) { throw e?.noBatch || e?.said ? e : swcNo(e); }
+  },
   watchAsset: (options) => S.provider?.request({ method: 'wallet_watchAsset', params: { type: 'ERC20', options } }).catch(() => {}),
 };
 const swcW = { get account() { return S.wallet; }, get prov() { return S.provider; }, uuid: null };
@@ -11959,7 +11964,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=3d8c305f').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=0927cd1f').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) s.replaceWith(SWC.el); swcAsk(); };

@@ -6,7 +6,7 @@
 // that passes is the route. All of it is views on the chain: nothing here leaves the page.
 // by the same paths the page imports them by, so the page holds one copy of each
 import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '/zrouter-guard.js';
-import { ZQUOTER, ZERO, SOURCES } from '/swap/route.js?cb=35ce60db';
+import { ZQUOTER, ZERO, SOURCES } from '/swap/route.js?cb=ce610210';
 
 const SEL = { viaEth: 'e453166e', split: '892af013', hybrid: '85f86a90', quotes: 'e1fd10bc' };
 const HEAVY = '0x11E1A300';                                          // 300M gas: a split's scan of every pool is far over a default call
