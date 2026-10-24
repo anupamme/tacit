@@ -333,6 +333,7 @@ try {
   await typed(u, '3000');
   const rows = await text(u, '#info');
   ok(/Fee \(1%\)\s*30 TACD/.test(rows) && /You receive\s*3,000 TACD/.test(rows) && /You owe after\s*3,030 TACD/.test(rows) && /Ratio after\s*825%/.test(rows), `the fee is shown before: ${rows}`);
+  ok(/825%/.test(await text(u, '#after .hb-val')) && /Open/.test(await text(u, '#tk-h')) && await u.$eval('#after .hb', (e) => e.getAttribute('aria-hidden') === 'true' && !e.hasAttribute('role')), 'the ticket says the vault is open, and draws the health bar for where the borrow would leave it (825%, the same as its row), once, for the eye');
   await typed(u, '8000');
   ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /You receive\s*8,000 TACD/.test(await text(u, '#info')) && /Ratio after\s*[4-9]\d\d%/.test(await text(u, '#info')), `over what the vault's own TAC allows it offers the deposit that makes it work, enough to stay at 400% (${(await text(u, '#info')).slice(0, 120)})`);
   await typed(u, '50');
@@ -356,7 +357,7 @@ try {
   ok(/Debt\s*3,030 TACD/.test(pos) && /Safe/.test(pos) && /You can borrow\s*4,0\d\d(\.\d+)? TACD/.test(pos) && /Liquidation price\s*\$0\.0\d+/.test(pos), `the position: ratio 825%, debt, what is still available and the liquidation price (${pos.slice(0, 260)})`);
   // the liquidation price is the price at which the vault is at 200%: 3,030 × 2 / 100,000 = $0.0606 per TAC, shown rounded up
   ok(/Liquidation price\s*\$0\.0606/.test(pos), 'the liquidation price is where the vault is at 200%: $0.0606 per TAC');
-  const hb = await u.evaluate(() => { const f = (s) => parseFloat(document.querySelector(s)?.style.left || 'NaN'); return { pin: f('.hb-pin'), tick: f('.hb-tick'), on: [...document.querySelectorAll('.hb-key span.on')].map((e) => e.textContent) }; });
+  const hb = await u.evaluate(() => { const f = (s) => parseFloat(document.querySelector(s)?.style.left || 'NaN'); return { pin: f('#pos .hb-pin'), tick: f('#pos .hb-tick'), on: [...document.querySelectorAll('#pos .hb-key span.on')].map((e) => e.textContent) }; });
   ok(Math.abs(hb.tick - 62.5) < 0.01 && hb.pin === 100 && hb.on.join() === 'Safe', `the health bar: the borrowing line is at 350% (${hb.tick}% across), the marker at the safe end (825% is off the bar's end), the Safe zone is the lit one`);
   await shot(u, 'safe-desktop');
 
@@ -787,6 +788,8 @@ try {
     await untilText(oo, '#go', new RegExp(`^Record ${n} prices to open borrowing$`), 60000);
     await sleep(1500);
     ok((await text(oo, '#info')) === '' && new RegExp(`Borrowing is not open yet`).test(await text(oo, '#board')) && new RegExp(`waits for ${n} prices`).test(await text(oo, '#board')), 'with that many missing nothing is prepared in the background, and the board says borrowing waits for them');
+    const confs = Math.ceil(n / 10), say = new RegExp(`Takes ${confs} wallet confirmations?`);
+    ok(say.test(await text(oo, '#hint')) && say.test(await text(oo, '#feed')) && (await oo.$$('#feed .mt b')).length === 2, `the button and the price feed both say how many confirmations ${n} records take (${confs}), and each venue has its meter`);
     OL.sends.length = 0;
     await oo.click('#go');
     await untilText(oo, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 240000);
@@ -902,7 +905,7 @@ try {
       await until(r.page, () => ['#promo', '#pl-reward'].every((q) => { const e = document.querySelector(q); return !!e && getComputedStyle(e).display !== 'none'; }));
       const pr = await text(r.page, '#promo');
       ok(/^Earn 150 TAC for opening a TACD or TACE market, and 25 TAC a day for supplying one\. See the markets ↓$/.test(pr), `one line under the title says what it pays (${pr})`);
-      await untilText(r.page, '#board', /Sells for\s*Not open yet\s*opening earns 150 TAC/);
+      await untilText(r.page, '#board', /Trades at\s*Not open yet\s*opening earns 150 TAC/);
       ok(true, 'the board says on the unopened token that opening it earns 150 TAC');
       const rw = (await r.page.$eval('#pl-reward', (e) => e.innerText)).replace(/\s+/g, ' ').trim();           // what is shown, not what is merely in the markup
       ok(/^EARN TAC HERE Opening bonus 150 TAC to the first in with \$20 for a day Daily rewards 25 TAC a day to those who hold it all day · up to 0\.05 per \$1$/i.test(rw), `the card has one block for it, short enough to read (${rw})`);
@@ -928,7 +931,7 @@ try {
     ok((await r.page.$$eval('#pl-pick button .pair .tk', (n) => n.length)) === 4 && /Peg · 0\.05% fee/.test(await panel(r.page)) && /Opens at\s*1 TACD = 1 USDC/.test(await panel(r.page)) && /Range\s*0\.9 – 1\.111 USDC/.test(await panel(r.page)), 'the first is open to read: the peg band, 0.05%, opening at 1 TACD = 1 USDC');
     await r.page.click('#pl-pick button:nth-child(2)'); await sleep(100);
     ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
-    await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
+    await untilText(r.page, '#board', /Trades at\s*Not open yet\s*Not open yet/);
     ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
     ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km, #pl-reward, #promo', (els) => els.length === 5 && els.every((e) => getComputedStyle(e).display === 'none')), 'with the campaign off the page advertises nothing for it (the rows, their block and the line under the title are not shown, not merely marked hidden)');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
@@ -964,7 +967,7 @@ try {
     await until(up, () => /In the pool/.test(document.querySelector('#pools')?.textContent || ''));
     const pt = await panel(up);
     ok(/Price\s*1 TACD = 1 USDC/.test(pt) && /In the pool\s*1,000 USDC · 1,000 TACD/.test(pt) && /Yours\s*100%/.test(pt), `the panel shows the price, the depth and the share (${pt.slice(0, 200)})`);
-    await untilText(up, '#board', /Sells for\s*1,000 USDC/);
+    await untilText(up, '#board', /Trades at\s*1 USDC\s*1,000 USDC in the pool/);
     ok(true, 'and the board row shows the depth');
     await shot(up, 'pools-open');
     ok(UL.sends.length === 3 && r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
@@ -1086,6 +1089,15 @@ try {
       await closeAll(r);
 
     }
+  }
+
+  // ── the order the page is read in: a phone puts the ticket before the figures, a wide screen keeps it beside them ──
+  for (const [width, phone] of [[390, true], [1280, false]]) {
+    const x = await openPage({ viewport: { width, height: 900 }, who: 'user' });
+    await connect(x.page); await until(x.page, () => /Borrowing is open/.test(document.querySelector('#board')?.textContent || ''));
+    const at = await x.page.evaluate(() => Object.fromEntries(['#pos', '#ticket', '#board'].map((q) => { const r = document.querySelector(q).getBoundingClientRect(); return [q, { top: r.top + scrollY, left: r.left, right: r.right }]; })));
+    ok(phone ? at['#ticket'].top < at['#board'].top && at['#pos'].top < at['#ticket'].top : at['#ticket'].left >= at['#board'].right, phone ? 'on a phone the vault and the ticket come before the board' : 'on a wide screen the ticket sits beside the board');
+    await closeAll(x);
   }
 
   // ── screenshots, phone and dark, one per zone ──

@@ -413,8 +413,8 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
       const n = termsNow(), unopened = n && n.create > 0n && list(key).some((m) => P.camp?.pools?.some((p) => p.pool === m.pool.toLowerCase() && !p.openPaid));
       return unopened ? `Not open yet<small>opening earns ${esc(tacText(n.create))} TAC</small>` : 'Not open yet';
     }
-    const q = x.m.synthIs1 ? x.r0 : x.r1;
-    return `<b>${esc(qFmt(x.m, q, 2))}</b> ${esc(x.m.quote.sym)}<small>in the ${esc(symOf(key))} / ${esc(x.m.quote.sym)} pool</small>`;
+    const q = x.m.synthIs1 ? x.r0 : x.r1, now = px(x), depth = `${esc(qFmt(x.m, q, 2))} ${esc(x.m.quote.sym)} in the pool`;
+    return now && !small(now) ? `<b>${esc(near(now, 18, 4))}</b> ${esc(x.m.quote.sym)}<small>${depth}</small>` : now ? `<b>${esc(pxText(x.m, symOf(key), now))}</b><small>${depth}</small>` : `<b>${esc(qFmt(x.m, q, 2))}</b> ${esc(x.m.quote.sym)}<small>in the pool</small>`;
   }
   return { show, read: () => Promise.all([...keys.map((k) => read(k)), readCampaign()]), draw, cell, promo };
 }

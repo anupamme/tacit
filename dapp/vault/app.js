@@ -6,7 +6,7 @@ import {
 } from '/vault/chain.js?cb=2846737a';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=69eaea4d';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=91c83890';
-import { makePools } from '/vault/pools.js?cb=47344938';
+import { makePools } from '/vault/pools.js?cb=dbca784d';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 
@@ -163,6 +163,8 @@ const tac = (v) => M.fmtAmount(v, 2);
 const syn = (x, v) => M.fmtAmount(v, x.k.dp);
 const pctOf = (bps) => `${Math.floor(Number(bps) / 100).toLocaleString('en-US')}%`;
 const feeText = (bps) => `${Number(bps) / 100}%`;
+const gasEth = (n) => (F.gas != null ? (Number(BigInt(n * RECORD_GAS) * F.gas) / 1e18).toFixed(4) : null);
+const recordHint = (n) => { const c = Math.ceil(n / PER_TX), eth = gasEth(n); return `Takes ${c} wallet confirmation${c === 1 ? '' : 's'}${eth ? `, about ${eth} ETH` : ''}.`; };
 const priceText = (x, p, dir) => x.k.price(M.fmtUnits(M.sigTo(p, 3, dir), 18, 18));
 const zoneName = { liquidation: 'Liquidation', redemption: 'Redemption', safe: 'Safe' };
 
@@ -218,7 +220,7 @@ function boardRows(xs) {
     }],
     ['Smallest debt', (x) => `${esc(syn(x, x.s.minDebt))} ${esc(x.sym)}`],
     ['Fee', (x) => (x.d.feeBps != null ? esc(feeText(x.d.feeBps)) : dash)],
-    ...(xs.some((x) => pools.cell(x.V.key) != null) ? [['Sells for', (x) => pools.cell(x.V.key) ?? dash]] : []),
+    ...(xs.some((x) => pools.cell(x.V.key) != null) ? [['Trades at', (x) => pools.cell(x.V.key) ?? dash]] : []),
     ['Borrowed so far', (x) => (x.d.totalDebt != null ? `${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}` : dash)],
     ['TAC deposited', (x) => (x.d.held != null ? `${esc(tac(x.d.held))} TAC` : dash), true],
     ['Collateral ratio', (x) => (x.backing != null ? esc(pctOf(x.backing)) : dash), true],
@@ -248,12 +250,12 @@ function renderBoard() {
   for (const x of xs) x.hideShort = shared;
   const needs = need.map((g) => `<li>${g.names.length === xs.length ? '' : `<b>${esc(g.names.join(' and '))}:</b> `}${g.t.why}${g.t.next ? ` ${g.t.next}` : ''}</li>`).join('');
   const carry = Math.max(0, ...xs.map((x) => x.status.carry || 0));
-  const cost = carry && F.gas != null ? `, for about ${(Number(BigInt(carry * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
+  const cost = carry && gasEth(carry) ? `, for about ${gasEth(carry)} ETH` : '';
   const carryLine = carry ? `<li>The last ${carry} price${carry === 1 ? '' : 's'} ${carry === 1 ? 'is' : 'are'} recorded with your transaction${cost}.</li>` : '';
   const notices = xs.filter((x) => x.auctionsPaused).map((x) => pauseBox(x, xs.length > 1)).join('') + changesNotice(xs);
   setHtml(el, `${head}<p class="verdict ${waiting ? 'wait' : open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
     ${needs || carryLine ? `<ul class="needs${waiting ? ' wait' : ''}">${needs}${carryLine}</ul>` : ''}
-    <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${icon(x.V.key)}${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
+    <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col"${x.V.key === S.v ? ' class="cur" aria-current="true"' : ''}>${icon(x.V.key)}${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
     <button class="linkbtn more" type="button" data-more aria-expanded="${!!S.more}">${S.more ? 'Fewer figures' : 'More figures'}</button>
     ${notices}`);
 }
@@ -275,12 +277,12 @@ function renderHow() {
   <p>The owner can lower the cap, set fees (up to 5% to borrow, 2.5% to redeem) and pause auctions for up to 12 hours. Other changes are announced here 2 to 3 days ahead.</p>`);
 }
 
-function healthBar(x) {
+function healthBar(x, after = false) {
   const p2 = M.barPos(Number(x.s.liq)), p4 = M.barPos(Number(x.safe)), pl = M.barPos(x.line), pm = M.barPos(Number(x.ratio));
   const pc = (f) => `${(f * 100).toFixed(2)}%`, edge = pm < 0.1 ? ' l' : pm > 0.9 ? ' r' : '';
   const z = (name, w) => `<i class="hb-z ${name}${x.zone === name ? ' on' : ''}" style="width:${pc(w)}"></i>`;
   const label = `Ratio ${pctOf(x.ratio)}: ${x.zone === 'liquidation' ? 'liquidation' : x.zone === 'redemption' ? 'open to redemption' : 'safe'}. Liquidation under ${pctOf(x.s.liq)}, safe from ${pctOf(x.safe)}; you can borrow or withdraw down to ${pctOf(x.s.mint)}.`;
-  return `<div class="hb" role="img" aria-label="${esc(label)}">
+  return `<div class="hb${after ? ' after' : ''}"${after ? ' aria-hidden="true"' : ` role="img" aria-label="${esc(label)}"`}>
     <div class="hb-top"><span style="left:${pc(pl)}">${pctOf(x.s.mint)} borrowing line</span></div>
     <div class="hb-bar">${z('liquidation', p2)}${z('redemption', p4 - p2)}${z('safe', 1 - p4)}<i class="hb-tick" style="left:${pc(pl)}"></i><i class="hb-pin" style="left:${pc(pm)}"></i></div>
     <div class="hb-nums"><span style="left:${pc(p2)}">${pctOf(x.s.liq)}</span><span style="left:${pc(p4)}">${pctOf(x.safe)}</span></div>
@@ -377,7 +379,7 @@ function planCore() {
   const amt = M.parseUnits(S.amt, 18), m = x.me, d = x.d, sym = x.sym, mint = pctOf(x.s.mint);
   const P = { kind: t, x, amt, ok: false, cta: '', rows: [], hint: '', err: false, max: 0n, maxText: '' };
   const after = (collateral, debt) => (d.pL != null && debt > 0n ? M.ratioBps(M.valueOf(collateral, d.pL), debt) : null);
-  const ratioRow = (collateral, debt) => { const r = after(collateral, debt), z = d.pL != null ? M.zoneOf({ collateral, debt, price: d.pL, liq: x.s.liq }) : null; return r != null ? [['Ratio after', `<span class="z-${z}">${esc(pctOf(r))}</span>`]] : []; };
+  const ratioRow = (collateral, debt) => { const r = after(collateral, debt), z = d.pL != null ? M.zoneOf({ collateral, debt, price: d.pL, liq: x.s.liq }) : null; P.after = r != null ? { ratio: r, zone: z } : null; return r != null ? [['Ratio after', `<span class="z-${z}">${esc(pctOf(r))}</span>`]] : []; };
   const fill = (n) => `<button class="linkbtn" type="button" data-fill="${M.plain(n)}">Add ${esc(tac(n))} TAC</button>`;
   const typed = S.amt.trim() !== '';
   if (typed && amt == null) { P.hint = 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).'; P.err = true; P.cta = 'Enter an amount'; return P; }
@@ -399,7 +401,7 @@ function planCore() {
       const f = feedOf(x.V);
       if (!x.stale && ((!f && !F.tried) || (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)))) { P.cta = 'Checking prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
-      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; return P; }
+      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; P.hint = recordHint(f.missing); return P; }
       P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
     }
     if (none) { P.cta = 'Enter an amount'; return P; }
@@ -454,7 +456,7 @@ function planCore() {
     const f = feedOf(x.V);
     if (!x.stale && f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)) { P.cta = 'Checking prices…'; return P; }
     if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
-    if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; return P; }
+    if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; P.hint = recordHint(f.missing); return P; }
     P.cta = 'Withdrawing is paused'; P.hint = 'With a debt, withdrawing waits until prices are recorded.'; return P;
   }
   if (m.collateral === 0n) { P.cta = 'Nothing to withdraw'; return P; }
@@ -482,7 +484,8 @@ function renderTicket() {
   const P = planOf();
   const sym = x?.sym || KIND[S.v]?.sym || '', isTac = t === 'deposit' || t === 'withdraw';
   setHtml($('#acts'), ACTS.map(([k, l]) => `<button type="button" data-t="${k}" aria-pressed="${k === t}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''));
-  $('#tk-h').textContent = x ? `${x.k.name} vault` : 'Vault';
+  const st = V && derive(V) ? statusOf(derive(V)) : null;
+  setHtml($('#tk-h'), `<span>${esc(x ? `${x.k.name} vault` : 'Vault')}</span>${st ? `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : st.state === 'wait' ? 'Checking' : 'Not open'}</span>` : ''}`);
   $('#amt-lbl').textContent = isTac ? `TAC to ${t}` : `${sym} to ${t}`;
   $('#unit').innerHTML = `${isTac ? '<svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>' : icon(S.v)}${esc(isTac ? 'TAC' : sym)}`;
   $('#amt').setAttribute('aria-label', isTac ? `TAC to ${t}` : `${sym} to ${t}`);
@@ -490,6 +493,7 @@ function renderTicket() {
   setHtml($('#chips'), [25, 50, 75, 100].map((p) => `<button type="button" data-pct="${p}"${S.busy || !(P.max > 0n) ? ' disabled' : ''}>${p === 100 ? 'Max' : `${p}%`}</button>`).join(''));
   setHtml($('#info'), P.rows.map(([l, v]) => `<div class="kv"><span>${esc(l)}</span><b class="num">${v}</b></div>`).join(''));
   $('#info').hidden = !P.rows.length;
+  setHtml($('#after'), x && P.after ? healthBar({ ...x, ratio: P.after.ratio, zone: P.after.zone }, true) : '');
   const h = $('#hint'); setHtml(h, P.hint); h.classList.toggle('err', !!P.err);
   const go = $('#go');
   go.title = '';
@@ -685,11 +689,10 @@ function drawFeed() {
   const carried = V && st && !st.ready && st.missing > 0 && st.missing <= BATCH_MAX && !!viaOf(V) && !F.busy && !F.note;
   if (!VS.length || !st || carried || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }
   el.hidden = false;
-  const cost = F.gas != null && st.missing ? `, for about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
-  const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div>`).join('');
+  const rows = st.venues.map((v, i) => `<div class="vn"><div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div><i class="mt" aria-hidden="true"><b style="width:${v.points ? Math.min(100, Math.round(v.counted * 100 / v.points)) : 0}%"></b></i></div>`).join('');
   setHtml(el, `<p class="eyebrow" id="feed-h"><span>Price feed</span><span class="who">${st.ready ? 'up to date' : `${st.missing} to record`}</span></p>
     <div class="rows flat">${rows}</div>
-    ${st.missing ? `<p class="note">Anyone can record the ${st.missing} missing price${st.missing === 1 ? '' : 's'}${cost}.</p>
+    ${st.missing ? `<p class="note">Anyone can record them. ${esc(recordHint(st.missing))}</p>
     <button class="btn" id="feed-go" type="button"${F.busy ? ' disabled' : ''}>${F.busy ? 'Recording…' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>` : ''}
     <div class="status${F.bad ? ' err' : ''}" id="feed-status" role="status">${F.note}</div>`);
   const go = $('#feed-go');
