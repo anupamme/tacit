@@ -21,6 +21,7 @@
 //           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
 //   hxsend  the card's Send for every asset it offers: tETH, TAC, cUSD and cBTC quoted in their own ticker, each opening its form with the amount and the
 //           recipient; TAC and BTC on Bitcoin carried into Pay's link; a key with only cUSD opens on it; none of the chosen asset says so; a #card=send link
+//   hxplace  Shield and Earn: the places that hold something are marked on the switch; a card opened on a place that holds nothing moves to the first that does until one is chosen, and keeps the place it opened on for the next visit
 //   hxsendtac TAC in the wallet (the ERC-20): Send offers it, quotes a plain public transfer, and opens the TAC sheet's public source with the amount and the address (which then sends it); a Tacit address is said to need private TAC; Shield offers wallet TAC as private TAC with the amount carried to the TAC sheet; with no private TAC the Send line offers making wallet TAC private; Shield's For payments way opens the TAC pool's Deposit with the amount, the pool's sheet is named for it, and a link naming no pool opens an ETH pool
 //   hxsendwallet a wallet connected with no Tacit key holding TAC: the card's Send quotes its transfer (a small amount whole), and the TAC sheet shows the public send form, which sends it
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
@@ -182,7 +183,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6751,6 +6752,51 @@ await step('hxsend', async () => {
     await until(q, () => !!document.querySelector('#hx-rcpt') && /Send privately/.test(document.querySelector('#hx-go')?.textContent || ''), null, 60000);
     ok(true, 'hxsend: a Send button on Your Tacit opens Send, not Request, after Request was used');
     if (r2.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
+  } finally { await r2.browser.close(); }
+});
+
+// The place switch on Shield and Earn: the places that hold something are marked, and a card opened on a place that holds nothing moves to the first
+// place that does, until a place is chosen; what is kept for the next visit is the place the card opened on, not the one it moved to.
+await step('hxplace', async () => {
+  const fees = { transfer: 100000, stealthclaim: 100000, sendunwrap: 100000 };
+  const notes = [[FARM_CETH, 25000000n]];
+  const lander = (p) => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const marks = (p) => p.$$eval('[data-hxp] [data-place][data-held]', (b) => b.map((x) => x.dataset.place).join());
+  const picked = (p) => p.$eval('[data-hxp] [data-place][aria-checked="true"]', (b) => b.dataset.place);
+  // ETH in the wallet and tETH held privately: both tabs stay on the wallet, and both places are marked
+  const r = await openFarmKey('7d80'.padEnd(64, '5'), { notes, fees });
+  try {
+    const p = r.page;
+    await lander(p);
+    await p.click('[data-hxm="private"]');
+    await until(p, () => /^Balance \S+ · Max/.test(document.querySelector('#hx-bal')?.textContent || '') && !!document.querySelector('[data-hxp] [data-place="private"][data-held]'), null, 300000);
+    ok(await picked(p) === 'wallet' && await marks(p) === 'wallet,private' && await p.$eval('#hx-from', (e) => e.value) === 'ether', `hxplace: Shield stays on the wallet's ETH, and the wallet and the private place are marked (${await marks(p)})`);
+    await p.click('[data-hxm="earn"]');
+    await until(p, () => !!document.querySelector('[data-hxp] [data-place="private"][data-held]'), null, 60000);
+    ok(await picked(p) === 'wallet' && await p.$eval('#hx-from', (e) => e.value) === 'ether', 'hxplace: Earn stays on the wallet too');
+    ok(await p.$eval('[data-hxp] [data-place="private"]', (b) => b.getAttribute('aria-checked')) === 'false', 'hxplace: a place that is not chosen says so in aria-checked');
+    if (r.errors.length) { fails++; console.log('FAIL hxplace page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  // The paying account empty, tETH held privately: the card opens on the private place
+  const hex2 = '7d81'.padEnd(64, '5'), acct2 = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex2, 'hex'), 'mainnet').address;
+  const r2 = await openFarmKey(hex2, { notes, fees }, undefined, () => rpc('anvil_setBalance', [acct2, '0x0']));
+  try {
+    const q = r2.page;
+    await lander(q);
+    await q.click('[data-hxm="private"]');
+    await until(q, () => document.querySelector('#hx-from')?.value === 'eth' && /^Balance 0\.25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | from: ${await q.$eval('#hx-from', (x) => x.value)} | bal: ${await text(q, '#hx-bal')} | place: ${await picked(q)} | marks: ${await marks(q)} | go: ${await text(q, '#hx-go')}`); });
+    ok(await picked(q) === 'private' && await marks(q) === 'private' && await text(q, '#hx-go') === 'Turn tETH into ETH', `hxplace: with nothing in the wallet Shield opens on the private tETH (${await text(q, '#hx-go')})`);
+    ok(await q.evaluate(() => JSON.parse(localStorage.getItem('tacit-hx-card-v1')).sf) === 'ether', 'hxplace: what is kept for the next visit is the place the card opened on');
+    await q.click('[data-hxm="earn"]');
+    await until(q, () => document.querySelector('#hx-from')?.value === 'eth' && /^Balance 0\.25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 60000);
+    ok(await picked(q) === 'private', 'hxplace: Earn opens on the private tETH too');
+    await q.click('[data-hxp] [data-place="wallet"]');
+    await until(q, () => document.querySelector('#hx-from')?.value === 'ether', null, 60000);
+    await q.click('[data-hxm="private"]'); await q.click('[data-hxm="earn"]');
+    await q.waitForTimeout(1500);
+    ok(await picked(q) === 'wallet' && await q.$eval('#hx-from', (e) => e.value) === 'ether', 'hxplace: a place chosen by hand is not moved off again, though it holds nothing');
+    if (r2.errors.length) { fails++; console.log('FAIL hxplace page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
   } finally { await r2.browser.close(); }
 });
 
