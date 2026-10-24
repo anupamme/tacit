@@ -425,6 +425,10 @@ export const CFG = {
   sourceChainId: opt('SOURCE_CHAIN_ID', '1'),
   sourceExecutionRpc: opt('SOURCE_EXECUTION_RPC', ''),
   sourceProofRpc: opt('SOURCE_PROOF_RPC', ''), // falls back to sourceExecutionRpc inside eth_prove if unset
+  // eth_prove takes one execution RPC; before each run the first of SOURCE_EXECUTION_RPC and these that serves the
+  // run's getLogs window and getProof is the one it gets (lib/rpc-pick.js), so one provider throttling doesn't fail it.
+  sourceExecutionRpcsFallback: opt('SOURCE_EXECUTION_RPCS_FALLBACK', 'https://rpc.mevblocker.io,https://0xrpc.io/eth,https://eth.drpc.org,https://ethereum-rpc.publicnode.com')
+    .split(',').map((u) => u.trim()).filter(Boolean),
   ethCallOutbox: opt('ETH_CALL_OUTBOX', ''),
   ethProveDeployBlock: opt('DEPLOY_BLOCK', ''), // first-run-only lower bound; ignored once state_path() exists
   ethProveGenesisSlot: opt('GENESIS_SLOT', ''),

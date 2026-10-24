@@ -22,6 +22,7 @@ import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
 import { proverEnvFrom } from './prover-env.js';
 import { isUnexecutable } from './block-cap.js';
+import { pickRpc, hostOf } from './rpc-pick.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover: the service's own, without its keys and tokens (lib/prover-env.js).
@@ -160,12 +161,38 @@ export async function proveReflection(input) {
 // from this exact candidate actually landed on-chain (see commitEthProveState below). Committing early
 // would desync the NEXT eth_prove run's prior_set_root/prior_count from what's really on-chain — the
 // "single-use proof" trap eth-state-sidecar.js's header comment covers in more depth.
-function ethProveEnv(mode) {
+// The endpoints this run hands eth_prove: for execution, the first candidate that answers the run's first
+// eth_getLogs window (from the committed state's resume block, where an archive-shy provider would refuse), plus an
+// eth_getProof at the finalized block unless SOURCE_PROOF_RPC carries those (Tenderly refuses them that far back); for
+// SOURCE_PROOF_RPC, the first that answers the getProof. Picked before the spawn and never by re-running it, since a
+// network-mode run may already have paid for its proof.
+async function ethProveRpcs() {
+  const hex = (n) => '0x' + n.toString(16);
+  const statePath = process.env.ETH_PROVE_STATE_PATH || path.join(CFG.ethProveOutDir, 'eth_set_state.json');
+  const resume = await readFile(statePath, 'utf8').then((s) => Number(JSON.parse(s).last_block) + 1).catch(() => Number(CFG.ethProveDeployBlock) || 0);
+  const chunk = Number(CFG.ethProveScanChunk) || 300;
+  const finalized = async (rpc) => Number((await rpc('eth_getBlockByNumber', ['finalized', false])).number);
+  const proofAt = (rpc, fin) => rpc('eth_getProof', [POOL, [], hex(fin)]);
+  const execList = [CFG.sourceExecutionRpc, ...CFG.sourceExecutionRpcsFallback];
+  const exec = await pickRpc(execList, async (rpc) => {
+    const fin = await finalized(rpc);
+    const from = Math.min(resume || fin, fin);
+    await rpc('eth_getLogs', [{ address: POOL, fromBlock: hex(from), toBlock: hex(Math.min(from + chunk - 1, fin)) }]);
+    if (!CFG.sourceProofRpc) await proofAt(rpc, fin);
+  });
+  const proof = CFG.sourceProofRpc ? await pickRpc([CFG.sourceProofRpc, ...execList],async (rpc) => proofAt(rpc, await finalized(rpc))) : null;
+  if (exec.failures.length || proof?.failures.length) {
+    console.log(`[eth_prove] rpc: execution ${hostOf(exec.url)}${proof ? `, proof ${hostOf(proof.url)}` : ''}; passed over ${[...exec.failures, ...(proof?.failures || [])].join('; ')}`);
+  }
+  return { exec: exec.url, proof: proof?.url || null };
+}
+
+function ethProveEnv(mode, rpcs) {
   return proverEnv({
     SOURCE_CONSENSUS_RPC: CFG.sourceConsensusRpc,
     SOURCE_CHAIN_ID: CFG.sourceChainId,
-    SOURCE_EXECUTION_RPC: CFG.sourceExecutionRpc,
-    ...(CFG.sourceProofRpc ? { SOURCE_PROOF_RPC: CFG.sourceProofRpc } : {}),
+    SOURCE_EXECUTION_RPC: rpcs.exec,
+    ...(rpcs.proof ? { SOURCE_PROOF_RPC: rpcs.proof } : {}),
     POOL,
     ...(CFG.ethCallOutbox ? { ETH_CALL_OUTBOX: CFG.ethCallOutbox } : {}),
     ...(CFG.ethProveDeployBlock ? { DEPLOY_BLOCK: CFG.ethProveDeployBlock } : {}),
@@ -206,7 +233,7 @@ export async function proveEthState({ mode = 'network', timeoutMs } = {}) {
   // container's ceiling so the child's own allocator fails cleanly instead. network mode never does local
   // execution (explicit cycle/gas limits route straight to the network prover), so it needs no cap.
   const memLimitKB = mode === 'execute' ? 900_000 : undefined; // ~900MB, comfortably under a 2GB container
-  const { code, out, err } = await run(CFG.ethProveBin, { env: ethProveEnv(mode), cwd: CFG.ethProveOutDir, timeoutMs, tag: `eth_prove:${mode}`, memLimitKB });
+  const { code, out, err } = await run(CFG.ethProveBin, { env: ethProveEnv(mode, await ethProveRpcs()), cwd: CFG.ethProveOutDir, timeoutMs, tag: `eth_prove:${mode}`, memLimitKB });
   const tail = (out + err).slice(-4000);
   if (mode === 'execute') {
     const m = out.match(/EXECUTE_OK cycles=(\d+) pv_bytes=(\d+)/);
