@@ -1,13 +1,13 @@
 import { makeConnect } from '/trade/connect.js?cb=42b9322f';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { API, $, short, fmtUnits, rpc } from '/trade/util.js?cb=509d6618';
-import { discordGateMessage } from '/discord/message.js?cb=5e8e4f1d';
+import { discordGateMessage, DISCORD_MIN_TAC_BASE_UNITS, DISCORD_MIN_TAC_ERC20 } from '/discord/message.js?cb=0232a98d';
 
 // The page /verify in Discord sends a holder to: the link carries a one-time nonce (#gate=<32 hex>, made for one Discord account, good for ten minutes).
 // The holder connects the Ethereum account that holds the public TAC ERC-20 and signs a plain message that names the nonce; the API recovers the signer,
 // reads the account's TAC balance, and gives the Discord account the holder role. Nothing is sent on chain.
 const TAC_ERC20 = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279';
-const ONE_TAC = 10n ** 18n;
+const NEED = `${DISCORD_MIN_TAC_BASE_UNITS / 10n ** 8n} TAC`;
 const NONCE_KEY = 'tacit.discord.gate';
 
 // The nonce is taken out of the address bar (it is the link's secret) and kept for this tab, so a reload or a wallet app's return finds it again.
@@ -63,15 +63,15 @@ function render() {
     paintNote();
     return;
   }
-  const on = !!W.account, enough = S.bal != null && S.bal >= ONE_TAC;
+  const on = !!W.account, enough = S.bal != null && S.bal >= DISCORD_MIN_TAC_ERC20;
   const bal = S.bal == null ? (on ? 'Reading…' : '—') : `${fmtUnits(S.bal, 18, 4)} TAC`;
-  const label = S.busy ? 'Waiting for your wallet…' : !on ? 'Connect wallet' : S.bal == null ? 'Reading your TAC…' : enough ? 'Verify' : 'Needs at least 1 TAC';
+  const label = S.busy ? 'Waiting for your wallet…' : !on ? 'Connect wallet' : S.bal == null ? 'Reading your TAC…' : enough ? 'Verify' : `Needs at least ${NEED}`;
   root.innerHTML = `<p class="eyebrow">Holder role</p>
     <h2>Show you hold TAC.</h2>
     <div class="rows flat">
       <div class="kv"><span>Account</span><b>${on ? esc(short(W.account, 6)) : 'Not connected'}${on ? ' <button class="linkbtn" type="button" id="swap-acct">change</button>' : ''}</b></div>
       <div class="kv"><span>TAC held</span><b class="num">${esc(bal)}</b></div>
-      <div class="kv"><span>Needed</span><b>1 TAC</b></div>
+      <div class="kv"><span>Needed</span><b>${esc(NEED)}</b></div>
     </div>
     <button class="btn" type="button" id="go" ${S.busy || (on && !enough) ? 'disabled' : ''}>${esc(label)}</button>
     <p class="status" id="note" aria-live="polite"></p>

@@ -405,6 +405,32 @@ test(`max-N=${CER_ELIGIBILITY_MAX_OUTPOINTS} envelope works`, () => {
   return dec.count === CER_ELIGIBILITY_MAX_OUTPOINTS;
 });
 
+// The Discord holder role asks for 100 TAC (dapp/discord/message.js): the same proof, made and checked at that threshold.
+const DISCORD_X = 100n * 100_000_000n;
+const sumOf = (fx) => fx.utxos.reduce((acc, u) => acc.add(pedersenCommit(BigInt(u.amount), BigInt(u.blinding))), secp.ProjectivePoint.ZERO);
+const proofOf = (envelope) => {
+  const dec = decodeCeremonyEligibilityEnvelope(envelope);
+  if (!dec.ok) throw new Error(`decode failed: ${dec.reason}`);
+  let X = 0n;
+  for (let i = 0; i < 8; i++) X |= BigInt(dec.attestation[1 + i]) << (8n * BigInt(i));
+  const proofLen = dec.attestation[9] | (dec.attestation[10] << 8);
+  return { X, proof: dec.attestation.slice(11, 11 + proofLen) };
+};
+test('a proof made at the Discord gate\'s 100 TAC threshold verifies at 100 TAC', () => {
+  const fx = makeFixture(DISCORD_X);
+  const { envelope } = buildEnvelope({ utxos: fx.utxos, holderPriv: fx.holderPrivBytes, expiryHeight: fx.expiryHeight, scopeId: fx.scopeId, assetIdHex: fx.assetIdHex, thresholdBaseUnits: DISCORD_X });
+  const { X, proof } = proofOf(envelope);
+  if (X !== DISCORD_X) throw new Error(`X is ${X}`);
+  return bpRangeAggVerify([sumOf(fx).add(PEDERSEN_H.multiply(X).negate())], proof);
+});
+test('a proof made for the old 1 TAC bar does not verify as one for 100 TAC', () => {
+  const fx = makeFixture(DISCORD_X);
+  const { envelope } = buildEnvelope({ utxos: fx.utxos, holderPriv: fx.holderPrivBytes, expiryHeight: fx.expiryHeight, scopeId: fx.scopeId, assetIdHex: fx.assetIdHex, thresholdBaseUnits: CER_ELIGIBILITY_MIN_TAC_BASE_UNITS });
+  const { X, proof } = proofOf(envelope);
+  if (X !== CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) throw new Error(`X is ${X}`);
+  return bpRangeAggVerify([sumOf(fx).add(PEDERSEN_H.multiply(DISCORD_X).negate())], proof) === false;
+});
+
 console.log(`\n${pass} pass, ${fail} fail`);
 // Exit on the computed verdict rather than only on failure: imported browser modules can leave the
 // event loop alive, and a run that passes every assertion then never exits reads as a hang.

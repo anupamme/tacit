@@ -99,7 +99,7 @@ import { ethStatsBody, pageStatsBody } from './stats-views.js';
 import { preauthSalesBookBody } from './book-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
-import { discordGateMessage } from '../../dapp/discord/message.js';
+import { discordGateMessage, DISCORD_MIN_TAC_BASE_UNITS } from '../../dapp/discord/message.js';
 import { makeTacAncestry } from './tac-ancestry.js';
 import { makeTacArchive, ARCHIVE_MAX_ROOTS, ARCHIVE_MAX_IMPORT } from './tac-archive.js';
 import { traceBurnDepositProvenance, rebuiltRawTx } from './burndep-live-tracer.js';
@@ -10577,8 +10577,8 @@ async function verifyDiscordGateProof(env, envelopeBytes) {
   }
   let X = 0n;
   for (let i = 0; i < 8; i++) X |= BigInt(dec.attestation[1 + i]) << (8n * BigInt(i));
-  if (X !== CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) {
-    return { ok: false, status: 403, reason: `discord_gate: threshold ${X} != required ${CER_ELIGIBILITY_MIN_TAC_BASE_UNITS}` };
+  if (X !== DISCORD_MIN_TAC_BASE_UNITS) {
+    return { ok: false, status: 403, reason: `discord_gate: threshold ${X} != required ${DISCORD_MIN_TAC_BASE_UNITS}` };
   }
   const proofLen = dec.attestation[9] | (dec.attestation[10] << 8);
   if (dec.attestation.length !== 11 + proofLen) {
@@ -27305,7 +27305,7 @@ async function completeDiscordGate(env, nonce, record, holder) {
   try {
     res = await fetch(
       `https://discord.com/api/v10/guilds/${record.guild_id}/members/${record.discord_user_id}/roles/${env.TAC_ROLE_ID}`,
-      { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'X-Audit-Log-Reason': 'tacit: proved >= 1 TAC' } }
+      { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'X-Audit-Log-Reason': `tacit: proved >= ${DISCORD_MIN_TAC_BASE_UNITS / 10n ** 8n} TAC` } }
     );
   } catch (e) {
     return { ok: false, status: 502, reason: `discord_gate: could not reach Discord: ${e.message || 'unknown'}` };
@@ -27347,7 +27347,7 @@ async function handleDiscordVerify(req, env, cors) {
 
   let holder;
   if (ethSig) {
-    const r = await _getGovernance().publicTacHolder(env, CER_ELIGIBILITY_NETWORK, discordGateMessage(nonce), ethSig, CER_ELIGIBILITY_MIN_TAC_BASE_UNITS);
+    const r = await _getGovernance().publicTacHolder(env, CER_ELIGIBILITY_NETWORK, discordGateMessage(nonce), ethSig, DISCORD_MIN_TAC_BASE_UNITS);
     if (!r.ok) return jsonResponse({ error: `discord_gate: ${r.reason}` }, r.status, cors);
     holder = `eth:${r.address}`;
   } else {

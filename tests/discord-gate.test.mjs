@@ -1,5 +1,5 @@
 // Discord TAC gate: the signed /verify interaction hands back a link to the Discord page, a bad signature is
-// refused, a holder's Ethereum signature earns the role if the account holds 1 TAC in the public ERC-20, and the
+// refused, a holder's Ethereum signature earns the role if the account holds 100 TAC in the public ERC-20, and the
 // role is granted before the link is consumed. The Bitcoin ZK proof verifier is not exercised here (it needs live
 // TAC outpoints); this drives everything around it.
 //
@@ -10,7 +10,8 @@ import * as secp from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { bytesToHex, concatBytes } from '@noble/hashes/utils';
-import { discordGateMessage } from '../dapp/discord/message.js';
+import { readFileSync } from 'node:fs';
+import { discordGateMessage, DISCORD_MIN_TAC_BASE_UNITS, DISCORD_MIN_TAC_ERC20 } from '../dapp/discord/message.js';
 import { createMemDriver } from '../server/driver-mem.mjs';
 import { createCacheStorage } from '../server/cache-mem.mjs';
 
@@ -137,12 +138,12 @@ const verify = (body) => fetch(`${base}/discord/verify`, { method: 'POST', heade
 const status = async (n) => (await env.REGISTRY_KV.get(`dgate:${n}`, 'json')).status;
 reply = () => new Response(null, { status: 204 });
 
-const rich = holderOf('discord-holder-2tac'), poor = holderOf('discord-holder-half'), nobody = holderOf('discord-holder-none');
-balances.set(rich.addr, 2n * TAC); balances.set(poor.addr, TAC / 2n);
+const rich = holderOf('discord-holder-250tac'), poor = holderOf('discord-holder-99tac'), exact = holderOf('discord-holder-100tac'), nobody = holderOf('discord-holder-none');
+balances.set(rich.addr, 250n * TAC); balances.set(poor.addr, 100n * TAC - 1n); balances.set(exact.addr, 100n * TAC);
 
 let n1 = await newNonce(); call = null;
 let res = await verify({ nonce: n1, eth_sig: await personalSign(rich.priv, discordGateMessage(n1)) });
-ok('an account holding 2 TAC in the ERC-20 gets the role', res.status === 200 && (await res.json()).ok === true);
+ok('an account holding 250 TAC in the ERC-20 gets the role', res.status === 200 && (await res.json()).ok === true);
 ok('the role went to the member the link was made for', call?.init.method === 'PUT' && call.url.endsWith(`/guilds/${G}/members/${U}/roles/${env.TAC_ROLE_ID}`), call);
 const held = await env.REGISTRY_KV.get(`dgate:${n1}`, 'json');
 ok('the link is used and names the Ethereum holder', held.status === 'verified' && held.holder === `eth:${rich.addr}`, held);
@@ -151,8 +152,12 @@ ok('a used link is refused', res.status === 409);
 
 let n2 = await newNonce(); call = null;
 res = await verify({ nonce: n2, eth_sig: await personalSign(poor.priv, discordGateMessage(n2)) });
-ok('half a TAC is not enough', res.status === 403 && /less than the TAC required/.test((await res.json()).error));
+ok('a wei under 100 TAC is not enough', res.status === 403 && /less than the TAC required/.test((await res.json()).error));
 ok('and no role is asked for, the link stays good', call === null && await status(n2) === 'pending');
+
+let nx = await newNonce(); call = null;
+res = await verify({ nonce: nx, eth_sig: await personalSign(exact.priv, discordGateMessage(nx)) });
+ok('exactly 100 TAC is enough', res.status === 200 && call?.init.method === 'PUT', res.status);
 
 // a signature made for one link is worth nothing on another: it recovers a different account, which holds nothing
 let n3 = await newNonce(); call = null;
@@ -183,6 +188,13 @@ ok('a holder whose role Discord refuses is told why and can try again', res.stat
 reply = () => new Response(null, { status: 204 });
 res = await verify({ nonce: n3, eth_sig: await personalSign(rich.priv, discordGateMessage(n3)) });
 ok('and the retry on the same link gets the role', res.status === 200 && await status(n3) === 'verified');
+
+// the figure is one: the page's ERC-20 reading, the API's two checks and the Classic modal's Bitcoin proof all ask for the same TAC
+ok('100 TAC in base units, and the ERC-20 figure is the same TAC at 18 decimals', DISCORD_MIN_TAC_BASE_UNITS === 10_000_000_000n && DISCORD_MIN_TAC_ERC20 === 100n * TAC);
+const engine = readFileSync(new URL('../dapp/tacit.js', import.meta.url), 'utf8');
+const engineMin = /const DISCORD_GATE_MIN_TAC_BASE_UNITS = ([^;]+);/.exec(engine)?.[1];
+ok('tacit.js proves the Bitcoin threshold at the same figure', engineMin && Function(`return ${engineMin}`)() === DISCORD_MIN_TAC_BASE_UNITS, engineMin);
+ok('and builds its envelope at that threshold', /thresholdX: DISCORD_GATE_MIN_TAC_BASE_UNITS/.test(engine));
 
 globalThis.fetch = realFetch;
 server.close();

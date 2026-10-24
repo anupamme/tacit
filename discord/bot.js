@@ -12,7 +12,7 @@ if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID) {
 
 const commands = [{
   name: 'verify',
-  description: 'Prove you hold ≥ 1 TAC to access the server',
+  description: 'Prove you hold at least 100 TAC to get the holder role',
 }];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${DISCORD_CLIENT_ID}/commands`, {

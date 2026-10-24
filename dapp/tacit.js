@@ -33711,6 +33711,7 @@ const CER_ELIGIBILITY_SCOPE_ID = sha256(CER_ELIGIBILITY_SIG_DOMAIN_BYTES);
 
 const DISCORD_GATE_SIG_DOMAIN_BYTES = new TextEncoder().encode('tacit-discord-gate-v1');
 const DISCORD_GATE_SCOPE_ID = sha256(DISCORD_GATE_SIG_DOMAIN_BYTES);
+const DISCORD_GATE_MIN_TAC_BASE_UNITS = 100n * 10n ** 8n;   // 100 TAC @ 8 decimals; the same figure as dapp/discord/message.js
 
 function _ammCerReadTacBalance() {
   const cache = (typeof _holdingsCache !== 'undefined') ? _holdingsCache : null;
@@ -33720,7 +33721,7 @@ function _ammCerReadTacBalance() {
   return BigInt(entry.balance ?? 0n);
 }
 
-function _ammCerPickTacUtxosForProof() {
+function _ammCerPickTacUtxosForProof(min = CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) {
   const cache = (typeof _holdingsCache !== 'undefined') ? _holdingsCache : null;
   const entry = cache?.holdings?.get(CANONICAL_TAC_ASSET_ID_HEX);
   if (!entry || !Array.isArray(entry.utxos) || entry.utxos.length === 0) return null;
@@ -33732,10 +33733,10 @@ function _ammCerPickTacUtxosForProof() {
   for (const u of sorted) {
     picks.push(u);
     sum += BigInt(u.amount);
-    if (sum >= CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) break;
+    if (sum >= min) break;
     if (picks.length >= CER_ELIGIBILITY_MAX_OUTPOINTS) break;
   }
-  if (sum < CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) return null;
+  if (sum < min) return null;
   return picks;
 }
 
@@ -47198,8 +47199,8 @@ async function _showDiscordGateModal(nonce) {
 
   const balance = _ammCerReadTacBalance();
   if (balance === null) { statusEl.textContent = 'Could not read TAC balance — try refreshing.'; return; }
-  if (balance < CER_ELIGIBILITY_MIN_TAC_BASE_UNITS) {
-    statusEl.textContent = 'Insufficient TAC — you need ≥ 1 TAC to verify.';
+  if (balance < DISCORD_GATE_MIN_TAC_BASE_UNITS) {
+    statusEl.textContent = `Insufficient TAC — you need ≥ ${DISCORD_GATE_MIN_TAC_BASE_UNITS / 10n ** 8n} TAC to verify.`;
     return;
   }
 
@@ -47211,8 +47212,8 @@ async function _showDiscordGateModal(nonce) {
     statusEl.textContent = 'Building zero-knowledge proof…';
     try {
       const tipHeight = await getTip().catch(() => 0);
-      const picks = _ammCerPickTacUtxosForProof();
-      if (!picks) throw new Error('could not pick TAC UTXOs covering ≥ 1 TAC');
+      const picks = _ammCerPickTacUtxosForProof(DISCORD_GATE_MIN_TAC_BASE_UNITS);
+      if (!picks) throw new Error(`could not pick TAC UTXOs covering ≥ ${DISCORD_GATE_MIN_TAC_BASE_UNITS / 10n ** 8n} TAC`);
       const expiryHeight = tipHeight + CER_ELIGIBILITY_EXPIRY_BLOCKS;
       const envelopeBytes = _buildCeremonyEligibilityEnvelope({
         tacUtxos: picks,
@@ -47221,6 +47222,7 @@ async function _showDiscordGateModal(nonce) {
         expiryHeight,
         scopeId: DISCORD_GATE_SCOPE_ID,
         sigDomain: DISCORD_GATE_SIG_DOMAIN_BYTES,
+        thresholdX: DISCORD_GATE_MIN_TAC_BASE_UNITS,
       });
 
       statusEl.textContent = 'Submitting proof…';

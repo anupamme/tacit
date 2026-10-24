@@ -2,7 +2,7 @@
 // dapp/discord/ in a real browser, under its own CSP, against the real worker: the page where /verify in Discord sends a holder. The page and its modules
 // are the real files, and the API behind api.tacit.finance is the real worker on the Node harness. What stands in: the Ethereum node (each account's TAC),
 // Discord's REST (the role), and the wallet, which signs for real with a key held here, so the worker recovers the same account the page showed.
-//   checks: no link; a holder gets the role (what the wallet is asked to sign, the link taken out of the address bar, the role asked for); half a TAC is
+//   checks: no link; a holder gets the role (what the wallet is asked to sign, the link taken out of the address bar, the role asked for); 99.5 TAC is
 //   not enough and nothing is signed; a lapsed link; Discord refusing the role, then the retry on the same link; a phone width in both colour schemes.
 //
 //   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/discord-page.mjs
@@ -85,8 +85,8 @@ async function discordVerify() {
 }
 const record = async (n) => env.REGISTRY_KV.get(`dgate:${n}`, 'json');
 
-const rich = holderOf('page-holder-2tac'), poor = holderOf('page-holder-half');
-balances.set(rich.addr, 2n * TAC); balances.set(poor.addr, TAC / 2n);
+const rich = holderOf('page-holder-250tac'), poor = holderOf('page-holder-99tac');
+balances.set(rich.addr, 250n * TAC); balances.set(poor.addr, 99n * TAC + TAC / 2n);
 
 // ── the browser ──
 let n = 0, fails = 0;
@@ -163,7 +163,8 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: jo
   await shot(page, 'discord-connect');
   await connect(page);
   await page.waitForFunction(() => /TAC$/.test(document.querySelector('.kv:nth-child(2) b')?.textContent || ''));
-  ok(await text(page, '.kv:nth-child(2) b') === '2 TAC', 'it shows the TAC the account holds');
+  ok(await text(page, '.kv:nth-child(2) b') === '250 TAC', 'it shows the TAC the account holds');
+  ok(await text(page, '.kv:nth-child(3) b') === '100 TAC', 'and the 100 TAC it needs');
   ok(await text(page, '#go') === 'Verify' && !(await page.isDisabled('#go')), 'and Verify opens');
   await shot(page, 'discord-ready');
   await page.click('#go');
@@ -189,8 +190,8 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: jo
   const { page, signed } = await open(poor, `#gate=${nonce}`);
   await connect(page);
   await page.waitForFunction(() => /TAC$/.test(document.querySelector('.kv:nth-child(2) b')?.textContent || ''));
-  ok(await text(page, '.kv:nth-child(2) b') === '0.5 TAC', 'half a TAC is shown as it is');
-  ok(await text(page, '#go') === 'Needs at least 1 TAC' && await page.isDisabled('#go'), 'and the button says why it is shut');
+  ok(await text(page, '.kv:nth-child(2) b') === '99.5 TAC', 'just under the bar is shown as it is');
+  ok(await text(page, '#go') === 'Needs at least 100 TAC' && await page.isDisabled('#go'), 'and the button says why it is shut');
   ok(signed.length === 0 && roles.length === 0, 'nothing is signed and no role is asked for');
   ok(await page.$('#swap-acct') !== null, 'another account can be chosen');
   await shot(page, 'discord-short');
