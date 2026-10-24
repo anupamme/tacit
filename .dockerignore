@@ -1,5 +1,5 @@
-# Repo-root build context is used by worker-relay/Dockerfile.btc-pool, worker-relay/Dockerfile.sats-faucet and
-# tools/tac-vault-keeper-render/Dockerfile; everything else is excluded.
+# Repo-root build context is used by worker-relay/Dockerfile.btc-pool, worker-relay/Dockerfile.sats-faucet,
+# worker-relay/Dockerfile.evm-pool-keeper and tools/tac-vault-keeper-render/Dockerfile; everything else is excluded.
 *
 !worker-relay/package.json
 !worker-relay/package-lock.json
@@ -10,6 +10,7 @@
 !dapp/package.json
 !dapp/*.js
 !dapp/vendor/*.js
+!dapp/evm-pool/token-pool-code.json
 !dapp/btc-pool/pin.json
 !dapp/btc-pool/vk.bin
 !dapp/btc-pool/params-k13.bin
