@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-soamqQSAy6UEOzVtrf8PwhWXPr42ZEeTJhyTyAMYEbs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UmSDtQDZeAkLHRdpj4Ug4f1GmC8ZsHelmiEOenxdVyw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -384,7 +384,7 @@ a.di { color: inherit; text-decoration: none; }
 
 /* ── live: what happened lately, as a tape under the hero. It stops under the pointer and stands still under reduced motion
    (the tape can then be scrolled by hand). ── */
-.tape { display: flex; align-items: center; gap: 14px; margin-top: 30px; padding: 8px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); font-size: 12px; color: var(--mute); }
+.tape { display: flex; align-items: center; gap: 14px; margin-top: 30px; padding: 8px 0; border-top: 1px solid var(--hair-2); border-bottom: 1px solid var(--hair-2); font-size: 12px; color: var(--mute); }
 .tape-l { flex: none; display: inline-flex; align-items: center; gap: 7px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); }
 .tape-l .dot { animation: pulse 1.6s ease-in-out infinite; }
 .tape-v { flex: 1; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 48px), transparent);
@@ -400,61 +400,59 @@ a.di { color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .tape-v { overflow-x: auto; } }
 #pts-lb { scroll-margin-top: 18px; }
 
-/* ── the sections under the hero: one idea each, a big word, a few plain lines ── */
-.sx { padding: 80px 0 0; }
-.sx-h { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 56px; align-items: end; margin-bottom: 32px; }
-.sx-h h2 { font: 400 clamp(44px, 6vw, 76px)/.95 var(--serif); letter-spacing: -.02em; margin: 0; }
+/* ── the sections under the hero: one idea each, a centred title, then its picture ── */
+.sx { padding: 96px 0 0; }
+.sx-h { display: grid; justify-items: center; gap: 10px; margin: 0 0 32px; text-align: center; }
+.sx-h h2 { font: 400 clamp(30px, 3.6vw, 40px)/1.1 var(--serif); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
 .sx-h h2 em { font-style: italic; }
-.sx-h p { margin: 0; max-width: 44ch; font-size: 16px; color: var(--ink); }
-.sx-k { display: block; margin: 0 0 14px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.sx-h p { margin: 0; max-width: 52ch; font-size: 14px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
 
-/* One ID, two chains: Bitcoin left, Ethereum right, the key down the middle, one lane for each thing that crosses. */
-.wd { --end: 300px; border: 1px solid var(--ink); background: var(--card); }
+/* One ID, two chains: Bitcoin left, Ethereum right, the key between them, one lane for each thing that crosses. */
+.wd { --end: 340px; overflow: hidden; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; }
 .wd-top, .wd-lane { display: grid; grid-template-columns: var(--end) minmax(0, 1fr) var(--end); align-items: center; }
-.wd-top { padding: 26px 26px 22px; border-bottom: 1px solid var(--ink); }
-.wd-ch { display: flex; align-items: center; gap: 14px; font: 400 clamp(34px, 4.4vw, 52px)/1 var(--serif); letter-spacing: -.01em; }
-.wd-ch .tk { width: 56px; height: 56px; }
+.wd-top { padding: 22px 24px 20px; border-bottom: 1px solid var(--hair); }
+.wd-ch { display: flex; align-items: center; gap: 12px; font: 400 clamp(26px, 3vw, 34px)/1 var(--serif); letter-spacing: -.01em; }
+.wd-ch .tk { width: 36px; height: 36px; }
 .wd-ch.r { justify-content: flex-end; }
-.wd-key { position: relative; z-index: 1; display: grid; justify-items: center; gap: 8px; text-align: center; background: none; border: 0; cursor: pointer; }
-.wd-key .tk { width: 64px; height: 64px; transition: transform .35s var(--spring); }
+.wd-key { position: relative; z-index: 1; display: grid; justify-items: center; gap: 8px; text-align: center; color: inherit; background: none; border: 0; cursor: pointer; }
+.wd-key .tk { width: 48px; height: 48px; transition: transform .35s var(--spring); }
 @media (hover: hover) { .wd-key:hover .tk { transform: rotate(-14deg); } }
-.wd-key code { font: 500 14px var(--mono); padding: 3px 10px; border: 1px solid var(--ink); background: var(--field); }
-.wd-key small { max-width: 26ch; font-size: 11px; line-height: 1.4; color: var(--mute); text-wrap: balance; }
-.wd-key::after { content: ''; position: absolute; top: calc(100% + 6px); left: 50%; height: 17px; border-left: 1px dashed var(--ink); opacity: .5; }
+.wd-key code { font: 500 13px var(--mono); padding: 3px 12px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 999px; }
+.wd-key small { font-size: 11px; line-height: 1.4; color: var(--mute); }
+.wd-key::after { content: ''; position: absolute; top: calc(100% + 4px); left: 50%; height: 16px; border-left: 1px dashed var(--hair-2); }
 .wd-lanes { position: relative; list-style: none; margin: 0; padding: 0; }
-.wd-lanes::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--ink); opacity: .5; }
-.wd-lane { min-height: 90px; }
-.wd-lane + .wd-lane { border-top: 1px dotted var(--hair-2); }
-.wd-end { display: flex; align-items: center; gap: 16px; height: 100%; padding: 18px 26px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
+.wd-lanes::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--hair-2); }
+.wd-lane { min-height: 84px; }
+.wd-lane + .wd-lane { border-top: 1px solid var(--hair); }
+.wd-end { display: flex; align-items: center; gap: 14px; height: 100%; padding: 16px 24px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
 .wd-end.r { justify-content: flex-end; text-align: right; }
-@media (hover: hover) { .wd-end:hover { background: var(--field); } .wd-end:hover .tk { transform: scale(1.08); } }
-.wd-end .tk { width: 48px; height: 48px; transition: transform .25s var(--spring); }
-.wd-end .pair .tk { width: 44px; height: 44px; }
-.wd-end b { display: block; font: 400 28px/1.05 var(--serif); }
-.wd-end small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.4; color: var(--mute); }
+@media (hover: hover) { .wd-end:hover { background: var(--field); } .wd-end:hover .tk { transform: scale(1.06); } }
+.wd-end .tk { width: 40px; height: 40px; transition: transform .25s var(--spring); }
+.wd-end .pair .tk + .tk { margin-left: -12px; box-shadow: 0 0 0 2px var(--card); }
+.wd-end b { display: block; font: 400 24px/1.05 var(--serif); }
+.wd-end small { display: block; margin-top: 3px; font-size: 12px; line-height: 1.4; color: var(--mute); }
+/* The wire: Bitcoin's orange running into Ethereum's blue, an arrowhead at each end something arrives at, and a dot crossing each way. */
 .wd-wire { position: relative; align-self: stretch; display: grid; place-items: center; padding: 0; color: inherit; background: none; border: 0; cursor: pointer; }
-.wd-wl { position: absolute; left: 4px; right: 4px; top: 50%; height: 2px; margin-top: -1px; }
-.wd-wl.r { color: var(--blue); background: linear-gradient(90deg, transparent, var(--orange) 36px, var(--blue)); }
-.wd-wl.l { color: var(--orange); background: linear-gradient(90deg, var(--orange), var(--blue) calc(100% - 36px), transparent); }
-.wd-wire:has(.wd-wl + .wd-wl) .wd-wl.r { margin-top: -6px; left: 18px; }
-.wd-wire:has(.wd-wl + .wd-wl) .wd-wl.l { margin-top: 4px; right: 18px; }
-.wd-wl::after { content: ''; position: absolute; top: 1px; width: 9px; height: 9px; margin-top: -4.5px; border: solid currentColor; }
-.wd-wl.r::after { right: 1px; border-width: 2px 2px 0 0; transform: rotate(45deg); }
-.wd-wl.l::after { left: 1px; border-width: 0 0 2px 2px; transform: rotate(45deg); }
-.wd-wl::before { content: ''; position: absolute; top: -2px; width: 6px; height: 6px; background: currentColor; opacity: 0; animation: wd-r 2.8s linear infinite; }
-.wd-wl.l::before { animation-name: wd-l; animation-delay: -1.4s; }
-@keyframes wd-r { 0% { left: 0; opacity: 0; } 10%, 82% { opacity: 1; } 94%, 100% { left: calc(100% - 18px); opacity: 0; } }
-@keyframes wd-l { 0% { left: calc(100% - 6px); opacity: 0; } 10%, 82% { opacity: 1; } 94%, 100% { left: 12px; opacity: 0; } }
-.wd-wire:hover .wd-wl::before, .wd-lane:has(.wd-end:hover) .wd-wl::before { animation-duration: 1.2s; }
-.wd-wire:hover .wd-wl.l::before, .wd-lane:has(.wd-end:hover) .wd-wl.l::before { animation-delay: -.6s; }
-.wd-wire span { position: relative; z-index: 1; padding: 3px 9px; font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; background: var(--card); border: 1px solid var(--ink); transition: background .15s, color .15s; }
-.wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--card); background: var(--ink); }
-.wd-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--ink); }
-.wd-foot button { display: flex; align-items: center; gap: 12px; padding: 14px 26px; font-size: 13px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
-.wd-foot button + button { justify-content: flex-end; text-align: right; border-left: 1px solid var(--hair-2); }
-@media (hover: hover) { .wd-foot button:hover { background: var(--field); } }
-.wd-foot .tk { width: 28px; height: 28px; }
-.wd-foot b { font-weight: 500; }
+.wd-wl { position: absolute; left: 14px; right: 14px; top: 50%; height: 1.5px; margin-top: -.75px; background: linear-gradient(90deg, var(--orange), var(--blue)); opacity: .8; }
+.wd-wl::before, .wd-wl::after { content: ''; position: absolute; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border: solid; border-width: 1.5px 1.5px 0 0; }
+.wd-wl::after { right: 0; border-color: var(--blue); transform: rotate(45deg); }
+.wd-wl::before { left: 0; border-color: var(--orange); transform: rotate(-135deg); }
+.wd-wire::before, .wd-wire::after { content: ''; position: absolute; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; opacity: 0; animation: wd-r 3.2s linear infinite; }
+.wd-wire::after { animation-name: wd-l; animation-delay: -1.6s; }
+.wd-wire.one .wd-wl::before, .wd-wire.one::after { display: none; }
+@keyframes wd-r { 0% { left: 14px; opacity: 0; background: var(--orange); } 12%, 85% { opacity: 1; } 100% { left: calc(100% - 20px); opacity: 0; background: var(--blue); } }
+@keyframes wd-l { 0% { left: calc(100% - 20px); opacity: 0; background: var(--blue); } 12%, 85% { opacity: 1; } 100% { left: 14px; opacity: 0; background: var(--orange); } }
+.wd-wire:hover::before, .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::before, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-duration: 1.4s; }
+.wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-delay: -.7s; }
+.wd-wire span { position: relative; z-index: 1; padding: 2px 10px; font: 400 11px var(--mono); letter-spacing: .04em; color: var(--mute); background: var(--card); border-radius: 999px; transition: color .15s; }
+.wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--ink); }
+.wd-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hair); }
+.wd-foot button { display: flex; align-items: center; gap: 12px; padding: 14px 24px; font-size: 13px; text-align: left; color: var(--mute); background: none; border: 0; cursor: pointer; transition: background .15s, color .15s; }
+.wd-foot button + button { justify-content: flex-end; text-align: right; border-left: 1px solid var(--hair); }
+@media (hover: hover) { .wd-foot button:hover { color: var(--ink); background: var(--field); } }
+.wd-foot .tk { width: 24px; height: 24px; }
+.wd-foot .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
+.wd-foot b { font-weight: 500; color: var(--ink); }
 /* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
 .kept { margin: 34px 0 0; padding: 14px 0 0; border-top: 1px solid var(--hair); }
 .kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 10px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
@@ -462,49 +460,40 @@ a.di { color: inherit; text-decoration: none; }
 #kept-v { min-height: 128px; }
 
 
-/* Farm TAC: the two ways in, each with its rate. */
-.fm-y { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); }
-.fm-way { display: grid; grid-template-columns: 1fr auto; align-content: start; gap: 6px 20px; padding: 26px; text-align: left; color: inherit; text-decoration: none; background: var(--card); transition: background .15s; }
-.fm-way + .fm-way { border-left: 1px solid var(--ink); }
-@media (hover: hover) { .fm-way:hover { background: var(--field); } .fm-way:hover .go { transform: translateX(4px); } }
-.fm-apr { grid-column: 1; font: 400 clamp(64px, 9vw, 112px)/.85 var(--serif); letter-spacing: -.03em; }
-.fm-apr small { margin-left: 8px; font: 500 14px var(--mono); letter-spacing: .08em; }
-.fm-way .pair { grid-column: 2; grid-row: 1; align-self: start; }
-.fm-way .pair .tk { width: 48px; height: 48px; }
-.fm-way h3 { grid-column: 1 / -1; margin: 14px 0 0; font: 400 30px/1.05 var(--serif); }
-.fm-way p { grid-column: 1 / -1; max-width: 40ch; margin: 0; color: var(--mute); }
-.fm-way .fm-go { grid-column: 1 / -1; margin-top: 12px; font-weight: 500; }
+/* Farm TAC: three ways in, each a card that leads with its rate. */
+.fm-y { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.fm-way { display: flex; flex-direction: column; gap: 6px; padding: 22px 24px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; transition: background .15s; }
+@media (hover: hover) { a.fm-way:hover { background: var(--field); } a.fm-way:hover .go { transform: translateX(4px); } }
+.fm-way .pair { margin-bottom: 18px; }
+.fm-way .pair .tk { width: 36px; height: 36px; }
+.fm-way .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
+.fm-apr { position: relative; font: 400 clamp(44px, 4.8vw, 60px)/.9 var(--serif); letter-spacing: -.03em; white-space: nowrap; }
+.fm-apr small { margin-left: 6px; font: 500 12px var(--mono); letter-spacing: .08em; }
+/* A rate that is the best of several pools says so above itself, so the three figures keep one left edge. */
+.fm-apr small.up { position: absolute; bottom: 100%; left: 1px; margin: 0 0 4px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
+.fm-way h3 { margin: 12px 0 0; font: 400 24px/1.1 var(--serif); }
+.fm-way p { flex: 1; margin: 0; font-size: 13px; line-height: 1.5; color: var(--mute); }
+.fm-way .fm-go { margin-top: 12px; font-size: 13px; font-weight: 500; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
-.fm-y + .fm-y { margin-top: 12px; }
-.fm-apr.s { font-size: clamp(44px, 6vw, 72px); }
-.fm-vp { grid-template-columns: minmax(0, 1fr); }
-.fm-vp .fm-way:active { transform: none; }
-.fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 28px; }
+.fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 22px; }
 .fm-vp .fm-go a { position: relative; color: inherit; text-decoration: none; }
 .fm-vp .fm-go a::after { content: ''; position: absolute; inset: -10px -6px; }
 .fm-vp .fm-go a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
-@media (hover: hover) { .fm-vp .fm-way:hover { background: var(--card); } .fm-vp .fm-way:hover .go { transform: none; } .fm-vp .fm-go a:hover .go { transform: translateX(4px); } }
-@media (min-width: 641px) {
-  .fm-vp .fm-way { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 40px; }
-  .fm-vp .fm-apr { grid-row: 1 / 4; }
-  .fm-vp h3, .fm-vp p, .fm-vp .fm-go { grid-column: 2; }
-  .fm-vp h3 { margin: 0; }
-  .fm-vp .fm-go { margin-top: 8px; }
-  .fm-vp .pair { grid-column: 3; grid-row: 1 / 4; align-self: center; }
-}
-.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 16px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink); }
-.ptsline .tk { width: 28px; height: 28px; box-shadow: none; transition: transform .4s var(--spring); }
-.ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; }
-.ptsline .fig b { font: 400 34px/1 var(--serif); color: var(--ink); }
+@media (hover: hover) { .fm-vp .fm-go a:hover .go { transform: translateX(4px); } }
+.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 12px; padding: 14px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
+.ptsline .tk { width: 24px; height: 24px; box-shadow: none; transition: transform .4s var(--spring); }
+.ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; color: var(--mute); }
+.ptsline .fig b { font: 400 28px/1 var(--serif); color: var(--ink); }
 .ptsline .you { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--mute); }
 .ptsline .go { transition: transform .3s var(--spring); }
 @media (hover: hover) { .ptsline:hover .go { transform: translateX(4px); } .ptsline:hover > .tk { transform: scale(1.18) rotate(90deg); } .ptsline:hover .you { color: var(--ink); } }
 .boost { padding: 1px 5px; font: 500 10.5px var(--mono); font-style: normal; letter-spacing: .04em; color: var(--ink); background: color-mix(in srgb, var(--orange) 26%, transparent); }
 
-/* TAC: one calm coin; it turns to show Bitcoin on its back, then Ethereum. */
-.tc { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 64px; align-items: start; }
-.tc-stage { position: sticky; top: 96px; margin-top: 34px; height: 280px; display: grid; place-items: center; perspective: 900px; }
-.tc-tilt { transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
+/* TAC: one calm coin above its title; it turns to show Bitcoin on its back, then Ethereum. */
+.tc { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.tc .sx-h { margin-bottom: 26px; }
+.tc-stage { position: relative; width: 100%; height: 210px; display: grid; place-items: center; perspective: 900px; }
+.tc-tilt { scale: .8; transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
 @keyframes tc-bob { 0%, 100% { transform: rotateX(8deg) rotateZ(-4deg) translateY(-3px); } 50% { transform: rotateX(8deg) rotateZ(-4deg) translateY(3px); } }
 .tc-coin { --t: 14px; --cyc: 14s; position: relative; width: 200px; height: 200px; transform-style: preserve-3d; animation: tc-spin var(--cyc) infinite; }
 @keyframes tc-spin {
@@ -530,36 +519,37 @@ a.di { color: inherit; text-decoration: none; }
   50% { background-position: -10% 0; } 50.1%, 64% { background-position: 110% 0; } 75% { background-position: -10% 0; }
   75.1%, 89% { background-position: 110% 0; } 100% { background-position: -10% 0; }
 }
-.tc-shadow { position: absolute; bottom: 24px; width: 170px; height: 18px; border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, .22), transparent); animation: tc-shade var(--cyc) infinite; }
+.tc-shadow { position: absolute; bottom: 10px; width: 136px; height: 16px; border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, .22), transparent); animation: tc-shade var(--cyc) infinite; }
 @keyframes tc-shade {
   0%, 14%, 25%, 39%, 50%, 64%, 75%, 89%, 100% { transform: scaleX(1); opacity: 1; }
   19.5%, 44.5%, 69.5%, 94.5% { transform: scaleX(.42); opacity: .65; }
 }
-.tc h2 { font: 400 clamp(34px, 4vw, 52px)/1 var(--serif); letter-spacing: -.02em; max-width: 18ch; margin: 0; }
-.tc h2 em { font-style: italic; }
-.tc-facts { display: flex; flex-wrap: wrap; gap: 14px 44px; margin: 28px 0 0; padding: 0; }
-.tc-facts div { display: flex; flex-direction: column-reverse; gap: 2px; }
+.tc-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 64px; margin: 0; padding: 0; }
+.tc-facts div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 4px; }
 .tc-facts dt { font-size: 12px; color: var(--mute); }
-.tc-facts dd { margin: 0; font: 400 28px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
-.tc-do { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 32px; max-width: 640px; margin: 30px 0 0; padding: 20px 0 0; border-top: 1px dashed var(--hair-2); }
-.tc-do li { display: grid; gap: 3px; }
-.tc-do b { font: 400 22px/1.1 var(--serif); }
-.tc-do span { font-size: 13px; line-height: 1.5; color: var(--mute); }
-.tc-pay { max-width: 640px; margin: 30px 0 0; padding: 20px 0 0; border-top: 1px dashed var(--hair-2); }
-.tc-pay h3 { margin: 0; font: 400 26px/1.15 var(--serif); letter-spacing: -.01em; }
-.tp-flow { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0 0; padding: 0; border: 1px solid var(--ink); border-radius: 14px; overflow: hidden; }
-.tp-flow li + li { border-left: 1px dotted var(--hair-2); position: relative; }
-.tp-flow li + li::before { content: '→'; position: absolute; left: -9px; top: 50%; transform: translateY(-50%); width: 18px; text-align: center; background: var(--paper); color: var(--mute); font-size: 13px; line-height: 18px; z-index: 1; }
-.tp-flow button, .tp-flow a { display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 14px 16px; background: none; border: 0; color: var(--ink); text-align: left; text-decoration: none; font: inherit; cursor: pointer; transition: background .15s; }
-.tp-flow button:hover, .tp-flow a:hover { background: var(--hair); }
-.tp-flow .tk { width: 30px; height: 30px; }
-.tp-flow .g { width: 30px; height: 30px; flex: none; padding: 3px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tc-facts dd { margin: 0; font: 400 30px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
+/* Private bitcoin payments: three steps on one line, each a way in. */
+.tc-pay { width: 100%; max-width: 720px; margin: 56px 0 0; }
+.tc-pay h3 { margin: 0; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; }
+.tp-flow { position: relative; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0 0; padding: 0; }
+.tp-flow::before { content: ''; position: absolute; top: 34px; left: calc(100% / 6); right: calc(100% / 6); border-top: 1px solid var(--hair-2); }
+.tp-flow li + li::before { content: '→'; position: absolute; z-index: 1; left: 0; top: 34px; transform: translate(-50%, -50%); padding: 0 6px; font-size: 13px; line-height: 1; color: var(--mute); background: var(--paper); }
+.tp-flow li { position: relative; }
+.tp-flow button, .tp-flow a { display: grid; justify-items: center; gap: 10px; width: 100%; padding: 18px 8px 8px; color: var(--ink); background: none; border: 0; text-align: center; text-decoration: none; font: inherit; cursor: pointer; }
+.tp-flow .tk, .tp-flow .g { position: relative; width: 32px; height: 32px; box-shadow: 0 0 0 8px var(--paper); transition: transform .3s var(--spring); }
+.tp-flow .g { padding: 6px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; background: var(--card); border-radius: 50%; outline: 1px solid var(--hair-2); outline-offset: -1px; }
+@media (hover: hover) { .tp-flow button:hover .tk, .tp-flow a:hover .tk, .tp-flow button:hover .g { transform: translateY(-3px); } .tp-flow button:hover b, .tp-flow a:hover b { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } }
 .tp-flow span { display: grid; gap: 2px; min-width: 0; }
 .tp-flow b { font: 400 19px/1.1 var(--serif); }
 .tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
-.tc-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
+/* What holding it does: four short lines under a rule. */
+.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 880px; margin: 48px 0 0; padding: 28px 0 0; border-top: 1px solid var(--hair); }
+.tc-do li { display: grid; align-content: start; gap: 4px; }
+.tc-do b { font: 400 20px/1.15 var(--serif); }
+.tc-do span { font-size: 12px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
+.tc-links { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 36px; }
 .tc-links .tl { font-size: 14px; }
-.tc-links .btn { width: auto; min-height: 52px; margin: 0; padding: 0 24px; background: transparent; color: var(--ink); border-color: var(--ink); }
+.tc-links .btn { width: auto; min-height: 48px; margin: 0; padding: 0 24px; color: var(--ink); background: transparent; border-color: var(--ink); border-radius: 999px; }
 @media (hover: hover) { .tc-links .btn:hover:not(:disabled) { color: var(--paper); background: var(--ink); } }
 @media (prefers-reduced-motion: reduce) { .tc-eth { opacity: 0; } }
 .rest, .rest *, .rest *::before, .rest *::after { animation-play-state: paused !important; }
@@ -921,16 +911,12 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 /* ── the front page on narrower screens ── */
 @media (max-width: 980px) {
   .hero { padding-top: 18px; }
-  .sx-h { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .wd { --end: 230px; }
+  .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr); }
   .wd-top { padding: 20px 16px 18px; }
   .wd-end { padding: 16px; }
-  .fm-y { grid-template-columns: minmax(0, 1fr); }
-  .fm-way + .fm-way { border-left: 0; border-top: 1px solid var(--ink); }
-  .tc { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .tc-stage { position: relative; top: auto; margin-top: 0; height: 230px; }
-  .tc-coin { width: 170px; height: 170px; }
-  .tc-shadow { width: 140px; bottom: 18px; }
+  .fm-y { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fm-vp { grid-column: 1 / -1; }
+  .tc-do { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; }
 }
 @media (max-width: 640px) {
   .proof-f .tl { display: none; }
@@ -943,35 +929,36 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .hx-b.swc .act, .hx-b .swc .act { margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; }
   .hx-amt { font-size: 38px; }
   .tape { margin-top: 22px; }
+  .sx { padding-top: 72px; }
   .wd { --end: 1fr; }
-  .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 60px minmax(0, 1fr); }
+  .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr); }
   .wd-top { padding: 16px 12px 14px; }
-  .wd-ch { font-size: 26px; gap: 8px; }
-  .wd-ch .tk { width: 32px; height: 32px; }
-  .wd-key .tk { width: 44px; height: 44px; }
+  .wd-ch { font-size: 22px; gap: 8px; }
+  .wd-ch .tk { width: 28px; height: 28px; }
+  .wd-key .tk { width: 36px; height: 36px; }
   .wd-key code, .wd-key small, .wd-key::after { display: none; }
   .wd-end, .wd-end.r { flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 12px; }
   .wd-end.r { align-items: flex-end; }
   .wd-end.r > :last-child { order: -1; }
-  .wd-end .tk { width: 36px; height: 36px; }
-  .wd-end .pair .tk { width: 34px; height: 34px; }
-  .wd-end b { font-size: 22px; }
+  .wd-end .tk { width: 32px; height: 32px; }
+  .wd-end b { font-size: 20px; }
   .wd-end small { font-size: 11px; }
   .wd-wire span { display: none; }
-  .wd-wl { --fade: 45%; }
-  .wd-wl.r { background: linear-gradient(90deg, transparent, var(--orange) 45%, var(--blue)); }
-  .wd-wl.l { background: linear-gradient(90deg, var(--orange), var(--blue) 55%, transparent); }
+  .wd-wl { left: 6px; right: 6px; }
   .wd-foot { grid-template-columns: minmax(0, 1fr); }
   .wd-foot button { padding: 12px; }
-  .wd-foot button + button { justify-content: flex-start; text-align: left; border-left: 0; border-top: 1px dotted var(--hair-2); flex-direction: row-reverse; }
-  .fm-way { padding: 20px 16px; }
-  .tc-facts { flex-direction: column; gap: 0; }
-  .tc-facts div { flex-direction: row-reverse; justify-content: space-between; align-items: baseline; padding: 9px 0; border-top: 1px dotted var(--hair-2); }
-  .tc-facts div:last-child { border-bottom: 1px dotted var(--hair-2); }
-  .tc-do { grid-template-columns: minmax(0, 1fr); }
-  .tp-flow { grid-template-columns: minmax(0, 1fr); }
-  .tp-flow li + li { border-left: 0; border-top: 1px dotted var(--hair-2); }
-  .tp-flow li + li::before { content: '↓'; left: 22px; top: -9px; transform: none; }
+  .wd-foot button + button { justify-content: flex-start; text-align: left; border-left: 0; border-top: 1px solid var(--hair); flex-direction: row-reverse; }
+  .fm-y { grid-template-columns: minmax(0, 1fr); }
+  .fm-way { padding: 20px 18px 18px; }
+  .tc-stage { height: 180px; }
+  .tc-tilt { scale: .66; }
+  .tc-shadow { width: 112px; bottom: 12px; }
+  .tc-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
+  .tc-facts dd { font-size: 22px; }
+  .tc-facts dt { font-size: 11px; text-wrap: balance; }
+  .tc-pay { margin-top: 44px; }
+  .tp-flow small { font-size: 11px; }
+  .tc-do { gap: 18px 20px; margin-top: 36px; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
@@ -1208,29 +1195,27 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="sx" id="how" aria-labelledby="how-h">
-    <div class="sx-h">
-      <div><span class="sx-k">How it works</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
-    </div>
+    <div class="sx-h"><h2 id="how-h">One ID. <em>Two chains.</em></h2></div>
     <div class="wd">
       <div class="wd-top">
         <span class="wd-ch"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin</span>
-        <button class="wd-key" type="button" data-signin aria-label="Your tacit1 ID: sign in or make one"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><code id="wd-id">tacit1…</code><small>one key, from your wallet or a passkey</small></button>
+        <button class="wd-key" type="button" data-signin aria-label="Your tacit1 ID: sign in or make one"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><code id="wd-id">tacit1…</code><small>from your wallet or a passkey</small></button>
         <span class="wd-ch r">Ethereum<svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
       </div>
       <ol class="wd-lanes">
         <li class="wd-lane">
-          <button class="wd-end" type="button" data-hx="shield:btc:pool"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span><b>TAC</b><small>shielded on Bitcoin, sells for sats</small></span></button>
-          <button class="wd-wire" type="button" data-hx="shield:btc:eth" aria-label="Bridge TAC between Bitcoin and Ethereum, both ways"><i class="wd-wl r"></i><i class="wd-wl l"></i><span>Bridge</span></button>
-          <button class="wd-end r" type="button" data-hx="swap:eth:tac"><span><b>TAC</b><small>private on Ethereum, swaps and farms</small></span><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></button>
+          <button class="wd-end" type="button" data-hx="shield:btc:pool"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span><b>TAC</b><small>shielded, sells for sats</small></span></button>
+          <button class="wd-wire" type="button" data-hx="shield:btc:eth" aria-label="Bridge TAC between Bitcoin and Ethereum, both ways"><i class="wd-wl"></i><span>bridge</span></button>
+          <button class="wd-end r" type="button" data-hx="swap:eth:tac"><span><b>TAC</b><small>private, swaps and farms</small></span><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></button>
         </li>
         <li class="wd-lane">
           <button class="wd-end" type="button" data-hx="borrow:cbtc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>BTC</b><small>locked at your own address</small></span></button>
-          <button class="wd-wire" type="button" data-hx="borrow:cbtc" aria-label="Lock BTC to mint cBTC on Ethereum"><i class="wd-wl r"></i><span>Mints</span></button>
-          <button class="wd-end r" type="button" data-hx="borrow:cusd"><span><b>cBTC, cUSD</b><small>private bitcoin, and dollars borrowed on it</small></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span></button>
+          <button class="wd-wire one" type="button" data-hx="borrow:cbtc" aria-label="Lock BTC to mint cBTC on Ethereum"><i class="wd-wl"></i><span>mints</span></button>
+          <button class="wd-end r" type="button" data-hx="borrow:cusd"><span><b>cBTC, cUSD</b><small>private BTC, borrow dollars</small></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span></button>
         </li>
         <li class="wd-lane">
-          <button class="wd-end" type="button" data-hx="shield:tb:back"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span><b>tETH</b><small>your ETH, held on Bitcoin</small></span></button>
-          <button class="wd-wire" type="button" data-hx="shield:eth:btc" aria-label="Bridge tETH between Ethereum and Bitcoin, both ways"><i class="wd-wl r"></i><i class="wd-wl l"></i><span>Bridge</span></button>
+          <button class="wd-end" type="button" data-hx="shield:tb:back"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span><b>tETH</b><small>your ETH, on Bitcoin</small></span></button>
+          <button class="wd-wire" type="button" data-hx="shield:eth:btc" aria-label="Bridge tETH between Ethereum and Bitcoin, both ways"><i class="wd-wl"></i><span>bridge</span></button>
           <button class="wd-end r" type="button" data-hx="shield:ether:defi"><span><b>tETH</b><small>private ETH, one for one</small></span><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg></button>
         </li>
       </ol>
@@ -1239,7 +1224,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <button type="button" data-hx="shield:ether:pay"><span><b>Pay pools</b> on Ethereum, Base, Robinhood Chain and MegaETH</span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
       </div>
     </div>
-    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
+    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
   </section>
 
   <section class="sx tc" id="tac" aria-labelledby="tc-h">
@@ -1251,43 +1236,35 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div></div>
       <div class="tc-shadow"></div>
     </div>
-    <div class="tc-t">
-      <span class="sx-k">TAC</span>
-      <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
-      <dl class="tc-facts">
-        <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
-        <div><dt>Airdropped wallets, both chains</dt><dd class="num">14,000+</dd></div>
-        <div><dt>Sale or VC</dt><dd>None</dd></div>
-      </dl>
-      <div class="tc-pay" role="group" aria-labelledby="tp-h">
-        <h3 id="tp-h">Private bitcoin payments, today.</h3>
-        <ol class="tp-flow">
-          <li><button type="button" data-hx="swap:sats:tac"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats in</b><small>buy TAC, one atomic swap</small></span></button></li>
-          <li><button type="button" data-hx="shield:btc:pool"><svg class="g" aria-hidden="true"><use href="#g-shield"/></svg><span><b>Shielded</b><small>in TAC’s pool on Bitcoin</small></span></button></li>
-          <li><a href="/tac/#withdraw/sats"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats out</b><small>to any address, unlinked</small></span></a></li>
-        </ol>
-      </div>
-      <ul class="tc-do" aria-label="What holding TAC does">
-        <li><b>Cheaper exits</b><span>0.30%, down to 0.15% for holders.</span></li>
-        <li><b>More points</b><span>Up to 2× when held on Ethereum.</span></li>
-        <li><b>A vote</b><span>On the protocol’s governed parts.</span></li>
-        <li><b>Never sold</b><span>Relay fees in TAC go to the reserve; a tenth of its ETH fees buys more.</span></li>
-      </ul>
-      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
+    <div class="sx-h"><h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2></div>
+    <dl class="tc-facts">
+      <div><dt>fixed supply</dt><dd class="num">21,000,000</dd></div>
+      <div><dt>wallets airdropped, both chains</dt><dd class="num">14,000+</dd></div>
+      <div><dt>sale or VC</dt><dd>None</dd></div>
+    </dl>
+    <div class="tc-pay" role="group" aria-labelledby="tp-h">
+      <h3 id="tp-h">Private bitcoin payments, today.</h3>
+      <ol class="tp-flow">
+        <li><button type="button" data-hx="swap:sats:tac"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats in</b><small>swapped for TAC</small></span></button></li>
+        <li><button type="button" data-hx="shield:btc:pool"><svg class="g" aria-hidden="true"><use href="#g-shield"/></svg><span><b>Shielded</b><small>in TAC’s pool</small></span></button></li>
+        <li><a href="/tac/#withdraw/sats"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats out</b><small>to any address, unlinked</small></span></a></li>
+      </ol>
     </div>
+    <ul class="tc-do" aria-label="What holding TAC does">
+      <li><b>Cheaper exits</b><span>0.30%, down to 0.15% for holders</span></li>
+      <li><b>More points</b><span>up to 2× when held on Ethereum</span></li>
+      <li><b>A vote</b><span>on the protocol’s governed parts</span></li>
+      <li><b>Never sold</b><span>relay fees in TAC go to the reserve; a tenth of those in ETH buys more</span></li>
+    </ul>
+    <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
   </section>
 
   <section class="sx fm" aria-labelledby="fm-h">
-    <div class="sx-h">
-      <div><span class="sx-k">Earn</span><h2 id="fm-h">Farm <em>TAC</em>.</h2></div>
-      <p>Farms stream TAC every second, vault pools pay it daily. Leave whenever you like.</p>
-    </div>
+    <div class="sx-h"><h2 id="fm-h">Farm <em>TAC</em>.</h2><p>Streamed by the second. Leave whenever you like.</p></div>
     <div class="fm-y">
-      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction: about half your ETH becomes TAC, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
-    </div>
-    <div class="fm-y fm-vp">
-      <div class="fm-way"><span class="fm-apr s num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><h3>Vault pools</h3><p>TACD trades for USDC, TACE for ETH. Deeper pools, better borrowing against TAC.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
+      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><h3>Private farms</h3><p>Nobody sees what you hold. <span id="priv-day"></span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
+      <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
     </div>
     <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
   </section>
@@ -8132,22 +8109,22 @@ async function lookPoints(text) {
 load.pts = () => { holdingRefresh(); return loadPoints(); };
 RETRY.points = () => loadPoints(true).then(() => rerender('pts')).catch(() => {});
 function paintEarn() {
-  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program, apr = (a) => html`${a >= 10000 ? '10,000+' : per(Math.round(a))}%<small>APR</small>`;
+  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program, apr = (a, best) => html`${best ? html`<small class="up">up to</small>` : ''}${a >= 10000 ? '10,000+' : per(Math.round(a))}%<small>APR</small>`;
   const day = prog?.epoch?.active ? Math.round(Number(prog.epoch.ratePerDayTac)) : 0, n = prog?.pools?.length || 0;
   const pools = prog?.epoch?.active && FARM.precision?.tacEth ? (prog.pools || []).map((p) => ({ p, apr: shieldedApr(p) })).filter((x) => x.apr != null).sort((a, b) => b.apr - a.apr) : [];
   if (pools.length) {
     const best = $('#flow-farm');
     best.href = `#farm/private-${pools[0].p.pid}`; best.dataset.link = `farm/private-${pools[0].p.pid}`;
-    mount($('#priv-apr'), apr(pools[0].apr)); countUp($('#priv-apr'));
+    mount($('#priv-apr'), apr(pools[0].apr, pools.length > 1)); countUp($('#priv-apr'));
   } else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-apr').textContent = '—';
-  if (day && n) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} private pool${n === 1 ? '' : 's'}.${pools.length > 1 ? ' The APR is the best pool’s.' : ''}`;
+  if (day && n) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} pool${n === 1 ? '' : 's'}.`;
   else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-day').textContent = prog && !prog.epoch?.active ? 'Farms between reward periods.' : 'Farms not read yet.';
   const f = FARM.top;
   if (f?.apr != null) { mount($('#pub-apr'), apr(f.apr)); countUp($('#pub-apr')); $('#pub-day').textContent = `${per(f.pubDay)} TAC a day.`; }
   else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'Between reward periods.' : 'Not read yet.') : ''; }
   const tacUsd = (fpx().ethUsd || 0) * (FARM.precision?.tacEth || 0);
   const vp = LP.m && LP.c ? ['usd', 'eth'].map((k) => LP.m.bestApr(LP.c, k, tacUsd)).filter((a) => a != null) : [];
-  if (vp.length) { mount($('#vp-apr'), apr(Math.max(...vp))); countUp($('#vp-apr')); }
+  if (vp.length) { mount($('#vp-apr'), apr(Math.max(...vp), vp.length > 1)); countUp($('#vp-apr')); }
   else if (LP.done && !LP.c?.weights.usd?.length && !LP.c?.weights.eth?.length) $('#vp-apr').textContent = '—';
   const on = now() < ptsEnd();
   mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
