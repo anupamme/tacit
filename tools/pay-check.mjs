@@ -9,6 +9,8 @@
 //          /pay/eth/; BTC and TAC balances read; each kind of address routes as it should, a tacit1 from before the pool
 //          lane included (a silent payment in BTC, a shielded transfer in TAC); the receive addresses and their QR codes;
 //          Activity rebuilt from the key
+//   tokens an anvil fork of Ethereum: the USDC pool's deposit by permit, a private send and a withdrawal through a stubbed relay, a payment link in
+//          USDC paid from a wallet with no Tacit key, and the recipient's key finding it
 //   poolact with KEY (the canary): its real take-out that a payment through the pool recorded (sold for 3,300 sats) shows in Activity
 //          as "Paid through the pool", not as a send from its own Bitcoin address
 //   poolpay read-only against mainnet with KEY (a key holding shielded TAC): BTC Send to a bc1… address switched to the shielded
@@ -959,6 +961,138 @@ try {
     ok(new URL(next).hash.match(/n=([0-9a-f]+)/)[1] !== new URL(link).hash.match(/n=([0-9a-f]+)/)[1], 'after a link is paid, the next link uses a new address');
     await shot(p, 'fork-after');
     ok(!errors.length, `no page errors ${errors.join(' | ')}`);
+    await ctx.close();
+    anvil.kill('SIGKILL');
+  }
+
+  if (ONLY.has('tokens')) {
+    // The token pools on Ethereum (USDC here), on an anvil fork: a deposit from the wallet by a permit signed for the pool's router, a private send
+    // and a withdrawal through the relay (its keeper stubbed: quotes in USDC and sends pool.transact from the Ethereum keeper's address, as the
+    // real one does), a payment link in USDC paid from a wallet with no Tacit key, and the recipient's key finding what it was paid.
+    console.log('tokens (Ethereum fork, USDC pool)');
+    const { calldata } = await import(new URL('../dapp/evm-pool-gateway.js', import.meta.url));
+    const PAIR = { tuple: ['uint256', 'uint256'] }, B = (x) => BigInt(x);
+    const TX_TYPES = [PAIR, { tuple: [PAIR, PAIR] }, PAIR, { tuple: Array(11).fill('uint256') }, 'address', 'uint256', 'address', 'uint256', 'bytes', 'bytes'];
+    const TX_SIG = '(uint256[2],uint256[2][2],uint256[2],uint256[11],address,int256,address,uint256,bytes,bytes)';
+    const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, [t.pA.map(B), t.pB.map((r) => r.map(B)), t.pC.map(B), t.publicInputs.map(B), t.recipient, BigInt.asUintN(256, B(t.extAmount)), t.relayer, B(t.fee), t.memo0, t.memo1]);
+    const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', POOLU = '0x6C0be904750Fe1b50cd7207cc94731642d99e908', RELAYER = '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0';
+    const PORT = WEB + 4, ANVIL = `http://127.0.0.1:${PORT}`, hosts = /ethereum-rpc\.publicnode\.com|mainnet\.gateway\.tenderly\.co|eth\.drpc\.org|rpc\.flashbots\.net|1rpc\.io/;
+    const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', process.env.ETH_RPC || 'https://mainnet.gateway.tenderly.co', '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
+    process.on('exit', () => anvil.kill('SIGKILL'));
+    const rpc = async (method, params = []) => { const r = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (r.error) throw new Error(r.error.message); return r.result; };
+    for (let i = 0; ; i++) { try { await rpc('eth_chainId'); break; } catch { if (i > 120) throw new Error('anvil did not start'); await sleep(500); } }
+    const ACCT = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
+    await rpc('anvil_setCode', [ACCT, '0x']);
+    await rpc('anvil_setBalance', [ACCT, '0x' + (10n ** 18n).toString(16)]);
+    await rpc('anvil_setBalance', [RELAYER, '0x' + (10n ** 18n).toString(16)]);
+    await rpc('anvil_dealERC20', [ACCT, USDC, '0x' + (1000n * 10n ** 6n).toString(16)]);
+    await rpc('anvil_autoImpersonateAccount', [true]);
+    const usdcOf = async (a) => BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
+    const relays = [];
+    const route = async (ctx) => {
+      await ctx.route(hosts, async (r) => {
+        const body = r.request().postData();
+        let text;
+        try { text = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text(); }
+        catch (e) { text = JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(body || '{}').id ?? 1, error: { code: -32000, message: `fork: ${e.message}` } }); }
+        await r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: text }).catch(() => {});
+      });
+      await ctx.route(/tacit-evm-pool-keeper/, async (r) => {
+        const u = new URL(r.request().url()), H = { 'access-control-allow-origin': '*' };
+        if (!/^\/1-xa0b86991c6\//.test(u.pathname)) return r.fulfill({ status: 503, contentType: 'application/json', headers: H, body: '{"error":"stubbed"}' });
+        if (/\/quote$/.test(u.pathname)) return r.fulfill({ status: 200, contentType: 'application/json', headers: H, body: JSON.stringify({ chainId: 1, pool: POOLU, relayer: RELAYER, asset: USDC, fee: '200000', gas: '450000', sweepFee: '200000', receiveMin: '80000000' }) });
+        if (/\/relay$/.test(u.pathname) && r.request().method() === 'POST') {
+          const b = JSON.parse(r.request().postData() || '{}');
+          const txHash = await rpc('eth_sendTransaction', [{ from: RELAYER, to: POOLU, data: transactData(b.tx), gas: '0x1e8480' }]);
+          relays.push(txHash);
+          return r.fulfill({ status: 200, contentType: 'application/json', headers: H, body: JSON.stringify({ txHash }) });
+        }
+        return r.fulfill({ status: 404, contentType: 'application/json', headers: H, body: '{"error":"no such route"}' });
+      });
+      await ctx.route(/api\.tacit\.finance\/(points|claim|stats)/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' }));
+    };
+    const init = `(() => {
+      const ANVIL = 'https://ethereum-rpc.publicnode.com', ACCT = ${JSON.stringify(ACCT)};
+      let chain = '0x1';
+      const call = async (method, params) => { const r = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (r.error) throw Object.assign(new Error(r.error.message), r.error); return r.result; };
+      window.ethereum = { isMetaMask: true, on() {}, removeListener() {}, request: async ({ method, params }) => {
+        if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [ACCT];
+        if (method === 'eth_chainId') return chain;
+        if (method === 'wallet_switchEthereumChain') { chain = params[0].chainId; return null; }
+        if (method === 'wallet_getCapabilities') throw Object.assign(new Error('not supported'), { code: -32601 });
+        if (method === 'eth_sendTransaction') return call('eth_sendTransaction', [{ ...params[0], from: ACCT }]);
+        return call(method, params || []);
+      } };
+      localStorage.setItem('tacit-pay-chain-v1', '1');
+    })();`;
+    const { ctx, p, errors } = await page(browser, { init, route });
+    await p.goto(URL_);
+    const key = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const other = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await p.waitForSelector('#g-in');
+    ok(await p.isVisible('#assets [data-tok="usdc"]') && await p.isVisible('#assets [data-tok="usdt"]') && await p.isVisible('#assets [data-tok="tac"]'), 'on Ethereum the page offers ETH and the USDC, USDT and TAC pools');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.click('#tabs [data-tab="receive"]');
+    const otherAddr = await p.$eval('#f-acopy', (b) => b.closest('.kv').querySelector('b').textContent).catch(() => '');
+    await p.click('#f-acopy');
+    const otherTacit = await p.evaluate(() => navigator.clipboard.readText());
+    ok(/^tacit1/.test(otherTacit), `a token pool's Receive shows the one Tacit address (${otherAddr})`);
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await openKey(p, key);
+    await p.evaluate(() => document.querySelector('#wallet-label').click()); await p.click('#w-conn'); await p.click('#sheet-wallet [data-close]');
+    await p.click('#assets [data-tok="usdc"]');
+    ok(/USDC, private on Ethereum/.test(await p.textContent('#bal')), `the balance is the private USDC (${(await p.textContent('#bal')).replace(/\s+/g, ' ').trim().slice(0, 60)})`);
+    await p.click('#tabs [data-tab="deposit"]');
+    await p.waitForFunction(() => /1,000/.test(document.querySelector('#f-wb')?.textContent || ''), null, { timeout: 60e3 }).catch(() => {});
+    await p.fill('#f-amt', '300');
+    const t0 = Date.now(), u0 = await usdcOf(ACCT);
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Deposited/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Deposited 300 USDC/.test(await p.textContent('#status')) && u0 - (await usdcOf(ACCT)) === 300n * 10n ** 6n, `deposit of 300 USDC from the wallet, a permit signed for the router, proved here (${Math.round((Date.now() - t0) / 1000)} s): ${(await p.textContent('#status')).trim()}`);
+    await p.waitForFunction(() => /^300$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 120e3 }).catch(() => {});
+    ok(/^300$/.test((await p.textContent('#bal .v')).trim()), `private balance: ${await p.textContent('#bal .v')} USDC`);
+    await p.click('#tabs [data-tab="send"]');
+    await p.fill('#f-to', otherTacit); await p.fill('#f-amt', '100');
+    await p.waitForFunction(() => /Relay fee/.test(document.querySelector('#f-rcpt')?.textContent || '') && !document.querySelector('#f-go').disabled, null, { timeout: 60e3 }).catch(() => {});
+    ok(/at most 0\.25 USDC/.test(await p.textContent('#f-rcpt')), `the relay's fee is in USDC (${(await p.textContent('#f-rcpt')).replace(/\s+/g, ' ').trim()})`);
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Sent/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Sent 100 USDC privately/.test(await p.textContent('#status')) && relays.length === 1, `a private send of 100 USDC through the relay: ${(await p.textContent('#status')).trim()}`);
+    await p.click('#tabs [data-tab="withdraw"]');
+    const before3 = await usdcOf('0x' + '33'.repeat(20));       // a real address: it holds some USDC already
+    await p.fill('#f-to', '0x' + '33'.repeat(20)); await p.fill('#f-amt', '50');
+    await p.waitForFunction(() => !document.querySelector('#f-go').disabled, null, { timeout: 60e3 }).catch(() => {});
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Withdrew/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    const got3 = (await usdcOf('0x' + '33'.repeat(20))) - before3;
+    ok(/Withdrew 50 USDC/.test(await p.textContent('#status')), `a withdrawal of 50 USDC to an address: ${(await p.textContent('#status')).trim()}`);
+    ok(got3 === 50n * 10n ** 6n, `the address received exactly 50 USDC (+${Number(got3) / 1e6})`);
+    ok(relays.length === 2, `and the relay sent it (${relays.length} relayed so far)`);
+    await p.waitForFunction(() => /^149\.6$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 120e3 }).catch(() => {});
+    ok(/^149\.6$/.test((await p.textContent('#bal .v')).trim()), `what stays private, less the two fees: ${await p.textContent('#bal .v')} USDC`);
+    // a request for 25 USDC, from the other key, paid from a wallet by someone with no Tacit key
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.click('#tabs [data-tab="receive"]');
+    await p.fill('#f-ramt', '25'); await sleep(300);
+    await p.click('#f-rcopy');
+    const link = await p.evaluate(() => navigator.clipboard.readText());
+    ok(/#pay=tacit1.+asset=usdc.+amount=25/.test(link), `a payment link names USDC and the amount (${link.slice(0, 90)}…)`);
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await p.goto(link.replace(/^https?:\/\/[^/]+/, new URL(URL_).origin));
+    await p.waitForSelector('#req-wallet');
+    ok(/25 USDC/.test((await p.textContent('#req')).replace(/\s+/g, ' ')), `the request reads 25 USDC (${(await p.textContent('#req .req-a')).trim()})`);
+    await p.click('#req-wallet');
+    await p.waitForFunction(() => /now in their private balance|You paid/.test(document.querySelector('#req').textContent) || document.querySelector('#req .err'), null, { timeout: 600e3 });
+    ok(/Paid 25 USDC, now in their private balance/.test(await p.textContent('#req')), `paid from a wallet, no Tacit key, straight into their private USDC: ${(await p.textContent('#req')).replace(/\s+/g, ' ').trim().slice(0, 120)}`);
+    await p.click('#req-x');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.waitForFunction(() => /^125$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 180e3 }).catch(() => {});
+    ok(/^125$/.test((await p.textContent('#bal .v')).trim()), `the recipient's key finds the 100 sent and the 25 paid: ${await p.textContent('#bal .v')} USDC`);
+    ok(!errors.filter((e) => !/status of (404|503)/.test(e)).length, `no page errors ${errors.join(' | ').slice(0, 200)}`);
     await ctx.close();
     anvil.kill('SIGKILL');
   }

@@ -619,6 +619,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="req" id="req" hidden><div id="req-body"></div><div class="status" role="status" id="req-status"></div></div>
       <div class="req" id="due" hidden></div>
       <div class="seg" role="tablist" aria-label="Chain" id="chains"></div>
+      <div class="seg sub" role="tablist" aria-label="Asset" id="assets" hidden></div>
       <div class="bal" id="bal"></div>
       <div class="poolstat" id="poolstat"></div>
       <div class="seg sub" role="tablist" aria-label="Action" id="tabs"></div>
@@ -699,6 +700,7 @@ import { makeTacitAddress, poolKeysOf } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { qrSvg as qrMarkup } from '/qr.js?cb=926d16be';
+import { SERVED as SERVED_POOLS, FIXED as FIXED_POOLS, keeperIdOf, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js?cb=cdc195bc';
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // preload-later:begin
@@ -923,7 +925,7 @@ const mods = lazy(async () => {
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
   return {
     zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), poolAsset: zkm.poolAsset, extDataHash: zkm.extDataHash,
-    evmPoolKeys: wm.evmPoolKeys, makeEvmPoolWallet: wm.makeEvmPoolWallet, jsonRpc: wm.jsonRpc, openNote: wm.openNote, openNotes: wm.openNotes, logFailure: wm.logFailure, sealNote: wm.sealNote, recipientOf: wm.recipientOf, paymentKey: wm.paymentKey, PAYMENT_ATTEMPTS: wm.PAYMENT_ATTEMPTS, verifyPayment: wm.verifyPayment,
+    evmPoolKeys: wm.evmPoolKeys, makeEvmPoolWallet: wm.makeEvmPoolWallet, routerDeposit: wm.routerDeposit, jsonRpc: wm.jsonRpc, openNote: wm.openNote, openNotes: wm.openNotes, logFailure: wm.logFailure, sealNote: wm.sealNote, recipientOf: wm.recipientOf, paymentKey: wm.paymentKey, PAYMENT_ATTEMPTS: wm.PAYMENT_ATTEMPTS, verifyPayment: wm.verifyPayment,
     receiveKeys: gw.receiveKeys, receiveBoxAddress: gw.receiveBoxAddress, RECEIVE_FEE_BPS: gw.RECEIVE_FEE_BPS, vkHash: pm.vkHash,
   };
 });
@@ -1090,6 +1092,7 @@ async function setKey(k) {
   syncAll(true);
   historyAll();
   for (const c of CHAINS) boxScan(c);
+  tokSyncAll(true);
 }
 function forget() {
   S.key = null; S.keys = null; Object.assign(BOXQ, { for: null, map: null, at: [] }); BOXST.for = null; Object.assign(SHOWN, { pub: null, k: null, seen: null, told: null }); Object.assign(GIFTQ, { for: null, by: {} }); LINKSHOW.v = null; PLANS.clear();
@@ -1099,6 +1102,7 @@ function forget() {
   if (REQ.v && !REQ.v.paid) { DRAFT['f-to'] = REQ.v.bp; if (REQ.v.amount) DRAFT['f-amt'] = plain(REQ.v.amount); else if (typed) DRAFT['f-amt'] = typed; }
   GIFTSEEN.clear(); MADEQ.clear();
   SENT.v = null; say($('#status'), '');
+  for (const k of Object.keys(TK)) Object.assign(TK[k], tkBlank());
   for (const st of Object.values(CH)) { clearTimeout(st.histTimer); Object.assign(st, { W: null, for: null, bal: null, notes: [], quote: null, waiting: null, err: null, syncing: null, at: 0, fails: 0, fill: null, hist: null, histing: null, histNext: null, histErr: null, histFails: 0, histTimer: null, histStart: 0, last: null, waitBoxes: [], quoteErr: null, deferred: false }); }
 }
 function lock() { forget(); evm.deselectProvider(); paintWallet(); renderApp(); paintRecover(); }
@@ -1408,6 +1412,7 @@ setInterval(() => {
     if (S.busyChain === c.chainId) continue;
     if (Date.now() - st.at > pollAfter(st, c === S.chain ? POLL_MS : POLL_OTHER_MS)) syncChain(c);
   }
+  for (const t of TOKENS) { const s = TK[t.key]; if (!s.syncing && !S.busy && Date.now() - s.at > (S.tok === t ? POLL_MS : POLL_OTHER_MS)) tokSync(t); }
   const held = new Set(dues().map((d) => d.chain));
   for (const c of CHAINS) {
     const q = POOLQ[c.chainId];
@@ -2226,10 +2231,12 @@ function paintChains() {
     return html`<button type="button" role="tab" id="chain-${c.chainId}" data-chain="${c.chainId}" aria-selected="${c === S.chain ? 'true' : 'false'}" tabindex="${c === S.chain ? '0' : '-1'}" ${S.busy ? 'disabled' : ''} ${!S.key && q?.locked != null ? html`aria-label="${c.name}, ${fmt(q.locked, 18, 3)} ETH in the pool"` : ''}>${c.name}${v ? html`<small>${v}</small>` : ''}</button>`;
   })}`));
   $$('#chains [data-chain]').forEach((b) => b.onclick = () => { if (!S.busy) switchChain(chainOf(b.dataset.chain)); });
+  paintAssets();
 }
 function switchChain(c, tab = null) {
   if (!c) return;
   S.chain = c; writeJson(CHAIN_PREF, c.chainId);
+  if (c !== CHAINS[0] && S.tok) { S.tok = null; writeJson(TOK_PREF, null); }
   if (tab) S.tab = tab;
   if (S.dest !== 'addr' && c.chainId !== 1) S.dest = 'addr';
   say($('#status'), '');
@@ -2246,6 +2253,7 @@ function poolLine(c) {
 function paintPoolStat() {
   const el = $('#poolstat');
   if (!el) return;
+  if (S.tok) { el.hidden = linkOnly(); return mountOnce(el, tokPoolLine(S.tok)); }
   const c = S.chain, q = PUB[c.chainId], line = poolLine(c), total = S.key ? totalLine() : '';
   el.hidden = linkOnly() || (!line && !total && !!(q && q.at));
   mountOnce(el, html`${total}${line}`);
@@ -2260,6 +2268,7 @@ const REFRESHING = new Set();
 function paintBal() {
   const c = S.chain, st = cur(), el = $('#bal');
   paintPoolStat();
+  if (S.tok) return paintTokBal(el);
   if (REQ.v && S.key && !REQ.v.paid && !REQ.v.state && REQ.v.pf !== privFirstFor(REQ.v)) paintReq();
   if (!S.key) {
     mountOnce(el, html`<span class="pair"><svg class="tk md" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk md" aria-hidden="true"><use href="#tk-peth"/></svg></span>
@@ -2298,8 +2307,11 @@ function renderForm() {
       mount(f, html`<p class="gate-p">Open your Tacit wallet. One key holds your private ETH on all four chains, and nothing else needs backing up.</p>${signIn('g')}`);
       return wireSignIn(f, 'g');
     }
-    ({ deposit: formDeposit, send: formSend, withdraw: formWithdraw, receive: formReceive })[S.tab](f);
-    if (S.tab === 'send' || S.tab === 'withdraw') FORM.relayShown = relayUp();
+    if (S.tok) TOKFORMS[S.tab](f, S.tok);
+    else {
+      ({ deposit: formDeposit, send: formSend, withdraw: formWithdraw, receive: formReceive })[S.tab](f);
+      if (S.tab === 'send' || S.tab === 'withdraw') FORM.relayShown = relayUp();
+    }
     for (const i of $$('input[id]', f)) {
       if (DRAFT[i.id] && !i.value) { i.value = DRAFT[i.id]; }
       i.addEventListener('input', () => { DRAFT[i.id] = i.value; FORM.check?.(); });
@@ -3473,6 +3485,7 @@ function drawReq() {
   if (!r) return sayLive($('#req-status'), '');
   reqPool(r);
   if (r.paid) leaveBar(r.src);
+  if (r.tok) return drawTokReq(r);
   const c = S.chain, own = S.key && (lc(r.bp) === lc(S.key.bp) || (UNIFIED_LIVE && lc(r.bp) === lc(unifiedAddress())) || r.rbp === lc(S.key.bp));
   const privFirst = r.pf = privFirstFor(r), typed = $('#req-amt')?.value;
   const held = !own && !r.paid && S.busy > 0, mine = held && S.tab === 'send' && S.sendMode !== 'link' && lc(DRAFT['f-to'] || '') === lc(r.bp);
@@ -3964,9 +3977,412 @@ async function checkProof(raw) {
   if (PROOF.v !== p) PROOF.res = null;
   paintProof();
 }
+// ── Token pools on Ethereum ──
+// USDC, USDT and TAC each have a private pool of their own on Ethereum (dapp/evm-pool-tokens.js): the ETH pool's contract with the token as its
+// asset, proved here the same way, each with its own router and relay route, whose fee is paid in the token. They are picked on Ethereum, beside
+// its ETH; each pool's balance, deposit, private send, withdrawal and payment requests are its own, and one Tacit address takes payments in any.
+const TOKEN_LOGOS = {"usdc": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDMyIDMyIj48ZyBmaWxsPSJub25lIj48Y2lyY2xlIGZpbGw9IiMyNzc1Q0EiIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIvPjxnIGZpbGw9IiNGRkYiPjxwYXRoIGQ9Ik0yMC4wMjIgMTguMTI0YzAtMi4xMjQtMS4yOC0yLjg1Mi0zLjg0LTMuMTU2LTEuODI4LS4yNDMtMi4xOTMtLjcyOC0yLjE5My0xLjU3OCAwLS44NS42MS0xLjM5NiAxLjgyOC0xLjM5NiAxLjA5NyAwIDEuNzA3LjM2NCAyLjAxMSAxLjI3NWEuNDU4LjQ1OCAwIDAwLjQyNy4zMDNoLjk3NWEuNDE2LjQxNiAwIDAwLjQyNy0uNDI1di0uMDZhMy4wNCAzLjA0IDAgMDAtMi43NDMtMi40ODlWOS4xNDJjMC0uMjQzLS4xODMtLjQyNS0uNDg3LS40ODZoLS45MTVjLS4yNDMgMC0uNDI2LjE4Mi0uNDg3LjQ4NnYxLjM5NmMtMS44MjkuMjQyLTIuOTg2IDEuNDU2LTIuOTg2IDIuOTc0IDAgMi4wMDIgMS4yMTggMi43OTEgMy43NzggMy4wOTUgMS43MDcuMzAzIDIuMjU1LjY2OCAyLjI1NSAxLjYzOSAwIC45Ny0uODUzIDEuNjM4LTIuMDExIDEuNjM4LTEuNTg1IDAtMi4xMzMtLjY2Ny0yLjMxNi0xLjU3OC0uMDYtLjI0Mi0uMjQ0LS4zNjQtLjQyNy0uMzY0aC0xLjAzNmEuNDE2LjQxNiAwIDAwLS40MjYuNDI1di4wNmMuMjQzIDEuNTE4IDEuMjE5IDIuNjEgMy4yMyAyLjkxNHYxLjQ1N2MwIC4yNDIuMTgzLjQyNS40ODcuNDg1aC45MTVjLjI0MyAwIC40MjYtLjE4Mi40ODctLjQ4NVYyMS4zNGMxLjgyOS0uMzAzIDMuMDQ3LTEuNTc4IDMuMDQ3LTMuMjE3eiIvPjxwYXRoIGQ9Ik0xMi44OTIgMjQuNDk3Yy00Ljc1NC0xLjctNy4xOTItNi45OC01LjQyNC0xMS42NTMuOTE0LTIuNTUgMi45MjUtNC40OTEgNS40MjQtNS40MDIuMjQ0LS4xMjEuMzY1LS4zMDMuMzY1LS42MDd2LS44NWMwLS4yNDItLjEyMS0uNDI0LS4zNjUtLjQ4NS0uMDYxIDAtLjE4MyAwLS4yNDQuMDZhMTAuODk1IDEwLjg5NSAwIDAwLTcuMTMgMTMuNzE3YzEuMDk2IDMuNCAzLjcxNyA2LjAxIDcuMTMgNy4xMDIuMjQ0LjEyMS40ODggMCAuNTQ4LS4yNDMuMDYxLS4wNi4wNjEtLjEyMi4wNjEtLjI0M3YtLjg1YzAtLjE4Mi0uMTgyLS40MjQtLjM2NS0uNTQ2em02LjQ2LTE4LjkzNmMtLjI0NC0uMTIyLS40ODggMC0uNTQ4LjI0Mi0uMDYxLjA2MS0uMDYxLjEyMi0uMDYxLjI0M3YuODVjMCAuMjQzLjE4Mi40ODUuMzY1LjYwNyA0Ljc1NCAxLjcgNy4xOTIgNi45OCA1LjQyNCAxMS42NTMtLjkxNCAyLjU1LTIuOTI1IDQuNDkxLTUuNDI0IDUuNDAyLS4yNDQuMTIxLS4zNjUuMzAzLS4zNjUuNjA3di44NWMwIC4yNDIuMTIxLjQyNC4zNjUuNDg1LjA2MSAwIC4xODMgMCAuMjQ0LS4wNmExMC44OTUgMTAuODk1IDAgMDA3LjEzLTEzLjcxN2MtMS4wOTYtMy40Ni0zLjc3OC02LjA3LTcuMTMtNy4xNjJ6Ii8+PC9nPjwvZz48L3N2Zz4=", "usdt": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDMyIDMyIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjE2IiBmaWxsPSIjMjZBMTdCIi8+PHBhdGggZmlsbD0iI0ZGRiIgZD0iTTE3LjkyMiAxNy4zODN2LS4wMDJjLS4xMS4wMDgtLjY3Ny4wNDItMS45NDIuMDQyLTEuMDEgMC0xLjcyMS0uMDMtMS45NzEtLjA0MnYuMDAzYy0zLjg4OC0uMTcxLTYuNzktLjg0OC02Ljc5LTEuNjU4IDAtLjgwOSAyLjkwMi0xLjQ4NiA2Ljc5LTEuNjZ2Mi42NDRjLjI1NC4wMTguOTgyLjA2MSAxLjk4OC4wNjEgMS4yMDcgMCAxLjgxMi0uMDUgMS45MjUtLjA2di0yLjY0M2MzLjg4LjE3MyA2Ljc3NS44NSA2Ljc3NSAxLjY1OCAwIC44MS0yLjg5NSAxLjQ4NS02Ljc3NSAxLjY1N20wLTMuNTl2LTIuMzY2aDUuNDE0VjcuODE5SDguNTk1djMuNjA4aDUuNDE0djIuMzY1Yy00LjQuMjAyLTcuNzA5IDEuMDc0LTcuNzA5IDIuMTE4IDAgMS4wNDQgMy4zMDkgMS45MTUgNy43MDkgMi4xMTh2Ny41ODJoMy45MTN2LTcuNTg0YzQuMzkzLS4yMDIgNy42OTQtMS4wNzMgNy42OTQtMi4xMTYgMC0xLjA0My0zLjMwMS0xLjkxNC03LjY5NC0yLjExNyIvPjwvZz48L3N2Zz4="};
+const TOKEN_FROM = { usdc: 26264051, usdt: 26264053, tac: 26201971 };
+const TOK_PREF = 'tacit-pay-token-v1';
+const TOKENS = [
+  ...Object.entries(SERVED_POOLS).map(([token, v]) => ({ key: lc(v.sym), sym: v.sym, dec: v.dec, token, pool: v.pool, router: v.router, maxRelayFee: v.maxRelayFee, keeper: `${POOL_KEEPERS}/${keeperIdOf(token)}/evm-pool/keeper` })),
+  { key: 'tac', sym: 'TAC', dec: 18, token: TAC_TOKEN, pool: FIXED_POOLS[lc(TAC_TOKEN)].pool, router: FIXED_POOLS[lc(TAC_TOKEN)].router, maxRelayFee: 1000n * 10n ** 18n, keeper: `${POOL_KEEPERS}/1-tac/evm-pool/keeper` },
+].map((t) => ({ ...t, from: TOKEN_FROM[t.key] ?? 26262000 }));
+const tokOf = (k) => TOKENS.find((t) => t.key === lc(k)) || null;
+const tokIcon = (t, cls = 'sm') => (TOKEN_LOGOS[t.key] ? html`<img class="tk ${cls}" src="${TOKEN_LOGOS[t.key]}" alt="" aria-hidden="true">` : html`<svg class="tk ${cls}" aria-hidden="true"><use href="#tk-${t.key}"/></svg>`);
+const plainOf = (v, dec) => fmt(v, dec, dec).replace(/,/g, '');
+const tkBlank = () => ({ W: null, for: null, bal: null, notes: [], quote: null, qErr: null, err: null, syncing: null, at: 0, self: false, pool: null, poolAt: 0 });
+const TK = Object.fromEntries(TOKENS.map((t) => [t.key, tkBlank()]));
+S.tok = S.chain === CHAINS[0] ? tokOf(readJson(TOK_PREF) || '') : null;
+
+// The sending wallet as a token pool's signer: an approval and the deposit that uses it go in one batch where the wallet takes batches (EIP-5792).
+const BATCH_NO = [4200, -32601, -32602, 5700, 5710, 5740, 5750, 5760], NO_BATCH = new Set();
+async function canBatch() {
+  if (!S.provider || !S.wallet || NO_BATCH.has(S.wallet)) return false;
+  const caps = await Promise.race([S.provider.request({ method: 'wallet_getCapabilities', params: [S.wallet] }), sleep(4000).then(() => null)]).catch(() => null);
+  if (!caps || typeof caps !== 'object') return false;
+  const at = (id) => Object.keys(caps).find((k) => { try { return BigInt(k) === BigInt(id); } catch { return false; } });
+  return ['supported', 'ready'].includes(caps[at(1) ?? at(0)]?.atomic?.status);
+}
+async function sendBatch(calls, sent = () => {}) {
+  await ensureChain(1);
+  let id;
+  try {
+    const r = await S.provider.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: '0x1', from: S.wallet, atomicRequired: true,
+      calls: calls.map(({ to, data, value }) => ({ to, data, value: '0x' + BigInt(value || 0).toString(16) })) }] });
+    id = typeof r === 'string' ? r : r?.id;
+  } catch (e) {
+    if (!BATCH_NO.includes(e?.code)) throw e;
+    NO_BATCH.add(S.wallet);
+    throw Object.assign(new Error('Your wallet does not send these together.'), { noBatch: true });
+  }
+  const unknown = (m) => Object.assign(new Error(m), { said: true });
+  if (!id) throw unknown('Your wallet did not say what it sent. Check its activity before trying again.');
+  sent();
+  for (let i = 0, quiet = 0; i < 600; i++) {
+    const st = await Promise.race([S.provider.request({ method: 'wallet_getCallsStatus', params: [id] }), sleep(9000).then(() => { throw new Error('slow'); })])
+      .then((x) => { quiet = 0; return x; }, () => { if (++quiet > 9) throw unknown('Your wallet sent it but cannot say how it went. Check its activity before trying again.'); return null; });
+    const rs = st?.receipts || [], q = String(st?.status ?? '');
+    if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed on chain, so nothing was deposited.');
+    const last = rs[rs.length - 1], h = last && (q === '200' || /CONFIRMED|SUCCESS/i.test(q) || rs.length >= calls.length) ? last.transactionHash || last.hash : null;
+    if (h) return h;
+    await sleep(1000);
+  }
+  throw unknown('Your wallet has not confirmed it yet. Check its activity before trying again.');
+}
+function tokSigner() {
+  const s = signerFor(CHAINS[0]);
+  s.batch = (calls, sent) => sendBatch(calls, sent);
+  return s;
+}
+const ROUTE_MOD = lazy(() => import('/swap/route.js?cb=ce610210'));
+const ethRead = async (to, data) => (await rpcOn(CHAINS[0]))('eth_call', [{ to, data }, 'latest']);
+const tokenBalanceOf = async (t, who) => BigInt(await ethRead(t.token, '0x70a08231' + strip(who).toLowerCase().padStart(64, '0')));
+// Approves exactly `amount` to the pool's router with a transaction of its own, mined first (USDT's allowance set to zero before, as USDT asks).
+async function tokApprove(t, amount, step, had = 0n) {
+  const R = await ROUTE_MOD(), send = async (v, label) => {
+    step(label);
+    const h = await S.provider.request({ method: 'eth_sendTransaction', params: [{ from: S.wallet, to: t.token, data: R.encApprove(t.router, v), value: '0x0', chainId: '0x1' }] });
+    for (let i = 0; i < 120; i++) { const s = await receiptOf(CHAINS[0], h, true).catch(() => null); if (s === 'ok') return; if (s === 'reverted') throw new Error('The approval failed on chain. Nothing was deposited.'); await sleep(3000); }
+    throw new Error('The approval has not landed yet. Try again in a moment.');
+  };
+  if (had > 0n && t.key === 'usdt') await send(0n, 'reset the allowance');
+  await send(amount, 'approve');
+  return { kind: 'allowance' };
+}
+// How the router takes `amount` from the wallet, asking the least of it: an allowance in place; an EIP-2612 permit signed for it (checked on chain
+// first); the approval in one batch with the deposit where the wallet takes batches; else an approval first. Never more than the amount.
+async function tokPull(t, amount, step) {
+  const R = await ROUTE_MOD(), owner = S.wallet, acc = await R.readAccess({ ethCall: ethRead, token: t.token, owner, spender: t.router });
+  if (acc.balance < amount) throw Object.assign(new Error(`Your wallet holds less than ${fmt(amount, t.dec, 6)} ${t.sym}. Nothing was sent.`), { said: true });
+  if (acc.allowed >= amount) return { kind: 'allowance' };
+  const info = await R.readToken({ ethCall: ethRead, keccak256: keccak_256, address: t.token }).catch(() => null);
+  if (info?.permit && acc.nonce != null) {
+    try {
+      step('sign the permit');
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+      const typed = R.permitTyped({ token: t.token, name: info.name, version: info.permit, owner, spender: t.router, value: amount, nonce: acc.nonce, deadline });
+      await ensureChain(1);
+      const p = R.splitSig(await S.provider.request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(typed)] }));
+      await ethRead(t.token, '0xd505accf' + [owner, t.router].map((a) => strip(a).toLowerCase().padStart(64, '0')).join('') + [amount, deadline, BigInt(p.v)].map((x) => x.toString(16).padStart(64, '0')).join('') + strip(p.r) + strip(p.s));
+      return { kind: 'permit', value: amount, deadline, ...p };
+    } catch (e) { if (errText(e) === 'Cancelled in your wallet.') throw e; }
+  }
+  if (acc.allowed === 0n || t.key !== 'usdt') { if (await canBatch()) return { kind: 'batch', token: t.token }; }
+  return tokApprove(t, amount, step, acc.allowed);
+}
+
+async function tokWallet(t) {
+  const st = TK[t.key];
+  if (st.W && st.for === S.key.pubHex) return st.W;
+  const m = await mods(), rpc = await rpcOn(CHAINS[0]);
+  if (st.W && st.for === S.key.pubHex) return st.W;
+  st.W = m.makeEvmPoolWallet({
+    zk: m.zk, keys: S.keys, keeper: t.keeper, store: kv, feed: !S.chainOnly, prove, fetchImpl: timedFetch,
+    chain: { chainId: 1, pool: t.pool, router: t.router, token: t.token, rpc, deployBlock: t.from, confirmations: CHAINS[0].confirmations, logChunk: CHAINS[0].logChunk, relayer: POOL_RELAYER, maxRelayFee: t.maxRelayFee },
+  });
+  st.W.connect(tokSigner());
+  st.for = S.key.pubHex;
+  return st.W;
+}
+function tokSync(t, fresh = false) {
+  const st = TK[t.key];
+  if (!S.key) return Promise.resolve();
+  if (st.syncing && !fresh) return st.syncing;
+  const pub = S.key.pubHex, prev = st.syncing || Promise.resolve();
+  const p = st.syncing = prev.catch(() => {}).then(async () => {
+    const W = await tokWallet(t);
+    const [s, q] = await Promise.all([W.sync(), W.quote().then((x) => x, (e) => { st.qErr = e; return null; })]);
+    if (S.key?.pubHex !== pub || st.W !== W) return;
+    Object.assign(st, { bal: s.balance, notes: W.notes().map((n) => BigInt(n.v)), err: null, at: Date.now(), ...(q ? { quote: q, qErr: null } : {}) });
+  }).catch((e) => { if (S.key?.pubHex === pub) Object.assign(st, { err: e, at: Date.now() }); })
+    .finally(() => { if (st.syncing === p) st.syncing = null; paintAssets(); if (S.tok === t) { paintBal(); if (!S.busy) FORM.check?.(); } });
+  return p;
+}
+const tokSyncAll = (fresh = false) => { for (const t of TOKENS) tokSync(t, fresh); };
+// The pool's own figures (what it holds, its notes), read now and then, for the line under the balance.
+function tokPool(t) {
+  const st = TK[t.key];
+  if (st.poolP || Date.now() - st.poolAt < 60e3) return;
+  st.poolP = Promise.all([tokenBalanceOf(t, t.pool), ethRead(t.pool, '0xfc7e9c6f').then(BigInt)])
+    .then(([held, notes]) => { st.pool = { held, notes: Number(notes) }; }, () => {}).finally(() => { st.poolP = null; st.poolAt = Date.now(); paintPoolStat(); });
+}
+const tokPoolLine = (t) => { tokPool(t); const p = TK[t.key].pool; return p ? html`<div>The private ${t.sym} pool holds ${fmt(p.held, t.dec, 2)} ${t.sym} in ${p.notes.toLocaleString('en-US')} notes. Young: its first deposits have little company.</div>` : ''; };
+
+function paintAssets() {
+  const el = $('#assets');
+  if (!el) return;
+  el.hidden = S.chain !== CHAINS[0] || linkOnly();
+  if (el.hidden) return;
+  const eth = CH[CHAINS[0].chainId];
+  const small = (bal, dec, last = null) => (!S.key ? '' : bal != null ? fmt(bal, dec, 4, true) : last != null ? html`<span class="stale">${fmt(last, dec, 4, true)}</span>` : html`<span class="sk" style="--w:5ch"></span>`);
+  keepFocus(el, () => mountOnce(el, html`<button type="button" role="tab" data-tok="" aria-selected="${!S.tok}" tabindex="${!S.tok ? 0 : -1}" ${S.busy ? 'disabled' : ''}>${ethIcon}ETH${S.key ? html`<small>${small(eth.bal, 18, eth.last)}</small>` : ''}</button>${TOKENS.map((t) => html`<button type="button" role="tab" data-tok="${t.key}" aria-selected="${S.tok === t}" tabindex="${S.tok === t ? 0 : -1}" ${S.busy ? 'disabled' : ''}>${tokIcon(t)}${t.sym}${S.key ? html`<small>${small(TK[t.key].bal, t.dec)}</small>` : ''}</button>`)}`));
+  $$('#assets [data-tok]').forEach((b) => b.onclick = () => { if (!S.busy) switchTok(tokOf(b.dataset.tok)); });
+}
+function switchTok(t) {
+  S.tok = t; writeJson(TOK_PREF, t ? t.key : null);
+  say($('#status'), '');
+  renderApp();
+  if (t) { tokSync(t); tokPool(t); }
+  writeHash();
+}
+function paintTokBal(el) {
+  const t = S.tok, st = TK[t.key];
+  if (!S.key) {
+    mountOnce(el, html`<span class="pair">${tokIcon(t, 'md')}<svg class="tk md" aria-hidden="true"><use href="#tk-peth"/></svg></span>
+      <div><div class="v t">Private ${t.sym}</div><div class="u">on Ethereum · yours shows once your Tacit wallet is open</div></div>`);
+    return;
+  }
+  const re = st.err ? 'retry' : st.bal != null ? 'refresh' : null;
+  keepFocus(el, () => mountOnce(el, html`<span class="pair">${tokIcon(t, 'md')}<svg class="tk md" aria-hidden="true"><use href="#tk-peth"/></svg></span>
+    <div><div class="v num">${st.bal != null ? fmt(st.bal, t.dec, 6, true) : st.err ? html`<span class="err">—</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">${t.sym}, private on Ethereum${st.err && st.bal == null ? html` · <span class="err">${errText(st.err)}</span>` : ''}</div></div>
+    <div class="side">${re ? html`<button class="link" type="button" id="bal-re" ${S.busy ? 'disabled' : ''}>${re}</button>` : 'loading…'}</div>`));
+  const b = $('#bal-re');
+  if (b) b.onclick = () => { if (!S.busy && !st.syncing) tokSync(t, true); };
+}
+
+// An action on a token pool: the button busy, each step said, a refused relay offering the wallet instead; the balance read again after.
+async function tokAct(btn, fn) {
+  if (S.busy) return;
+  const status = $('#status'), t = S.tok, st = TK[t.key];
+  S.busy++;
+  btn.setAttribute('aria-busy', 'true');
+  paintChains(); paintAssets(); renderTabs(); paintReq(); paintDevice();
+  $$('#form button, #form input').forEach((x) => { x.disabled = true; });
+  let t0 = 0, label = '';
+  const show = () => sayLive(status, html`<span class="spin" aria-hidden="true"></span>${label}<span class="mute num" aria-hidden="true" data-tick>${t0 ? ` ${((performance.now() - t0) / 1000).toFixed(1)} s` : ''}</span> <span class="mute">${KEEP_OPEN}</span>`);
+  const step = (m) => { label = stepWords(m); t0 = /^proving/.test(m) ? performance.now() : 0; show(); };
+  const timer = setInterval(() => { if (t0) show(); }, 200);
+  let err = null;
+  try { await st.syncing?.catch(() => {}); await fn(step, t); }
+  catch (e) {
+    err = e;
+    if (e?.feeMoved != null) st.quote = null;
+    say(status, html`<span class="err">${e?.feeMoved != null ? `The relay fee changed to ${fmt(e.feeMoved, t.dec, 6)} ${t.sym}. Check it and press again.` : errText(e)}</span>${relayTrouble(e) && !st.self && (S.tab === 'send' || S.tab === 'withdraw') ? html` <button class="link" type="button" id="use-wallet">Send it from your wallet instead</button>` : ''}`);
+  } finally {
+    clearInterval(timer);
+    btn.removeAttribute('aria-busy');
+    S.busy--;
+    if (/may still have sent/i.test(err?.message || '')) delete DRAFT['f-amt'];
+    const keep = status.innerHTML;
+    renderApp(); paintDevice();
+    status.innerHTML = keep;
+    $('#use-wallet')?.addEventListener('click', () => { st.self = true; renderForm(); say(status, html`<span class="mute">Your wallet will send it. Press the button again.</span>`); });
+  }
+  tokSync(t, true);
+}
+const tokAmountField = (id, label, t, extra = '') => html`
+  <div class="lbl"><span>${label}</span>${extra}</div>
+  <div class="amt"><input id="${id}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${label}"><span class="u">${tokIcon(t)}${t.sym}</span></div>`;
+// A spend goes through the relay, its fee in the token out of the private balance, or from the wallet (no relay fee, the wallet seen as sender).
+const tokRelay = (t) => !TK[t.key].self && !!t.keeper;
+const tokFee = (t) => { const q = TK[t.key].quote; return !tokRelay(t) ? 0n : q?.fee != null && q.fee !== '' ? BigInt(q.fee) : null; };
+const tokRoute = (t) => html`<p class="route">${tokRelay(t)
+  ? html`Sent by the relay, no network fee to pay${tokFee(t) != null ? html` · relay fee at most <b class="num">${fmt(capOf(tokFee(t)), t.dec, 4)} ${t.sym}</b>, from your private balance` : ''} · <button class="link" type="button" data-troute="wallet">send from my wallet instead</button>`
+  : html`Sent from your wallet${S.wallet ? html` <span class="nw">${short(S.wallet)}</span>` : ''}: you pay the network fee, no relay fee${t.keeper ? html` · <button class="link" type="button" data-troute="relay">use the relay</button>` : ''}`}</p>`;
+const wireTokRoute = (f, t) => $$('[data-troute]', f).forEach((b) => b.onclick = () => { TK[t.key].self = b.dataset.troute === 'wallet'; renderForm(); });
+const tokSpendRows = (t, amount) => {
+  const st = TK[t.key], fee = tokFee(t), plan = fee == null ? null : spendPlan(amount, capOf(fee) ?? 0n, st);
+  if (fee == null) return { ok: false, view: html`<p class="note">Reading the relay fee…</p>` };
+  if (!plan) return { ok: false, view: html`<p class="note err">More than your private ${t.sym}${fee ? ', once the relay fee is counted' : ''}.</p>` };
+  return { ok: true, view: html`${fee ? kvRow('Relay fee', `at most ${fmt(capOf(fee) * BigInt(plan.merges + 1), t.dec, 4)} ${t.sym}`) : kvRow('Relay fee', 'none · your wallet pays the network fee')}${plan.merges ? kvRow('Notes combined first', `${plan.merges}×`) : ''}${kvRow('Stays private', `${fee ? 'about ' : ''}${fmt((st.bal ?? 0n) - plan.total, t.dec, 6, true)} ${t.sym}`)}` };
+};
+const tokMax = (t) => { const st = TK[t.key], fee = tokFee(t); return st.bal == null || fee == null ? null : maxSpend(capOf(fee) ?? 0n, 0n, st); };
+
+function tokDeposit(f, t) {
+  mount(f, html`${tokAmountField('f-amt', 'Amount', t, html`<button type="button" id="f-max">${S.wallet ? html`Wallet <span id="f-wb"><span class="sk" style="--w:5ch"></span></span> ${t.sym}` : 'Connect a wallet'}</button>`)}
+    <div class="rcpt" id="f-rcpt" hidden></div>
+    <button class="btn" type="button" id="f-go" disabled>Deposit privately</button>
+    <p class="note">Proved on this device and sent from your wallet, which pays the network fee. A signature approves the ${t.sym} where the token takes one, so no separate approval is sent.</p>`);
+  const amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt'), wbEl = $('#f-wb');
+  let wb = null;
+  FORM.check = () => {
+    const a = parseUnits(amt.value, t.dec), over = !!a && wb != null && a > wb;
+    go.disabled = !a || over;
+    rc.hidden = !over; if (over) mount(rc, html`<p class="note err">More than your wallet holds.</p>`);
+  };
+  if (S.wallet) tokenBalanceOf(t, S.wallet).then((b) => { wb = b; if (wbEl?.isConnected) wbEl.textContent = fmt(b, t.dec, 4, true); FORM.check?.(); }, () => { if (wbEl?.isConnected) wbEl.textContent = '—'; });
+  $('#f-max').onclick = () => {
+    if (!S.wallet) { connectWallet().catch((e) => sayErr($('#status'), e)); return; }
+    if (wb != null) { amt.value = wb ? plainOf(wb, t.dec) : ''; amt.dispatchEvent(new Event('input')); }
+  };
+  go.onclick = () => tokAct(go, async (step) => {
+    const amount = parseUnits(amt.value, t.dec);
+    if (!amount) throw new Error('Enter an amount.');
+    if (!S.wallet || !S.provider) await connectWallet();
+    await ensureChain(1);
+    const m = await mods(), W = await tokWallet(t);
+    let pull = await tokPull(t, amount, step), h;
+    for (;;) {
+      W.connect(tokSigner());
+      try { h = await W.deposit({ amount, selfCall: (tx) => m.routerDeposit(t.router, tx, pull), onStep: step }); break; }
+      catch (e) { if (pull.kind !== 'batch' || !(e?.noBatch || /does not send calls together/.test(e?.message || ''))) throw e; pull = await tokApprove(t, amount, step); }
+    }
+    clearDraft('f-amt');
+    await finish(CHAINS[0], h, 'self', `Deposited ${fmt(amount, t.dec, 6)} ${t.sym} privately.`);
+  });
+}
+function tokSend(f, t) {
+  const st = TK[t.key], max = tokMax(t);
+  mount(f, html`<div class="lbl"><span>To</span></div>
+    <div class="amt text"><input id="f-to" placeholder="tacit1…, name.wei or bp1…" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
+    ${tokAmountField('f-amt', 'Amount', t, st.bal != null ? html`<button type="button" id="f-max" ${max ? '' : 'disabled'}>Private ${fmt(st.bal, t.dec, 4, true)} ${t.sym}</button>` : '')}
+    <div class="rcpt" id="f-rcpt" hidden></div>
+    <button class="btn" type="button" id="f-go" disabled>Send privately</button>
+    ${tokRoute(t)}`);
+  wireTokRoute(f, t);
+  const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt'), seen = { raw: '', r: null };
+  FORM.check = () => {
+    const a = parseUnits(amt.value, t.dec), raw = to.value.trim();
+    go.disabled = true; rc.hidden = true;
+    if (raw && seen.raw !== raw) { seen.raw = raw; seen.r = null; resolveRecipient(raw).then((r) => { if (seen.raw === raw) { seen.r = r; FORM.check?.(); } }, () => {}); }
+    if (raw && !seen.r) { mount(rc, html`<p class="note">Looking it up…</p>`); rc.hidden = false; return; }
+    if (raw && seen.r.error) { mount(rc, html`<p class="note err">${seen.r.error}</p>`); rc.hidden = false; return; }
+    if (raw && S.key && lc(seen.r.bp) === lc(S.key.bp)) { mount(rc, html`<p class="note err">That is your own address.</p>`); rc.hidden = false; return; }
+    if (!raw || !a) return;
+    const s = tokSpendRows(t, a);
+    mount(rc, html`${kvRow('To', `${seen.r.label ? `${seen.r.label} → ` : ''}${short(seen.r.bp, 8)}`)}${s.view}`); rc.hidden = false;
+    go.disabled = !s.ok;
+  };
+  $('#f-max')?.addEventListener('click', () => { const v = tokMax(t); amt.value = v ? plainOf(v, t.dec) : ''; amt.dispatchEvent(new Event('input')); });
+  go.onclick = () => tokAct(go, async (step) => {
+    const amount = parseUnits(amt.value, t.dec), r = await resolveRecipient(to.value.trim());
+    if (!amount) throw new Error('Enter an amount.');
+    if (r.error) throw new Error(r.error);
+    if (lc(r.bp) !== lc(seen.r?.bp || '')) throw new Error('Where that address or name points changed. Check it and send again.');
+    const W = await tokWallet(t), relay = tokRelay(t), fee = tokFee(t);
+    W.connect(tokSigner());
+    const h = await W.send({ to: r.bp, amount, via: relay ? null : 'self', maxFee: relay ? capOf(fee) : null, onStep: step });
+    clearDraft('f-amt', 'f-to');
+    if (REQ.v?.tok === t && !REQ.v.paid && await reqIs(REQ.v, r.bp)) { Object.assign(REQ.v, { paid: { h, c: CHAINS[0], a: amount, self: !relay }, paidAt: Date.now(), state: 'mining' }); rememberPaid(REQ.v); watchPaid(REQ.v); }
+    await finish(CHAINS[0], h, relay ? null : 'self', `Sent ${fmt(amount, t.dec, 6)} ${t.sym} privately.`);
+  });
+}
+function tokWithdraw(f, t) {
+  const st = TK[t.key], max = tokMax(t);
+  mount(f, html`<div class="lbl"><span>To</span>${S.wallet ? html`<button type="button" id="f-me">My wallet</button>` : ''}</div>
+    <div class="amt text"><input id="f-to" placeholder="0x…" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient address"></div>
+    ${tokAmountField('f-amt', 'Amount', t, st.bal != null ? html`<button type="button" id="f-max" ${max ? '' : 'disabled'}>Private ${fmt(st.bal, t.dec, 4, true)} ${t.sym}</button>` : '')}
+    <div class="rcpt" id="f-rcpt" hidden></div>
+    <button class="btn" type="button" id="f-go" disabled>Withdraw</button>
+    ${tokRoute(t)}
+    <p class="note">The withdrawal shows its amount and the address it goes to; which deposit it spends does not show.</p>`);
+  wireTokRoute(f, t);
+  const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt');
+  const ok = (a) => isAddr(a) && !badSum(a) && payable(a) && ![lc(t.pool), lc(t.router), lc(t.token)].includes(lc(a));
+  FORM.check = () => {
+    const a = parseUnits(amt.value, t.dec), raw = to.value.trim();
+    go.disabled = true; rc.hidden = true;
+    if (raw && !ok(raw) && isAddr(raw)) { mount(rc, html`<p class="note err">${badSum(raw) ? SUM_MSG : 'Not an address to pay.'}</p>`); rc.hidden = false; return; }
+    if (!raw || !a || !ok(raw)) return;
+    const s = tokSpendRows(t, a);
+    mount(rc, s.view); rc.hidden = false;
+    go.disabled = !s.ok;
+  };
+  $('#f-me')?.addEventListener('click', () => { to.value = S.wallet; to.dispatchEvent(new Event('input')); });
+  $('#f-max')?.addEventListener('click', () => { const v = tokMax(t); amt.value = v ? plainOf(v, t.dec) : ''; amt.dispatchEvent(new Event('input')); });
+  go.onclick = () => tokAct(go, async (step) => {
+    const amount = parseUnits(amt.value, t.dec), dest = to.value.trim();
+    if (!amount) throw new Error('Enter an amount.');
+    if (!ok(dest)) throw new Error('Enter an Ethereum address to pay.');
+    const W = await tokWallet(t), relay = tokRelay(t), fee = tokFee(t);
+    W.connect(tokSigner());
+    const h = await W.withdraw({ to: dest, amount, via: relay ? null : 'self', maxFee: relay ? capOf(fee) : null, onStep: step });
+    clearDraft('f-amt');
+    await finish(CHAINS[0], h, relay ? null : 'self', `Withdrew ${fmt(amount, t.dec, 6)} ${t.sym} to ${short(dest)}.`);
+  });
+}
+function tokReceive(f, t) {
+  const addr = UNIFIED_LIVE ? unifiedAddress() : S.key.bp;
+  mount(f, html`<div class="blk"><div class="kv"><span>Your Tacit address</span><b class="mono">${short(addr, 10)}</b><button class="link" type="button" id="f-acopy">copy</button></div>
+      <p class="note">Anyone with private ${t.sym} pays it here privately, and it lands in your private ${t.sym}. The same address takes ETH and every token pool.</p></div>
+    ${tokAmountField('f-ramt', 'Ask for (optional)', t)}
+    <div class="row2"><button class="btn" type="button" id="f-rcopy">Copy payment link</button><button class="btn ghost" type="button" id="f-rshare">Share</button></div>
+    <div class="qr" id="f-rqr"></div>
+    <p class="note">A link names ${t.sym} and the amount. Whoever opens it pays from their private ${t.sym}, or from a wallet: then their address and the amount show on chain, and who they paid does not.</p>`);
+  const ramt = $('#f-ramt'), qr = $('#f-rqr');
+  const link = () => { const a = parseUnits(ramt.value, t.dec); const q = new URLSearchParams({ pay: addr, asset: t.key }); if (a) q.set('amount', plainOf(a, t.dec)); return `${location.origin}/pay/eth/#${q.toString()}`; };
+  FORM.check = () => { const w = Math.min(qr.clientWidth || 220, 220); mount(qr, qrSvg(link(), w)); };
+  $('#f-acopy').onclick = () => copy(addr, 'Tacit address copied');
+  $('#f-rcopy').onclick = () => copy(link(), 'Payment link copied');
+  const share = $('#f-rshare');
+  if (!navigator.share) { share.hidden = true; $('#f-rcopy').style.gridColumn = '1 / -1'; }
+  share.onclick = () => { const a = parseUnits(ramt.value, t.dec); navigator.share({ title: 'Pay me', text: `Pay me${a ? ` ${fmt(a, t.dec, 6)} ${t.sym}` : ` in ${t.sym}`} on Ethereum. Private if you use Tacit.`, url: link() }).catch(() => {}); };
+}
+const TOKFORMS = { deposit: tokDeposit, send: tokSend, withdraw: tokWithdraw, receive: tokReceive };
+
+// A payment request in a token (#pay=…&asset=usdc): paid from the payer's private balance in that pool, or from a wallet straight into the
+// recipient's note (a deposit to their address, proved here; the wallet and the amount show, whom it paid does not).
+function drawTokReq(r) {
+  const t = r.tok, st = TK[t.key];
+  const own = S.key && (lc(r.bp) === lc(S.key.bp) || (UNIFIED_LIVE && lc(r.bp) === lc(unifiedAddress())) || r.rbp === lc(S.key.bp));
+  const fee = tokFee(t), privFirst = !!(S.key && r.amount && st.bal != null && fee != null && spendPlan(r.amount, capOf(fee) ?? 0n, st)), typed = $('#req-amt')?.value;
+  const held = !own && !r.paid && S.busy > 0;
+  const amt = (v) => html`${fmt(v, t.dec, t.dec)} <small>${t.sym}</small>`;
+  mount($('#req-body'), html`
+    <div class="lbl"><span>Payment request</span><button class="link" type="button" id="req-x">dismiss</button></div>
+    <div class="req-a num">${r.amount ? amt(r.amount) : html`Any amount <small>${t.sym}</small>`}</div>
+    <div class="req-m">to <b class="nw">${short(r.bp, 8)}</b>${isNameReq(r) ? html` → ${r.rbp ? html`<b class="nw">${short(r.rbp, 8)}</b>` : 'looking it up…'}` : ''} in ${t.sym} on Ethereum${r.note ? html` · “${r.note}”` : ''}</div>
+    ${isNameReq(r) && !r.rid ? '' : html`<div class="req-m">ID <b class="num nw">${r.rid || addressId(r.bp)}</b> · they see the same ID under their Tacit address</div>`}
+    ${own ? html`<p class="note">This is your own request. Share its link or QR code from Receive.</p>` : r.paid ? '' : html`
+      ${!r.amount ? html`<div class="amt act"><input id="req-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount"><span class="u">${tokIcon(t)}${t.sym}</span></div>` : ''}
+      ${held || r.state === 'proving' ? '' : html`<div class="row2"><button class="btn${privFirst ? '' : ' ghost'}" type="button" id="req-priv">Pay privately</button><button class="btn${privFirst ? ' ghost' : ''}" type="button" id="req-wallet">Pay from a wallet</button></div>`}
+      <p class="note">Privately, from your own private ${t.sym}: nothing on chain links you to them. From a wallet: your address and the amount show on chain; who you paid does not. Proved on this device first.</p>`}`);
+  sayLive($('#req-status'), own ? '' : r.paid ? html`${{
+    mining: html`<span class="spin" aria-hidden="true"></span>Paid ${fmt(r.paid.a, t.dec, 6)} ${t.sym} · waiting for the block`,
+    pending: html`<span class="warn">Paid ${fmt(r.paid.a, t.dec, 6)} ${t.sym}, still pending. Check it on the explorer before paying again.</span>`,
+    missing: html`<span class="warn">Not found on Ethereum: no node has this payment. Unless your wallet still shows it pending, it was dropped.</span> <button class="link" type="button" id="req-again">Pay again</button>`,
+    in: html`<span class="ok">Paid ${fmt(r.paid.a, t.dec, 6)} ${t.sym}, now in their private balance.</span>`,
+    before: html`<span class="ok">You paid this request from this browser: ${fmt(r.paid.a, t.dec, 6)} ${t.sym}.</span>`,
+  }[r.state] || ''} ${txLink(r.paid.c, r.paid.h)}`
+    : held ? html`<span class="spin" aria-hidden="true"></span>Waiting for the payment in progress to finish…`
+    : r.state === 'proving' ? html`<span class="spin" aria-hidden="true"></span>${r.step || 'Getting ready…'}` : r.err ? html`<span class="err">${r.err}</span>` : '');
+  if (typed && $('#req-amt')) $('#req-amt').value = typed;
+  $('#req-again')?.addEventListener('click', () => { forgetPaid(r); Object.assign(r, { paid: null, state: null, err: null }); paintReq(); });
+  $('#req-x').onclick = () => { leaveBar(r.src); REQ.v = null; renderApp(); };
+  $('#req-priv')?.addEventListener('click', () => {
+    if (S.busy) return toast('Finish the payment in progress first.', true);
+    const a = r.amount || parseUnits($('#req-amt')?.value || '', t.dec);
+    S.chain = CHAINS[0]; S.tok = t; S.tab = 'send'; DRAFT['f-to'] = r.bp;
+    if (a) DRAFT['f-amt'] = plainOf(a, t.dec); else delete DRAFT['f-amt'];
+    renderApp();
+    if (!S.key) return openWalletSheet();
+    tokSync(t);
+    $('#form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('#req-wallet')?.addEventListener('click', () => tokPayFromWallet(r));
+}
+async function tokPayFromWallet(r) {
+  const t = r.tok, a = r.amount || parseUnits($('#req-amt')?.value || '', t.dec);
+  if (!a) { r.err = 'Enter an amount.'; return paintReq(); }
+  if (S.busy) return toast('Finish the payment in progress first.', true);
+  Object.assign(r, { err: null, state: 'proving', step: 'Getting ready…', paying: true }); paintReq();
+  const step = (m) => { r.step = stepWords(m); paintReq(); };
+  try {
+    const res = await resolveRecipient(r.bp);
+    if (res.error) throw new Error(res.error);
+    pinReq(r, res.bp);
+    if (!S.wallet || !S.provider) await connectWallet();
+    await ensureChain(1);
+    const m = await mods(), rpc = await rpcOn(CHAINS[0]);
+    const W = m.makeEvmPoolWallet({ zk: m.zk, keys: m.evmPoolKeys(m.zk, crypto.getRandomValues(new Uint8Array(32))), keeper: t.keeper, store: null, prove, fetchImpl: timedFetch,
+      chain: { chainId: 1, pool: t.pool, router: t.router, token: t.token, rpc, deployBlock: t.from, confirmations: CHAINS[0].confirmations, logChunk: CHAINS[0].logChunk, relayer: POOL_RELAYER, maxRelayFee: t.maxRelayFee } });
+    let pull = await tokPull(t, a, step), h;
+    for (;;) {
+      W.connect(tokSigner());
+      try { h = await W.depositTo({ to: res.bp, amount: a, selfCall: (tx) => m.routerDeposit(t.router, tx, pull), onStep: step }); break; }
+      catch (e) { if (pull.kind !== 'batch' || !(e?.noBatch || /does not send calls together/.test(e?.message || ''))) throw e; pull = await tokApprove(t, a, step); }
+    }
+    Object.assign(r, { paid: { h, c: CHAINS[0], a, self: true }, paidAt: Date.now(), state: 'mining' });
+    rememberPaid(r); watchPaid(r);
+  } catch (e) { Object.assign(r, { err: errText(e), state: null }); }
+  r.paying = false;
+  paintReq();
+}
+
 const leaveBar = (src) => { if (src && location.hash.slice(1) === src) try { history.replaceState(null, '', location.pathname); } catch {} };
 function writeHash() {
-  const h = location.hash.slice(1), v = `${S.chain.key}/${S.tab === 'send' && S.sendMode === 'link' ? 'link' : S.tab}`;
+  const h = location.hash.slice(1), v = `${S.chain.key}${S.tok ? `/${S.tok.key}` : ''}/${S.tab === 'send' && S.sendMode === 'link' && !S.tok ? 'link' : S.tab}`;
   if (!h.includes('=') && h !== v) try { history.replaceState(null, '', `#${v}`); } catch {}
 }
 function applyHash() {
@@ -3975,7 +4391,9 @@ function applyHash() {
   const q = new URLSearchParams(h.includes('=') ? h : '');
   const words = h.split(/[&,]/).filter((w) => w && !w.includes('=')).flatMap((w) => w.split('/')).filter(Boolean);
   const c = chainOf(q.get('chain') || words.find((w) => chainOf(w)) || '');
-  const bp = (q.get('pay') || '').trim(), n = (q.get('n') || '').trim().toLowerCase(), amount = parseUnits(q.get('amount') || '') || null;
+  // a token pool named by the link (asset=usdc) or the path (#ethereum/usdc/send): its amounts in its own decimals
+  const tok = tokOf(q.get('asset') || words.find((w) => tokOf(w)) || '');
+  const bp = (q.get('pay') || '').trim(), n = (q.get('n') || '').trim().toLowerCase(), amount = parseUnits(q.get('amount') || '', tok?.dec ?? 18) || null;
   const pfText = (q.get('proof') || '').trim(), pf = /^([a-z0-9]+):(0x[0-9a-f]{64}):([01]):([0-9a-f]{1,64})$/i.exec(pfText);
   if (pf && chainOf(pf[1]) && PROOF.v?.src !== pfText) { PROOF.v = { chain: chainOf(pf[1]), tx: pf[2], k: Number(pf[3]), e: BigInt('0x' + pf[4]), src: pfText }; PROOF.res = null; }
   const gs = lc((q.get('gift') || '').trim());
@@ -3988,14 +4406,15 @@ function applyHash() {
   const tab = TABS.find(([k]) => words.includes(k))?.[0] || q.get('tab') || (words.includes('link') ? 'send' : null);
   if (words.includes('link')) S.sendMode = 'link'; else if (words.includes('send')) S.sendMode = 'to';
   if (c && !S.busy) { S.chain = c; writeJson(CHAIN_PREF, c.chainId); if (c.chainId !== 1) S.dest = 'addr'; }
+  if (!S.busy && (tok || c)) { S.tok = tok; if (tok) S.chain = CHAINS[0]; writeJson(TOK_PREF, tok ? tok.key : null); }
   if (bp) {
     if (REQ.v?.src !== h) {
-      REQ.v = { bp, n: /^[0-9a-f]{1,64}$/.test(n) ? n : null, ns: /^[0-9a-f]{128}$/i.test((q.get('ns') || '').trim()) ? q.get('ns').trim() : null, amount, note: noteOf(q.get('for')), src: h };
+      REQ.v = { bp, n: /^[0-9a-f]{1,64}$/.test(n) && !tok ? n : null, ns: /^[0-9a-f]{128}$/i.test((q.get('ns') || '').trim()) && !tok ? q.get('ns').trim() : null, amount, note: noteOf(q.get('for')), src: h, tok };
       const was = paidReqs()[h], wc = was && chainOf(was.chain);
       if (wc) { try { Object.assign(REQ.v, { paid: { h: was.h, c: wc, a: BigInt(was.a), self: !!was.self }, state: was.mined ? 'before' : 'pending', paidAt: was.at, restored: true }); } catch {} }
       if (REQ.v.paid && !was.mined) watchPaid(REQ.v);
       if (REQ.v.paid) delete DRAFT['f-to'];
-      else { DRAFT['f-to'] = bp; if (amount) DRAFT['f-amt'] = plain(amount); else delete DRAFT['f-amt']; }
+      else { DRAFT['f-to'] = bp; if (amount) DRAFT['f-amt'] = tok ? plainOf(amount, tok.dec) : plain(amount); else delete DRAFT['f-amt']; }
     }
     if (!S.busy) { S.tab = 'send'; S.sendMode = 'to'; }
   } else if (tab && !S.busy && TABS.some(([k]) => k === tab)) S.tab = tab;
