@@ -79,3 +79,17 @@ test("a pool is there when it answers ASSET() with its token and its router answ
   assert.deepStrictEqual(await poolState(tp, USDC, wrong), { pool: false, router: false });
   void toHex; void encodeAbiParameters;
 });
+
+test('one by one: the pool and then its router, each a CreateX call with its salt, code hash and address, the same as the one transaction', () => {
+  const cx = parseAbi(['function deployCreate2(bytes32 salt, bytes initCode) payable returns (address)']);
+  for (const t of Object.keys(SERVED)) {
+    const p = tp.poolOf(t), [a, b] = tp.deploySteps(t);
+    assert.deepStrictEqual([a.kind, b.kind, a.to, b.to], ['pool', 'router', CREATEX, CREATEX]);
+    assert.deepStrictEqual(decodeFunctionData({ abi: cx, data: a.data }).args, [p.poolSalt, tp.poolInit(t).toLowerCase()]);
+    assert.deepStrictEqual(decodeFunctionData({ abi: cx, data: b.data }).args, [p.routerSalt, tp.routerInit(p.pool).toLowerCase()]);
+    assert.strictEqual(a.initCodeHash, keccak256(tp.poolInit(t))); assert.strictEqual(b.initCodeHash, keccak256(tp.routerInit(p.pool)));
+    assert.deepStrictEqual([a.expected, b.expected], [SERVED[t].pool, SERVED[t].router]);
+    assert.strictEqual(tp.openTx(t, { pool: true, router: false }).data, b.data);
+  }
+  assert.deepStrictEqual(tp.deploySteps(TAC), []);
+});

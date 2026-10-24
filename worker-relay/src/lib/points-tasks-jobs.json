@@ -480,6 +480,68 @@
           "maxWei": "200000000000000000000"
         }
       ]
+    },
+    {
+      "id": "token-pool-usdc",
+      "chainId": 1,
+      "opensAt": 1792862884,
+      "steps": [
+        {
+          "id": "01-pool",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 832000,
+          "expected": "0x6C0be904750Fe1b50cd7207cc94731642d99e908",
+          "salt": "0x00000000000000000000000000000000000000000000492fbc105ab61ea79aee",
+          "initCodeHash": "0xf19acc8bcb987be044eaaff73aa879ad8e4c26d8c5c6b6e65ac36a4bcbd334e9",
+          "bound": false,
+          "minWei": "20000000000000000000",
+          "maxWei": "70000000000000000000"
+        },
+        {
+          "id": "02-router",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 3618000,
+          "expected": "0xe77D82b9A7B686ADc5F31F4cb83286981AC55FE4",
+          "salt": "0x000000000000000000000000000000000000000000da6177cbac66aa02f2880c",
+          "initCodeHash": "0x63963f470de9c474e23ed654f45384c1a8ed7bbe65bebfe9efc5097775e3a3bd",
+          "bound": false,
+          "minWei": "30000000000000000000",
+          "maxWei": "280000000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "token-pool-usdt",
+      "chainId": 1,
+      "opensAt": 1792862884,
+      "steps": [
+        {
+          "id": "01-pool",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 832000,
+          "expected": "0x73872ceEaADd2C603BD057073D403f08DCB31EB9",
+          "salt": "0x0000000000000000000000000000000000000000002718aee647d4b8db1cba50",
+          "initCodeHash": "0x2e6308b54fdf2e3657f909902d4b775ac7ff4d71b608819932463ae048dbd639",
+          "bound": false,
+          "minWei": "20000000000000000000",
+          "maxWei": "70000000000000000000"
+        },
+        {
+          "id": "02-router",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 3611000,
+          "expected": "0x5650c850872bc89FC6E22CBB7a51b0e0DAC97198",
+          "salt": "0x000000000000000000000000000000000000000000b47b0ac8611317865c2144",
+          "initCodeHash": "0xc05fbda8b32fa2f8339495a02bcc740e3bfd9d6e5055b72fc44410b6a4bf9e8f",
+          "bound": false,
+          "minWei": "30000000000000000000",
+          "maxWei": "280000000000000000000"
+        }
+      ]
     }
   ]
 }

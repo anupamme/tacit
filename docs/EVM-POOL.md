@@ -81,10 +81,11 @@ checks they are there (`poolState`).
 - **Opening one.** One transaction from anyone, `openTx(token)`: Multicall3's `aggregate3` calling CreateX's `deployCreate2` for the
   pool and then its router (about 4.4M gas, paid in ETH by whoever sends it), or only the router if the pool is there. The swap page
   offers it to the first person who swaps privately from a token the relay serves whose pool is not open, beside the ETH pool's route;
-  `tools/token-pool-open.mjs` writes the transaction for each served pool not open yet, for any wallet to send.
-- **The relay.** It serves the pools of the tokens in `SERVED` (USDC, USDT, DAI, wstETH, WBTC; their pool and router addresses are listed
-  there) and any its operator adds (`EVM_POOL_TOKEN_POOLS_ALLOW_1`): tokens deep enough on chain that whoever opens a pool cannot set the
-  price its fees are taken at. The keeper service reads CreateX's `ContractCreation` logs under those tokens' pool salts, keeps a creation
+  `tools/token-pool-open.mjs` writes the transaction for each served pool not open yet, for any wallet to send, and each is a job on
+  [tacit.finance/tasks](https://tacit.finance/tasks/) (paid in TAC; see docs/TASKS.md).
+- **The relay.** It serves the pools of the tokens in `SERVED` (USDC and USDT; their pool and router addresses are listed there) and any
+  its operator adds (`EVM_POOL_TOKEN_POOLS_ALLOW_1`): tokens deep enough on chain that whoever opens a pool cannot set the price its fees
+  are taken at. Other tokens' holders swap privately through the ETH pool (the zap), whose crowd a pool of their own would only split. The keeper service reads CreateX's `ContractCreation` logs under those tokens' pool salts, keeps a creation
   only at the address the salts give, and serves the pool once its router answers `POOL()` with it, at
   `https://tacit-evm-pool-keepers.onrender.com/1-x<the token's first ten hex digits>/evm-pool/keeper`, with the routes every keeper has.
   It sends from `0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0` like the others and is paid in the token, at the lowest price zQuoter gave for

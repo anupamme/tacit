@@ -101,6 +101,15 @@ address are `tests/amm-route-deploy.mjs`'s, which `dapp/swap/route.js` and the f
 
 A job whose contract also sits at an earlier address stays in the files as its own job (`amm-route-v1`): the service credits the account that sent that transaction like any other, once it is named to `POST /tasks/claim` (anyone may name it). The page lists it under the job it joins (`into`), so that job's result carries both payments, and the front page does not count it as work to do (`retired`). `worker-relay/tests/tasks-amm-route-v1-claim.test.mjs` claims the real transaction on a fork.
 
+`worker-relay/scripts/tasks-token-pools.mjs` builds a job for each token pool the relay serves (`dapp/evm-pool-tokens.js` `SERVED`: USDC and
+USDT): two CreateX deployments under open salts, the pool and then its router (whose constructor reads the pool), so any wallet can send them;
+the code is the live TAC pool's and router's. Gas is what each step used on a fork (the pool about 0.83M, the router about 3.6M, as it deploys
+its box template too); the pool step pays 20 to 70 TAC and the router step 30 to 280, so a job pays 50 to 350. A pool opened in one transaction
+instead (the swap page's, Multicall3 calling CreateX twice) shows the same two CreateX logs, so whoever sent it is credited both steps once the
+transaction is named to `POST /tasks/claim`. A token taken off `SERVED` takes its job with it. `tests/token-pools-tasks-fork.mjs` audits each job
+on a fork: the page's check of its payload, the service's credit of each step, the deployed code against the live TAC contracts but for their
+immutables, every constructor setting, and a deposit and a withdrawal with real proofs.
+
 A change to the contracts changes the addresses: rebuild the files, run the tests and `npm run build`.
 
 ## Tests

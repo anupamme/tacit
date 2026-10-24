@@ -29,16 +29,15 @@ export const FIXED = {
   '0x9de27883c5dc9db47be12e595d59b8f1abec8570': { id: '1-tace', pool: '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', router: '0x000000e66C32bEC739180A5eDeeB40A8225c5223', from: 26201971 },
 };
 
-// The tokens whose pools the relay serves once anyone opens them (and the only ones the swap page offers to open): deep enough on chain that
-// the price its fees are taken at cannot be set by whoever opens the pool. The relay can be told of more (EVM_POOL_TOKEN_POOLS_ALLOW_<chainId>).
+// The tokens whose pools the relay serves once anyone opens them (and the only ones the swap page offers to open): the two dollars most held,
+// deep enough on chain that the price its fees are taken at cannot be set by whoever opens the pool. Every other token's holders swap
+// privately through the ETH pool (the zap), whose crowd a pool of their own would only split. The relay can be told of more
+// (EVM_POOL_TOKEN_POOLS_ALLOW_<chainId>).
 // Their addresses are what makeTokenPools derives (tests/evm-pool-tokens.test.mjs checks), here so a page can name them without the code.
 // `maxRelayFee`: the most a wallet takes a relay's quote for (base units), about what the ETH pool's 0.05 ETH is.
 export const SERVED = {
   '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { sym: 'USDC', dec: 6, maxRelayFee: 200_000_000n, pool: '0x6C0be904750Fe1b50cd7207cc94731642d99e908', router: '0xe77D82b9A7B686ADc5F31F4cb83286981AC55FE4' },
   '0xdac17f958d2ee523a2206206994597c13d831ec7': { sym: 'USDT', dec: 6, maxRelayFee: 200_000_000n, pool: '0x73872ceEaADd2C603BD057073D403f08DCB31EB9', router: '0x5650c850872bc89FC6E22CBB7a51b0e0DAC97198' },
-  '0x6b175474e89094c44da98b954eedeac495271d0f': { sym: 'DAI', dec: 18, maxRelayFee: 200n * 10n ** 18n, pool: '0x1BB732231659031096637D8992632C2e8A29dd12', router: '0x2f0Dd4ebCf200aCa4188F21d618C9ea32E941eF7' },
-  '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0': { sym: 'wstETH', dec: 18, maxRelayFee: 5n * 10n ** 16n, pool: '0x0a83Fb67EE2708F10BCdd8FE23Fa3B30A0247Aac', router: '0x9416C7BFb7f8d1f164E50f4e055Bd2D8542d60DA' },
-  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': { sym: 'WBTC', dec: 8, maxRelayFee: 200_000n, pool: '0x70DF186bEc3D2bC3b710449dD1ADafC71C529936', router: '0x963EAeD63C74dE8cA4d413b373A38f9e035332A7' },
 };
 
 const lc = (s) => String(s || '').toLowerCase();
@@ -84,6 +83,14 @@ export function makeTokenPools({ code, keccak256 }) {
   const isRouter = (token, address) => lc(poolOf(token).router) === lc(address);
 
   const deployCall = (salt, init) => SEL.deployCreate2 + strip(salt) + word(64) + word(strip(init).length / 2) + padRight(strip(init));
+  // The two deployments one by one, each a CreateX call of its own (the pool first: the router's constructor reads it), as a task's steps
+  // send them. → [{ kind, to, data, salt, initCodeHash, expected }] for the pool and its router.
+  function deploySteps(token) {
+    const p = poolOf(token);
+    if (p.fixed) return [];
+    return [['pool', p.poolSalt, poolInit(p.token), p.pool], ['router', p.routerSalt, routerInit(p.pool), p.router]]
+      .map(([kind, salt, init, expected]) => ({ kind, to: CREATEX, data: deployCall(salt, init), salt, initCodeHash: k(init), expected }));
+  }
   // The transaction that opens the token's pool: both contracts in one Multicall3 call, or only the router when the pool is there already
   // (a CreateX deploy of one that exists reverts, so only what is missing is sent). `have`: { pool, router } as found on chain.
   // → { to, data, value: 0n, gas } or null when both exist.
@@ -99,7 +106,7 @@ export function makeTokenPools({ code, keccak256 }) {
     const heads = tuples.map((t) => { const h = word(off); off += t.length / 2; return h; });
     return { to: MULTICALL3, data: SEL.aggregate3 + word(32) + word(calls.length) + heads.join('') + tuples.join(''), value: 0n, gas: 5_200_000n };
   }
-  return { poolOf, isPool, isRouter, openTx, poolInit, routerInit, saltOf };
+  return { poolOf, isPool, isRouter, openTx, deploySteps, poolInit, routerInit, saltOf };
 }
 
 // Whether a token's pool and router are on chain: `ethCall(to, data)` → the hex a view returns ('0x' or a revert where there is none).
