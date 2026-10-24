@@ -2,7 +2,7 @@
 // block range is asked for less, and what has been read is kept in a cache file so a run resumes where it stopped.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createPublicClient, http, parseAbiItem, parseAbi } from 'viem';
+import { createPublicClient, fallback, http, parseAbiItem, parseAbi } from 'viem';
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
 export const CHAINS = {
@@ -20,7 +20,11 @@ export const EXPLORERS = {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export const makeClient = (url, { retryCount = 2 } = {}) => createPublicClient({ transport: http(url, { retryCount }) });
+// `url` may list several nodes, comma-separated: each read falls through them in order, so one rate-limited node costs a retry.
+export const makeClient = (url, { retryCount = 2 } = {}) => {
+  const urls = String(url || '').split(',').map((u) => u.trim()).filter(Boolean);
+  return createPublicClient({ transport: urls.length > 1 ? fallback(urls.map((u) => http(u, { retryCount })), { rank: false }) : http(urls[0], { retryCount }) });
+};
 
 export async function readTransactLogs(client, { from, head, span, maxSpan = span, cacheFile, log = () => {} }) {
   const cache = existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, 'utf8')) : { next: from, logs: [] };
