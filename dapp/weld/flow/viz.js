@@ -87,10 +87,11 @@ export function summarize(feed) {
 
 export function describe(sum) {
   if (!sum) return 'Bitcoin and Ethereum: reading.';
-  const bits = [`${int(sum.proofs)} proofs of Bitcoin landed on Ethereum`];
-  if (sum.burns != null) bits.push(`${int(sum.burns)} bridge burns recorded`);
+  const of = (n, one, many) => `${int(n)} ${Number(n) === 1 ? one : many}`;
+  const bits = [`${of(sum.proofs, 'proof', 'proofs')} of Bitcoin landed on Ethereum`];
+  if (sum.burns != null) bits.push(`${of(sum.burns, 'bridge burn', 'bridge burns')} recorded`);
   if (sum.minted != null) bits.push(`${int(sum.minted)} minted`);
-  if (sum.crossOuts) bits.push(`${int(sum.crossOuts)} cross-outs to Bitcoin`);
+  if (sum.crossOuts) bits.push(`${of(sum.crossOuts, 'cross-out', 'cross-outs')} to Bitcoin`);
   bits.push(`${int(sum.made_public)} TAC made public, ${int(sum.made_private)} made private`);
   return `Bitcoin and Ethereum in the last 24 hours: ${bits.join(', ')}.`;
 }
@@ -98,7 +99,7 @@ export function describe(sum) {
 // ── where things are ──────────────────────────────────────────────────────────────────────────────────────────────
 
 export function layout(w, h, compact) {
-  const y = h * 0.5, pad = compact ? 0.075 : 0.09, bow = h * (compact ? 0.2 : 0.17);
+  const y = h * 0.5, pad = compact ? Math.max(0.075, 40 / w) : 0.09, bow = h * (compact ? 0.2 : 0.17);
   // The lines start beyond the names under each chain, so no label sits on a line. `up` and `dn` are the tops of the two arcs.
   const L = { w, h, compact, btc: { x: w * pad, y }, eth: { x: w * (1 - pad), y }, gateX: w * 0.5, up: y - bow, dn: y + bow, mid: y, bow, inset: compact ? 30 : 46 };
   // Ethereum is a column: the private pool above it, the public token below it, so TAC made public and private moves through it
@@ -173,7 +174,7 @@ function drawScene(ctx, L, C) {
   // The proof gate: where a burn waits until Bitcoin's state has landed on Ethereum.
   ctx.beginPath(); ctx.moveTo(L.gateX, L.up - 3); ctx.lineTo(L.gateX, L.dn + 3); ctx.stroke();
   ctx.fillStyle = C.mute; ctx.globalAlpha = 0.75;
-  ctx.font = `400 ${L.compact ? 8 : 9}px ${C.mono}`;
+  ctx.font = `400 ${L.compact ? 10 : 9}px ${C.mono}`;
   ctx.textAlign = 'center';
   if ('letterSpacing' in ctx) ctx.letterSpacing = '1.2px';
   ctx.fillText('PROOF', L.gateX, L.up - (L.compact ? 7 : 9));
@@ -238,13 +239,13 @@ const STYLE = `
 .fl-n { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font: 400 11px var(--mono, monospace); pointer-events: none; text-align: center; }
 .fl-n small { color: var(--mute, #625c4f); font: 400 10px var(--mono, monospace); white-space: nowrap; }
 .fl-n .fl-ic { width: 30px; height: 30px; display: block; }
-.fl.fl-c .fl-n { gap: 4px; font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute, #625c4f); }
+.fl.fl-c .fl-n { gap: 4px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute, #625c4f); }
 .fl.fl-c .fl-n .fl-ic { width: 16px; height: 16px; opacity: .92; }
 .fl.fl-c .fl-n small { display: none; }
 .fl-n .fl-disc { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font: 500 15px var(--mono, monospace); }
 .fl.fl-c .fl-n .fl-disc { width: 16px; height: 16px; font-size: 9px; }
 .fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .75; pointer-events: none; white-space: nowrap; }
-.fl.fl-c .fl-s { font-size: 8px; letter-spacing: .14em; text-transform: uppercase; opacity: .65; }
+.fl.fl-c .fl-s { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
 .fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font: 400 10px var(--mono, monospace); letter-spacing: .01em; color: var(--mute, #625c4f); }
 .fl-foot b { color: var(--ink, #1a1a1a); font-weight: 400; }
 .fl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -267,7 +268,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   modes.append(bLive, bReplay);
   if (!reduce) top.append(modes);
   top.append(clock);
-  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '84px' : '280px';
+  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '104px' : '280px';
   const canvas = doc.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true'); stage.append(canvas);
   const node = (cls, name, sub, sprite, color, letter) => {
     const n = el('div', `fl-n ${cls}`), ic = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -292,10 +293,10 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     C = { orange: v('--orange', '#f7931a'), eth: v('--eth', '#627eea'), ink: v('--ink', '#1a1a1a'), mute: v('--mute', '#625c4f'), hair: v('--hair', 'rgba(26,26,26,.12)'), hair2: v('--hair-2', 'rgba(26,26,26,.28)'), mono: v('--mono', 'ui-monospace, Menlo, monospace') };
   };
   const ctx = canvas.getContext && canvas.getContext('2d');
-  let L = layout(600, compact ? 84 : 280, compact), dpr = 1;
+  let L = layout(600, compact ? 104 : 280, compact), dpr = 1;
 
   const place = () => {
-    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 84 : 280);
+    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 104 : 280);
     dpr = Math.min(2, win.devicePixelRatio || 1);
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     L = layout(w, h, compact);
@@ -320,13 +321,13 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     if (!s) return;
     const piece = (label, v, strong = true) => `${label} ${strong ? '<b>' : ''}${v}${strong ? '</b>' : ''}`;
     const items = [piece('proven to block', int(s.attested))];
-    if (s.behind != null) items.push(`${int(s.behind)} behind Bitcoin`);
+    if (s.behind != null) items.push(`${int(s.behind)} blocks behind Bitcoin`);
     if (!compact) {
       if (s.recorded != null) items.push(piece('bridged in', `${int(s.mintedTotal ?? s.recorded)}`));
-      items.push(piece('24 h', `${int(s.proofs)} proofs · ${int(s.settles)} settles`));
+      items.push(piece('24 h', `${int(s.proofs)} proofs · ${int(s.settles)} private transactions`));
       if (s.made_public || s.made_private) items.push(piece('TAC', `${int(s.made_public)} public · ${int(s.made_private)} private`));
     } else {
-      items.push(piece('24 h', `${int(s.proofs)} proofs · ${int(s.settles)} settles`));
+      items.push(piece('24 h', `${int(s.proofs)} proofs · ${int(s.settles)} private transactions`));
     }
     foot.innerHTML = items.map((x) => `<span>${x}</span>`).join('');
     btcN.small.textContent = s.btc != null ? `block ${int(s.btc)}` : '';

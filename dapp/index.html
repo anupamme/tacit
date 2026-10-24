@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-egkQZf3I4CiZq+XSRbu42zt/K+T8tO4uxmH4iHwTuZI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IeiLyngKOGTn9BIW9MYQFwAHtFoyOKbivvfyP0DX1kw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -263,7 +263,7 @@ a.di { color: inherit; text-decoration: none; }
 .news b { font-weight: 500; color: var(--ink); }
 .news .dot { width: 6px; height: 6px; }
 .news .dot:not(.on) { background: var(--orange); }
-.news .go { transition: transform .3s var(--spring); }
+.news .go { font-weight: 500; color: var(--ink); transition: transform .3s var(--spring); }
 @media (hover: hover) { .news:hover .go { color: var(--ink); transform: translateX(4px); } }
 .hero h1 { font: 400 clamp(28px, 3.6vw, 40px)/1.1 var(--serif); letter-spacing: -.02em; margin: 0 auto 12px; text-wrap: balance; }
 .hero h1 em { font-style: italic; }
@@ -399,13 +399,14 @@ a.di { color: inherit; text-decoration: none; }
 .tape-run b { font-weight: 500; color: var(--ink); }
 .tape-run time::before { content: '· '; }
 @keyframes tape { to { transform: translateX(-50%); } }
+@media (max-width: 640px) { .tape-run { animation: none; } .tape-v { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); } }
 @media (prefers-reduced-motion: reduce) { .tape-v { overflow-x: auto; } }
 #pts-lb { scroll-margin-top: 18px; }
 
 /* ── the sections under the hero: one idea each, a centred title, then its picture ── */
 .sx { padding: 96px 0 0; }
 .sx-h { display: grid; justify-items: center; gap: 10px; margin: 0 0 32px; text-align: center; }
-.sx-h h2 { font: 400 clamp(30px, 3.6vw, 40px)/1.1 var(--serif); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+.sx-h h2 { font: 400 clamp(28px, 3.2vw, 34px)/1.1 var(--serif); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
 .sx-h h2 em { font-style: italic; }
 .sx-h p { margin: 0; max-width: 52ch; font-size: 14px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
 
@@ -420,7 +421,7 @@ a.di { color: inherit; text-decoration: none; }
 .wd-key .tk { width: 48px; height: 48px; transition: transform .35s var(--spring); }
 @media (hover: hover) { .wd-key:hover .tk { transform: rotate(-14deg); } }
 .wd-key code { font: 500 13px var(--mono); padding: 3px 12px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 999px; }
-.wd-key small { font-size: 11px; line-height: 1.4; color: var(--mute); }
+.wd-key small { font-size: 12px; line-height: 1.4; color: var(--mute); }
 .wd-key::after { content: ''; position: absolute; top: calc(100% + 4px); left: 50%; height: 16px; border-left: 1px dashed var(--hair-2); }
 .wd-lanes { position: relative; list-style: none; margin: 0; padding: 0; }
 .wd-lanes::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--hair-2); }
@@ -449,7 +450,7 @@ a.di { color: inherit; text-decoration: none; }
 @keyframes wd-l { 0% { transform: translateX(0); opacity: 0; } 12%, 85% { opacity: 1; } 100% { transform: translateX(-100%); opacity: 0; } }
 .wd-wire:hover::before, .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::before, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-duration: 1.4s; }
 .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-delay: -.7s; }
-.wd-wire span { position: relative; z-index: 1; padding: 2px 10px; font: 400 11px var(--mono); letter-spacing: .04em; color: var(--mute); background: var(--card); border-radius: 999px; transition: color .15s; }
+.wd-wire span { position: relative; z-index: 1; padding: 2px 10px; font: 400 12px var(--mono); letter-spacing: .04em; color: var(--mute); background: var(--card); border-radius: 999px; transition: color .15s; }
 .wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--ink); }
 .wd-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hair); }
 .wd-foot button { display: flex; align-items: center; gap: 12px; padding: 14px 24px; font-size: 13px; text-align: left; color: var(--mute); background: none; border: 0; cursor: pointer; transition: background .15s, color .15s; }
@@ -461,8 +462,8 @@ a.di { color: inherit; text-decoration: none; }
 /* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
 .kept { margin: 56px 0 0; }
 .kept-h { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 14px; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; text-align: center; }
-.kept-h a { font: 400 12px var(--mono); letter-spacing: 0; color: var(--mute); }
-#kept-v { min-height: 128px; }
+.kept-h a { font: 500 12px var(--mono); letter-spacing: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+#kept-v { min-height: 148px; }
 
 
 /* Farm TAC: three ways in, each a card that leads with its rate. */
@@ -477,7 +478,7 @@ a.di { color: inherit; text-decoration: none; }
 /* A rate that is the best of several pools says so above itself, so the three figures keep one left edge. */
 .fm-apr small.up { position: absolute; bottom: 100%; left: 1px; margin: 0 0 4px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
 .fm-way h3 { margin: 12px 0 0; font: 400 24px/1.1 var(--serif); }
-.fm-way p { flex: 1; margin: 0; font-size: 13px; line-height: 1.5; color: var(--mute); }
+.fm-way p { flex: 1; margin: 0; font-size: 13px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
 .fm-way .fm-go { margin-top: 12px; font-size: 13px; font-weight: 500; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
 .fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 22px; }
@@ -485,7 +486,7 @@ a.di { color: inherit; text-decoration: none; }
 .fm-vp .fm-go a::after { content: ''; position: absolute; inset: -10px -6px; }
 .fm-vp .fm-go a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
 @media (hover: hover) { .fm-vp .fm-go a:hover .go { transform: translateX(4px); } }
-.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 12px; padding: 14px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
+.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 28px; padding: 14px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
 .ptsline .tk { width: 24px; height: 24px; box-shadow: none; transition: transform .4s var(--spring); }
 .ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; color: var(--mute); }
 .ptsline .fig b { font: 400 28px/1 var(--serif); color: var(--ink); }
@@ -548,7 +549,7 @@ a.di { color: inherit; text-decoration: none; }
 .tp-flow b { font: 400 19px/1.1 var(--serif); }
 .tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
 /* What holding it does: four short lines under a rule. */
-.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 880px; margin: 48px 0 0; padding: 28px 0 0; border-top: 1px solid var(--hair); }
+.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 1040px; margin: 48px 0 0; padding: 28px 0 0; border-top: 1px solid var(--hair); }
 .tc-do li { display: grid; align-content: start; gap: 4px; }
 .tc-do b { font: 400 20px/1.15 var(--serif); }
 .tc-do span { font-size: 12px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
@@ -588,7 +589,9 @@ a.di { color: inherit; text-decoration: none; }
 }
 @media (max-width: 640px) {
   .pi { gap: 48px; }
-  .pi .pw-a { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .pi .pw-a { grid-template-columns: 112px minmax(0, 1fr); gap: 14px; }
+  .pi .pw-n { font-size: 19px; }
+  .pi .pw-t { gap: 5px; }
   .pi .ig-l { grid-template-columns: minmax(0, 1fr); }
 }
 .pw-k, .ig-k { display: block; margin: 0 0 12px; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; }
@@ -925,6 +928,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 @media (max-width: 640px) {
   .proof-f .tl { display: none; }
+  .ptsline .you { margin-left: 0; flex-basis: 100%; }
   .news .w { display: none; }
   .proof { gap: 12px 26px; }
   .proof b { font-size: 26px; }
@@ -947,7 +951,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd-end.r > :last-child { order: -1; }
   .wd-end .tk { width: 32px; height: 32px; }
   .wd-end b { font-size: 20px; }
-  .wd-end small { display: none; }
+  .wd-end small { font-size: 11px; line-height: 1.35; text-wrap: balance; }
   .wd-wire span { display: none; }
   .wd-wl { left: 6px; right: 6px; }
   .wd-foot { grid-template-columns: minmax(0, 1fr); }
@@ -1202,7 +1206,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="sx" id="how" aria-labelledby="how-h">
-    <div class="sx-h"><h2 id="how-h">One ID. <em>Two chains.</em></h2></div>
+    <div class="sx-h"><h2 id="how-h">How it <em>works</em>.</h2></div>
     <div class="wd">
       <div class="wd-top">
         <span class="wd-ch"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin</span>
@@ -1231,7 +1235,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <button type="button" data-hx="shield:ether:pay"><span><b>Pay pools</b> on Ethereum, Base, Robinhood Chain and MegaETH</span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
       </div>
     </div>
-    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step.<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
+    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin, proven on Ethereum.<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
   </section>
 
   <section class="sx tc" id="tac" aria-labelledby="tc-h">
@@ -1261,7 +1265,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <li><b>Cheaper exits</b><span>0.30%, down to 0.15% for holders</span></li>
       <li><b>More points</b><span>up to 2× when held on Ethereum</span></li>
       <li><b>A vote</b><span>on the protocol’s governed parts</span></li>
-      <li><b>Never sold</b><span>relay fees in TAC go to the reserve; a tenth of those in ETH buys more</span></li>
+      <li><b>Never sold</b><span>TAC fees stay in the reserve; a tenth of ETH fees buys more</span></li>
     </ul>
     <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
   </section>
@@ -1294,12 +1298,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <ul class="ig-l">
       <li><a href="https://zswap.wei.limo" rel="noopener">
         <svg class="ig-lg" aria-hidden="true"><use href="#lg-zfi"/></svg>
-        <span class="ig-t"><span class="ig-n"><b>zFi</b><small>zswap.wei.limo</small></span><span class="ig-d">DeFi extensions</span></span>
+        <span class="ig-t"><span class="ig-n"><b>zFi</b></span><span class="ig-d">DeFi extensions</span></span>
         <span class="ig-go" aria-hidden="true">↗</span>
       </a></li>
       <li><a href="https://wei.domains" rel="noopener">
         <svg class="ig-lg" aria-hidden="true"><use href="#lg-wns"/></svg>
-        <span class="ig-t"><span class="ig-n"><b>WNS</b><small>wei.domains</small></span><span class="ig-d">a .wei name for your tacit1&nbsp;ID</span></span>
+        <span class="ig-t"><span class="ig-n"><b>WNS</b></span><span class="ig-d">a .wei name for your tacit1&nbsp;ID</span></span>
         <span class="ig-go" aria-hidden="true">↗</span>
       </a></li>
     </ul>
@@ -10905,7 +10909,7 @@ function readRecent() {
 const chainName = (id) => CHAIN_META[id]?.chainName || `chain ${id}`;
 const FEED = {
   wrap: (r) => ({ icons: ['tk-teth'], what: 'ETH made private', amt: `${twoFig(r.amount)} ETH` }),
-  evmpooldeposit: (r) => ({ icons: ['tk-peth'], what: 'ETH in to pay privately', amt: `${twoFig(r.amount)} ETH on ${chainName(r.chain)}` }),
+  evmpooldeposit: (r) => ({ icons: ['tk-peth'], what: 'ETH to a pay pool', amt: `${twoFig(r.amount)} ETH on ${chainName(r.chain)}` }),
   zswapeth: (r) => ({ icons: ['tk-tac'], what: 'TAC bought with ETH', amt: `${twoFig(r.amount)} ETH` }),
   cbtcmint: (r) => ({ icons: ['tk-cbtc'], what: 'A bond posted toward cBTC', amt: `${twoFig(r.amount)} wstETH` }),
   cusdmint: (r) => ({ icons: ['tk-cusd'], what: 'cUSD borrowed against bitcoin', amt: `${(Number(BigInt(r.amount)) / 1e8).toLocaleString('en-US', { maximumSignificantDigits: 2 })} cUSD` }),
@@ -10926,8 +10930,9 @@ function tapeEvents(d, rec) {
   }
   for (const t of latest(d?.link?.times?.settles || [], 6)) ev.push({ t, icons: ['tk-tac'], what: 'A private transaction settled' });
   for (const t of latest(d?.link?.times?.attests || [], 4)) ev.push({ t, icons: ['tk-btc', 'tk-eth'], what: 'Bitcoin proven on Ethereum' });
+  // The same thing again within six hours is one entry, counted, at the time of its latest.
   const out = [];
-  for (const e of ev.sort((a, b) => b.t - a.t)) { const last = out.at(-1); if (last && !e.amt && last.what === e.what && last.t - e.t < 3600) last.n++; else out.push({ ...e, n: 1 }); }
+  for (const e of ev.sort((a, b) => b.t - a.t)) { const same = out.find((o) => o.what === e.what && o.amt === e.amt && o.t - e.t < 6 * 3600); if (same) same.n++; else out.push({ ...e, n: 1 }); }
   return out.slice(0, 18);
 }
 function paintTape(d, rec) {
@@ -10938,8 +10943,10 @@ function paintTape(d, rec) {
   TAPE.key = key;
   const coin = (id) => html`<svg class="tk" aria-hidden="true"><use href="#${id}"/></svg>`;
   const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}${e.n > 1 ? ` ×${e.n}` : ''}</b>${e.amt ? html`<span>${e.amt}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
-  mount(run, html`${ev.map((e) => item(e, false))}${ev.map((e) => item(e, true))}`);
-  box.hidden = false;
+  const fill = (reps) => { const set = (copy) => Array.from({ length: reps }, () => ev.map((e) => item(e, copy))).flat(); mount(run, html`${set(false)}${set(true)}`); box.hidden = false; };
+  fill(1);
+  const half = run.scrollWidth / 2, strip = run.parentElement.clientWidth;
+  if (half > 0 && half < strip) fill(Math.ceil(strip / half));
   run.style.setProperty('--tape-s', `${Math.max(30, Math.round(run.scrollWidth / 2 / 40))}s`);
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
@@ -12227,7 +12234,7 @@ document.addEventListener('click', (e) => {
   if (sc) { e.preventDefault(); document.getElementById(sc.dataset.scroll)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return; }
   if (e.target.closest?.('[data-signin]')) openSheet('wallet');
 });
-{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=154b32e7').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
+{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=087b9f28').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
 
 function refreshAll() {

@@ -553,7 +553,7 @@ await step('flowpanel', async () => {
       await sleep(1500);
       const fl = await flowLook(r.page, '#kept-v');
       ok(fl.has && fl.drawn > 200, `flowpanel (${tag}): the picture is drawn (${fl.drawn} pixels)`);
-      ok(/proven to block 969,159/.test(fl.foot) && /41 behind Bitcoin/.test(fl.foot) && /3 proofs · 2 settles/.test(fl.foot), `flowpanel (${tag}): its counters are the feed's (${fl.foot})`);
+      ok(/proven to block 969,159/.test(fl.foot) && /41 blocks behind Bitcoin/.test(fl.foot) && /3 proofs · 2 private transactions/.test(fl.foot), `flowpanel (${tag}): its counters are the feed's (${fl.foot})`);
       ok(reads >= 1 && /3 proofs of Bitcoin landed on Ethereum/.test(fl.sr), `flowpanel (${tag}): one feed, and the words say what it shows (${reads} reads)`);
       ok(await r.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `flowpanel (${tag}): no sideways scroll`);
       await shot(r.page, `flowpanel-${tag}`);
@@ -6100,7 +6100,7 @@ await step('stats', async () => {
     await r.page.locator('#f-flow').scrollIntoViewIfNeeded(); await sleep(2500);
     const fl = { ...(await flowLook(r.page, '#c-flow')), hidden: await r.page.$eval('#f-flow', (f) => f.hidden) };
     ok(fl.has && !fl.hidden && fl.drawn > 200, `stats: the picture between the chains is on the page and drawn (${fl.has}, ${fl.drawn} pixels)`);
-    ok(/proven to block 969,159/.test(fl.foot) && /41 behind Bitcoin/.test(fl.foot) && /3 proofs · 2 settles/.test(fl.foot), `stats: its counters are the feed's (${fl.foot})`);
+    ok(/proven to block 969,159/.test(fl.foot) && /41 blocks behind Bitcoin/.test(fl.foot) && /3 proofs · 2 private transactions/.test(fl.foot), `stats: its counters are the feed's (${fl.foot})`);
     ok(/UTC · \d+ h ago|now/.test(fl.clock) && /3 proofs of Bitcoin landed on Ethereum/.test(fl.sr), `stats: it plays the last day first and says in words what it shows (${fl.clock} | ${fl.sr})`);
     await shot(r.page, 'stats-flow-desk');
     await r.page.click('#c-flow [data-flm=live]'); await sleep(300);

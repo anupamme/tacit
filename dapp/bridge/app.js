@@ -478,7 +478,7 @@ function mountLive() {
   const io = new IntersectionObserver((es) => {
     if (!es.some((e) => e.isIntersecting)) return;
     io.disconnect();
-    import('/weld/flow/viz.js?cb=154b32e7').then((m) => m.mountFlow(host, {})).catch(() => { $('#live').hidden = true; });
+    import('/weld/flow/viz.js?cb=087b9f28').then((m) => m.mountFlow(host, {})).catch(() => { $('#live').hidden = true; });
   }, { rootMargin: '400px' });
   io.observe(host);
 }
