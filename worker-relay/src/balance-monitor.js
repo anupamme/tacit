@@ -505,10 +505,11 @@ const EVM_POOL_KEEPERS_DEFAULT = [
   { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'] },
   { chainId: 4663, name: 'Robinhood Chain', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', address: '0xc1F8DAc6BC910A5A794b4795b5F9997e0E8A5Fad', rpc: ['https://rpc.mainnet.chain.robinhood.com'] },
   { chainId: 4326, name: 'MegaETH', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', address: '0x69e4ea1992561Ce129713899244209Fd955E7D89', rpc: ['https://mainnet.megaeth.com/rpc'], relayGas: 900_000, gasCap: 3_000_000 },
-  // the TAC vaults' token pools on Ethereum: one keeper key between them, paid in each pool's token, its gas fronted in ETH
+  // the TAC vaults' token pools on Ethereum: they send from the Ethereum keeper's address (its balance is judged once, above), paid in each
+  // pool's token, their gas fronted in ETH
   ...[['TAC', 'tac', '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279'], ['TACD', 'tacd', '0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA', '0xA0f6B02561C8ef08335B69aD25e022C0B342147C'],
     ['TACE', 'tace', '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570']].map(([sym, id, pool, token]) => ({
-    chainId: 1, name: `Ethereum (${sym} pool)`, keeper: `https://tacit-evm-pool-keepers.onrender.com/1-${id}/evm-pool/keeper`, address: '0x89A7b3e812105800F8B91BbaBc1714E886db2c93',
+    chainId: 1, name: `Ethereum (${sym} pool)`, keeper: `https://tacit-evm-pool-keepers.onrender.com/1-${id}/evm-pool/keeper`, address: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0',
     rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], minTipWei: '50000000', pool, token, sym })),
 ];
 // The keeper's own gas figures (evm-pool-keeper-config.js defaults, unless the entry gives `relayGas` and `gasCap`): an

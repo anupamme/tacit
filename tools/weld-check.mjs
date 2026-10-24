@@ -254,9 +254,9 @@ const WRAP_TYPES = ['bytes32', 'uint256', 'uint256', 'address', 'bytes32', 'addr
 const withdrawToV1Data = (t, i) => calldata(`withdrawToV1(${TX_SIG},${WRAP_SIG})`, [{ tuple: TX_TYPES }, { tuple: WRAP_TYPES }], [
   [t.pA.map(B), t.pB.map((r) => r.map(B)), t.pC.map(B), t.publicInputs.map(B), t.recipient, BigInt.asUintN(256, B(t.extAmount)), t.relayer, B(t.fee), t.memo0, t.memo1],
   [i.assetId, B(i.amount), B(i.tip), i.tipTo, i.commit, i.refund, B(i.deadline), B(i.nonce)]]);
-// The TAC pool's keeper (the token pools' one address), impersonated on the fork when a scenario's TAC pool spend goes through the relay:
+// The TAC pool's keeper (it sends from the Ethereum keeper's address), impersonated on the fork when a scenario's TAC pool spend goes through the relay:
 // pool.transact as the wallet proved it, sent by that address, which the proof names as relayer and pays the fee in TAC.
-const TAC_POOL_ADDR = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC_KEEPER = '0x89A7b3e812105800F8B91BbaBc1714E886db2c93', TAC_RELAY_FEE = 25n * 10n ** 16n;
+const TAC_POOL_ADDR = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TAC_KEEPER = '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', TAC_RELAY_FEE = 25n * 10n ** 16n;
 const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, [t.pA.map(B), t.pB.map((r) => r.map(B)), t.pC.map(B), t.publicInputs.map(B), t.recipient, BigInt.asUintN(256, B(t.extAmount)), t.relayer, B(t.fee), t.memo0, t.memo1]);
 const tacRelay = { refuse: 0 };   // how many TAC pool relays the stub refuses next, as a keeper that cannot front the gas refuses them
 const fromJsonText = (t) => JSON.parse(t || 'null');

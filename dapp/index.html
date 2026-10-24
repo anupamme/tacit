@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fFeR6yGxRyzVKXnEVGxJ/msVg5ieEQ5THBeph9EZnrM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-w+1zgWuIBc0h5t15CqXxePQ53AltvKOC5cxHbopLI6M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1578,9 +1578,10 @@ const EVM_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', EVM_ROUTER = '0x0
 // paying account sends every deposit, transfer and withdrawal. `deployBlock`: a little before the pool's first block (26201971).
 // The synths' pools (TACD, TACE) are the same shape, in contracts/deployments/tac-vaults.json.
 const TOKEN_POOLS = [
-  // the relay serves it (the keeper service's TAC pool keeper, its own address, paid in TAC); a quote above the ceiling is refused unsigned
+  // the relay serves it (the keeper service's TAC pool keeper, which sends from the Ethereum keeper's address and is paid in TAC); a quote
+  // above the ceiling is refused unsigned
   { slug: 'tac', name: 'TAC', sym: 'TAC', icon: 'tk-tac', chainId: 1, token: ADDR.tac, permit: 'Tacit Token',
-    keeper: 'https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper', relayer: '0x89A7b3e812105800F8B91BbaBc1714E886db2c93', maxRelayFee: 1000n * 10n ** 18n,
+    keeper: 'https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper', relayer: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', maxRelayFee: 1000n * 10n ** 18n,
     pool: '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', router: '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', deployBlock: 26201900,
     rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations },
 ];

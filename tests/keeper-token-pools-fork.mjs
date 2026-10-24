@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The relay serving the TAC pools beside the TAC vaults, on a mainnet fork: the REAL multi-keeper process (worker-relay/src/evm-pool-keepers.js)
-// runs the ETH pool's keeper (its own key) and the TAC, TACD and TACE pools' keepers (one key between them) in one process, as it will on
+// runs the ETH pool's keeper and the TAC, TACD and TACE pools' keepers in one process with one key (the Ethereum keeper's), as on
 // Render, against the live pools and routers on the fork, with the ceremony's key. Each token pool's fee is in its token, priced from the chain
 // (the vaults' pair oracle for TAC, ETH/USD for TACD, one ETH for TACE). A wallet deposits TAC into the TAC pool (its own transaction); the
 // keeper relays a private send and a withdrawal for it, paid in TAC, while the ETH pool's keeper relays an ETH withdrawal at the same moment;
@@ -33,7 +33,7 @@ const POOLS = {
   tace: { pool: '0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1', router: '0x000000e66C32bEC739180A5eDeeB40A8225c5223', token: '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570', from: 26201971, feed: 'eth' },
 };
 const TAC_HOLDER = '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2';
-const keyA = '0x' + 'a1'.repeat(32), keyB = '0x' + 'b2'.repeat(32), A = privateKeyToAccount(keyA).address, B = privateKeyToAccount(keyB).address;
+const keyA = '0x' + 'a1'.repeat(32), A = privateKeyToAccount(keyA).address;
 const USER = '0x00000000000000000000000000000000000de921', DEST = '0x00000000000000000000000000000000000de591', DEST_ETH = '0x00000000000000000000000000000000000de592', DEST_D = '0x00000000000000000000000000000000000de593';
 let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
@@ -51,10 +51,10 @@ const procs = [], tmp = mkdtempSync(join(tmpdir(), 'keeper-token-pools-'));
 process.on('exit', () => { for (const p of procs) p.kill('SIGKILL'); rmSync(tmp, { recursive: true, force: true }); });
 procs.push(spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--fork-block-number', String(head), '--chain-id', '1', '--silent', '--gas-limit', '300000000', '--no-rate-limit'], { stdio: 'ignore' }));
 for (let i = 0; ; i++) { try { await rpcA('eth_chainId'); break; } catch { if (i > 150) throw new Error('anvil did not start'); await sleep(200); } }
-for (const a of [USER, A, B]) await rpcA('anvil_setBalance', [a, hx(10n ** 18n)]);
+for (const a of [USER, A]) await rpcA('anvil_setBalance', [a, hx(10n ** 18n)]);
 await rpcA('anvil_impersonateAccount', [USER]);
 
-// the keepers, as Render runs them: the ETH pool's on its chain-wide knobs, each token pool's on its own, the token pools sharing key B
+// the keepers, as Render runs them: the ETH pool's on its chain-wide knobs, each token pool's on its own, all on the Ethereum keeper's key
 const ART = join(ROOT, 'dapp/evm-pool/');
 const env = {
   ...process.env, PORT: String(KPORT), EVM_POOL_CHAINS: '1,1-tac,1-tacd,1-tace',
@@ -65,7 +65,7 @@ const env = {
 };
 for (const [name, p] of Object.entries(POOLS)) {
   const S = `_1_${name.toUpperCase()}`;
-  Object.assign(env, { [`EVM_POOL_ADDR${S}`]: p.pool, [`EVM_POOL_ROUTER_ADDR${S}`]: p.router, [`EVM_POOL_START_BLOCK${S}`]: String(p.from), [`EVM_POOL_KEEPER_PRIV${S}`]: keyB, [`EVM_POOL_KEEPER_RATE_FEED${S}`]: p.feed });
+  Object.assign(env, { [`EVM_POOL_ADDR${S}`]: p.pool, [`EVM_POOL_ROUTER_ADDR${S}`]: p.router, [`EVM_POOL_START_BLOCK${S}`]: String(p.from), [`EVM_POOL_KEEPER_PRIV${S}`]: keyA, [`EVM_POOL_KEEPER_RATE_FEED${S}`]: p.feed });
 }
 const klog = [];
 const keeper = spawn('node', ['src/evm-pool-keepers.js'], { cwd: join(ROOT, 'worker-relay'), env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -79,7 +79,7 @@ for (let i = 0; ; i++) {
 }
 ok(true, `four keepers in one process are ready on the fork (${Math.round((Date.now() - t0) / 1000)} s)`);
 const chains = (await getJson('/chains')).body.chains || [];
-ok(chains.map((c) => c.id).join() === '1,1-tac,1-tacd,1-tace' && chains.slice(1).every((c) => c.keeper === B) && chains[0].keeper === A, `/chains lists them: the ETH pool on key A, the three token pools on key B (${chains.map((c) => `${c.id} ${c.keeper.slice(0, 6)}`).join(', ')})`);
+ok(chains.map((c) => c.id).join() === '1,1-tac,1-tacd,1-tace' && chains.every((c) => c.keeper === A), `/chains lists them, all four on the one key (${chains.map((c) => `${c.id} ${c.keeper.slice(0, 6)}`).join(', ')})`);
 ok(chains.slice(1).every((c, i) => c.asset.toLowerCase() === Object.values(POOLS)[i].token.toLowerCase() && c.base === `/${c.id}/evm-pool/keeper`), 'each token pool names its own token and route');
 
 // quotes: in each pool's own token, at the price the chain gives
@@ -87,7 +87,7 @@ const qs = {};
 for (const name of ['tac', 'tacd', 'tace']) qs[name] = (await getJson(`/1-${name}/evm-pool/keeper/quote`)).body;
 const qe = (await getJson('/1/evm-pool/keeper/quote')).body;
 ok(qe.relayer === A && qe.asset === ZERO && BigInt(qe.fee) > 0n, `the ETH pool quotes in ETH from key A (${Number(qe.fee) / 1e18} ETH)`);
-ok(['tac', 'tacd', 'tace'].every((x) => qs[x].relayer === B && qs[x].pool.toLowerCase() === POOLS[x].pool.toLowerCase() && BigInt(qs[x].fee) > 0n), 'each token pool quotes from key B, for its own pool');
+ok(['tac', 'tacd', 'tace'].every((x) => qs[x].relayer === A && qs[x].pool.toLowerCase() === POOLS[x].pool.toLowerCase() && BigInt(qs[x].fee) > 0n), 'each token pool quotes from the same key, for its own pool');
 // at equal gas, fee in the token = fee in ETH ÷ the token's price in ETH; ETH's own quote fixes the ETH side
 const ethFee = BigInt(qe.fee), tacFee = BigInt(qs.tac.fee), taceFee = BigInt(qs.tace.fee), tacdFee = BigInt(qs.tacd.fee);
 ok(taceFee >= ethFee - ethFee / 50n && taceFee <= ethFee + ethFee / 50n, `TACE is one ETH a token: ${Number(taceFee) / 1e18} TACE against ${Number(ethFee) / 1e18} ETH`);
@@ -108,7 +108,7 @@ const walletFor = (id, c, priv = crypto.getRandomValues(new Uint8Array(32))) => 
   w.connect(signer);
   return w;
 };
-const tokWallet = (name, priv) => walletFor(`1-${name}`, { pool: POOLS[name].pool, router: POOLS[name].router, deployBlock: POOLS[name].from, token: POOLS[name].token, relayer: B, maxRelayFee: 10n ** 24n }, priv);
+const tokWallet = (name, priv) => walletFor(`1-${name}`, { pool: POOLS[name].pool, router: POOLS[name].router, deployBlock: POOLS[name].from, token: POOLS[name].token, relayer: A, maxRelayFee: 10n ** 24n }, priv);
 
 // TAC: the user's own deposit (an approval, then the router's deposit), then a relayed send and a relayed withdrawal paid in TAC
 await rpcA('anvil_impersonateAccount', [TAC_HOLDER]); await rpcA('anvil_setBalance', [TAC_HOLDER, hx(10n ** 18n)]);
@@ -118,25 +118,25 @@ const dep = 3_000n * 10n ** 18n;
 await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: POOLS.tac.token, data: '0x095ea7b3' + pad(POOLS.tac.router) + pad(hx(dep)), gas: '0x30000' }]));
 const hd = await W.deposit({ amount: dep, selfCall: (tx) => routerDeposit(POOLS.tac.router, tx, { kind: 'allowance' }) });
 ok((await receipt(hd))?.status === '0x1' && W.summary().balance === dep, `the user deposits 3,000 TAC into the TAC pool (${Number(W.summary().balance) / 1e18} TAC private)`);
-const b0 = await bal(POOLS.tac.token, B);
+const b0 = await bal(POOLS.tac.token, A);
 const hs = await W.send({ to: W2.address, amount: 1_000n * 10n ** 18n });
 const rs = await receipt(hs), txs = await rpcA('eth_getTransactionByHash', [hs]);
 await W2.sync();
-const fee1 = (await bal(POOLS.tac.token, B)) - b0;
-ok(rs?.status === '0x1' && txs.from.toLowerCase() === B.toLowerCase() && W2.summary().balance === 1_000n * 10n ** 18n, `the keeper relays a private send of 1,000 TAC from key B; it reaches the other wallet (${Number(W2.summary().balance) / 1e18} TAC)`);
+const fee1 = (await bal(POOLS.tac.token, A)) - b0;
+ok(rs?.status === '0x1' && txs.from.toLowerCase() === A.toLowerCase() && W2.summary().balance === 1_000n * 10n ** 18n, `the keeper relays a private send of 1,000 TAC from the shared key; it reaches the other wallet (${Number(W2.summary().balance) / 1e18} TAC)`);
 ok(fee1 > 0n && fee1 <= tacFee * 2n, `and is paid in TAC: ${Number(fee1) / 1e18} TAC (quoted ${Number(tacFee) / 1e18})`);
 ok(!txs.input.toLowerCase().includes(USER.slice(2).toLowerCase()), 'the relayed send does not name the user');
 
-// the ETH pool at the same moment: its keeper (key A) relays an ETH withdrawal while the TAC keeper relays a TAC one
+// the ETH pool at the same moment, from the same key: its keeper relays an ETH withdrawal while the TAC keeper relays a TAC one, one nonce each
 const E = walletFor('1', { pool: ETH_POOL, router: ETH_ROUTER, deployBlock: 26069245, relayer: A, maxRelayFee: 10n ** 17n });
 await E.deposit({ amount: 3n * 10n ** 16n });
 const [eh, th] = await Promise.all([E.withdraw({ to: DEST_ETH, amount: 10n ** 16n }), W.withdraw({ to: DEST, amount: 500n * 10n ** 18n })]);
 const [er, tr] = await Promise.all([receipt(eh), receipt(th)]);
 const [etx, ttx] = await Promise.all([rpcA('eth_getTransactionByHash', [eh]), rpcA('eth_getTransactionByHash', [th])]);
-ok(er?.status === '0x1' && etx.from.toLowerCase() === A.toLowerCase() && (await bal(ZERO, DEST_ETH)) === 10n ** 16n, 'at the same moment: the ETH pool\'s keeper (key A) pays 0.01 ETH out');
-ok(tr?.status === '0x1' && ttx.from.toLowerCase() === B.toLowerCase() && (await bal(POOLS.tac.token, DEST)) === 500n * 10n ** 18n, 'and the TAC pool\'s keeper (key B) pays 500 TAC out to a fresh address');
+ok(er?.status === '0x1' && etx.from.toLowerCase() === A.toLowerCase() && (await bal(ZERO, DEST_ETH)) === 10n ** 16n, 'at the same moment: the ETH pool\'s keeper pays 0.01 ETH out');
+ok(tr?.status === '0x1' && ttx.from.toLowerCase() === A.toLowerCase() && Number(ttx.nonce) !== Number(etx.nonce) && (await bal(POOLS.tac.token, DEST)) === 500n * 10n ** 18n, 'and the TAC pool\'s keeper, on the same key with a nonce of its own, pays 500 TAC out to a fresh address');
 await W.sync();
-const feeSum = (await bal(POOLS.tac.token, B)) - b0;
+const feeSum = (await bal(POOLS.tac.token, A)) - b0;
 ok(W.summary().balance === dep - 1_000n * 10n ** 18n - 500n * 10n ** 18n - feeSum, `what is left is the deposit less the send, the withdrawal and the fees (${Number(W.summary().balance) / 1e18} TAC)`);
 // the stored history follows the chain on its own loop: read once it has caught up with the three TAC transactions
 let ev = {};
@@ -152,10 +152,10 @@ if (dealt) {
   const D = tokWallet('tacd');
   await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: POOLS.tacd.token, data: '0x095ea7b3' + pad(POOLS.tacd.router) + pad(hx(60n * 10n ** 18n)), gas: '0x30000' }]));
   await D.deposit({ amount: 60n * 10n ** 18n, selfCall: (tx) => routerDeposit(POOLS.tacd.router, tx, { kind: 'allowance' }) });
-  const d0 = await bal(POOLS.tacd.token, B);
+  const d0 = await bal(POOLS.tacd.token, A);
   const dh = await D.withdraw({ to: DEST_D, amount: 20n * 10n ** 18n });
   const dr = await receipt(dh), dtx = await rpcA('eth_getTransactionByHash', [dh]);
-  ok(dr?.status === '0x1' && dtx.from.toLowerCase() === B.toLowerCase() && (await bal(POOLS.tacd.token, DEST_D)) === 20n * 10n ** 18n, `TACD: 60 in by the user, 20 out by the keeper, paid ${Number((await bal(POOLS.tacd.token, B)) - d0) / 1e18} TACD`);
+  ok(dr?.status === '0x1' && dtx.from.toLowerCase() === A.toLowerCase() && (await bal(POOLS.tacd.token, DEST_D)) === 20n * 10n ** 18n, `TACD: 60 in by the user, 20 out by the keeper, paid ${Number((await bal(POOLS.tacd.token, A)) - d0) / 1e18} TACD`);
 } else ok(true, 'TACD: the fork could not deal TACD to the user (its balance slot is not a plain mapping); its quote above stands for it');
 
 // refusals: a fee under the quote, and a TAC pool proof posted to the TACD keeper

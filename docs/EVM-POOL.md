@@ -50,8 +50,9 @@ ERC-20 pool. Three were deployed with the TAC vaults ([`contracts/deployments/ta
 for TAC and the vaults' two synths, TACD (a dollar) and TACE (an ether); each pool's first block is 26,201,971 and its router's 26,201,972.
 The relay serves them: the keeper service runs one keeper per pool beside the ETH pool's, at
 `https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper` (and `/1-tacd/`, `/1-tace/`), with the same routes as every
-keeper (quote, relay, deposit boxes, receive boxes, the history feed). The three share one keeper address,
-`0x89A7b3e812105800F8B91BbaBc1714E886db2c93`, which fronts the gas in ETH and is paid in the pool's token: the fee for a relay is its
+keeper (quote, relay, deposit boxes, receive boxes, the history feed). They send from the Ethereum keeper's address,
+`0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0` (one wallet for the gas, its sends in one queue), which fronts the gas in ETH and is paid in
+the pool's token: the fee for a relay is its
 gas, plus the keeper's margin, at the token's price in ETH, which the keeper reads from the chain every minute (TAC: the lower of the
 two venues' spot prices the vaults' pair oracle `0x000000cE58D7…1271` reads; TACD: a dollar at Chainlink's ETH/USD; TACE: one ETH). With no
 price it can read for a quarter of an hour, it refuses fees in that token rather than guess. A wallet can still send anything itself, paying
