@@ -447,7 +447,10 @@ function routeOf(q) {
 }
 const boardsName = (bd) => (bd.plan.fills.length === 1 ? `${BOARD_NAMES[bd.plan.fills[0].order.board]} order #${bd.plan.fills[0].order.id}` : `${bd.plan.fills.length} zSwap orders`);
 
+// A long amount (Max reads the balance to the last digit) shrinks to stay whole inside the box instead of running under the unit.
+const fitAmt = () => $('.amt').classList.toggle('long', $('#amt').value.length > 12);
 async function requote(quiet = false) {
+  fitAmt();
   const my = ++S.seq, wei = getAmount(), dir = dirOf(), buy = S.side === 'buy';
   if (!quiet) { S.quote = null; keepInHash(); if (!S.busy) { $('#status').textContent = ''; $('#status').dataset.kind = ''; } }
   if (!wei || wei <= 0n) { S.quote = null; S.qfail = false; renderQuote(null); renderVenues(null); return; }
@@ -492,8 +495,13 @@ function renderBtcAlt(q = S.quote) {
   if (!btcOn() || !b || !(b.asks.length || b.bids.length)) { el.hidden = true; return; }
   const bk = q && !q.busy && !q.err ? q.book : null;
   let text, act;
-  if (buy && bk?.out) { text = html`Or pay <b>${satsFmt(bk.sats)} sats</b> on Bitcoin for about <b>${tacFmt(Number(bk.out) / 1e18)} TAC</b>.`; act = 'buy'; }
-  else if (!buy && bk?.sell?.fills.length) { text = html`Or sell on Bitcoin for <b>${satsFmt(bk.sats)} sats</b>.`; act = 'sell'; }
+  const worth = (sats) => (D.btcUsd ? ` (about ${usd(sats / 1e8 * D.btcUsd)})` : '');
+  if (buy && bk?.out) { text = html`Or pay <b>${satsFmt(bk.sats)} sats</b>${worth(bk.sats)} on Bitcoin for about <b>${tacFmt(Number(bk.out) / 1e18)} TAC</b>.`; act = 'buy'; }
+  else if (!buy && bk?.sell?.fills.length) {
+    // The bids can be fewer than the amount: say how much of it they take, or the sats read as the price of all of it.
+    const part = bk.sell.leftoverBase > 0n;
+    text = part ? html`Bitcoin bids take only <b>${tacFmt(Number(bk.sell.amount) / 1e8)} TAC</b> of this, for <b>${satsFmt(bk.sats)} sats</b>${worth(bk.sats)}.` : html`Or sell on Bitcoin for <b>${satsFmt(bk.sats)} sats</b>${worth(bk.sats)}.`; act = 'sell';
+  }
   else if (!buy && bk) { text = 'Or list it for sats on Bitcoin.'; act = 'list'; }
   else { text = `Or ${buy ? 'buy' : 'sell'} TAC for sats on the Bitcoin order book.`; act = buy ? 'buy' : 'sell'; }
   const label = act === 'list' ? 'List on Bitcoin' : act === 'buy' ? 'Buy on Bitcoin' : 'Sell on Bitcoin';
@@ -1137,7 +1145,7 @@ async function sendAndReport(tx, { from, buy, P }) {
   if (!buy) got = await ethReceived(from, rc, eth0);
   const tacOut = buy ? got : P?.wei, ethOut = buy ? P?.wei : got;
   if (tacOut != null && ethOut != null) noteAct({ who: lc(from), lane: 'eth', kind: buy ? 'bought' : 'sold', tac: Number(tacOut) / 1e18, paid: Number(ethOut) / 1e18, unit: 'eth', tx: hash });
-  S.seq++; S.quote = null; S.qfail = false; S.ack = null; S.amt = ''; S.pin = null; $('#amt').value = ''; keepInHash();
+  S.seq++; S.quote = null; S.qfail = false; S.ack = null; S.amt = ''; S.pin = null; $('#amt').value = ''; fitAmt(); keepInHash();
   renderBalance(); renderQuote(null); renderVenues(null); renderPin();
   D.tradesStale = true; if (['trades', 'mine'].includes(bookTab())) ensureTrades(true); renderChart();
   loadChain().then(paintAll).catch(() => {});
@@ -1200,7 +1208,7 @@ $('#in-bal').addEventListener('click', () => {
 S.slip = (() => { try { const v = Number(localStorage.getItem('tacit-trade-slip')); return [50, 100, 300].includes(v) ? v : 50; } catch { return 50; } })();
 
 let amtTimer = 0;
-$('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 250); $('.p-ticket').classList.add('stale'); });
+$('#amt').addEventListener('input', (e) => { S.amt = e.target.value; fitAmt(); clearTimeout(amtTimer); amtTimer = setTimeout(requote, 250); $('.p-ticket').classList.add('stale'); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled && !$('#go').hidden) $('#go').click(); });
 $('#flip').addEventListener('click', () => {
   if (S.busy) return;
@@ -1211,7 +1219,7 @@ $('#flip').addEventListener('click', () => {
 $('#side-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-side]');
   if (!b || b.dataset.side === S.side || S.busy) return;
-  S.side = b.dataset.side; S.amt = ''; $('#amt').value = ''; S.pin = null; renderPin(); renderBalance();
+  S.side = b.dataset.side; S.amt = ''; $('#amt').value = ''; fitAmt(); S.pin = null; renderPin(); renderBalance();
   $('#side-seg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.side === S.side)));
   requote(); renderQuote(null); renderVenues(null);
 });
