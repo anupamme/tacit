@@ -6840,7 +6840,7 @@ await step('hxsendpool', async () => {
     await until(p, () => /^Balance 25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 240000);
     ok(true, `hxsendpool: USDC for payments shows the pool's balance, in USDC's six decimals (${await text(p, '#hx-bal')})`);
     await p.fill('#hx-rcpt', to); await p.fill('#hx-amt', '10');
-    await until(p, () => /^They get: 10 USDC \| Relay fee: about 0\.2 USDC, out of your private USDC \| Chain sees: nothing/.test(window.__said()), null, 120000)
+    await until(p, () => /^They get: 10 USDC \| Relay fee: about 0\.2 USDC \| Chain sees: nothing/.test(window.__said()), null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(p)}`); });
     ok(await text(p, '#hx-go') === 'Send privately' && !(await p.$eval('#hx-go', (b) => b.disabled)), `hxsendpool: a Tacit address gets a private send, the relay's fee quoted in USDC (${await said(p)})`);
     await p.fill('#hx-amt', '1000000');
