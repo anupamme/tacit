@@ -27251,6 +27251,7 @@ export {
   // against a fake KV + real esplora data, without needing a live REGISTRY_KV.
   sweepPendingBurnDeposits, buildBurndepBundle, assetKey, handleBurnDepositStatus, handleBurnDepositCheck, handleBridgeRecover, handleBridgeRecoverQueue, handleBridgeRecoverMark,
   buildProbeBurnTxHex, handleBurndepCacheStatus, applyReflectionAck,
+  completeDiscordGate,
   // The forward scan, so a test can hand it one block and see what it keeps (the Tacit transaction archive among it).
   scanForEtches,
 };
@@ -27296,7 +27297,36 @@ async function handleDiscordNonce(req, env, cors) {
   return jsonResponse({ ok: true, nonce }, 200, cors);
 }
 
+// The proof and the role are one step: the nonce is consumed only once Discord has accepted the role,
+// so a refused grant (bot below the role, member left the server, ...) leaves the link usable for a retry.
+async function completeDiscordGate(env, nonce, record, holderPubkeyHex) {
+  let res;
+  try {
+    res = await fetch(
+      `https://discord.com/api/v10/guilds/${record.guild_id}/members/${record.discord_user_id}/roles/${env.TAC_ROLE_ID}`,
+      { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'X-Audit-Log-Reason': 'tacit: proved >= 1 TAC' } }
+    );
+  } catch (e) {
+    return { ok: false, status: 502, reason: `discord_gate: could not reach Discord: ${e.message || 'unknown'}` };
+  }
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.message || ''; } catch {}
+    return { ok: false, status: 502, reason: `discord_gate: Discord refused the role (${res.status}${detail ? `: ${detail}` : ''})` };
+  }
+  await env.REGISTRY_KV.put(`dgate:${nonce}`, JSON.stringify({
+    ...record,
+    status: 'verified',
+    pubkey_hex: holderPubkeyHex,
+    verified_at: Date.now(),
+  }), { expirationTtl: 3600 });
+  return { ok: true };
+}
+
 async function handleDiscordVerify(req, env, cors) {
+  if (!env.DISCORD_BOT_TOKEN || !env.TAC_ROLE_ID) {
+    return jsonResponse({ error: 'discord_gate: role grant not configured' }, 500, cors);
+  }
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ error: 'expected JSON body' }, 400, cors); }
   const nonce = String(body?.nonce || '').toLowerCase();
@@ -27313,24 +27343,8 @@ async function handleDiscordVerify(req, env, cors) {
   const result = await verifyDiscordGateProof(env, envelopeBytes);
   if (!result.ok) return jsonResponse({ error: result.reason }, result.status, cors);
 
-  await env.REGISTRY_KV.put(`dgate:${nonce}`, JSON.stringify({
-    ...record,
-    status: 'verified',
-    pubkey_hex: result.holderPubkeyHex,
-    verified_at: Date.now(),
-  }), { expirationTtl: 3600 });
-
-  const botToken = env.DISCORD_BOT_TOKEN;
-  const roleId = env.TAC_ROLE_ID;
-  if (botToken && roleId && record.discord_user_id && record.guild_id) {
-    try {
-      await fetch(
-        `https://discord.com/api/v10/guilds/${record.guild_id}/members/${record.discord_user_id}/roles/${roleId}`,
-        { method: 'PUT', headers: { Authorization: `Bot ${botToken}` } }
-      );
-    } catch {}
-  }
-
+  const done = await completeDiscordGate(env, nonce, record, result.holderPubkeyHex);
+  if (!done.ok) return jsonResponse({ error: done.reason }, done.status, cors);
   return jsonResponse({ ok: true }, 200, cors);
 }
 
@@ -27350,7 +27364,7 @@ async function handleDiscordStatus(req, env, nonce, cors) {
 
 // ============== DISCORD INTERACTIONS ENDPOINT ==============
 
-async function handleDiscordInteraction(req, env, cors, ctx) {
+async function handleDiscordInteraction(req, env, cors) {
   const publicKey = env.DISCORD_PUBLIC_KEY;
   if (!publicKey) return jsonResponse({ error: 'DISCORD_PUBLIC_KEY not configured' }, 500, cors);
 
@@ -27379,34 +27393,25 @@ async function handleDiscordInteraction(req, env, cors, ctx) {
       }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    const appId = env.DISCORD_APPLICATION_ID;
-    const token = interaction.token;
-    ctx.waitUntil((async () => {
-      const buf = new Uint8Array(16);
-      crypto.getRandomValues(buf);
-      const nonce = bytesToHex(buf);
-      await env.REGISTRY_KV.put(`dgate:${nonce}`, JSON.stringify({
-        discord_user_id: userId,
-        guild_id: guildId,
-        status: 'pending',
-        ts: Date.now(),
-      }), { expirationTtl: DISCORD_GATE_NONCE_TTL });
+    const buf = new Uint8Array(16);
+    crypto.getRandomValues(buf);
+    const nonce = bytesToHex(buf);
+    await env.REGISTRY_KV.put(`dgate:${nonce}`, JSON.stringify({
+      discord_user_id: userId,
+      guild_id: guildId,
+      status: 'pending',
+      ts: Date.now(),
+    }), { expirationTtl: DISCORD_GATE_NONCE_TTL });
 
-      const dappUrl = env.DAPP_URL || 'https://tacit.finance';
-      const link = `${dappUrl}/#gate=${nonce}`;
-      await fetch(`https://discord.com/api/v10/webhooks/${appId}/${token}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: `**Verify your TAC holdings**\n\nOpen this link and follow the prompts:\n${link}\n\nThis link expires in 10 minutes. Once verified your role is granted automatically.`,
-          flags: 64,
-        }),
-      });
-    })());
-
-    return new Response(JSON.stringify({ type: 5, data: { flags: 64 } }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // The gate modal lives on the Classic app page; the front page has no #gate= consumer.
+    const link = `${env.DAPP_URL || 'https://tacit.finance'}/classic.html#gate=${nonce}`;
+    return new Response(JSON.stringify({
+      type: 4,
+      data: {
+        content: `**Verify your TAC holdings**\n\nOpen this link and follow the prompts:\n${link}\n\nThis link expires in 10 minutes. Once verified your role is granted automatically.`,
+        flags: 64,
+      },
+    }), { headers: { 'Content-Type': 'application/json' } });
   }
 
   return new Response(JSON.stringify({ type: 1 }), { headers: { 'Content-Type': 'application/json' } });
@@ -27709,7 +27714,7 @@ async function _routeFetch(req, env, ctx) {
     }
     if (url.pathname === '/balance' && req.method === 'GET')   return handleBalance(env, cors);
     if (url.pathname === '/drip' && req.method === 'POST')     return handleDrip(req, env, cors);
-    if (url.pathname === '/discord/interaction' && req.method === 'POST') return handleDiscordInteraction(req, env, cors, ctx);
+    if (url.pathname === '/discord/interaction' && req.method === 'POST') return handleDiscordInteraction(req, env, cors);
     if (url.pathname === '/discord/nonce' && req.method === 'POST')  return handleDiscordNonce(req, env, cors);
     if (url.pathname === '/discord/verify' && req.method === 'POST') return handleDiscordVerify(req, env, cors);
     {
