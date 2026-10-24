@@ -9,6 +9,7 @@ import * as R from '/swap/route.js?cb=ce610210';
 import * as A from '/swap/aggregate.js?cb=9759a1ca';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
+import { SERVED } from '/evm-pool-tokens.js?cb=cdc195bc';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
@@ -56,7 +57,8 @@ function paintRecent() {
 const SLIP_KEY = 'tacit-swap-slip-v1';
 try { const v = Number(localStorage.getItem(SLIP_KEY)); if ([10, 50, 100, 300].includes(v)) S.slip = v; } catch { }
 try { S.custom = (JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') || []).filter((t) => /^0x[0-9a-f]{40}$/.test(t?.addr) && Number.isInteger(t.dec)).slice(0, 20); } catch { }
-const TL = { reg: '0x0000006013df75a31678b786061c2b54bf531524', key: 'tacit-swap-list-v1', day: 864e5, rows: [], at: 0, p: null };
+// the token list registry's tokens (token.list.wei), from a module written from the chain (tools/token-list.mjs): loaded once, when first wanted
+const TL = { rows: [], at: 0, p: null };
 const SKIP = new Set(['0xae7ab96520de3a18e5e111b5eaab095312d7fe84']);
 const LOGO = {};
 const okLogo = (l) => (typeof l === 'string' && /^data:image\/(svg\+xml|png);base64,[A-Za-z0-9+/=]+$/.test(l) && l.length < 40000 ? l : null);
@@ -70,7 +72,7 @@ function takeList(rows) {
     TL.rows.push({ sym: String(o.s || '?').slice(0, 12), name: String(o.n || '').slice(0, 40), addr: a, dec: o.d });
   }
 }
-try { const c = JSON.parse(localStorage.getItem(TL.key) || 'null'); if (c?.rows) { takeList(c.rows); TL.at = c.at || 0; } } catch { }
+try { localStorage.removeItem('tacit-swap-list-v1'); } catch { }        // the list once read from the chain and kept here a day
 // Whether TacitAmmRoute is deployed, which is what lets a token be swapped into tacUSD or tacBTC in one transaction. Read now and then, so the
 // pair appears by itself the day it is.
 async function checkAmmRoute() {
@@ -83,16 +85,15 @@ async function checkAmmRoute() {
   if (S.q && `${S.pay}>${S.get}:${kindOf(S.pay, S.get)}` !== was) requote(true);
 }
 function loadList() {
-  if (Date.now() - TL.at < TL.day && TL.rows.length) return Promise.resolve();
+  if (TL.at) return Promise.resolve();
   return (TL.p ||= (async () => {
-    const ids = strip(await ethCall(TL.reg, '0xdf7ca268')), n = Math.min(Number(wordAt(ids, 1)), 400);
-    const r = await batch(Array.from({ length: n }, (_, i) => ({ to: TL.reg, data: '0x74e18e96' + word(wordAt(ids, 2 + i)) })));
-    const rows = r.map((x) => { try { const h = strip(x), len = Number(wordAt(h, 1)); return JSON.parse(new TextDecoder().decode(Uint8Array.from(h.slice(128, 128 + len * 2).match(/../g).map((b) => parseInt(b, 16))))); } catch { return null; } }).filter(Boolean);
-    takeList(rows); TL.at = Date.now();
-    try { localStorage.setItem(TL.key, JSON.stringify({ at: TL.at, rows: rows.filter((o) => o.c === 1 || o.c === 0) })); } catch { }
+    const { LIST } = await import('/swap/tokens.js');
+    takeList(LIST); TL.at = Date.now();
     paintSides(); if (W.account) readBalances().then(paintSides);
   })().catch(() => {}).finally(() => { TL.p = null; }));
 }
+// A token with a private pool of its own (dapp/evm-pool-tokens.js SERVED): named in the picker and listed ahead of the others
+const pooled = (k) => !!SERVED[k];
 const listed = () => {
   const known = R.TOKENS.map((t) => ({ ...t, addr: lc(t.addr) })), have = new Set(known.map((t) => t.addr));
   return [...known, ...TL.rows.filter((t) => !have.has(t.addr) && (have.add(t.addr), true)), ...S.custom.filter((t) => !have.has(t.addr))];
@@ -1346,7 +1347,7 @@ let pkClose = null;
 function openPicker(side) {
   pkClose?.({ keep: true });
   // the list arriving while the picker is open draws it again, and the focus stays where it was
-  if (!(TL.rows.length && Date.now() - TL.at < TL.day)) loadList().then(() => {
+  if (!TL.at) loadList().then(() => {
     if ($('#pk').hidden || $('#pk-q')?.value || !TL.rows.length) return;
     const a = document.activeElement, k = $('#pk').contains(a) ? (a.dataset?.k || (a.classList.contains('pk-x') ? 'x' : '')) : '';
     openPicker(side);
@@ -1358,7 +1359,8 @@ function openPicker(side) {
     if (!t) return '';
     const bal = !priv ? S.bal[k] : null, other = side === 'pay' ? S.get : S.pay;
     const ok = side === 'pay' ? kindOf(k, other) || kindOf(k, defaultFor(k)) : kindOf(other, k) || true;
-    return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(k)}" aria-current="${k === cur}">${coin(t)}<span><b>${esc(t.sym)}</b><small>${esc(priv ? 'private' : t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name)}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
+    const sub = priv ? 'private' : t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : pooled(k) ? `${t.name} · private pool` : t.name;
+    return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(k)}" aria-current="${k === cur}">${coin(t)}<span><b>${esc(t.sym)}</b><small>${esc(sub)}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
   };
   const groups = side === 'get' && getPriv() ? [[null, POOL_COINS], ['Any token', keys.filter((k) => !inPool(k))]]
     : side === 'pay' && S.inP ? [[null, keys]]
@@ -1410,7 +1412,8 @@ function openPicker(side) {
   }
   setTimeout(() => (qEl || pk.querySelector('[aria-current="true"]') || pk.querySelector('.pk-r'))?.focus(), 0);
 }
-const held = (ks) => ks.map((k, i) => ({ k, i, v: S.bal[k] ? (usdOf(k, S.bal[k]) ?? 1e-9) : 0 })).sort((a, b) => b.v - a.v || a.i - b.i).map((x) => x.k);
+// what the wallet holds first (by its worth), then the tokens with a private pool of their own, then the list's order
+const held = (ks) => ks.map((k, i) => ({ k, i, v: S.bal[k] ? (usdOf(k, S.bal[k]) ?? 1e-9) : 0, p: pooled(k) ? 0 : 1 })).sort((a, b) => b.v - a.v || a.p - b.p || a.i - b.i).map((x) => x.k);
 const defaultFor = (k) => (isEth(k) ? lc(R.TAC) : tacitKey(k) ? lc(R.ZERO) : lc(R.TAC));
 function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) S.amt = ''; S.note = ''; }
 function choose(side, k) {

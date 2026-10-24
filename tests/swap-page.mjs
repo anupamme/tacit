@@ -714,6 +714,22 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
 
 // ── a name where an address goes: alice.eth (ENS), alice.wei or alice.gwei looked up as the rest of the app looks one up ──
 {
+  // the token list is the page's own module (written from the registry by tools/token-list.mjs): nothing asks the registry, and the tokens
+  // with a private pool of their own are named so and listed first among the tokens the wallet does not hold
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?from=ETH&to=TAC' });
+  const asked = [];
+  page.on('request', (r) => { if (/0000006013df75a31678b786061c2b54bf531524/i.test(r.postData() || '')) asked.push(r.url()); });
+  await page.click('#pay-coin');
+  await until(page, () => [...document.querySelectorAll('#pk .pk-r b')].some((b) => b.textContent === 'LUSD'), null, 30000);
+  const rows = await page.$$eval('#pk .pk-r', (rs) => rs.map((r) => [r.querySelector('b').textContent, r.querySelector('small')?.textContent || '']));
+  const any = rows.filter(([sym]) => !['ETH', 'TAC', 'tacUSD', 'tacBTC'].includes(sym));
+  ok(any.length >= 10 && any[0][0] === 'USDC' && any[1][0] === 'USDT' && /private pool/.test(any[0][1]) && /private pool/.test(any[1][1]) && !/private pool/.test(any[2][1]),
+    `the picker lists the list's tokens, USDC and USDT first and named as having a private pool (${any.slice(0, 4).map(([a, b]) => `${a}: ${b}`).join(' | ')})`);
+  ok(!asked.length, `and nothing asks the registry for it (${asked.length})`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+{
   const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?to=USDC&amt=0.01' });
   await page.click('#get-where');
   await page.fill('#to-in', 'vitalik.eth');
