@@ -184,7 +184,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1410,6 +1410,27 @@ await step('hxvault', async () => {
     const got = await until(p, (w) => document.querySelector('#amt')?.value === w, want, 120000).then(() => true, () => false);
     ok(got, `hxvault: its button opens the vault page's ticket with ${want} TACD in it`);
     if (r.errors.length) { fails++; console.log('FAIL hxvault page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The TAC vaults' form with the key open: it names no Bitcoin address (that is a lock's), and what the page reads for the key's lock does not
+// redraw the tile under the amount being typed.
+await step('hxvaultkey', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page;
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h', { timeout: 120000 });
+    await p.click('[data-hxm="borrow"]');
+    await p.click('[data-hxp] [data-place="wallet"]');
+    await p.fill('#hx-amt', '1000');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Borrow TACD', null, 180000);
+    await p.evaluate(() => { document.querySelector('#hx-amt').__kept = 1; });
+    await sleep(20000);
+    const st = await p.evaluate(() => ({ kept: document.querySelector('#hx-amt')?.__kept === 1, have: document.querySelector('#hx-have')?.hidden === false ? document.querySelector('#hx-have').textContent.replace(/\s+/g, ' ').trim() : '' }));
+    ok(!/Bitcoin address|Reading your Bitcoin/i.test(st.have), `hxvaultkey: the TAC vaults' form names no Bitcoin address (${st.have.slice(0, 80) || 'nothing under it'})`);
+    ok(st.kept, 'hxvaultkey: and the key\'s lock reads leave the amount field as it is (no redraw under the typing)');
+    if (r.errors.length) { fails++; console.log('FAIL hxvaultkey page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
@@ -7991,7 +8012,7 @@ await step('hxearn', async () => {
 // the Precision pool, which has its own schedule, keeps its figures.
 await step('hxdry', async () => {
   const r = await openPage({ account: A0, key: K0 });
-  await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); });
+  await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { try { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); } catch { } });   // a read still out as the page closes is let go
   const p = r.page;
   try {
     await p.goto(r.url);
@@ -8281,7 +8302,7 @@ await step('fmchips', async () => {
     } finally { await r.browser.close(); }
   }
   const r = await openPage({ account: A0, key: K0 });
-  await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); });
+  await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { try { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); } catch { } });   // a read still out as the page closes is let go
   try {
     await r.page.goto(r.url);
     await r.page.waitForFunction(() => document.querySelector('#fms.on') && /between reward periods/i.test(document.querySelector('#priv-day')?.textContent || ''), null, { timeout: 120000 });

@@ -172,6 +172,13 @@ export function depositFor({ swapWei, feeWei, pct, rand = Math.random, gasWei = 
   const unit = 10n ** BigInt(Math.max(0, total.toString().length - 2)), dep = ((total + unit - 1n) / unit) * unit;
   return { depositWei: dep, extraWei: dep - swap - fixed };
 }
+// The largest swap whose deposit (as depositFor draws it, with the same draw) is at most `capWei`: the cap is rounded down to two significant
+// figures, so the total under it rounds up to no more than it.
+export function swapFor({ capWei, feeWei, pct, rand = Math.random, gasWei = 0n }) {
+  const cap = BigInt(capWei), share = Math.max(5, Math.round(pct * (0.75 + rand() * 0.5))), fixed = 2n * BigInt(feeWei) + BigInt(gasWei);
+  const unit = 10n ** BigInt(Math.max(0, cap.toString().length - 2)), top = (cap / unit) * unit;
+  return top > fixed ? ((top - fixed) * 100n) / (100n + BigInt(share)) : 0n;
+}
 const randomNonce = () => BigInt('0x' + hexOf(crypto.getRandomValues(new Uint8Array(16))));
 // What the relay's answer leaves open: the swap out may have been sent (no answer, or no receipt in time), so it is checked before another.
 const unsure = (e) => /may still have sent|did not answer|already on its way|waiting for it to be mined|timed out/i.test(String(e?.message || e));

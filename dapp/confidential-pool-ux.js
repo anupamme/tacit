@@ -995,18 +995,24 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const logs = await headBlock().then((to) => getLogsChunked({
       address: tokens, topics: [_topic('Transfer(address,address,uint256)'), _addrTopic(router), accts.map(_addrTopic)],
     }, Number(fromBlock ?? cfg.deployBlock ?? 0), to));
-    const found = [];
+    // each index's owner and blinding, derived once per share asset: a device with no hint walks 256 of them (a key that has made more share
+    // notes in one pool than that keeps its hint where it made them)
+    const found = [], keys = new Map(), keyAt = (asset, i) => {
+      const ks = keys.get(asset) || keys.set(asset, []).get(asset);
+      if (!ks[i]) { const { secret, blinding } = pool.deriveNote(id.priv, asset, i); ks[i] = { owner: pool.nkToOwner(secret), blind: '0x' + BigInt(blinding).toString(16).padStart(64, '0') }; }
+      return ks[i];
+    };
     for (const hash of [...new Set(logs.map((l) => lc(l.transactionHash)))]) {
-      const input = lc((await rpc('eth_getTransactionByHash', [hash]).catch(() => null))?.input || '');
+      // a transaction that could not be read fails the whole read (so it is tried again), not skipped as if it were not a zap
+      const input = lc((await rpc('eth_getTransactionByHash', [hash]))?.input || '');
       for (let at = input.indexOf('f9d1fa01'); at > 0; at = input.indexOf('f9d1fa01', at + 8)) {
         if (at % 2) continue;
         const w = (i) => input.slice(at + 8 + i * 64, at + 72 + i * 64), token = '0x' + w(0).slice(24), fee = Number(BigInt('0x' + (w(1) || '0')));
         const p = pools.find((x) => lc(x.token) === token && (x.feeBps == null || Number(x.feeBps) === fee));
         if (!p || w(6).length < 64) continue;
         const shares = BigInt('0x' + w(4)), commit = '0x' + w(6), asset = lc(_lp.lpShareId(p.poolId));
-        for (let i = 0, top = Math.max(64, _wrapIndexHint(id.pubHex, asset) + 24); i < top; i++) {
-          const { secret, blinding } = pool.deriveNote(id.priv, asset, i), owner = pool.nkToOwner(secret);
-          const { cx, cy } = pool.commitXY(shares, '0x' + BigInt(blinding).toString(16).padStart(64, '0'));
+        for (let i = 0, top = Math.max(256, _wrapIndexHint(id.pubHex, asset) + 24); i < top; i++) {
+          const { owner, blind } = keyAt(asset, i), { cx, cy } = pool.commitXY(shares, blind);
           if (lc(pool.depositCommit(cx, cy, owner)) !== commit) continue;
           found.push({ poolId: p.poolId, shares, index: i, depositId: lc(pool.depositId(asset, shares, cx, cy, owner)), tx: hash });
           break;
