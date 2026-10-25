@@ -429,6 +429,17 @@ RUNNER_KEY=0x… node tools/community-runner.mjs</code></pre>
       <p class="plan"><a href="https://github.com/src-company/tacit/blob/main/docs/COMMUNITY-OPS.md" target="_blank" rel="noopener noreferrer">Modes and costs</a> · <a href="https://github.com/src-company/tacit/tree/main/contracts/sp1/confidential/device-prover" target="_blank" rel="noopener noreferrer">Prove on your own device</a></p>
     </div>
   </section>
+
+  <section class="grp" id="g-mine" aria-labelledby="h-mine" hidden>
+    <h2 id="h-mine"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>Prove wraps for points</h2>
+    <div class="panel">
+      <p class="lede">Your computer proves wraps people keep ready, and each proof the pool accepts earns TAC points to your address.</p>
+      <div class="plan num" id="mine-box"><p><span class="sk" style="--w:22ch"></span></p></div>
+      <pre class="cmd"><code>tacit-prover mine 0xYourAddress
+TACIT_MINE=0xYourAddress tacit-prover install   # or: mine whenever it is idle, from login</code></pre>
+      <p class="plan"><a href="https://github.com/src-company/tacit/tree/main/contracts/sp1/confidential/device-prover" target="_blank" rel="noopener noreferrer">Get tacit-prover</a></p>
+    </div>
+  </section>
   </main>
 
   <nav class="sf-x" aria-label="Contracts and tools">
@@ -857,6 +868,18 @@ async function doSendOne() {
   refreshBoard().catch(() => {});
 }
 
+// The proof pool's day (GET /prover/pool): what waits, what was proved today and by how many provers, and who proved the most.
+// An API without the pool yet (404) leaves the section out.
+async function refreshPool() {
+  const box = $('#mine-box');
+  let p = null;
+  try { const r = await fetch(`${API}/prover/pool`, { cache: 'no-store' }); if (r.ok) p = await r.json(); else if (r.status === 404) { $('#g-mine').hidden = true; return; } } catch {}
+  $('#g-mine').hidden = false;
+  if (!p) { box.innerHTML = '<p>Could not read the proof pool. The page tries again every minute.</p>'; return; }
+  const top = (p.top || []).slice(0, 5).map((t) => `${esc(short(t.miner))} ${esc(int(t.proofs))}`).join(' · ');
+  box.innerHTML = `<p>${esc(plural(p.queued || 0, 'wrap'))} waiting · ${esc(int(p.doneToday || 0))} proved today by ${esc(plural(p.minersToday || 0, 'prover'))}</p>${top ? `<p>Most today: ${top}</p>` : ''}`;
+}
+
 // The connected wallet is left from here (evm.disconnect): a WalletConnect session ends in the wallet app too, so the next connection can pair another app or
 // account; a browser wallet takes this site's permission back, so the next connection asks which account. Either way no page connects it again on load.
 // Change account: another account of the same wallet (its own chooser), or a new pairing for a wallet app.
@@ -881,10 +904,11 @@ evm.onElsewhere(restoreWallet);                                  // a wallet con
 refreshProof().catch(() => {});
 refresh().catch(readFailed);
 refreshBoard().catch(() => {});
+refreshPool().catch(() => {});
 // Read again every minute while the page is in view, and at once when it comes back after longer.
-setInterval(() => { if (document.hidden) return; refresh().catch(() => {}); refreshProof().catch(() => {}); refreshBoard().catch(() => {}); }, 60000);
+setInterval(() => { if (document.hidden) return; refresh().catch(() => {}); refreshProof().catch(() => {}); refreshBoard().catch(() => {}); refreshPool().catch(() => {}); }, 60000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - lastRead > 60000) { refresh().catch(() => {}); refreshProof().catch(() => {}); refreshBoard().catch(() => {}); }
+  if (!document.hidden && Date.now() - lastRead > 60000) { refresh().catch(() => {}); refreshProof().catch(() => {}); refreshBoard().catch(() => {}); refreshPool().catch(() => {}); }
 });
 </script>
 </body>
