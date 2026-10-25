@@ -183,7 +183,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6610,7 +6610,7 @@ await step('hxteth', async () => {
     await lander();
     await p.click('[data-hxm="send"]');
     await p.fill('#hx-amt', '0.1');
-    await until(p, () => /^They get: about [\d.]+ tETH \| Their claim: [\d.]+ tETH, out of it \| Chain sees: nothing: not how much, not to whom$/.test(window.__said()), null, 240000)
+    await until(p, () => /^They get: about [\d.]+ tETH \| Claim fee: [\d.]+ tETH \| Chain sees: nothing: not how much, not to whom$/.test(window.__said()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok(/Balance 0\.25 · Max/.test(await text(p, '#hx-bal')), `hxteth: Send says what the recipient gets (a 0.1 note is held, so nothing is cut), with the balance and Max (${await line()})`);
     await p.fill('#hx-rcpt', 'name.wei');
@@ -6654,7 +6654,7 @@ await step('hxsend', async () => {
   const quote = async (amt, ticker) => {
     await p.fill('#hx-rcpt', to);
     await p.fill('#hx-amt', amt);
-    await until(p, (t) => new RegExp(`^They get: about [\\d.]+ ${t} \\| Their claim: [\\d.]+ ${t}, out of it( \\| (Splits a note|Combines notes): [\\d.]+ ${t} first)? \\| Chain sees: nothing: not how much, not to whom$`).test(window.__said()), ticker, 240000)
+    await until(p, (t) => new RegExp(`^They get: about [\\d.]+ ${t} \\| Claim fee: [\\d.]+ ${t}( \\| (Splits a note|Combines notes): [\\d.]+ ${t} first)? \\| Chain sees: nothing: not how much, not to whom$`).test(window.__said()), ticker, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
   };
   try {
@@ -6703,10 +6703,10 @@ await step('hxsend', async () => {
     const eth0 = '0x' + 'ab'.repeat(20), btc0 = 'bc1q' + 'a'.repeat(38);
     await pick('eth', '^Balance 0\\.25 · Max');
     await p.fill('#hx-rcpt', eth0);
-    await until(p, () => /^Chain sees: the address and the amount$/.test(window.__said()), null, 60000);
-    ok(true, 'hxsend: an Ethereum address with no amount yet says the payment is public');
+    await until(p, () => /^Chain sees: the address and the amount, not from whom$/.test(window.__said()), null, 60000);
+    ok(true, 'hxsend: an Ethereum address with no amount yet says what is public of the payment, and what is not');
     await p.fill('#hx-amt', '0.1');
-    await until(p, () => /^They get: [\d.]+ ETH at that address \| Relay fee: [\d.]+ tETH, out of it \| Chain sees: the address and the amount$/.test(window.__said()), null, 240000)
+    await until(p, () => /^They get: [\d.]+ ETH at that address \| Relay fee: [\d.]+ tETH, out of it \| Chain sees: the address and the amount, not from whom$/.test(window.__said()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok(await text(p, '#hx-go') === 'Send to the address', `hxsend: tETH to an Ethereum address says it arrives as ETH there (${await line()})`);
     await p.click('#hx-go');
@@ -7039,6 +7039,33 @@ await step('hxsendpp', async () => {
   } finally { await r.browser.close(); }
 });
 
+// Send, for anyone: its asset list is grouped by the pool each coin is held in, and a name that has no Tacit address to pay holds the button
+// (said once, under the field) until it is changed.
+await step('hxsendcheck', async () => {
+  const r = await openPage({ account: A0, key: null });
+  const p = r.page;
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h', { timeout: 120000 });
+    await p.click('[data-hxm="send"]');
+    await p.click('[data-hxp] [data-place="private"]');
+    await p.click('#hx-panel .coin[data-pk="hx-sa"]');
+    await p.waitForSelector('.pk .pk-r', { timeout: 30000 });
+    const groups = await p.$$eval('.pk .pk-g', (g) => g.map((x) => x.textContent.trim()).join('|'));
+    ok(groups === 'DeFi pool|Pay pool', `hxsendcheck: the private coins are listed under their pools (${groups})`);
+    await p.keyboard.press('Escape');
+    await p.fill('#hx-amt', '0.05');
+    await p.fill('#hx-rcpt', 'no-such-tacit-name-zz.wei');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Check the address' && document.querySelector('#hx-go').disabled && !document.querySelector('#hx-rc').hidden, null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | go: ${await text(p, '#hx-go')} | rc: ${await text(p, '#hx-rc')}`); });
+    ok(true, `hxsendcheck: a name with no Tacit address holds the button, and says why under the field (${(await text(p, '#hx-rc')).trim().slice(0, 80)})`);
+    await p.fill('#hx-rcpt', '');
+    await until(p, () => document.querySelector('#hx-go')?.textContent !== 'Check the address', null, 30000);
+    ok(true, 'hxsendcheck: and clearing it lets the button go again');
+    if (r.errors.length) { fails++; console.log('FAIL hxsendcheck page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('hxsendtac', async () => {
   const fees = { transfer: 100000, stealthclaim: 100000, sendunwrap: 100000 };
   const lander = (p) => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
@@ -7069,7 +7096,7 @@ await step('hxsendtac', async () => {
     ok(true, `hxsendtac: TAC in the wallet shows the wallet's balance with Max (${await text(p, '#hx-bal')})`);
     ok(!(await p.$('#hx-ask')), 'hxsendtac: there is no payment request for the ERC-20 (its recipient is an Ethereum address)');
     await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '15');
-    await until(p, () => /^They get: 15 TAC \| Network fee: paid by your (wallet|Tacit account) \| Chain sees: the address and the amount$/.test(window.__said()), null, 120000)
+    await until(p, () => /^They get: 15 TAC \| Network fee: paid by your (wallet|Tacit account) \| Chain sees: your (wallet|Tacit account), the address and the amount$/.test(window.__said()), null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok(await text(p, '#hx-go') === 'Send TAC' && !(await p.$eval('#hx-go', (b) => b.disabled)), `hxsendtac: an Ethereum address gets a plain public transfer, quoted (${await line()})`);
     await look('hxsendtac-send');
