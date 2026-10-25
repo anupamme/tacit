@@ -127,7 +127,7 @@ while (from <= target) {
   if (RUN) {
     const gasLimit = await estimateGas({ data: calldata, fromAddress: address });
     const tx = { chainId: 1n, nonce, maxPriorityFeePerGas: gasPrice, maxFeePerGas, gasLimit, to: HEADER_RELAY, value: 0n, data: calldata };
-    const signed = evmTx.signEip1559(tx, privBytes);
+    const signed = evmTx.signEip1559(tx, process.env.PRIV); // the key as hex, as evm-tx takes it
     const res = await rpc('eth_sendRawTransaction', [signed.raw]);
     console.log('  sent', res);
     nonce += 1n;
