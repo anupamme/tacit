@@ -126,7 +126,7 @@ test('request: the input names the job, the same input is one job, expect must b
   assert.equal((await h.pool.request({ type: 'wrap', stdin: wrapJob(4).stdin, expect: wrapJob(4).expect, client: 'c1' })).body.code, 'pool_full', 'a new day resets the client, not the queue');
 });
 
-test('lease: the oldest job first, one lease per address and per client, 204 when nothing waits; a lease that runs out puts its job back at its age; three tries and it is dropped', async () => {
+test('lease: the oldest job first, one lease per address on a client and a few on a client, 204 when nothing waits; a lease that runs out puts its job back at its age; three tries and it is dropped', async () => {
   const h = harness({ cfg: { leaseMs: 60_000 } });
   const a = wrapJob(0), b = wrapJob(1);
   await h.pool.request({ type: 'wrap', stdin: a.stdin, expect: a.expect, client: 'page' });
@@ -136,17 +136,17 @@ test('lease: the oldest job first, one lease per address and per client, 204 whe
   let r = await h.pool.lease({ miner: MINER, client: 'm1' });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body, { ok: true, id: a.id, type: 'wrap', stdin: a.stdin, lease: 'lease-1', leaseMs: 60_000, points: 20 });
-  r = await h.pool.lease({ miner: MINER, client: 'm2' });
-  assert.deepEqual([r.status, r.body.code, r.body.id], [429, 'lease_open', a.id], 'one per address');
-  assert.equal((await h.pool.lease({ miner: MINER2, client: 'm1' })).body.code, 'lease_open', 'one per client');
+  r = await h.pool.lease({ miner: MINER, client: 'm1' });
+  assert.deepEqual([r.status, r.body.code, r.body.id], [429, 'lease_open', a.id], 'one per address on a client');
   h.t += 30_000;
-  assert.equal((await h.pool.lease({ miner: MINER2, client: 'm2' })).body.id, b.id);
+  // Another client may lease under the same address: an address only says where the points go, so it never holds anyone back.
+  assert.equal((await h.pool.lease({ miner: MINER, client: 'm2' })).body.id, b.id);
   assert.equal((await h.pool.lease({ miner: MINER3, client: 'm3' })).status, 204, 'nothing left');
   assert.deepEqual((await h.pool.results([a.id, b.id])).body.results, { [a.id]: { status: 'leased' }, [b.id]: { status: 'leased' } });
   // The first lease runs out: its job is queued again, ahead of anything newer, and not offered to the miner that let it lapse.
   h.t += 30_000;
   assert.deepEqual((await h.pool.results([a.id, b.id])).body.results, { [a.id]: { status: 'queued' }, [b.id]: { status: 'leased' } });
-  assert.equal((await h.pool.lease({ miner: MINER, client: 'm1' })).status, 204, 'the miner that let it lapse is not offered it again');
+  assert.equal((await h.pool.lease({ miner: MINER2, client: 'm1' })).status, 204, 'the client that let it lapse is not offered it again, under any address');
   const c = wrapJob(2);
   await h.pool.request({ type: 'wrap', stdin: c.stdin, expect: c.expect, client: 'page' });
   assert.equal((await h.pool.lease({ miner: MINER3, client: 'm3' })).body.id, a.id, 'oldest first');
@@ -186,16 +186,16 @@ test('submit: public values that are not the job\'s are refused before the verif
   l = (await h.pool.lease({ miner: MINER2, client: 'm2' })).body;
   assert.equal((await h.pool.submit({ id: l.id, lease: l.lease, publicValues: pvFor(l.id === a.id ? a.expect : b.expect), proof: PROOF })).body.code, 'bad_proof');
   const day = JSON.parse(h.store.m.get(`pp:day:${DAY0}`));
-  assert.equal(day.miners[MINER].strikes, 2); assert.equal(day.clients.m1, 2);
-  assert.equal(day.miners[MINER2]?.strikes ?? 0, 0, 'no strike on an unsure answer');
-  // A third strike and the address is offered nothing more today, from anywhere; nor is the client, under any address.
+  assert.equal(day.clients.m1, 2); assert.equal(day.clients.m2 ?? 0, 0, 'no strike on an unsure answer');
+  assert.equal(day.miners[MINER]?.strikes, undefined, 'an address is never struck');
+  // A third strike and the client is offered nothing more today, under any address; the address may still mine from elsewhere.
   const c = wrapJob(2);
   await h.pool.request({ type: 'wrap', stdin: c.stdin, expect: c.expect, client: 'page' });
   l = (await h.pool.lease({ miner: MINER, client: 'm1' })).body;
   assert.equal(l.id, c.id);
   await h.pool.submit({ id: c.id, lease: l.lease, publicValues: pvFor(a.expect), proof: PROOF });
-  assert.deepEqual([(await h.pool.lease({ miner: MINER, client: 'm9' })).status, (await h.pool.lease({ miner: MINER, client: 'm9' })).body.code], [403, 'struck_out']);
-  assert.equal((await h.pool.lease({ miner: MINER3, client: 'm1' })).body.code, 'struck_out');
+  assert.deepEqual([(await h.pool.lease({ miner: MINER3, client: 'm1' })).status, (await h.pool.lease({ miner: MINER, client: 'm1' })).body.code], [403, 'struck_out']);
+  assert.notEqual((await h.pool.lease({ miner: MINER, client: 'm9' })).status, 403, 'another client is not struck by it');
   h.t += 86_400_000;
   const d = wrapJob(3);
   await h.pool.request({ type: 'wrap', stdin: d.stdin, expect: d.expect, client: 'page' });
@@ -292,8 +292,8 @@ test('routes: open to any origin; a page requests, a miner leases and submits (t
     r = await call('/prover/pool/lease', post({ miner: MINER }), '198.51.100.9');
     const l = await r.json();
     assert.equal(l.id, a.id); assert.equal(l.stdin, a.stdin); assert.equal(typeof l.lease, 'string'); assert.equal(l.lease.length, 32);
-    r = await call('/prover/pool/lease', post({ miner: MINER2 }), '198.51.100.9');
-    assert.equal(r.status, 429, 'one lease per client');
+    r = await call('/prover/pool/lease', post({ miner: MINER }), '198.51.100.9');
+    assert.equal(r.status, 429, 'one lease per address on a client');
     r = await call('/prover/pool/lease', post({ miner: MINER2 }), '198.51.100.10');
     assert.equal(r.status, 204); assert.equal(r.headers.get('access-control-allow-origin'), '*');
     r = await call('/prover/pool/submit', post({ id: a.id, lease: l.lease, publicValues: pvFor(a.expect), proof: PROOF }), '198.51.100.9');

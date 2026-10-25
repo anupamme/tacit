@@ -11,17 +11,18 @@
 // not prove), and the live SP1 verifier must take it. A proof that passes is kept for the page and earns its miner's address points
 // for the UTC day, up to a number of proofs a day; the points service's mining campaign pays those points in TAC from a pocket of its
 // own once the day is over, reading the day's tally from GET /prover/pool/credits. A proof that fails goes back to the queue for
-// someone else and, when the answer is certain, is a strike against the address and the client that leased it; three strikes in a day
-// and that address or client is offered nothing more that day.
+// someone else and, when the answer is certain, is a strike against the client that leased it; three strikes in a day and that client
+// is offered nothing more that day. Strikes, the jobs a miner is not offered again and the lease limits all go by the client, never
+// by the address: anyone may name any address, so a limit on the address would let one miner shut another out.
 //
 // Nothing is bonded and nothing is signed: a miner names the address its points go to, and a lease is a random token only the
 // lessee holds. A lease that runs out puts its job back at its age (oldest first), and a miner that cannot prove a job may hand it
 // back; a job nobody has proved after three such tries is dropped, since an input that cannot be proved would otherwise go round
-// forever. The miner that had it is not offered it again.
+// forever. The client that had it is not offered it again.
 //
 // Storage (KV, portable to Cloudflare's): pp:queue ([{ id, at, tries, skip }], oldest first), pp:leases (id → { lease, until, miner,
-// client, at, tries, skip }), pp:job:<id> (the input until it is proved, then only the proof), pp:day:<day> (the day's miners, strikes
-// and counts, kept long enough for the campaign to read), pp:req:<day>:<client> (the requests one client made that day). A client is
+// client, at, tries, skip }), pp:job:<id> (the input until it is proved, then only the proof), pp:day:<day> (the day's miners, the
+// clients' strikes and counts, kept long enough for the campaign to read), pp:req:<day>:<client> (the requests one client made that day). A client is
 // a hash of its IP address, never the address itself.
 import { sha256 } from '@noble/hashes/sha256';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -38,6 +39,7 @@ export const PROOF_POOL = Object.freeze({
   pointsPerProof: 20,                // POINTS_MINE_PER_PROOF
   proofsPerMinerDay: 30,             // POINTS_MINE_DAILY_CAP: proofs an address is credited for in a UTC day
   strikesPerDay: 3,
+  leasesPerClient: 4,                // open leases one client may hold, one per address (a household's few machines)
   maxTries: 3,
   maxResultIds: 32,
   top: 20,
@@ -194,13 +196,13 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
   const read = async (key, dflt) => { const s = await kv.get(key); if (s == null) return dflt; try { return JSON.parse(s); } catch { return dflt; } };
   const write = (key, v, ttlSecs) => kv.put(key, JSON.stringify(v), ttlSecs ? { expirationTtl: ttlSecs } : undefined);
   const dayRec = async (d) => { const r = await read(K.day(d), null); return { done: 0, points: 0, miners: {}, clients: {}, ...(r && typeof r === 'object' ? r : {}) }; };
-  const minerIn = (rec, m) => rec.miners[m] || (rec.miners[m] = { proofs: 0, credited: 0, points: 0, strikes: 0 });
+  const minerIn = (rec, m) => rec.miners[m] || (rec.miners[m] = { proofs: 0, credited: 0, points: 0 });
   const earns = (rec, m) => ((rec.miners[m]?.credited || 0) < cfg.proofsPerMinerDay ? cfg.pointsPerProof : 0);
 
   // A job back in the queue at its age, or dropped once it has had its tries (`tried`: a lease that ran out or was handed back,
   // not a proof that failed, which is the miner's fault and not the job's). The miner that had it is not offered it again.
   async function giveBack(q, id, l, tried) {
-    const tries = (l.tries || 0) + (tried ? 1 : 0), skip = [...new Set([...(l.skip || []), l.miner])].slice(-16);
+    const tries = (l.tries || 0) + (tried ? 1 : 0), skip = [...new Set([...(l.skip || []), l.client])].slice(-16);
     if (tries >= cfg.maxTries) { await kv.delete(K.job(id)); return; }
     const e = { id, at: l.at, tries, skip };
     const i = q.findIndex((x) => x.at > e.at);
@@ -260,7 +262,8 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
     });
   }
 
-  // A miner takes the oldest job it has not had before, and holds it for the lease. One open lease per address and per client.
+  // A miner takes the oldest job its client has not had before, and holds it for the lease: one open lease per address on a client,
+  // and a few on a client in all.
   // `points`: what the proof would earn if it passed now (0 once the address has its proofs for the day: the work is still welcome).
   async function lease({ miner, client = 'anon' } = {}) {
     if (typeof miner !== 'string' || !ADDR.test(miner)) return reply(400, { ok: false, code: 'bad_miner', error: 'miner must be the 0x address the points go to' });
@@ -271,15 +274,16 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
       let changed = await reclaim(q, L, t);
       const save = async () => { if (changed) { await write(K.queue, q); await write(K.leases, L); } };
       const rec = await dayRec(dayOf(t));
-      if ((rec.miners[m]?.strikes || 0) >= cfg.strikesPerDay || (rec.clients[client] || 0) >= cfg.strikesPerDay) {
+      if ((rec.clients[client] || 0) >= cfg.strikesPerDay) {
         await save();
         return reply(403, { ok: false, code: 'struck_out', error: `${cfg.strikesPerDay} proofs that did not pass today; nothing more is leased here until the next UTC day` });
       }
-      const open = Object.entries(L).find(([, l]) => l.miner === m || l.client === client);
+      const held = Object.entries(L).filter(([, l]) => l.client === client), open = held.find(([, l]) => l.miner === m);
       if (open) { await save(); return reply(429, { ok: false, code: 'lease_open', id: open[0], error: 'one lease at a time: send its proof (or hand it back) first' }); }
+      if (held.length >= cfg.leasesPerClient) { await save(); return reply(429, { ok: false, code: 'lease_open', error: `at most ${cfg.leasesPerClient} leases from one place at a time` }); }
       for (let i = 0; i < q.length;) {
         const e = q[i];
-        if ((e.skip || []).includes(m)) { i++; continue; }
+        if ((e.skip || []).includes(client)) { i++; continue; }
         q.splice(i, 1);
         changed = true;
         const job = await read(K.job(e.id), null);
@@ -295,7 +299,7 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
   }
 
   // A proof that is not its job's: the job goes back for someone else without using up a try, and, when the answer is certain,
-  // the address and the client that leased it take a strike.
+  // the client that leased it takes a strike.
   async function refuse(L, id, l, t, strike) {
     const q = await read(K.queue, []);
     delete L[id];
@@ -304,7 +308,6 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
     await write(K.leases, L);
     if (!strike) return;
     const d = dayOf(t), rec = await dayRec(d);
-    minerIn(rec, l.miner).strikes++;
     rec.clients[l.client] = (rec.clients[l.client] || 0) + 1;
     await write(K.day(d), rec, cfg.daySecs);
   }
