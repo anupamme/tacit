@@ -15,6 +15,8 @@ hex = "0.4"
 # Shared SP1Stdin serializer (the single source of truth for the guest's io::read order) — also used by
 # the box recursion prover (eth-reflection/prover-host bitcoin_prove), so the two cannot drift.
 reflect-stdin = { path = "../reflect-stdin" }
+# modeb-execute reads a whole SP1Stdin (buffers and deferred proofs) as the network stores it.
+bincode = "1"
 
 [[bin]]
 name = "reflect-execute"
@@ -88,6 +90,12 @@ path = "src/adaptor_execute.rs"
 [[bin]]
 name = "remaining-execute"
 path = "src/remaining_execute.rs"
+
+# Mode-B check of an Ethereum-state proof made off the network: the Bitcoin reflection guest run in execute mode on a real
+# reflection request's SP1Stdin with its deferred eth proof replaced by ETH_PROOF (see the file's header).
+[[bin]]
+name = "modeb-execute"
+path = "src/modeb_execute.rs"
 
 [profile.release]
 overflow-checks = true

@@ -2897,6 +2897,7 @@ dependencies = [
 name = "reflect-exec"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "hex",
  "reflect-stdin",
  "serde_json",
