@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qrTCdPa/HRdHVPReZxOJH8DBbqrO3/TKlzj6QaCM/Ws=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-uMCYzmnz7eFQA3m+Az/R2AehkCcyQfX+MNFoqgRE3G4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -534,6 +534,7 @@ a.di { color: inherit; text-decoration: none; }
 .tc-facts div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 4px; }
 .tc-facts dt { font-size: 12px; color: var(--mute); }
 .tc-facts dd { margin: 0; font: 400 30px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
+.tc-facts dd small { margin-right: 6px; font: 400 12px var(--mono); letter-spacing: 0; color: var(--mute); }
 /* Private bitcoin payments: three steps on one line, each a way in. */
 .tc-pay { width: 100%; max-width: 720px; margin: 56px 0 0; }
 .tc-pay h3 { margin: 0; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; }
@@ -1297,24 +1298,24 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
     <div class="tc-set" id="tc-teth" role="tabpanel" aria-labelledby="tc-t-teth">
-      <div class="sx-h"><h2 id="tc-h-teth">tETH is your ETH, <em>made private</em>.</h2></div>
+      <div class="sx-h"><h2 id="tc-h-teth">tETH is ETH that <em>earns privately, on either chain</em>.</h2></div>
       <dl class="tc-facts">
         <div data-nums><dt>ETH transacted</dt><dd class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span></dd></div>
-        <div><dt>backed by ETH</dt><dd>1 : 1</dd></div>
-        <div><dt>custodian</dt><dd>None</dd></div>
+        <div><dt>with ETH, in and out</dt><dd>1 : 1</dd></div>
+        <div><dt>chains it earns on</dt><dd>2</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h-teth">
-        <h3 id="tp-h-teth">Private ETH, on Bitcoin too.</h3>
+        <h3 id="tp-h-teth">Private yield, on Bitcoin and Ethereum.</h3>
         <ol class="tp-flow">
           <li><button type="button" data-hx="shield:ether:defi"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>ETH in</b><small>made private, one for one</small></span></button></li>
-          <li><button type="button" data-hx="shield:eth:btc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>On Bitcoin</b><small>bridged, and back any time</small></span></button></li>
-          <li><button type="button" data-hx="shield:eth:wallet"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>ETH out</b><small>to any address, unlinked</small></span></button></li>
+          <li><button type="button" data-hx="earn:eth"><svg class="g" aria-hidden="true"><use href="#g-earn"/></svg><span><b>Pooled</b><small>earning TAC, unseen</small></span></button></li>
+          <li><button type="button" data-hx="shield:eth:btc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>On Bitcoin</b><small>bridged, to earn there too</small></span></button></li>
         </ol>
       </div>
       <ul class="tc-do" aria-label="What tETH does">
         <li><b>Swaps privately</b><span>for TAC, cBTC and cUSD</span></li>
-        <li><b>Farms TAC</b><span>streamed by the second</span></li>
-        <li><b>Pays anyone</b><span>sent to any tacit1 ID</span></li>
+        <li><b>Stays hidden</b><span>your balance and your share of each pool</span></li>
+        <li><b>Back to ETH</b><span>one for one, any time</span></li>
         <li><b>Recovers</b><span>from your key, on any device</span></li>
       </ul>
       <div class="tc-links"><button class="btn" type="button" data-hx="shield:ether:defi">Make ETH private</button><a class="tl" href="/teth/">Price and pools →</a><a class="tl" href="/bridge/">Bridge →</a><button class="tl" type="button" data-asset="teth">About tETH →</button></div>
@@ -1322,46 +1323,46 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="tc-set" id="tc-cbtc" role="tabpanel" aria-labelledby="tc-t-cbtc">
       <div class="sx-h"><h2 id="tc-h-cbtc">cBTC is your bitcoin, <em>private on Ethereum</em>.</h2></div>
       <dl class="tc-facts">
-        <div><dt>backed by locked BTC</dt><dd>1 : 1</dd></div>
-        <div><dt>price feed in the peg</dt><dd>None</dd></div>
-        <div><dt>wstETH bond on each lock</dt><dd>1.5×</dd></div>
+        <div><dt>with BTC you lock</dt><dd>1 : 1</dd></div>
+        <div><dt>the only key to that bitcoin</dt><dd>Yours</dd></div>
+        <div><dt>custodian holding it</dt><dd>None</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h-cbtc">
-        <h3 id="tp-h-cbtc">A Bitcoin lock, proven on Ethereum.</h3>
+        <h3 id="tp-h-cbtc">Use bitcoin on Ethereum, without sending it.</h3>
         <ol class="tp-flow">
           <li><button type="button" data-hx="borrow:cbtc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>BTC locked</b><small>at your own address</small></span></button></li>
-          <li><a href="/cbtc/"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>Proven</b><small>on Ethereum, by SP1</small></span></a></li>
+          <li><button type="button" data-hx="borrow:cbtc"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>ETH bond</b><small>refundable, behind the lock</small></span></button></li>
           <li><button type="button" data-hx="borrow:cbtc"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span><b>cBTC minted</b><small>one for one, private</small></span></button></li>
         </ol>
       </div>
       <ul class="tc-do" aria-label="What cBTC does">
-        <li><b>Borrows dollars</b><span>cUSD against it, at 150%</span></li>
-        <li><b>Swaps and farms</b><span>in the tETH / cBTC pool</span></li>
-        <li><b>Goes public</b><span>as tacBTC, an ERC-20</span></li>
-        <li><b>Keeps your key</b><span>the bitcoin stays at your address</span></li>
+        <li><b>Borrows dollars</b><span>cUSD against it</span></li>
+        <li><b>Swaps and earns</b><span>in the private pools</span></li>
+        <li><b>Stays hidden</b><span>amounts no one else can see</span></li>
+        <li><b>Goes public</b><span>as tacBTC, a token any wallet holds</span></li>
       </ul>
       <div class="tc-links"><button class="btn" type="button" data-hx="borrow:cbtc">Lock BTC</button><a class="tl" href="/cbtc/">Price and backing →</a><a class="tl" href="/vault/#btc">Borrow page →</a><button class="tl" type="button" data-asset="cbtc">About cBTC →</button></div>
     </div>
     <div class="tc-set" id="tc-cusd" role="tabpanel" aria-labelledby="tc-t-cusd">
       <div class="sx-h"><h2 id="tc-h-cusd">cUSD is a dollar, <em>backed by bitcoin</em>.</h2></div>
       <dl class="tc-facts">
-        <div><dt>cBTC behind each loan, at least</dt><dd>150%</dd></div>
-        <div><dt>stability fee today</dt><dd>0%</dd></div>
-        <div><dt>link to the borrower</dt><dd>None</dd></div>
+        <div><dt>bitcoin you sell to borrow</dt><dd>None</dd></div>
+        <div><dt>can tie the loan to you</dt><dd>Nobody</dd></div>
+        <div><dt>to repay and take it back</dt><dd>Any time</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h-cusd">
         <h3 id="tp-h-cusd">Dollars from your bitcoin, privately.</h3>
         <ol class="tp-flow">
-          <li><button type="button" data-hx="borrow:cusd"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span><b>cBTC in</b><small>held as collateral</small></span></button></li>
+          <li><button type="button" data-hx="borrow:cusd"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span><b>Bitcoin in</b><small>as cBTC, held for the loan</small></span></button></li>
           <li><button type="button" data-hx="borrow:cusd"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span><b>cUSD out</b><small>a private dollar, to you</small></span></button></li>
-          <li><a href="#borrow" data-link="borrow"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span><b>Repaid</b><small>any time, and the cBTC is back</small></span></a></li>
+          <li><button type="button" data-hx="send:cusd"><svg class="g" aria-hidden="true"><use href="#g-send"/></svg><span><b>Spent</b><small>sent to anyone, unseen</small></span></button></li>
         </ol>
       </div>
       <ul class="tc-do" aria-label="What cUSD does">
-        <li><b>Pays anyone</b><span>sent to any tacit1 ID</span></li>
-        <li><b>Swaps and farms</b><span>in the tETH / cUSD pool</span></li>
-        <li><b>Goes public</b><span>as tacUSD, an ERC-20</span></li>
-        <li><b>Stays private</b><span>amounts hidden, like any note</span></li>
+        <li><b>Swaps and earns</b><span>in the private pools</span></li>
+        <li><b>Stays hidden</b><span>amounts no one else can see</span></li>
+        <li><b>Goes public</b><span>as tacUSD, a token any wallet holds</span></li>
+        <li><b>Over-backed</b><span>$1.50 of bitcoin per dollar, to borrow</span></li>
       </ul>
       <div class="tc-links"><button class="btn" type="button" data-hx="borrow:cusd">Borrow cUSD</button><a class="tl" href="/vault/#btc">Borrow page →</a><a class="tl" href="/cbtc/">Loans and backing →</a><button class="tl" type="button" data-asset="cusd">About cUSD →</button></div>
     </div>
@@ -1369,8 +1370,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="sx-h"><h2 id="tc-h-tacd">TACD is a dollar, <em>borrowed against TAC</em>.</h2></div>
       <dl class="tc-facts">
         <div><dt>interest</dt><dd>0%</dd></div>
-        <div><dt>fee, when you borrow</dt><dd>One</dd></div>
-        <div><dt>of prices, so a dip does not liquidate</dt><dd>Hours</dd></div>
+        <div><dt>APR, farming it with USDC</dt><dd class="num"><span id="tc-apr-usd"><span class="sk" style="--w:4ch"></span></span></dd></div>
+        <div><dt>to repay and take your TAC back</dt><dd>Any time</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h-tacd">
         <h3 id="tp-h-tacd">Borrow dollars, then farm them.</h3>
@@ -1382,9 +1383,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <ul class="tc-do" aria-label="What TACD does">
         <li><b>Keeps your TAC</b><span>borrow without selling it</span></li>
-        <li><b>Repay any time</b><span>and the TAC is back</span></li>
-        <li><b>You bid first</b><span>if your vault is ever auctioned</span></li>
-        <li><b>Spends anywhere</b><span>an ERC-20 on Ethereum</span></li>
+        <li><b>One fee</b><span>paid once, when you borrow</span></li>
+        <li><b>Slow prices</b><span>a quick dip can’t take your TAC</span></li>
+        <li><b>Spends anywhere</b><span>a token any wallet holds</span></li>
       </ul>
       <div class="tc-links"><a class="btn" href="/vault/#v=usd">Borrow TACD</a><a class="tl" href="/vault/#v=usd&amp;pools">TACD pools →</a><a class="tl" href="/vault/#v=usd&amp;t=repay">Repay →</a><button class="tl" type="button" data-asset="tacd">About TACD →</button></div>
     </div>
@@ -1392,8 +1393,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="sx-h"><h2 id="tc-h-tace">TACE is ether, <em>borrowed against TAC</em>.</h2></div>
       <dl class="tc-facts">
         <div><dt>interest</dt><dd>0%</dd></div>
-        <div><dt>fee, when you borrow</dt><dd>One</dd></div>
-        <div><dt>of prices, so a dip does not liquidate</dt><dd>Hours</dd></div>
+        <div><dt>APR, farming it with ETH</dt><dd class="num"><span id="tc-apr-eth"><span class="sk" style="--w:4ch"></span></span></dd></div>
+        <div><dt>to repay and take your TAC back</dt><dd>Any time</dd></div>
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h-tace">
         <h3 id="tp-h-tace">Borrow ether, then farm it.</h3>
@@ -1405,9 +1406,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <ul class="tc-do" aria-label="What TACE does">
         <li><b>Keeps your TAC</b><span>borrow without selling it</span></li>
-        <li><b>Repay any time</b><span>and the TAC is back</span></li>
-        <li><b>You bid first</b><span>if your vault is ever auctioned</span></li>
-        <li><b>Spends anywhere</b><span>an ERC-20 on Ethereum</span></li>
+        <li><b>One fee</b><span>paid once, when you borrow</span></li>
+        <li><b>Slow prices</b><span>a quick dip can’t take your TAC</span></li>
+        <li><b>Spends anywhere</b><span>a token any wallet holds</span></li>
       </ul>
       <div class="tc-links"><a class="btn" href="/vault/#v=eth">Borrow TACE</a><a class="tl" href="/vault/#v=eth&amp;pools">TACE pools →</a><a class="tl" href="/vault/#v=eth&amp;t=repay">Repay →</a><button class="tl" type="button" data-asset="tace">About TACE →</button></div>
     </div>
@@ -8300,6 +8301,12 @@ function paintEarn() {
   const vp = LP.m && LP.c ? ['usd', 'eth'].map((k) => LP.m.bestApr(LP.c, k, tacUsd)).filter((a) => a != null) : [];
   if (vp.length) { mount($('#vp-apr'), apr(Math.max(...vp), vp.length > 1)); countUp($('#vp-apr')); }
   else if (LP.done && !LP.c?.weights.usd?.length && !LP.c?.weights.eth?.length) $('#vp-apr').textContent = '—';
+  // each vault's own rate on its TAC-section story; a vault whose pools the campaign does not pay drops the line
+  for (const k of ['usd', 'eth']) {
+    const el = $(`#tc-apr-${k}`), a = LP.m && LP.c ? LP.m.bestApr(LP.c, k, tacUsd) : null;
+    if (a != null) { el.closest('div').hidden = false; mount(el, html`${LP.c.weights[k].length > 1 ? html`<small>up to</small>` : ''}${a >= 10000 ? '10,000+' : per(Math.round(a))}%`); countUp(el); }
+    else if (LP.done && !LP.c?.weights[k]?.length) el.closest('div').hidden = true;
+  }
   const on = now() < ptsEnd();
   mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
   mount($('#ern-pts'), on ? html`TAC in today’s points pot · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
