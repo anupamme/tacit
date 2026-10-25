@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "cfb55443120fe5a13f63eaf60bdab6edc269c9a1"
+  },
+  "path_in_vcs": "crates/recursion/gnark-ffi"
+}

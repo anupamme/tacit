@@ -1,0 +1,9 @@
+[package]
+name = "tacit-leafhash"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "SP1 outer-commitment leaf hashing (BN254 Poseidon2 over KoalaBear rows) on an Apple GPU"
+
+[build-dependencies]
+cc = "1"
