@@ -6,6 +6,7 @@
 // shares: each leg alone floors to S at the reserves the swap leaves, and minShares is S. A trade or a liquidity move that lands first cannot
 // raise both legs' shares (a swap never lowers k, adds and removes round for the pool), and after it the zap's own swap leaves one leg short,
 // so the add mints exactly S or the whole transaction reverts. tests/lp-zap.test.mjs checks this against the pool's own arithmetic.
+// zapPlan sizes the zap for an amount of ETH; zapPlanFor sizes it for an S fixed first, so the note's proof can be made before it is sent.
 //
 // The B leg stays at least a unit under what the swap pays, so the router always refunds some B to the sender: that Transfer is the log a
 // key finds its zaps by (the pool keeps no event for shielded shares), and the zap's calldata holds the shares and the commitment.
@@ -69,14 +70,61 @@ export function zapPlan({ eth, ra, rb, total, feeBps = 30n, unitA = 10n ** 10n, 
     if (legs && (!best || legs.s > best.s || (legs.s === best.s && legs.a + x < best.a + best.x))) best = { x, out, ra2, rb2, ...legs };
   };
   for (let d = -48n; d <= 48n; d++) tryX(x0 + d);
-  if (!best) return null;
-  const mid = (Number(rb) * Number(best.x) * Number(g)) / (Number(ra) * 10000);
+  return best && planShape({ ra, rb, total, f, unitA, unitB }, best, eth);
+}
+
+// A plan from its swap (x units of A paying `out` units of B) and legs (a, b) that each floor to s at the reserves the swap leaves; `left`
+// is what of `cap` wei it does not send (none without a cap).
+function planShape({ ra, rb, total, f, unitA, unitB }, { x, out, a, b, s }, cap) {
+  const uA = BigInt(unitA), uB = BigInt(unitB), value = (x + a) * uA, mid = (Number(rb) * Number(x) * Number(10000n - f)) / (Number(ra) * 10000);
   return {
-    swapIn: best.x * unitA, ethLeg: best.a * unitA, bLeg: best.b * unitB, floor: (best.b + 1n) * unitB, value: (best.x + best.a) * unitA, shares: best.s,
-    out: best.out * unitB, spare: (best.out - best.b) * unitB, left: BigInt(eth) - (best.x + best.a) * unitA,
+    swapIn: x * uA, ethLeg: a * uA, bLeg: b * uB, floor: (b + 1n) * uB, value, shares: s,
+    out: out * uB, spare: (out - b) * uB, left: cap == null ? 0n : BigInt(cap) - value,
     // what the swap gets under the pool's price before it (its fee aside), as a share: as the farm's one-sided join says it
-    impact: mid > 0 ? Math.max(0, 1 - Number(best.out) / mid) : 0, reservesAfter: { ra: best.ra2, rb: best.rb2 }, shareOfPool: Number(best.s) / Number(total + best.s),
+    impact: mid > 0 ? Math.max(0, 1 - Number(out) / mid) : 0, reservesAfter: { ra: ra + x, rb: rb - out }, shareOfPool: Number(s) / Number(total + s),
   };
+}
+
+// A leg of v units floors to S at reserve r (supply t) when S·r ≤ v·t < (S+1)·r, so it does at the reserves (v·t/(S+1), v·t/S]. On the
+// pool's larger side (a unit worth at most a share) some leg does at every reserve; on the smaller side only at some. → the nearest reserve
+// to r, at or above it (`up`) or at or below it, at which some leg floors to S, or null.
+function legFit(S, t, r, up) {
+  let v = up ? ceil(S * r, t) : (r * (S + 1n) - 1n) / t;           // the first leg whose reserves reach r from that side
+  for (let i = 0; i < 65536 && v > 0n; i++, v += up ? 1n : -1n) {
+    const lo = (v * t) / (S + 1n) + 1n, hi = (v * t) / S, at = up ? (r > lo ? r : lo) : (r < hi ? r : hi);
+    if (lo <= at && at <= hi) return at;
+  }
+  return null;
+}
+
+// The zap that mints exactly `shares` (S), fixed before the reserves are known, with the least ETH. The note's proof binds only the LP
+// asset, S and the commitment, so a page that fixes S can have the proof made while the zap waits, and size the zap when it is sent to
+// mint exactly S at whatever the reserves are then. It keeps zapPlan's rules (each leg alone floors to S at the reserves the swap leaves,
+// the B leg a unit under what the swap pays). The least swap pays a unit over the least B leg; from there the swap grows only as far as
+// both legs can floor to S (the smaller side's leg, worth over a share a unit, does only at some reserves: the A reserve rises with the
+// swap, the B reserve falls). Each swap passed over breaks a rule and each larger one sends more, so no zap for S sends less.
+// → zapPlan's shape (`left` what of maxEth it does not send), or null: no exact zap for S (fewer shares than a unit of the smaller side is
+// worth are often out of reach) or none within maxEth wei.
+export function zapPlanFor({ shares, ra, rb, total, feeBps = 30n, unitA = 10n ** 10n, unitB = 10n ** 10n, maxEth = null }) {
+  ra = BigInt(ra); rb = BigInt(rb);
+  const t = BigInt(total), S = BigInt(shares), f = BigInt(feeBps), g = 10000n - f;
+  if (S < 1n || !(ra > 0n && rb > 0n && t > 0n)) return null;
+  // the least swap paying o (ammOut floors rb·x·g / (ra·1e4 + x·g)); the swap must pay out with out - 1 ≥ ceil(S·(rb - out)/t)
+  const swapFor = (o) => (o < rb ? ceil(o * ra * 10000n, g * (rb - o)) : null);
+  let x = swapFor(ceil(S * rb + t, t + S));
+  for (let i = 0; i < 4096 && x !== null; i++) {
+    if (x < 1n) x = 1n;
+    const out = ammOut(ra, rb, x, f), ra2 = ra + x, rb2 = rb - out, a = ceil(S * ra2, t);
+    if (!out || (maxEth != null && (x + a) * BigInt(unitA) > BigInt(maxEth))) return null;
+    const r = legFit(S, t, ra2, true);
+    if (r === null) return null;
+    if (r > ra2) { x = r - ra; continue; }                         // the A reserve rises one unit a unit of swap
+    const y = legFit(S, t, rb2, false);
+    if (y === null) return null;
+    if (y < rb2) { x = swapFor(rb - y); continue; }               // the least swap leaving at most y of B
+    return planShape({ ra, rb, total: t, f, unitA, unitB }, { x, out, a, b: ceil(S * rb2, t), s: S }, maxEth);
+  }
+  return null;
 }
 
 // A zap whose swap is split: `ammIn` wei of it through this pool (whose output, and the reserves it leaves, are known exactly) and `extIn`
