@@ -836,6 +836,15 @@ export const CFG = {
   pointsTokpoolMinUsd: opt('POINTS_TOKPOOL_MIN_USD', ''),
   pointsTokpoolExclude: opt('POINTS_TOKPOOL_EXCLUDE', '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0'),
   pointsTokpoolTacOracle: opt('POINTS_TOKPOOL_TAC_ORACLE', '0x000000cE58D7d49319252DaFB0ABdB3F02101271'),
+  // Proof mining (lib/points-mine-service.js): TAC for the wraps a miner proves in tacit-api's proof pool (worker/src/proof-pool.js),
+  // credited as ledger adjustments from a pocket of its own, outside the daily pot. Off unless the feed, the schedule, the pocket and the
+  // end time are set. POINTS_MINE_FEED is the API's day tally (https://api.tacit.finance/prover/pool/credits); POINTS_MINE_SCHEDULE is
+  // "<day>:daily=<TAC>,cap=<TAC per point>;<day>:off", the day's amount shared by the points the API credited (POINTS_MINE_PER_PROOF a
+  // proof, for at most POINTS_MINE_DAILY_CAP proofs an address a day, both set on tacit-api). Kept as text and checked where it is read.
+  pointsMineFeed: opt('POINTS_MINE_FEED', ''),
+  pointsMineSchedule: opt('POINTS_MINE_SCHEDULE', ''),
+  pointsMinePocket: opt('POINTS_MINE_POCKET_WEI', ''),
+  pointsMineEndSec: opt('POINTS_MINE_END_SEC', ''),
   // Where the balance monitor reads the points service's /rewards funding report.
   pointsApiBase: opt('POINTS_API_BASE', 'https://tacit-points.onrender.com'),
   pointsSettleMaxWaitSecs: num('POINTS_SETTLE_MAX_WAIT_SECS', 21600),

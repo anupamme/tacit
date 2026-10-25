@@ -122,6 +122,7 @@ import { makeScanReflectionIndexer } from '../../dapp/confidential-reflection-sc
 import { makeBurndepAdmission, HEADER_CHUNK as BURNDEP_HEADER_CHUNK } from './burndep-admission.js';
 import { handleProverUpload, handleProverDownload, PROVER_PROXY_PATHS } from './prover-proxy.js';
 import { buildProverBoard, workerOf } from './prover-board.js';
+import { buildProofPool, verifyCalldata, clientOf, PROOF_POOL } from './proof-pool.js';
 import { SWAP_BATCH_VK } from '../../dapp/confidential-swapbatch-vk.js';
 import { bpRangeVerify, bpClassicProofLen } from '../../dapp/bulletproofs.js';
 import { makeBridgeRecover } from '../../dapp/bridge-recover.js';
@@ -646,7 +647,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/live', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/reflection/eth-state/proof', '/reflection/open', '/reflection/open/job', '/reflection/landed', '/reflection/burndep-list', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download', '/prover/board']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/live', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/reflection/eth-state/proof', '/reflection/open', '/reflection/open/job', '/reflection/landed', '/reflection/burndep-list', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download', '/prover/board', '/prover/pool', '/prover/pool/request', '/prover/pool/lease', '/prover/pool/submit', '/prover/pool/result', '/prover/pool/credits']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -3331,13 +3332,9 @@ function openExpiryOf({ type, op, publicValues }) {
   const xs = [op ? opExpiry(type, op) : 0, pv].filter((x) => x > 0);
   return xs.length ? Math.min(...xs) : 0;
 }
-// eth_call of settle(publicValues, proof, memos) at the latest block: { ok } when the pool would take it now, { reverted }
-// when it would refuse it, and neither when no node answered. A node that drops revert data still says it reverted.
-async function simulateSettle(env, { publicValues, proof, memos }) {
-  const pool = confPool(env);
-  if (!pool) return { ok: false, error: 'no pool configured' };
-  const data = openSettleCalldata({ publicValues, proof, memos: memos || [] });
-  const call = [{ from: '0x000000000000000000000000000000000000dEaD', to: pool, data }, 'latest'];
+// eth_call at the latest block, read for its verdict: { ok } when the call returns, { reverted, definite, data } when it reverts,
+// and neither when no node answered. A node that drops revert data still says it reverted.
+async function ethCallVerdict(env, call) {
   const rpcs = [env.CONFIDENTIAL_SIM_RPC, 'https://mainnet.gateway.tenderly.co', ..._TETH_ETH_RPCS.mainnet].filter(Boolean);
   for (const rpc of rpcs) {
     try {
@@ -3352,10 +3349,21 @@ async function simulateSettle(env, { publicValues, proof, memos }) {
       // `definite`: the node said so in a way a rate limit or a node fault cannot (a revert code, or revert data). A word in
       // the message alone is enough to refuse a posted proof, never to close a job.
       if (e.code === 3 || /revert/i.test(String(e.message || '')) || /^0x[0-9a-fA-F]{8}/.test(d)) {
-        return { ok: false, reverted: true, definite: e.code === 3 || /^0x[0-9a-fA-F]{8}/.test(d), error: /^0x[0-9a-fA-F]{8}/.test(d) ? `settle reverts (${d.slice(0, 10)})` : 'settle reverts' };
+        return { ok: false, reverted: true, definite: e.code === 3 || /^0x[0-9a-fA-F]{8}/.test(d), data: /^0x[0-9a-fA-F]{8}/.test(d) ? d : null };
       }
     } catch { /* next node */ }
   }
+  return { ok: false };
+}
+// eth_call of settle(publicValues, proof, memos) at the latest block: { ok } when the pool would take it now, { reverted }
+// when it would refuse it, and neither when no node answered.
+async function simulateSettle(env, { publicValues, proof, memos }) {
+  const pool = confPool(env);
+  if (!pool) return { ok: false, error: 'no pool configured' };
+  const data = openSettleCalldata({ publicValues, proof, memos: memos || [] });
+  const v = await ethCallVerdict(env, [{ from: '0x000000000000000000000000000000000000dEaD', to: pool, data }, 'latest']);
+  if (v.ok) return { ok: true };
+  if (v.reverted) return { ok: false, reverted: true, definite: v.definite, error: v.data ? `settle reverts (${v.data.slice(0, 10)})` : 'settle reverts' };
   return { ok: false, error: 'the chain could not be read just now; try again' };
 }
 // A settle sent outside the relay closed this job when: its transaction succeeded, reached the pool, carries the job's
@@ -3705,6 +3713,43 @@ async function handleProverBoard(req, env, url, cors) {
     } catch (e) { return jsonResponse({ ok: false, error: String(e.message || e) }, 400, nostore); }
   }
   return jsonResponse({ error: 'not found' }, 404, cors);
+}
+// The proof pool (worker/src/proof-pool.js): pages post wraps to be proved ahead of time, anyone's prover leases and proves them,
+// and each proof is checked against its input and the live pool's verifier before it is kept and its miner is credited. Every
+// path answers any origin: the pages are on tacit.finance and the miners anywhere.
+const POOL_SP1_VERIFIER = '0xb69f2584CBcFf99a58C4e7002E8b89Af54a6f4e2';   // the pool's Groth16 verifier (SP1 v6)
+const POOL_PROGRAM_VKEY = '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3'; // the settle guest the pool pins
+async function handleProofPool(req, env, url, cors) {
+  const nostore = { ...cors, 'Cache-Control': 'no-store' };
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  const pool = buildProofPool(env, {
+    verify: ({ publicValues, proof }) => ethCallVerdict(env, [{ to: POOL_SP1_VERIFIER, data: verifyCalldata({ vkey: POOL_PROGRAM_VKEY, publicValues, proof }) }, 'latest']),
+  });
+  if (!pool) return jsonResponse({ error: 'not found' }, 404, cors);
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon', client = clientOf(ip);
+  const send = (r, headers = nostore) => (r.status === 204 ? new Response(null, { status: 204, headers }) : jsonResponse(r.body, r.status, headers));
+  const p = url.pathname;
+  if (req.method === 'GET') {
+    if (p === '/prover/pool') return send(await pool.stats(), { ...cors, 'Cache-Control': 'max-age=10' });
+    if (p === '/prover/pool/credits') return send(await pool.credits(Number(url.searchParams.get('day') ?? NaN)), { ...cors, 'Cache-Control': 'max-age=60' });
+    if (p === '/prover/pool/result') {
+      const ids = [...new Set(String(url.searchParams.get('ids') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean))];
+      if (!ids.length || ids.length > PROOF_POOL.maxResultIds) return jsonResponse({ ok: false, error: `ids must name 1 to ${PROOF_POOL.maxResultIds} jobs` }, 400, nostore);
+      return send(await pool.results(ids));
+    }
+    return jsonResponse({ error: 'not found' }, 404, cors);
+  }
+  if (!['/prover/pool/request', '/prover/pool/lease', '/prover/pool/submit'].includes(p)) return jsonResponse({ error: 'not found' }, 404, cors);
+  if (req.method !== 'POST') return jsonResponse({ error: 'method' }, 405, nostore);
+  let b;
+  try { b = await req.json(); } catch { b = null; }
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore);
+  if (p === '/prover/pool/request') return send(await pool.request({ type: b.type, stdin: b.stdin, expect: b.expect, client }));
+  if (p === '/prover/pool/lease') return send(await pool.lease({ miner: b.miner, client }));
+  // Each submit asks Ethereum: a few a minute from one place.
+  const rl = await proveRateLimit(env, ip, 'pool-submit', 6, 20000);
+  if (!rl.ok) return jsonResponse({ ok: false, code: 'rate', error: `too many submits — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...nostore, 'Retry-After': String(rl.retryAfter) });
+  return send(await pool.submit({ id: b.id, lease: b.lease, publicValues: b.publicValues, proof: b.proof, error: b.error ?? null }));
 }
 async function handleConfidentialRelay(env, cors) {
   const st = await relayState(env);
@@ -27438,6 +27483,8 @@ export {
   completeDiscordGate,
   // The forward scan, so a test can hand it one block and see what it keeps (the Tacit transaction archive among it).
   scanForEtches,
+  // The eth_call verdict the proof pool's verifier check and the open board's settle simulation share, so a test can hand it node answers.
+  ethCallVerdict, simulateSettle,
 };
 
 // ============== DISCORD TOKEN-GATE HANDLERS ==============
@@ -27710,6 +27757,8 @@ async function _routeFetch(req, env, ctx) {
     const openOrigin = OPEN_ORIGIN_PATHS.has(url.pathname)
       || url.pathname === '/leaderboard' || url.pathname === '/recent' || url.pathname.startsWith('/points/') || url.pathname.startsWith('/claim/');
     const cors = corsHeaders(env, req.headers.get('Origin') || '', openOrigin);
+    // The proof pool (worker/src/proof-pool.js) is open to anyone: pages post wraps, miners lease and prove them.
+    if (url.pathname === '/prover/pool' || url.pathname.startsWith('/prover/pool/')) return handleProofPool(req, env, url, cors);
     // A page proving with its holder's own prover account passes its program input and the finished proof through here
     // (the network's artifact store sends no CORS headers). These answer their own preflight, which names X-Artifact-Url.
     // The prover board (worker/src/prover-board.js): the relay posts, reads and cancels jobs with the box token; workers claim and
