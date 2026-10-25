@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+79KKj4+3ThNix/1kPYTBL3cgksX0hOfvc5CQNm1E8Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-D7KVYUp5XF8cNUR5/gEk14OXScp5fg8AJ2geJyz386w=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -166,6 +166,19 @@ main:focus { outline: none; }
 .pxs b { font-weight: 500; font-size: 10.5px; letter-spacing: .08em; }
 .pxs .num { color: var(--ink); }
 @media (hover: hover) { .pxs a.px:hover b { color: var(--ink); } .pxs a.px:hover .num { text-decoration: underline; text-underline-offset: 3px; } }
+/* The farms under the prices: a pair and its APR a chip, best first, each opening the tile's Earn tab on that pool's ETH zap. One line that
+   scrolls sideways on a phone, and its height is kept while empty, so nothing moves when the farms are read. */
+.fms { display: flex; gap: 8px; height: 32px; margin: 0 0 8px; padding: 1px 0; overflow-x: auto; scrollbar-width: none; opacity: 0; transition: opacity .35s; }
+.fms::-webkit-scrollbar { display: none; }
+.fms.on { opacity: 1; }
+.fms a { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 5px; color: var(--ink); text-decoration: none; white-space: nowrap; font-size: 12.5px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; transition: background .15s, border-color .15s; }
+.fms .pair .tk { width: 22px; height: 22px; }
+.fms .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
+.fms b { font-weight: 500; }
+.fms small { font: 500 10.5px var(--mono); letter-spacing: .08em; color: var(--mute); }
+@media (hover: hover) { .fms a:hover { background: var(--field); border-color: var(--ink); } .fms a:hover .pair .tk + .tk { box-shadow: 0 0 0 2px var(--field); } }
+.fms a:active { transform: scale(.98); }
+@media (max-width: 640px) { .fms { margin: 0 -16px 8px; padding: 1px 16px; scroll-padding: 0 16px; } }          /* runs to the screen's edge, so a chip cut off there reads as more to scroll to */
 .chip.act svg { width: 18px; height: 18px; flex: none; }
 .chip.act.busy { color: var(--warn); }
 .chip.act #act-n { position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
@@ -1194,6 +1207,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </div>
   </header>
   <div class="pxs" id="pxs" role="group" aria-label="Prices in dollars"></div>
+  <div class="fms" id="fms" role="group" aria-label="Farms and their APR now; each opens its ETH zap"></div>
 
   <main id="main" tabindex="-1">
   <section class="hero" aria-labelledby="hero-h">
@@ -8326,10 +8340,24 @@ function paintEarn() {
     if (a != null) { el.closest('div').hidden = false; mount(el, html`${LP.c.weights[k].length > 1 ? html`<small>up to</small>` : ''}${a >= 10000 ? '10,000+' : per(Math.round(a))}%`); countUp(el); }
     else if (LP.done && !LP.c?.weights[k]?.length) el.closest('div').hidden = true;
   }
+  paintFarmChips(pools);
   const on = now() < ptsEnd();
   mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
   mount($('#ern-pts'), on ? html`TAC in today’s points pot · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
   if (on) countUp($('#ern-pts-v'));
+}
+// The farms under the header's prices, best APR first: the public pool and each private pool the Earn tab offers, a press on one opening
+// that tab on its ETH zap (the same pools hxFarms lists, so the pool pressed is a row there). The link stays for a new tab.
+function paintFarmChips(pools) {
+  const el = $('#fms'), chips = pools.filter(({ p }) => !p.idle && String(p.reserves?.assetA).toLowerCase() === CETH_ID && Number(p.reserves?.lpTotalShares)).map(({ p, apr }) => ({
+    spec: `p${p.pid}`, href: `#farm/private-${p.pid}`, name: pairName(p.pair), apr, kind: 'private farm',
+    icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'] }));
+  const pub = FARM.top?.apr;
+  if (pub != null) chips.push({ spec: 'public', href: '#farm/public', name: 'TAC / ETH', apr: pub, kind: 'public farm', icons: ['tk-tac', 'tk-eth'] });
+  chips.sort((a, b) => b.apr - a.apr);
+  const view = html`${chips.map((c) => html`<a href="${c.href}" data-hx="earn:ether:${c.spec}" title="${c.name}, ${c.kind}: put ETH in with one transaction"><span class="pair">${c.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span><b class="num">${c.apr >= 10000 ? '10,000+' : Math.round(c.apr).toLocaleString('en-US')}%</b><small>APR</small></a>`)}`;
+  if (el.__h !== view.s) { el.__h = view.s; mount(el, view); }        // written only when it changed, so a pressed chip is never replaced under a pointer
+  el.classList.toggle('on', chips.length > 0);
 }
 function paintPointsFoot() {
   const rows = PTS.key && PTS.key === pointsWho().map(([a]) => a).join() ? PTS.rows : null;
