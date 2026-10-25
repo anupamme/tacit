@@ -60,6 +60,9 @@ cd worker-relay && npm ci
 RELAYER_KEY=0x… RPC_URL=https://… node src/open-relayer.js     # MARGIN_BPS=2000 POLL_SECS=15 ONCE=1
 ```
 
+[`tools/community-runner.mjs settles`](../tools/community-runner.mjs) does the same from the repository root with no
+`worker-relay` install, beside the header and proof modes ([COMMUNITY-OPS.md](./COMMUNITY-OPS.md)).
+
 Other senders take jobs too, Tacit's relay among them. Simulate before every send: if you lose the race,
 the cost is that simulation, not a reverted transaction.
 

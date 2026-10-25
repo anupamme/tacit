@@ -11,6 +11,9 @@
 //            gas estimate, and a reverted receipt reads as reverted
 //   wc       no wallet in the browser: WalletConnect is the one on offer (a stand-in for its bundle, tests/wc-fake.mjs); a wallet app
 //            pairs, sends the proof with no request to switch networks, and Disconnect puts the page back to asking
+//   board    the open board's figures; Send one runs the settle first, then sends exactly settle(publicValues, proof, memos) of the
+//            job paying the most to the pool, and reports it landed to the API
+//   boardno  a settle the pool refuses in the run first: nothing is sent, and the job is not offered again; an empty board says so
 // Nothing reaches a live service.
 //   PLAYWRIGHT=<path to playwright-core> node tools/keeper-check.mjs [scenario,…]
 import { createServer } from 'node:http';
@@ -30,7 +33,11 @@ const WALLET = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20';
 const DIGEST = '0x' + 'aa'.repeat(32);
 const NEXT = '0x' + 'bb'.repeat(32);
 const PV = '0x' + 'ab'.repeat(1120), PROOF = '0x' + 'cd'.repeat(260);
-const want = (process.argv[2] || 'ready,spent,none,refused,chain,race,ancestry,wc').split(',');
+const want = (process.argv[2] || 'ready,spent,none,refused,chain,race,ancestry,wc,board,boardno').split(',');
+// A PublicValues encoding with one tETH fee leg of `units` (head word 8 the fees offset), and an open board job carrying it.
+const ETH_ID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+const pvWithFee = (units) => '0x' + [32, ...Array.from({ length: 19 }, (_, i) => (i === 7 ? 19 * 32 : 0)), 1].map((v) => BigInt(v).toString(16).padStart(64, '0')).join('') + ETH_ID + BigInt(units).toString(16).padStart(64, '0');
+const boardJob = (id, units) => ({ jobId: '0x' + String(id).repeat(64).slice(0, 64), type: 'transfer', status: 'open', posted: false, publicValues: pvWithFee(units), proof: '0x' + 'cd'.repeat(260), memos: ['0x' + 'ee'.repeat(40)], openSince: Date.now() - 60000, expiresAt: 0, feeUsd: 1 });
 
 const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
 const server = createServer((req, res) => {
@@ -47,10 +54,10 @@ const ok = (c, m, extra = '') => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}${ext
 const hex = (n) => '0x' + n.toString(16);
 const word = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
 
-async function run(name, { proof, simulateRevert = null, chain = '0x1', attested = 970100, receipt = '0x1', slowReceipt = 0, clock = false, wc = false }) {
+async function run(name, { proof, simulateRevert = null, chain = '0x1', attested = 970100, receipt = '0x1', slowReceipt = 0, clock = false, wc = false, jobs = [], boardRevert = false }) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 900, height: 1000 } });
-  const calls = [];
+  const calls = [], landed = [];
   const st = { digest: DIGEST, polls: 0 };
   // A sent proof moves the pool's digest on, as landing it would.
   await ctx.exposeBinding('__sent', (_src, data) => { if (String(data).startsWith('0x0b36171c')) st.digest = NEXT; });
@@ -91,6 +98,7 @@ async function run(name, { proof, simulateRevert = null, chain = '0x1', attested
         if (simulateRevert) throw Object.assign(new Error('execution reverted'), { data: simulateRevert });
         return '0x';
       }
+      if (data && data.startsWith('0x717fd7f2') && from && boardRevert) throw Object.assign(new Error('execution reverted'), { data: '0x2fb0e3e0' });
       return '0x';
     }
     if (m === 'eth_estimateGas') return params[0].data === '0xaa9e6609' ? hex(6400000) : hex(524288);   // advanceReflectionAncestry() walks up to 2,016 parents
@@ -112,6 +120,8 @@ async function run(name, { proof, simulateRevert = null, chain = '0x1', attested
     const send = (b) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(b) });
     if (u.pathname === '/reflection/proof') return send({ ok: true, proof });
     if (u.pathname === '/reflection/status') return send({ network: 'mainnet', attestedHeight: attested, tipHeight: 970100, lagBlocks: 0, confirmations: 24, burnDeposits: 0 });
+    if (u.pathname === '/confidential/open') return send({ pool: POOL, jobs });
+    if (u.pathname === '/confidential/landed') { landed.push(JSON.parse(route.request().postData() || '{}')); return send({ ok: true, status: 'settled' }); }
     return send({});
   });
   for (const host of ['blockstream.info', 'mempool.space', 'mempool.emzy.de', 'mempool.bitaroo.net']) {
@@ -122,7 +132,8 @@ async function run(name, { proof, simulateRevert = null, chain = '0x1', attested
   page.on('pageerror', (e) => { console.log('     page error:', e.message); });
   await page.goto(`http://127.0.0.1:${WEB}/weld/keeper/`);
   await page.waitForFunction(() => !/Reading the latest proof/.test(document.querySelector('#proof-box')?.textContent || 'Reading'), null, { timeout: 15000 });
-  return { browser, page, calls, wcAsked };
+  await page.waitForFunction(() => !document.querySelector('#board-box .sk'), null, { timeout: 15000 });
+  return { browser, page, calls, wcAsked, landed };
 }
 
 const rec = (over = {}) => ({ priorDigest: DIGEST, newDigest: NEXT, attestedTo: 970110, publicValues: PV, proof: PROOF, at: Date.now() - 4 * 60000, ...over });
@@ -223,6 +234,40 @@ if (want.includes('ancestry')) {
   ok(calls.some((c) => c.m === 'eth_call' && c.params[0].from && c.params[0].data === '0xaa9e6609'), 'it ran the call first');
   ok(/reverted/.test(await page.textContent('.toast.bad')) && /Reverted/.test(await page.textContent('#anc-status')), 'a reverted receipt reads as reverted');
   await browser.close();
+}
+if (want.includes('board')) {
+  console.log('== board');
+  const jobs = [boardJob('1', 41000), boardJob('2', 200000)];                     // 0.00041 and 0.002 ETH
+  const { browser, page, calls, landed } = await run('board', { proof: null, jobs });
+  const box = await page.textContent('#board-box');
+  ok(/2 settles waiting · 0\.0024 ETH in fees · gas <0\.0001 ETH each/.test(box), 'the board in figures', box.trim());
+  ok(!(await page.isDisabled('#btn-board')) && (await page.textContent('#btn-board')) === 'Send one', 'Send one is offered');
+  await page.click('#btn-board');
+  await page.waitForFunction(() => /Landed/.test(document.querySelector('#board-status')?.textContent || ''), null, { timeout: 15000 });
+  const txs = await page.evaluate(() => window.__txs);
+  const j = jobs[1];
+  const expected = execFileSync('cast', ['calldata', 'settle(bytes,bytes,bytes[])', j.publicValues, j.proof, `[${j.memos.join(',')}]`]).toString().trim();
+  ok(txs.length === 1 && txs[0].to.toLowerCase() === POOL.toLowerCase() && txs[0].from.toLowerCase() === WALLET, 'one transaction, from the wallet to the pool');
+  ok(txs[0].data.toLowerCase() === expected.toLowerCase(), 'its data is settle(publicValues, proof, memos) of the job paying the most, byte for byte');
+  ok(BigInt(txs[0].gas) === (524288n * 125n) / 100n, 'with gas from the node’s estimate plus a quarter', txs[0].gas);
+  ok(calls.some((c) => c.m === 'eth_call' && c.params[0].from && c.params[0].data.startsWith('0x717fd7f2')), 'it ran the settle against the pool first');
+  ok(landed.length === 1 && landed[0].jobId === j.jobId && landed[0].txHash === '0x' + 'ee'.repeat(32), 'and told the API it landed');
+  ok(/0\.0020 ETH went to 0x1c0a…5a20/.test(await page.textContent('#board-status')), 'the status says what the wallet was paid', (await page.textContent('#board-status')).trim());
+  await browser.close();
+}
+if (want.includes('boardno')) {
+  console.log('== boardno');
+  const { browser, page, landed } = await run('boardno', { proof: null, jobs: [boardJob('3', 200000)], boardRevert: true });
+  await page.click('#btn-board');
+  await page.waitForSelector('.toast.bad', { timeout: 15000 });
+  ok(/another wallet most likely sent it first/.test(await page.textContent('.toast.bad')), 'the refusal reads in words');
+  ok((await page.evaluate(() => window.__txs)).length === 0 && landed.length === 0, 'and nothing was sent');
+  await page.waitForFunction(() => document.querySelector('#btn-board')?.textContent === 'Nothing to send', null, { timeout: 5000 }).catch(() => {});
+  ok(await page.isDisabled('#btn-board') && (await page.textContent('#btn-board')) === 'Nothing to send', 'the refused job is not offered again');
+  await browser.close();
+  const empty = await run('boardno-empty', { proof: null, jobs: [] });
+  ok(/Nothing waiting/.test(await empty.page.textContent('#board-box')) && await empty.page.isDisabled('#btn-board'), 'an empty board says so');
+  await empty.browser.close();
 }
 server.close();
 console.log(failed ? `${failed} failed` : 'all passed');
