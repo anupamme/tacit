@@ -3745,7 +3745,12 @@ async function handleProofPool(req, env, url, cors) {
   try { b = await req.json(); } catch { b = null; }
   if (!b || typeof b !== 'object' || Array.isArray(b)) return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore);
   if (p === '/prover/pool/request') return send(await pool.request({ type: b.type, stdin: b.stdin, expect: b.expect, client }));
-  if (p === '/prover/pool/lease') return send(await pool.lease({ miner: b.miner, client }));
+  if (p === '/prover/pool/lease') {
+    // A board worker's token makes the lease Tacit's own (no points, only jobs that have waited: see proof-pool.js lease).
+    const auth = req.headers.get('Authorization'), house = auth ? workerOf(auth, env.PROVER_WORKER_TOKENS) : null;
+    if (auth && !house) return jsonResponse({ ok: false, error: 'unknown worker token' }, 401, nostore);
+    return send(await pool.lease({ miner: b.miner, client: house ? `house:${house.name}` : client, minAgeMs: Number(b.minAgeMs) || 0, house: house?.name || null }));
+  }
   // Each submit asks Ethereum: a few a minute from one place.
   const rl = await proveRateLimit(env, ip, 'pool-submit', 6, 20000);
   if (!rl.ok) return jsonResponse({ ok: false, code: 'rate', error: `too many submits — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...nostore, 'Retry-After': String(rl.retryAfter) });

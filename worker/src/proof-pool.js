@@ -263,11 +263,14 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
   }
 
   // A miner takes the oldest job its client has not had before, and holds it for the lease: one open lease per address on a client,
-  // and a few on a client in all.
+  // and a few on a client in all. `minAgeMs`: only a job that has waited at least that long. `house`: one of Tacit's own provers (a
+  // board worker, by its token), which takes what has waited and earns nothing: its proofs are kept for the pages but never enter
+  // the day's tally, so the miners' share is never paid to Tacit.
   // `points`: what the proof would earn if it passed now (0 once the address has its proofs for the day: the work is still welcome).
-  async function lease({ miner, client = 'anon' } = {}) {
-    if (typeof miner !== 'string' || !ADDR.test(miner)) return reply(400, { ok: false, code: 'bad_miner', error: 'miner must be the 0x address the points go to' });
-    const m = miner.toLowerCase();
+  async function lease({ miner, client = 'anon', minAgeMs = 0, house = null } = {}) {
+    if (!house && (typeof miner !== 'string' || !ADDR.test(miner))) return reply(400, { ok: false, code: 'bad_miner', error: 'miner must be the 0x address the points go to' });
+    const m = house ? `house:${house}` : miner.toLowerCase();
+    const minAge = Number.isSafeInteger(minAgeMs) && minAgeMs > 0 ? minAgeMs : 0;
     return exclusive(async () => {
       const t = clock();
       const q = await read(K.queue, []), L = await read(K.leases, {});
@@ -283,15 +286,16 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
       if (held.length >= cfg.leasesPerClient) { await save(); return reply(429, { ok: false, code: 'lease_open', error: `at most ${cfg.leasesPerClient} leases from one place at a time` }); }
       for (let i = 0; i < q.length;) {
         const e = q[i];
+        if (minAge && t - e.at < minAge) break;              // oldest first: the rest are younger still
         if ((e.skip || []).includes(client)) { i++; continue; }
         q.splice(i, 1);
         changed = true;
         const job = await read(K.job(e.id), null);
         if (!job || job.status !== 'open') continue;          // gone from under its place: dropped
-        const l = { lease: token(), until: t + cfg.leaseMs, miner: m, client, at: e.at, tries: e.tries || 0, skip: e.skip || [] };
+        const l = { lease: token(), until: t + cfg.leaseMs, miner: m, client, at: e.at, tries: e.tries || 0, skip: e.skip || [], ...(house ? { house: true } : {}) };
         L[e.id] = l;
         await save();
-        return reply(200, { ok: true, id: e.id, type: job.type, stdin: job.stdin, lease: l.lease, leaseMs: cfg.leaseMs, points: earns(rec, m) });
+        return reply(200, { ok: true, id: e.id, type: job.type, stdin: job.stdin, lease: l.lease, leaseMs: cfg.leaseMs, points: house ? 0 : earns(rec, m) });
       }
       await save();
       return reply(204, null);
@@ -360,9 +364,11 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
       // Kept for the page without its input, which nobody needs any more.
       await write(K.job(id), { id, type: job.type, expect: job.expect, status: 'done', postedAt: job.postedAt, doneAt: t, miner: l.miner,
         publicValues: publicValues.toLowerCase(), proof: proof.toLowerCase() }, Math.ceil(cfg.keepMs / 1000));
-      const d = dayOf(t), rec = await dayRec(d), mr = minerIn(rec, l.miner);
-      const points = earns(rec, l.miner);
-      mr.proofs++; rec.done++;
+      const d = dayOf(t), rec = await dayRec(d);
+      rec.done++;
+      if (l.house) { rec.house = (rec.house || 0) + 1; await write(K.day(d), rec, cfg.daySecs); return reply(200, { ok: true, points: 0 }); }
+      const mr = minerIn(rec, l.miner), points = earns(rec, l.miner);
+      mr.proofs++;
       if (points > 0) { mr.credited++; mr.points += points; rec.points += points; }
       await write(K.day(d), rec, cfg.daySecs);
       return reply(200, { ok: true, points });

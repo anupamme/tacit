@@ -271,6 +271,26 @@ test('a miner hands back a job it cannot prove: it goes back for someone else, c
   assert.equal(h.calls, 0);
 });
 
+test('house: a job younger than minAgeMs is left for the miners; Tacit\'s own prover takes what has waited, and its proof is kept but earns nothing and is in no tally', async () => {
+  const h = harness();
+  const a = wrapJob(0), b = wrapJob(1);
+  await h.pool.request({ type: 'wrap', stdin: a.stdin, expect: a.expect, client: 'page' });
+  h.t += 10 * 60_000;
+  await h.pool.request({ type: 'wrap', stdin: b.stdin, expect: b.expect, client: 'page' });
+  assert.equal((await h.pool.lease({ client: 'house:a5000', house: 'a5000', minAgeMs: 15 * 60_000 })).status, 204, 'nothing has waited 15 minutes');
+  h.t += 5 * 60_000;
+  let l = (await h.pool.lease({ client: 'house:a5000', house: 'a5000', minAgeMs: 15 * 60_000 })).body;
+  assert.deepEqual([l.id, l.points], [a.id, 0], 'the job that has waited 15 minutes, for no points');
+  assert.equal((await h.pool.lease({ client: 'm1', miner: MINER, minAgeMs: 15 * 60_000 })).status, 204, 'the younger one is not old enough for anyone asking for age');
+  assert.equal((await h.pool.lease({ client: 'm1', miner: MINER })).body.id, b.id, 'a miner takes it at once');
+  assert.deepEqual((await h.pool.submit({ id: a.id, lease: l.lease, publicValues: pvFor(a.expect), proof: PROOF })).body, { ok: true, points: 0 });
+  assert.equal((await h.pool.results([a.id])).body.results[a.id].status, 'done', 'kept for the page');
+  const day = JSON.parse(h.store.m.get(`pp:day:${DAY0}`));
+  assert.deepEqual([day.done, day.house, day.points, Object.keys(day.miners)], [1, 1, 0, []]);
+  assert.deepEqual((await h.pool.credits(DAY0)).body.miners, [], 'no house row for the campaign to pay');
+  assert.equal((await h.pool.stats()).body.minersToday, 0);
+});
+
 test('routes: open to any origin; a page requests, a miner leases and submits (the verifier asked over eth_call), the page reads the proof', async () => {
   const env = { REGISTRY_KV: kv() };
   const seen = [];
@@ -298,6 +318,13 @@ test('routes: open to any origin; a page requests, a miner leases and submits (t
     assert.equal(r.status, 204); assert.equal(r.headers.get('access-control-allow-origin'), '*');
     r = await call('/prover/pool/submit', post({ id: a.id, lease: l.lease, publicValues: pvFor(a.expect), proof: PROOF }), '198.51.100.9');
     assert.deepEqual(await r.json(), { ok: true, points: 20 });
+    // A board worker's token leases as Tacit's own prover; any other token is refused.
+    const tok = 'w'.repeat(24);
+    env.PROVER_WORKER_TOKENS = `a5000:${tok}`;
+    r = await call('/prover/pool/lease', { ...post({ minAgeMs: 0 }), headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + 'x'.repeat(24) } });
+    assert.equal(r.status, 401);
+    r = await call('/prover/pool/lease', { ...post({ minAgeMs: 0 }), headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 204, 'a house lease with nothing queued');
     const asked = seen.find((s) => s.call && s.call.to === '0xb69f2584CBcFf99a58C4e7002E8b89Af54a6f4e2');
     assert.ok(asked, 'the pool\'s SP1 verifier was asked');
     assert.equal(asked.call.data, verifyCalldata({ vkey: '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3', publicValues: pvFor(a.expect), proof: PROOF }));
