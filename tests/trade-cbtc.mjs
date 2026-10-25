@@ -209,7 +209,7 @@ try {
   // ── the page on its own: what backs cBTC, the pools, the farms ──
   r = await openPage({ width: 1280, height: 1000 });
   p = r.page;
-  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line') && /0\.108213/.test(document.querySelector('#px-sub').textContent));
+  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#lanes .lane').length === 3 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line') && /0\.108213/.test(document.querySelector('#px-sub').textContent));
   ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
   const sub = await text(p, '#px-sub');
   ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.108213 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
@@ -224,16 +224,14 @@ try {
   const liveBond = 20 * 0.24, bondUsd = liveBond * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);
   ok(rows[1].h.includes(`${cover}% of locked BTC`) && /4\.8 wstETH/.test(rows[1].s) && /20 bonds/.test(rows[1].s) && rows[1].tick, `the bond of the LIVE locks covers them ${cover}% with the 1.5× line marked, a spent lock's bond left out (${rows[1].h})`);
   ok(/0\.108213 of 0\.113908/.test(rows[2].h) && /19 of 20 live locks minted/.test(rows[2].s) && /0\.00019 BTC/.test(rows[2].s), `what is minted of the live locks only (19 of 20), and the public tacBTC (${rows[2].h} · ${rows[2].s.slice(0, 80)})`);
-  ok(/4,444 out/.test(rows[3].h) && /13 open loans/.test(rows[3].s) && /4,486 borrowed, 41\.89 repaid, 0 liquidated/.test(rows[3].s) && /150% collateral and are liquidated below 130%/.test(rows[3].s), `the loans, with the engine's own lines (${rows[3].s.slice(0, 120)})`);
-  const pools = await p.$$eval('#pl-table tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  const perTeth = 730828 / 63593972, tethPerCbtc = 63593972 / 730828, usdCbtc = tethPerCbtc * ETH_USD;
-  ok(/cBTC \/ tETH/.test(pools[0]) && pools[0].includes(`$${Math.round(usdCbtc).toLocaleString('en-US')}`) && /\+1\d\d%/.test(pools[0]) && /222 TAC a day/.test(pools[0]) && /\d+%/.test(pools[0]), `the tETH pool: cBTC's price in it from its reserves, how far that is from bitcoin's, and its farm (${pools[0].slice(0, 130)})`);
-  ok(/cBTC \/ TAC/.test(pools[1]) && /dust/.test(pools[1]) && /not farmed/.test(pools[1]) && !/\$\d/.test(pools[1].split('0.3% fee')[1].split('cBTC costs')[0] || ''), `the TAC pool has next to nothing in it, and is not priced (${pools[1].slice(0, 120)})`);
+  ok(/4,444 out/.test(rows[3].h) && /13 open loans/.test(rows[3].s) && /4,486 borrowed · 41\.89 repaid · 0 liquidated/.test(rows[3].s) && /150% to borrow, liquidated under 130%/.test(rows[3].s), `the loans, with the engine's own lines (${rows[3].s.slice(0, 120)})`);
+  const tethPerCbtc = 63593972 / 730828, usdCbtc = tethPerCbtc * ETH_USD;
+  ok(!(await p.$('#pl-table')), 'no pools table: the farms list the pools, and the dropdown prices them');
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /cBTC in the tETH pool/.test(lanes[1]) && /1 cBTC = [\d.]+ tETH/.test(lanes[1]) && /above BTC · \$[\d.,]+k? deep/.test(lanes[1]) && /too small to price/.test(lanes[2]), `the dropdown: bitcoin's price, the tETH pool, and the dust pool unpriced (${lanes.length})`);
+  ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /cBTC in the tETH pool/.test(lanes[1]) && lanes[1].includes(`$${Math.round(usdCbtc).toLocaleString('en-US')}`) && /1 cBTC = [\d.]+ tETH/.test(lanes[1]) && /1\d\d% above BTC · \$[\d.,]+k? deep/.test(lanes[1]) && /too small to price/.test(lanes[2]), `the dropdown: bitcoin's price, cBTC's price in the tETH pool from its reserves and how far that is from bitcoin's, and the dust pool unpriced (${lanes.join(' | ').slice(0, 200)})`);
   const sum = await text(p, '#hints-sum');
-  ok(/Bitcoin \$[\d,]+/.test(sum) && /cBTC in pools \$[\d,]+/.test(sum) && /1\d\d% off/.test(sum) && !/apart/.test(sum), `the line above the dropdown says what the second price is and that it is skewed (${sum})`);
-  ok(/sit far from BTC/.test(await text(p, '#gapnote')) && /vs BTC/.test(await text(p, '#pl-table thead')), 'and the note and the table name the skew');
+  ok(/Bitcoin \$[\d,]+/.test(sum) && /cBTC in pools \$[\d,]+/.test(sum) && /1\d\d% over BTC/.test(sum) && !/off|under|apart/.test(sum), `the line above the dropdown says what the second price is and which way it is skewed: the pool is over bitcoin (${sum})`);
+  ok(/sit far from BTC/.test(await text(p, '#gapnote')), 'and the note names the skew');
   if (process.env.SHOTS) { await p.click('#hints summary'); const bb = await p.evaluate(() => { const a = document.querySelector('#hints').getBoundingClientRect(), b = document.querySelector('.hints-pop').getBoundingClientRect(); const x = Math.max(0, Math.min(a.left, b.left) - 8), y = Math.max(0, a.top - 8); return { x, y, width: Math.max(a.right, b.right) + 8 - x, height: b.bottom + 8 - y }; }); await p.screenshot({ path: `${process.env.SHOTS}/cbtc-hints.png`, clip: bb }); await p.click('#hints summary'); }
   const farm = await p.$$eval('.pf', (a) => a.map((x) => ({ href: x.getAttribute('href'), t: x.textContent.replace(/\s+/g, ' ').trim() })));
   const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), depthUsd = 63593972 / 1e8 * ETH_USD + 730828 / 1e8 * BTC_USD, bonded = depthUsd * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
@@ -241,7 +239,7 @@ try {
   ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm's APR is a year of its TAC over what the farm holds of the pool, both sides at market (what the front page works out too): ${gotApr}% (${wantApr.toFixed(1)}%)`);
   ok(/\$2\.1k deep/.test(farm[0].t), `and its depth counts both sides at market, $${Math.round(depthUsd)}, not twice the tETH side (${farm[0].t.slice(-70)})`);
   ok(/222 TAC/.test(await text(p, '#fm-stats')), 'the farms\' rewards add up');
-  ok(/backed by BTC locked on Bitcoin/.test(await text(p, '#lk-lead')) && /20 live locks/.test(await text(p, '#lk-facts')) && /Sign in/.test(await text(p, '#lk-mine')), 'the locks panel says why there is no order book, counts the locks, and offers to show yours');
+  ok(await p.$eval('#locks', (s) => s.hidden) && /Sign in to see your cBTC, locks and loans/.test(await p.$eval('#held', (e) => e.textContent)), 'signed out there is no locks panel (the backing counts every lock), and the ticket offers to show yours');
   // the history: the locked bitcoin and the cUSD out, from the engine's events
   const kinds = await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent));
   ok(kinds.join() === 'BTC locked,cUSD out' && /past|all time/.test(await text(p, '#ch-read')), `the chart offers the locked bitcoin and the cUSD out (${kinds.join(' | ')})`);
@@ -287,7 +285,8 @@ try {
   chain.lockStates.set(op(3), { recorded: false, bonded: false, minted: false, sats: 200000n });
   const mineCfg = { positions: [{ pid: 2, shares: String(6810283 / 4), pendingTac: '1.5', unlockAt: 0 }], locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } };
   await cfg(p, mineCfg);
-  await p.click('#lk-signin');
+  await p.click('#mode-seg [data-mode="use"]');
+  await p.click('#signin');
   await p.waitForSelector('.bsheet.top [data-in="eth"]');
   await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => document.querySelectorAll('#lk-mine table tbody tr').length === 2, null, 30000);
@@ -314,11 +313,11 @@ try {
   ok(/0\.042/.test(await text(p, '#held')) && !/Reading/.test(await text(p, '#lk-mine')), 'a Bitcoin history that cannot be read says so, and the cBTC and loans still show');
   // the wallet that opened the key moves to another account: the key locks, as it does on every other page of the site; opening it again works
   await p.evaluate(() => window.__walletEmit('accountsChanged', ['0x' + '99'.repeat(20)]));
-  await until(p, () => /Sign in/.test(document.querySelector('#lk-mine').textContent), null, 10000);
+  await until(p, () => document.querySelector('#locks').hidden, null, 10000);
   u = await ux(p);
   ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')), `a wallet that moves to another account locks the key it opened (${u.forgot}; ${(await text(p, '#held')).slice(0, 60)})`);
   await cfg(p, { locksFail: false });
-  await p.click('#lk-signin');
+  await p.click('#signin');
   await p.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
   await p.click('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
   await until(p, () => document.querySelectorAll('#lk-mine table tbody tr').length === 2, null, 30000);
@@ -327,7 +326,7 @@ try {
   await p.click('#held-lock').catch(() => {});
   await until(p, () => !document.querySelector('#held-lock'), null, 5000).catch(() => {});
   u = await ux(p);
-  ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')) && /Sign in/.test(await text(p, '#lk-mine')), 'Lock drops the key and the pool module\'s copies of it');
+  ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')) && await p.$eval('#locks', (s) => s.hidden), 'Lock drops the key and the pool module\'s copies of it, and its locks with it');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error with a key (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   // ── the Borrow page's Bitcoin side: the same key's locks, loans and cBTC, read only when the holder asks ──
   await p.goto(`http://127.0.0.1:${WEB}/vault/#btc`);
@@ -414,10 +413,10 @@ try {
   // ── a phone, in the dark ──
   r = await openPage({ width: 390, height: 800 }, { scheme: 'dark' });
   p = r.page;
-  await until(p, () => document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelector('#cov .cov-row'));
+  await until(p, () => document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row'));
   ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'a phone has no sideways scroll');
-  const order = await p.evaluate(() => ['.p-ticket', '.p-chart', '.p-btc', '.p-farm', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top + scrollY)));
-  ok(order.every((v, i) => i === 0 || v > order[i - 1]), `the ticket first, then what backs it, the locks, the farms, the pools and about (${order.join(' ')})`);
+  const order = await p.evaluate(() => ['.p-ticket', '.p-chart', '.p-farm', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top + scrollY)));
+  ok(order.every((v, i) => i === 0 || v > order[i - 1]), `the ticket first, then what backs it, the farms and about (${order.join(' ')})`);
   await shot(p, 'cbtc-phone');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error on a phone in the dark (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   // cBTC's old address (/trade/cbtc/) is a stub that sends on, the query and the fragment with it, under its own CSP

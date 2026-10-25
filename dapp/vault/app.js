@@ -6,7 +6,7 @@ import {
 } from '/vault/chain.js?cb=2846737a';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=69eaea4d';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=91c83890';
-import { makePools } from '/vault/pools.js?cb=dbca784d';
+import { makePools } from '/vault/pools.js?cb=10b10a42';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 

@@ -26,7 +26,7 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/cbtc/app.js?cb=a3a816a8">
+<link rel="modulepreload" href="/cbtc/app.js?cb=a11164d6">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=deafdf6c">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
@@ -464,10 +464,11 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 @media (max-width: 400px) { .hints summary { min-height: 46px; } }       /* the line it becomes is two lines on a small phone */
 @media (max-width: 420px) { .hero .sub { min-height: 70px; } }           /* the price line is built in two steps: it keeps the room it has at the end */
 @media (min-width: 421px) and (max-width: 620px) { .hero .sub { min-height: 46px; } }
-/* tETH: the layout with the Bitcoin panel, the steps of a deposit, what to do with tETH, the farms that pair it */
-.grid { grid-template-areas: "chart side" "btc side" "depth side" "info side"; grid-template-rows: auto auto auto 1fr; }
+/* cBTC: the layout with the key's own locks (a row only once signed in), the steps of a lock, what to do with cBTC, the farms that pair it */
+.grid { grid-template-areas: "chart side" "btc side" "info side"; grid-template-rows: auto auto 1fr; }
+.grid:has(#locks[hidden]) { grid-template-areas: "chart side" "info side"; grid-template-rows: auto 1fr; }
 .p-btc { grid-area: btc; container-type: inline-size; }
-@media (max-width: 980px) { .grid { grid-template-areas: "ticket" "chart" "btc" "farm" "depth" "info"; grid-template-rows: none; } }
+@media (max-width: 980px) { .grid { grid-template-areas: "ticket" "chart" "btc" "farm" "info"; grid-template-rows: none; } .grid:has(#locks[hidden]) { grid-template-areas: "ticket" "chart" "farm" "info"; } }
 .p-btc .bar { margin-bottom: 10px; } .p-btc .eyebrow { margin: 0; }
 .mk-lead { margin: 0 0 14px; max-width: 64ch; font-size: 13px; color: var(--mute); } .mk-lead b { color: var(--ink); font-weight: 500; } .mk-lead:empty { display: none; }
 .ob.ghost { margin-top: 0; border-style: dashed; } .ob.ghost .ob-head { opacity: .7; } .ob.ghost .ob-empty { text-align: center; padding: 14px 12px; }
@@ -752,24 +753,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </section>
     </div>
 
-    <section class="panel p-btc" id="locks" aria-labelledby="b-h">
+    <section class="panel p-btc" id="locks" aria-labelledby="b-h" hidden>
       <div class="bar">
-        <h2 class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span>Locks on Bitcoin</h2>
-        <span class="mute" id="lk-sum"></span>
+        <h2 class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span>Your locks</h2>
       </div>
-      <p class="mk-lead" id="lk-lead"></p>
       <div id="lk-mine"></div>
-      <ul class="mk-facts" id="lk-facts"></ul>
-      <p class="note" id="lk-note"></p>
-    </section>
-
-    <section class="panel p-depth" aria-labelledby="d-h">
-      <div class="bar">
-        <h2 class="eyebrow" id="d-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Pools</h2>
-        <span class="mute" id="pl-sum"></span>
-      </div>
-      <table class="table" id="pl-table"><thead><tr><th>Pool</th><th class="r">Price</th><th class="r opt">vs BTC</th><th class="r opt">Depth</th><th class="r">Farm</th></tr></thead><tbody><tr><td colspan="5" class="mute">Reading the pools…</td></tr></tbody></table>
-      <p class="note" id="pl-note"></p>
     </section>
 
     <section class="panel p-info" aria-labelledby="i-h">
@@ -800,6 +788,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/cbtc/app.js?cb=a3a816a8"></script>
+<script type="module" src="/cbtc/app.js?cb=a11164d6"></script>
 </body>
 </html>

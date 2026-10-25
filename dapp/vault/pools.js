@@ -81,7 +81,9 @@ const callSeed = (m, to, plan, first) => {
 };
 
 export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthOf, symOf, connect, txLink, onChange }) {
-  const P = { by: {}, busy: false, key: null, sel: {}, side: 's', text: { s: '', q: '' }, shape: '', msg: '', reading: {}, failed: false, camp: null, campAt: 0, campFor: null };
+  // `add`: whether the add-liquidity form is open, null until the holder opens or closes it (until then a market not yet open, a holder's own
+  // liquidity or an amount typed opens it)
+  const P = { by: {}, busy: false, key: null, sel: {}, side: 's', text: { s: '', q: '' }, shape: '', msg: '', reading: {}, failed: false, camp: null, campAt: 0, campFor: null, add: null };
   const recipient = cfg?.recipient || ZERO, quotes = cfg?.quotes || {};
   const keys = [...new Set((cfg?.markets || []).map((k) => k.vault))];
   const quoteByAddr = (a) => Object.entries(quotes).map(([sym, q]) => ({ sym, ...q })).find((q) => (q.addr || ZERO).toLowerCase() === a.toLowerCase()) || null;
@@ -234,7 +236,8 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     if (!v || !st) { shapeSet(P.failed ? 'failed' : 'loading', `${head}<p class="empty">${P.failed ? 'Could not read the markets. Try again in a moment.' : 'Reading the markets…'}</p>${statusBox()}`); return; }
     const m = st.m, qs = m.quote.sym, open = seeded(st), l = list(key);
     const pick = l.length > 1 ? `<div class="seg pick2" id="pl-pick" role="group" aria-label="Which market">${l.map((x) => `<button type="button" data-m="${x.pool}" aria-pressed="${x.pool === st.pool}"${P.busy ? ' disabled' : ''}>${pair(key, x.m.quote.sym)}<span class="mk"><b>${esc(symOf(key))} / ${esc(x.m.quote.sym)}</b><small>${esc(`${tierText(x.m)}${tierText(x.m) ? ' · ' : ''}${feeText(x.m)}`)}</small></span></button>`).join('')}</div>` : '';
-    const shape = [key, st.pool, open, st.exists, !!st.acc, !!m.quote.addr, st.mine > 0n, l.map((x) => x.pool).join()].join();
+    const showAdd = P.add ?? (!open || st.mine > 0n || !!(P.text.s || P.text.q));
+    const shape = [key, st.pool, open, st.exists, !!st.acc, !!m.quote.addr, st.mine > 0n, l.map((x) => x.pool).join(), showAdd].join();
     if (P.shape !== shape) {
       shapeSet(shape, `${head}${pick}
         <div class="rows flat" id="pl-rows">${open
@@ -242,12 +245,14 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
           : '<div class="kv"><span>Opens at</span><b class="num" id="pl-px"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>'}
           </div>
         <div class="reward" id="pl-reward" hidden><p class="rwd-h">Earn TAC here</p><div class="kv" id="pl-kb" hidden><span>Opening bonus</span><b id="pl-bonus"></b></div><div class="kv" id="pl-ke" hidden><span>Daily rewards</span><b id="pl-earn"></b></div><div class="kv" id="pl-km" hidden><span>Earned so far</span><b class="num" id="pl-got"></b></div></div>
+        <details class="pl-add" id="pl-add"${showAdd ? ' open' : ''}><summary>Add liquidity</summary>
         <div class="lbl"><span>${esc(sym)}</span><button class="linkbtn" id="pl-bs" type="button"></button></div>
         <div class="amt"><input id="pl-s" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(sym)} to add"><span class="u">${ico(sym.toLowerCase())}${esc(sym)}</span></div>
         <div class="lbl"><span>${esc(qs)}</span><button class="linkbtn" id="pl-bq" type="button"></button></div>
         <div class="amt"><input id="pl-q" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(qs)} to add"><span class="u">${ico(qs.toLowerCase())}${esc(qs)}</span></div>
         <p class="hint" id="pl-hint"></p>
         <button class="btn" id="pl-go" type="button"></button>
+        </details>
         ${st.mine > 0n ? '<div class="chips" id="pl-rm" role="group" aria-label="Take liquidity out"><button type="button" data-rm="25">Take 25%</button><button type="button" data-rm="50">50%</button><button type="button" data-rm="100">All</button></div>' : ''}
         ${statusBox()}`);
       bit('#pl-s').value = P.text.s; bit('#pl-q').value = P.text.q;
@@ -377,6 +382,8 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     });
   }
 
+  // a details element's toggle does not bubble, so it is caught on the way down
+  el.addEventListener('toggle', (e) => { if (e.target.id === 'pl-add') P.add = e.target.open; }, true);
   el.addEventListener('input', (e) => {
     const id = e.target.id;
     if (id !== 'pl-s' && id !== 'pl-q') return;

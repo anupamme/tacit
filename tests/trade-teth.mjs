@@ -398,7 +398,7 @@ try {
   const mv = await p.$$eval('#moves tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(mv.length === 10 && /ETH (in|out)/.test(mv[0]) && /2 h ago/.test(mv[0]), `the newest ten movements, the newest first (${mv[0]})`);
   ok(/24h .* ETH moved · 7d .* ETH moved/.test(await text(p, '#mv-sum')), 'a line sums the day and the week');
-  ok((await text(p, '#about')).includes('is private ETH'), 'the about text says what tETH is');
+  ok((await text(p, '#about')).includes('earns privately, on either chain'), 'the about text says what tETH is');
   await p.evaluate(() => { document.querySelector('#hints').open = true; });                   // the lanes sit in a closed dropdown, whose text is not drawn
   const heads = await p.$$eval('#fm-h, #b-h, #i-h, #lanes .lane .k', (els) => els.map((e) => e.innerText));
   await p.evaluate(() => { document.querySelector('#hints').open = false; });
@@ -983,13 +983,12 @@ try {
   await until(p, () => document.querySelector('#btc-lead').textContent.length > 0 && document.querySelector('#px-usd').textContent.startsWith('$'));
   await shot(p, 'btc-idle');
   ok(/No tETH is listed on Bitcoin yet/.test(await text(p, '#btc-lead')) && /not listed yet/.test(await text(p, '#btc-sum')), 'with nothing on the Bitcoin book, the panel says so');
-  const ghost = await p.$eval('#btc-ladder', (e) => ({ ghost: !!e.querySelector('.ob.ghost'), mid: e.querySelector('.ob-spread')?.textContent.replace(/\s+/g, ' ').trim(), empties: [...e.querySelectorAll('.ob-empty')].map((x) => x.textContent) }));
   const refTxt = (ETH_USD / 83000 * 1e8 / 1e6).toFixed(2);
-  ok(ghost.ghost && ghost.empties.length === 2 && ghost.mid.includes(`≈ ${refTxt}M sats`) && /ETH’s price/.test(ghost.mid), `the book's own shape, empty, with ETH's price in sats where the last trade will be (${ghost.mid})`);
+  ok(!(await p.$('#btc-ladder .ob')) && (await p.$eval('#btc-ladder', (e) => e.innerHTML)) === '', 'no empty book is drawn while nothing is listed');
   ok(!(await p.$('#btc-actions button')) && !(await p.$('#btc-actions a')) && (await p.$eval('#btc-depth', (e) => e.hidden)), 'no way to trade is offered until there is something to trade');
   const facts = await text(p, '#btc-facts');
-  ok(/3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin (${facts})`);
-  ok(/change hands in the same transaction/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin/out', 'it says how a listing settles and where tETH comes from');
+  ok(facts.includes(`≈ ${refTxt}M sats`) && /ETH’s price/.test(facts) && /3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin: ETH's price in sats, its holders and transfers (${facts})`);
+  ok(/Bridge tETH to Bitcoin/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin/out', 'and where tETH on Bitcoin comes from');
   ok((await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH held', 'the chart offers no Bitcoin price while there is none');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   await r.browser.close();

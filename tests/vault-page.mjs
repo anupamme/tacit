@@ -979,6 +979,8 @@ try {
     await connect(bp);
     await until(bp, () => /Price/.test(document.querySelector('#pools')?.textContent || '') && !!document.querySelector('#pl-go'));
     ok(!/Opens at/.test(await panel(bp)), 'a market that is open shows no opening price');
+    ok(!(await bp.$eval('#pl-add', (d) => d.open)) && await bp.isVisible('#pl-add summary'), 'an open market folds its add-liquidity form under one line for someone with none in it');
+    await bp.click('#pl-add summary');
     await bp.click('#pl-bq'); await sleep(150);
     const maxQ = Number(await bp.inputValue('#pl-q')), maxS = Number(await bp.inputValue('#pl-s'));
     ok(maxQ > 0 && maxS > 0 && maxQ <= 50000 && maxS <= 50000 && Math.abs(maxQ - maxS) / maxQ < 0.01, `Max fills both boxes in proportion (${maxS} TACD, ${maxQ} USDC)`);

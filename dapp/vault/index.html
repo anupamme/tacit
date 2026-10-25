@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://tacit-points.onrender.com" crossorigin>
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=4e52725e">
+<link rel="modulepreload" href="/vault/app.js?cb=942e1eb4">
 <link rel="modulepreload" href="/vault/deployments.js?cb=4af96594">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=2846737a">
@@ -32,7 +32,7 @@
 <link rel="modulepreload" href="/vault/feed.js?cb=69eaea4d">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/vault/batch.js?cb=91c83890">
-<link rel="modulepreload" href="/vault/pools.js?cb=dbca784d">
+<link rel="modulepreload" href="/vault/pools.js?cb=10b10a42">
 <link rel="modulepreload" href="/vault/router.js?cb=21df6509">
 <link rel="modulepreload" href="/trade/connect.js?cb=5ca12f8f">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
@@ -122,6 +122,10 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .how summary { width: max-content; cursor: pointer; list-style: none; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .how summary::-webkit-details-marker { display: none; }
 .how summary::after { content: ' ↓'; } .how[open] summary::after { content: ' ↑'; }
+/* a market's add-liquidity form folds under one line until it is wanted */
+.pl-add > summary { width: max-content; margin: 14px 0 0; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.pl-add > summary::-webkit-details-marker { display: none; }
+.pl-add > summary::after { content: ' ↓'; } .pl-add[open] > summary::after { content: ' ↑'; }
 .how ol { margin: 10px 0 0; padding: 0 0 0 18px; display: grid; gap: 6px; color: var(--mute); }
 .how ol b { color: var(--ink); font-weight: 500; }
 .how p { margin: 8px 0 0; color: var(--mute); }
@@ -583,6 +587,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=4e52725e"></script>
+<script type="module" src="/vault/app.js?cb=942e1eb4"></script>
 </body>
 </html>
