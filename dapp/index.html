@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qIZ5HIcNMHNj/PHJtj60qaW4OENjIms0mJ7dpO2qHaE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-YCDsAguSWDKXBB5bRTfK7G/+t0HEt73i+d1YMVMN3Io=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1639,7 +1639,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=76b5fd7a","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=0489bbdd","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -3519,6 +3519,20 @@ async function protectSend(raw) {
   if (j.error || !/^0x[0-9a-f]{64}$/i.test(j.result || '')) throw new Error(j.error?.message || 'Flashbots Protect did not take it');
   return j.result;
 }
+// Protect tries a transaction for 25 blocks and drops it if it has not landed; until then its nonce is out of the public count, and only
+// then is it the account's again. The page cannot ask Protect (its status API and its signed nonce are closed to browsers), so the Tacit
+// account's last send through it is kept here, by its nonce and the block it was sent at.
+const PROTECT_BLOCKS = 25;
+const protectKey = (chainId, addr) => `tacit-protect:${chainId}:${String(addr).toLowerCase()}`;
+const protectGet = (chainId, addr) => { try { return JSON.parse(localStorage.getItem(protectKey(chainId, addr)) || 'null'); } catch { return null; } };
+const protectSet = (chainId, addr, v) => { try { if (v) localStorage.setItem(protectKey(chainId, addr), JSON.stringify(v)); else localStorage.removeItem(protectKey(chainId, addr)); } catch { } };
+// The zap's wait: a send Protect has dropped (past its blocks, in none of them) will never land
+async function protectGone(hash) {
+  const m = S.acct && protectGet(1, S.acct.address);
+  if (!m || m.hash !== hash) return false;
+  const head = Number(BigInt(await rpc('eth_blockNumber', [])));
+  return head > m.block + PROTECT_BLOCKS + 2 && !(await rpc('eth_getTransactionReceipt', [hash]).catch(() => true));
+}
 async function sendFromTacitNow({ to, data, value, chainId, sweep = false, protect = false }, a) {
   const call = await chainRpc(chainId);
   const where = chainId === 1 ? '' : ` on ${DEVICE_CHAINS.find((c) => c.chainId === chainId).name}`;
@@ -3534,16 +3548,26 @@ async function sendFromTacitNow({ to, data, value, chainId, sweep = false, prote
   const prio = !tip ? 10n ** 8n : tip < 15n * 10n ** 8n ? tip : 15n * 10n ** 8n, maxFee = BigInt(block.baseFeePerGas) * 2n + prio;
   if (sweep) { value = bal - gasLimit * maxFee; if (value <= 0n) throw short_(gasLimit * maxFee); }
   if (bal < value + gasLimit * maxFee) throw short_(value + gasLimit * maxFee);
-  const nk = `${chainId}:${a.address}`, last = NONCES.get(nk), n = last && Date.now() - last.at < 60e3 && last.next > nonce ? last.next : nonce;
+  const nk = `${chainId}:${a.address}`, last = NONCES.get(nk);
+  let n = last && Date.now() - last.at < 60e3 && last.next > nonce ? last.next : nonce;
+  // a send through Protect that the public count does not show yet: mined, the next nonce is after it; still out, nothing is sent around it
+  // (another at its nonce would race it, one after it would wait on a nonce Protect may drop); past its blocks unmined, its nonce is free
+  const pm = chainId === 1 ? protectGet(chainId, a.address) : null;
+  if (pm && BigInt(pm.nonce) >= nonce) {
+    if (await call('eth_getTransactionReceipt', [pm.hash]).catch(() => null)) { if (BigInt(pm.nonce) + 1n > n) n = BigInt(pm.nonce) + 1n; }
+    else if (Number(BigInt(block.number)) <= pm.block + PROTECT_BLOCKS + 2) throw new Error('A transaction from your Tacit account is still on its way privately: it lands within about five minutes, or not at all. Try again then.');
+  }
+  if (pm) protectSet(chainId, a.address, null);
   const { raw } = evmTx.signEip1559({ chainId: BigInt(chainId), nonce: n, maxPriorityFeePerGas: prio, maxFeePerGas: maxFee, gasLimit, to, value, data: tx.data }, a.priv);
   const h0 = '0x' + bytesToHex(keccak_256(hexToBytes(strip(raw))));
-  let h;
-  try { h = protect && chainId === 1 ? await protectSend(raw).catch(() => call('eth_sendRawTransaction', [raw])) : await call('eth_sendRawTransaction', [raw]); }
+  let h, viaProtect = false;
+  try { h = protect && chainId === 1 ? await protectSend(raw).then((x) => { viaProtect = true; return x; }, () => call('eth_sendRawTransaction', [raw])) : await call('eth_sendRawTransaction', [raw]); }
   catch (e) {
     if (!/already known|known transaction/i.test(e?.message || '') && !(await call('eth_getTransactionByHash', [h0]).catch(() => null))) throw e;
     h = h0;
   }
-  NONCES.set(nk, { next: n + 1n, at: Date.now() });
+  if (viaProtect) protectSet(chainId, a.address, { nonce: String(n), hash: h, block: Number(BigInt(block.number)) });
+  else NONCES.set(nk, { next: n + 1n, at: Date.now() });
   return h;
 }
 function permitFromTacit({ token, name, version, owner, spender, value, nonce, deadline }) {
@@ -3562,8 +3586,12 @@ async function permitSig({ token, name, spender, value, deadline, status, what }
   await ensureChain(1);
   return evm.signErc2612({ ...permit, provider: S.provider });
 }
-async function waitTx(hash, { timeoutMs = 10 * 60e3, chainId = 1 } = {}) {
-  const r = await Promise.race([receipt(hash, chainId), sleep(timeoutMs).then(() => null)]);
+// `gone`: asked every 15 s whether the transaction can no longer land (one Protect dropped), to say so then rather than at the timeout
+async function waitTx(hash, { timeoutMs = 10 * 60e3, chainId = 1, gone = null } = {}) {
+  let over = false;
+  const drop = gone ? (async () => { while (!over) { await sleep(15e3); if (!over && await gone().catch(() => false)) return 'gone'; } return null; })() : null;
+  const r = await Promise.race([receipt(hash, chainId), sleep(timeoutMs).then(() => null), ...(drop ? [drop] : [])]).finally(() => { over = true; });
+  if (r === 'gone') throw Object.assign(new Error('Flashbots Protect did not put it in a block in time, so it never went in and cost nothing. Press again for a fresh quote.'), { dropped: true });
   if (!r) throw Object.assign(new Error(`Still pending. Check the transaction on ${chainId === 1 ? 'Etherscan' : 'its explorer'}.`), { pending: true, hash, base: chainId === 1 ? SCAN : DEVICE_CHAINS.find((c) => c.chainId === chainId)?.explorer || SCAN });
   if (r.status !== '0x1') throw new Error('The transaction reverted.');
   return r;
@@ -4252,7 +4280,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=76b5fd7a'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=0489bbdd'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -9822,7 +9850,7 @@ const ZAPS_READ = new Map();
 function zapsRead() {
   const pub = S.key?.pubHex, at = `${pub}:${S.wallet || ''}`, pools = (FARM.program?.pools || []).map((p) => ({ pid: p.pid, poolId: p.poolId, token: ZAP_TOKEN[String(p.pair).split('/').find((x) => x !== 'cETH')] })).filter((p) => p.token);
   if (!pub || !pools.length || ZAPS_READ.has(at)) return;
-  ZAPS_READ.set(at, getUx().then((t) => t.shareDeposits(walletPriv(), { router: ADDR.confRouter, pools, accounts: [S.wallet], fromBlock: ZAP_FROM })).then((found) => {
+  ZAPS_READ.set(at, getUx().then((t) => t.shareDeposits(walletPriv(), { router: ADDR.confRouter, amm: ADDR.publicAmm, pools, accounts: [S.wallet], fromBlock: ZAP_FROM })).then((found) => {
     const had = new Set(zapsKept().map((z) => z.depositId)), fresh = found.filter((f) => !had.has(f.depositId));
     for (const f of fresh) zapKeep({ pub, pid: pools.find((p) => p.poolId === f.poolId)?.pid, poolId: f.poolId, shares: String(f.shares), index: f.index, depositId: f.depositId, tx: f.tx, at: Date.now() });
     if (fresh.length && S.key?.pubHex === pub && !running('farm')) rerender('farm');
@@ -9948,12 +9976,13 @@ function farmZap(el, p, status, has, top) {
       rec = { pub, pid, poolId: p.poolId, shares: String(plan.shares), index, depositId: built.depositId, tx: hash, deadline, at: Date.now() };
       zapKeep(rec);
       tell(html`Zap sent ${txLink(hash)}. Waiting for it to land…`);
-      await waitTx(hash); landed = true;
+      await waitTx(hash, { gone: () => protectGone(hash) }); landed = true;
       if ((await zapFinish(run, p, rec, built, tell, status)) === 'landing') throw Object.assign(new Error('Your zap landed, but the pool does not show it yet. Press Finish it in a minute to make its share private and farm it.'), { said: true });
       clearField(aIn);
     } catch (e) {
       if (built && !hash && t && (payer() === 'tacit' || walletDeclined(e))) t.releaseShareIndex({ walletPriv: priv, poolId: p.poolId, index: built.index });
-      if (hash && !landed && /reverted/.test(e?.message || '')) zapDone(built.depositId);          // nothing went in: nothing to finish
+      if (hash && !landed && (/reverted/.test(e?.message || '') || e?.dropped)) zapDone(built.depositId);   // nothing went in: nothing to finish
+      if (e?.dropped) t.releaseShareIndex({ walletPriv: priv, poolId: p.poolId, index: built.index });
       // once the share is a private note the zap's record is gone (and Finish it with it): the note waits under Your private farming
       if (landed && !e?.offered) e = Object.assign(new Error(rec?.settled ? `Your share is a private note: ${errText(e)} Farm it from Your private farming.` : `Your zap landed and its share is safe: ${errText(e)} Press Finish it to make it private and farm it.`), { said: true });
       run.fail(status, e);
@@ -9990,7 +10019,8 @@ async function zapShareFirst({ run, t, p, built, index, shares, maxEth, tokenB, 
     hash = runTx(run, await sendTx({ to: ADDR.confRouter, data, value: plan.value, label: run.to.label, protect: true }), 'Zap', 'Zapping');
     rec.tx = hash; zapKeep(rec);
     tell(html`Zap sent ${txLink(hash)}. Waiting for it to land, then its settle…`);
-    await waitTx(hash);
+    // one Protect drops never goes in: there is nothing to finish
+    await waitTx(hash, { gone: () => protectGone(hash) }).catch((e) => { if (e?.dropped) zapDone(rec.depositId); throw e; });
     await settleFrom(t, { label: run.to.label, say: tell })({ publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || built.memos });
   } else { rec.tx = hash; zapKeep(rec); await waitTx(hash); }
   await scanPrivate(true).catch(() => {});
@@ -10008,12 +10038,12 @@ async function zapFinish(run, p, rec, built, tell, status) {
   // 0: not in the pool (still landing, or never will be); 1: waiting for its note; 2: the note is made
   const st = held() ? 2n : await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(built.depositId).padStart(64, '0') }, 'latest']).then((r) => wordAt(r, 0)).catch(() => 1n);
   if (st === 0n) {
-    // past its deadline by the chain's clock (the device's may run ahead), an unmined zap can no longer land
+    // past its deadline by the chain's clock (the device's may run ahead), or dropped by Protect, an unmined zap can no longer land
     const r = await rpc('eth_getTransactionReceipt', [rec.tx]).catch(() => null);
-    const late = r == null && rec.deadline && await rpc('eth_getBlockByNumber', ['latest', false]).then((b) => Number(BigInt(b.timestamp)) > rec.deadline + 120, () => false);
+    const late = r == null && ((rec.deadline && await rpc('eth_getBlockByNumber', ['latest', false]).then((b) => Number(BigInt(b.timestamp)) > rec.deadline + 120, () => false)) || await protectGone(rec.tx).catch(() => false));
     if (r?.status !== '0x0' && !late) return 'landing';
     zapDone(rec.depositId);
-    tell('A zap did not go into the pool (it reverted, or was replaced), so only its network fee was spent.');
+    tell(r ? 'A zap did not go into the pool (it reverted), so only its network fee was spent.' : 'A zap did not go into the pool (it was never put in a block), so it cost nothing.');
     return 'gone';
   }
   if (st === 1n) {
@@ -12986,7 +13016,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=a7557b98').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=b16faf52').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

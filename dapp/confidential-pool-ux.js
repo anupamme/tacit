@@ -984,24 +984,20 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     if (taken && taken.delete(index) && !taken.size) _reservedWrapIndex.delete(key);
     try { if (parseInt(localStorage.getItem(key), 10) === index + 1) localStorage.setItem(key, String(index)); } catch { }
   }
-  // Zaps whose shielded shares no note has opened yet, found from the key and the chain alone: the router refunds part of the swap to the
-  // sender, so a Transfer from the router names each zap the key's accounts sent; its calldata (sent directly, or inside a contract wallet's
-  // call) holds the shares and the commitment, and the share-note index that makes that commitment is walked from the key.
+  // Zaps whose shielded shares no note has opened yet, found from the key and the chain alone, whoever paid: each zap's add pulls its token
+  // leg from the router into the public AMM (`amm`), and the router refunds the rest of the swap to the payer, so a Transfer from the router
+  // to the AMM (or to one of the key's accounts) names it. Its calldata (sent directly, or inside a contract wallet's call) holds the shares
+  // and the commitment, which give the deposit's id without the key; only a deposit still waiting is walked for the share-note index that
+  // makes its commitment.
   // → [{ poolId, shares, index, depositId, tx }] still pending.
-  async function shareDeposits(walletPriv, { router, pools = [], accounts = [], fromBlock } = {}) {
-    const id = identity(walletPriv), accts = [...new Set([account(walletPriv).address, ...accounts].filter(Boolean).map(lc))];
+  async function shareDeposits(walletPriv, { router, amm, pools = [], accounts = [], fromBlock } = {}) {
+    const id = identity(walletPriv), accts = [...new Set([account(walletPriv).address, ...accounts, amm].filter(Boolean).map(lc))];
     const tokens = [...new Set(pools.map((p) => lc(p.token)))];
     if (!router || !tokens.length) return [];
     const logs = await headBlock().then((to) => getLogsChunked({
       address: tokens, topics: [_topic('Transfer(address,address,uint256)'), _addrTopic(router), accts.map(_addrTopic)],
     }, Number(fromBlock ?? cfg.deployBlock ?? 0), to));
-    // each index's owner and blinding, derived once per share asset: a device with no hint walks 256 of them (a key that has made more share
-    // notes in one pool than that keeps its hint where it made them)
-    const found = [], keys = new Map(), keyAt = (asset, i) => {
-      const ks = keys.get(asset) || keys.set(asset, []).get(asset);
-      if (!ks[i]) { const { secret, blinding } = pool.deriveNote(id.priv, asset, i); ks[i] = { owner: pool.nkToOwner(secret), blind: '0x' + BigInt(blinding).toString(16).padStart(64, '0') }; }
-      return ks[i];
-    };
+    const zaps = [], seen = new Set();
     for (const hash of [...new Set(logs.map((l) => lc(l.transactionHash)))]) {
       // a transaction that could not be read fails the whole read (so it is tried again), not skipped as if it were not a zap
       const input = lc((await rpc('eth_getTransactionByHash', [hash]))?.input || '');
@@ -1011,17 +1007,31 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
         const p = pools.find((x) => lc(x.token) === token && (x.feeBps == null || Number(x.feeBps) === fee));
         if (!p || w(6).length < 64) continue;
         const shares = BigInt('0x' + w(4)), commit = '0x' + w(6), asset = lc(_lp.lpShareId(p.poolId));
-        for (let i = 0, top = Math.max(256, _wrapIndexHint(id.pubHex, asset) + 24); i < top; i++) {
-          const { owner, blind } = keyAt(asset, i), { cx, cy } = pool.commitXY(shares, blind);
-          if (lc(pool.depositCommit(cx, cy, owner)) !== commit) continue;
-          found.push({ poolId: p.poolId, shares, index: i, depositId: lc(pool.depositId(asset, shares, cx, cy, owner)), tx: hash });
-          break;
-        }
+        // the pool's id for it: keccak256(share asset, shares, commitment)
+        const depositId = '0x' + _hex(keccak256(Uint8Array.from([..._b32b(asset), ..._b32b(_word(shares)), ..._b32b(commit)])));
+        if (seen.has(depositId)) continue;
+        seen.add(depositId); zaps.push({ poolId: p.poolId, asset, shares, commit, depositId, tx: hash });
       }
     }
-    if (!found.length) return [];
-    const st = await _multicall(found.map((f) => ({ to: cfg.pool, data: '0x' + _selector('depositStatus(bytes32)') + _word(f.depositId) })));
-    return found.filter((f, i) => st[i] && st[i] !== '0x' && BigInt(st[i].slice(0, 66)) === 1n);
+    if (!zaps.length) return [];
+    const st = await _multicall(zaps.map((z) => ({ to: cfg.pool, data: '0x' + _selector('depositStatus(bytes32)') + _word(z.depositId) })));
+    // each index's owner and blinding, derived once per share asset: a device with no hint walks 256 of them (a key that has made more share
+    // notes in one pool than that keeps its hint where it made them)
+    const found = [], keys = new Map(), keyAt = (asset, i) => {
+      const ks = keys.get(asset) || keys.set(asset, []).get(asset);
+      if (!ks[i]) { const { secret, blinding } = pool.deriveNote(id.priv, asset, i); ks[i] = { owner: pool.nkToOwner(secret), blind: '0x' + BigInt(blinding).toString(16).padStart(64, '0') }; }
+      return ks[i];
+    };
+    for (const [n, z] of zaps.entries()) {
+      if (!st[n] || st[n] === '0x' || BigInt(st[n].slice(0, 66)) !== 1n) continue;
+      for (let i = 0, top = Math.max(256, _wrapIndexHint(id.pubHex, z.asset) + 24); i < top; i++) {
+        const { owner, blind } = keyAt(z.asset, i), { cx, cy } = pool.commitXY(z.shares, blind);
+        if (lc(pool.depositCommit(cx, cy, owner)) !== z.commit) continue;
+        found.push({ poolId: z.poolId, shares: z.shares, index: i, depositId: lc(pool.depositId(z.asset, z.shares, cx, cy, owner)), tx: z.tx });
+        break;
+      }
+    }
+    return found;
   }
   // Recovery from the key alone walks wrap indexes and stops after 24 in a row with no deposit, so an index reserved for a
   // deposit that was never sent (the wallet prompt was declined) is handed back, or enough cancelled tries would put a later

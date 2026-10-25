@@ -166,6 +166,9 @@ for (const p of POOLS) {
   const found = await fresh.shareDeposits(priv, { router: ROUTER, pools: POOLS.map((p) => ({ pid: p.pid, poolId: p.poolId, token: p.token })), accounts: [FROM], fromBlock: Number(head) - 10 });
   const match = (z) => found.find((f) => f.depositId === String(z.built.depositId).toLowerCase() && f.shares === z.plan.shares && f.index === z.index && f.tx === z.tx && f.poolId === z.p.poolId);
   ok(found.length === zaps.length && zaps.every(match), `a fresh module finds each pending zap from the key and the chain: ${found.map((f) => `${f.shares} shares at index ${f.index}`).join(', ')}`);
+  // whoever paid: with no account named, each zap's pull of its token leg from the router into the public AMM names it
+  const blind = await fresh.shareDeposits(priv, { router: ROUTER, amm: AMM, pools: POOLS.map((p) => ({ pid: p.pid, poolId: p.poolId, token: p.token })), fromBlock: Number(head) - 10 });
+  ok(blind.length === zaps.length && zaps.every((z) => blind.find((f) => f.depositId === String(z.built.depositId).toLowerCase() && f.index === z.index && f.tx === z.tx)), `and with no paying account named, the AMM's side finds each too (${blind.length} of ${zaps.length})`);
   const other = await fresh.shareDeposits(crypto.getRandomValues(new Uint8Array(32)), { router: ROUTER, pools: POOLS.map((p) => ({ pid: p.pid, poolId: p.poolId, token: p.token })), accounts: [FROM], fromBlock: Number(head) - 10 });
   ok(other.length === 0, 'another key sees the same transactions and finds none of them');
   ok(fresh.nextShareIndex({ walletPriv: priv, poolId: POOLS[0].poolId, used: found.filter((f) => f.poolId === POOLS[0].poolId).map((f) => f.index) }) !== zaps[0].index, 'and a zap from that fresh module takes another index than the pending one');

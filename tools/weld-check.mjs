@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -7440,6 +7440,69 @@ await step('farmzapeth', async () => {
 
 // A zap into tETH/TAC large enough to move the pool: its swap is split with the Precision pool when that keeps more of the deposit, the
 // quote says where, and the zap sent (on the fork) runs the trade venues' split through zRouter and still mints exactly the shares quoted.
+// A zap from the Tacit account goes through Flashbots Protect, which keeps it out of the public count until it lands and drops it if it has
+// not in 25 blocks. Here Protect takes the zap and never puts it in a block: a second tab on the same key is held back from sending around
+// it (its nonce would race it, or wait on one that may never land), the first says it was dropped once its blocks are past, and the next
+// zap takes the nonce it freed.
+await step('farmzapdrop', async () => {
+  const hex = '2a9f'.padEnd(64, '6'), stub = { notes: [], positions: [], zap: true };
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const held = [];
+  const r = await openFarmKey(hex, stub, { width: 1280, height: 900 }, (page) => page.route('https://rpc.flashbots.net/**', async (route) => {
+    let b = null; try { b = JSON.parse(route.request().postData() || '{}'); } catch { }
+    if (b?.method !== 'eth_sendRawTransaction') return route.fallback();
+    const raw = String(b.params[0]);
+    held.push(raw);
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jsonrpc: '2.0', id: b.id, result: '0x' + Buffer.from(keccak_256(Buffer.from(raw.slice(2), 'hex'))).toString('hex') }) });
+  }));
+  const p = r.page, n0 = BigInt(await rpc('eth_getTransactionCount', [acct, 'latest']));
+  const toZap = async (page) => {
+    await page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await page.click('[data-hxm="earn"]');
+    await page.fill('#hx-amt', '0.02');
+    await page.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
+    await page.click('#hx-routes [data-hxr="0"]');
+    await until(page, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
+    await page.click('#hx-go');
+    await page.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await until(page, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(page, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
+  };
+  let q = null;
+  try {
+    await toZap(p);
+    await p.click('#sz-go-0');
+    await until(p, () => /Waiting for it to land/.test(document.querySelector('#sf-status-0')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#sf-status-0')}`); });
+    const mark = await p.evaluate((a) => JSON.parse(localStorage.getItem(`tacit-protect:1:${a.toLowerCase()}`) || 'null'), acct);
+    ok(held.length === 1 && mark && BigInt(mark.nonce) === n0, `farmzapdrop: the zap went to Protect alone, and its nonce is kept (${mark ? `nonce ${mark.nonce}, block ${mark.block}` : 'none'})`);
+    // a second tab on the same key, while Protect holds the zap
+    q = await r.browser.contexts()[0].newPage();
+    await stubFarmUx(q, stub);
+    await q.goto(r.url + '#wallet');
+    await q.click('#wallet-body [data-in="paste"]'); await q.fill('#ws-hex', hex); await q.click('#wallet-body [data-in="key"]');
+    await until(q, () => !!document.querySelector('#wallet-dot.on'));
+    await toZap(q);
+    await q.click('#sz-go-0');
+    await until(q, () => /still on its way privately/.test(document.querySelector('#sf-status-0')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(q, '#sf-status-0')}`); });
+    ok(BigInt(await rpc('eth_getTransactionCount', [acct, 'pending'])) === n0, 'farmzapdrop: a second tab is held back from sending around it (nothing reached the chain)');
+    // its 25 blocks pass with the zap in none of them
+    await rpc('anvil_mine', ['0x1e']);
+    await until(p, () => /did not put it in a block in time/.test(document.querySelector('#sf-status-0')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#sf-status-0')}`); });
+    ok(await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-zaps-v1') || '[]')).length === 0), 'farmzapdrop: past its blocks, the first tab says Protect dropped it and keeps no zap to finish');
+    // the next zap takes the nonce it freed, and lands
+    await until(q, () => !document.querySelector('#sz-go-0').disabled, null, 240000);
+    await q.click('#sz-go-0');
+    // (its status still says why the first press was held back until this press says something else)
+    await until(q, () => !!window.__zapWrap || (/err/.test(document.querySelector('#sf-status-0')?.innerHTML || '') && !/still on its way privately/.test(document.querySelector('#sf-status-0').textContent)), null, 300000);
+    const w = await q.evaluate(() => window.__zapWrap), tx = w && await rpc('eth_getTransactionByHash', [w.depositTx]), rc = w && await rpc('eth_getTransactionReceipt', [w.depositTx]);
+    ok(rc?.status === '0x1' && BigInt(tx.nonce) === n0, `farmzapdrop: and the next zap takes the nonce it freed, and lands (${tx ? `nonce ${BigInt(tx.nonce)}` : await text(q, '#sf-status-0')})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmzapdrop page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('farmzapsplit', async () => {
   const POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00', CPOOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
   const poolsSel = Buffer.from(keccak_256('pools(bytes32)')).toString('hex').slice(0, 8);
