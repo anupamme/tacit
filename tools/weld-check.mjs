@@ -7302,9 +7302,15 @@ await step('farmzapeth', async () => {
   // the deposit is still pending on the fork (the settle above was the stub's): a fresh browser has no record of the zap, and finds it from the key
   const q = await openFarmKey(hex, { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
   try {
-    await go(q.page, '#farm/private-0');
+    // the tile's Earn tab says so first, and its link opens the farm with Finish it
+    await q.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await q.page.click('[data-hxm="earn"]');
+    await until(q.page, () => /Finish your zap into tETH \/ TAC/.test(document.querySelector('#hx-alt')?.textContent || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | alt: ${await text(q.page, '#hx-alt')} | q: ${await text(q.page, '#hx-q')}`); });
+    ok(/A zap of yours is waiting to be farmed/.test(await text(q.page, '#hx-q')), 'farmzapeth: a fresh browser with the same key finds the pending zap from the chain, and the Earn tab leads with finishing it');
+    await q.page.click('#hx-alt button');
     await q.page.waitForSelector('#farm-pid0 [data-zap-kept] #sz-finish-0', { timeout: 300000 });
-    ok(true, 'farmzapeth: a fresh browser with the same key finds the pending zap from the chain and offers to finish it');
+    ok(true, 'farmzapeth: and its link opens the farm offering Finish it');
     await q.page.click('#sz-finish-0');
     await until(q.page, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
     const w = await q.page.evaluate(() => window.__zapWrap);
