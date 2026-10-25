@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9vtdh8T27XthJ0+vs0dtro4Z8Dun6r/IJ9YeItGmE0g=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.0xbow.io https://api.routescan.io https://fastrelay.xyz https://v1.privacypools.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wIKgYOwjwYmyv8fq5a+fkGwOZlvyhEPr46jywREccwU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.0xbow.io https://api.routescan.io https://fastrelay.xyz https://v1.privacypools.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-points.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay · ETH</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH, proved on your device and recovered from your key.">
@@ -4114,7 +4114,21 @@ function tokPool(t) {
   st.poolP = Promise.all([tokenBalanceOf(t, t.pool), ethRead(t.pool, '0xfc7e9c6f').then(BigInt)])
     .then(([held, notes]) => { st.pool = { held, notes: Number(notes) }; }, () => {}).finally(() => { st.poolP = null; st.poolAt = Date.now(); paintPoolStat(); });
 }
-const tokPoolLine = (t) => { tokPool(t); const p = TK[t.key].pool; return p ? html`<div>The private ${t.sym} pool holds ${fmt(p.held, t.dec, 2)} ${t.sym} in ${p.notes.toLocaleString('en-US')} notes. Young: its first deposits have little company.</div>` : ''; };
+// What depositing into a token pool earns (the points service's token pools' campaign, /tokpool), read now and then: a line when it runs or is coming.
+const TPC = { v: null, at: 0, p: null };
+function tokEarnLine(t) {
+  if (!TPC.p && Date.now() - TPC.at > 10 * 60e3) {
+    TPC.p = fetch('https://tacit-points.onrender.com/tokpool', { signal: AbortSignal.timeout?.(20e3) }).then((r) => r.json()).then((v) => { TPC.v = v; }, () => {}).finally(() => { TPC.p = null; TPC.at = Date.now(); paintPoolStat(); });
+  }
+  const v = TPC.v;
+  if (!v?.enabled || !v.pools?.some((x) => x.pool === t.pool.toLowerCase())) return '';
+  const e = v.terms || (v.next && !v.next.off ? v.next : null);
+  if (!e) return '';
+  const cap = Number(e.capWeiPerUsd) / 1e18, part = Number(BigInt(e.dailyWei) / BigInt(v.pools.length)) / 1e18;
+  const from = v.terms ? '' : ` from ${new Date(e.fromDay * 864e5).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}`;
+  return html`<div>Deposits earn TAC${from}: up to ${cap} TAC a dollar, ${part.toLocaleString('en-US')} TAC a day shared in this pool.</div>`;
+}
+const tokPoolLine = (t) => { tokPool(t); const p = TK[t.key].pool; return p ? html`<div>The private ${t.sym} pool holds ${fmt(p.held, t.dec, 2)} ${t.sym} in ${p.notes.toLocaleString('en-US')} notes. Young: its first deposits have little company.</div>${tokEarnLine(t)}` : ''; };
 
 function paintAssets() {
   const el = $('#assets');
