@@ -172,3 +172,100 @@ kernel void grind(constant F *state [[buffer(0)]],
     uint sample = (uint)(top % 0x7f000001UL);
     if ((sample & ((1u << bits) - 1u)) == 0) atomic_fetch_min_explicit(found, w, memory_order_relaxed);
 }
+
+// ── KoalaBear: the core and recursion stages' commitments ──
+// Poseidon2 over KoalaBear (p = 2^31 - 2^24 + 1), width 16, x^3, 4 + 4 full rounds and 20 partial, on the values exactly as
+// p3-koala-bear stores them (Montgomery form, R = 2^32), so rows go in and digests come out with no conversion. The linear
+// layers are p3-poseidon2's: M4 on each four, then each column's sum added; inside, the diagonal by shifts as p3-koala-bear's
+// scalar DiffusionMatrixKoalaBear computes it.
+constant uint KP = 0x7f000001u;
+constant uint KMU = 0x81000001u;                  // p^-1 mod 2^32 (p3's convention: no negation)
+constant uint KSHIFT[15] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15};
+
+inline uint kred(ulong x) {                       // p3-koala-bear's monty_reduce, for x < p·2^32
+    ulong t = (x * (ulong)KMU) & 0xffffffffUL;
+    ulong u = t * (ulong)KP;
+    uint hi = (uint)((x - u) >> 32);
+    return x < u ? hi + KP : hi;
+}
+inline uint kmul(uint a, uint b) { return kred((ulong)a * b); }
+inline uint kadd(uint a, uint b) { uint s = a + b; return s >= KP ? s - KP : s; }
+
+inline void kext(thread uint *s) {
+    for (int i = 0; i < 16; i += 4) {
+        uint x0 = s[i], x1 = s[i + 1], x2 = s[i + 2], x3 = s[i + 3];
+        uint t01 = kadd(x0, x1), t23 = kadd(x2, x3), t0123 = kadd(t01, t23);
+        uint t01123 = kadd(t0123, x1), t01233 = kadd(t0123, x3);
+        s[i + 3] = kadd(t01233, kadd(x0, x0));
+        s[i + 1] = kadd(t01123, kadd(x2, x2));
+        s[i] = kadd(t01123, t01);
+        s[i + 2] = kadd(t01233, t23);
+    }
+    for (int k = 0; k < 4; k++) {
+        uint sum = kadd(kadd(s[k], s[k + 4]), kadd(s[k + 8], s[k + 12]));
+        s[k] = kadd(s[k], sum); s[k + 4] = kadd(s[k + 4], sum); s[k + 8] = kadd(s[k + 8], sum); s[k + 12] = kadd(s[k + 12], sum);
+    }
+}
+
+inline void kint(thread uint *s) {
+    ulong part = 0;
+    for (int i = 1; i < 16; i++) part += s[i];
+    ulong full = part + s[0];
+    s[0] = kred(part + (s[0] == 0 ? 0u : KP - s[0]));
+    for (int i = 1; i < 16; i++) s[i] = kred(full + ((ulong)s[i] << KSHIFT[i - 1]));
+}
+
+inline uint kcube(uint x) { return kmul(kmul(x, x), x); }
+
+inline void kpermute(thread uint *s, constant uint *ext, constant uint *intc) {
+    kext(s);
+    for (int r = 0; r < 4; r++) {
+        for (int i = 0; i < 16; i++) s[i] = kcube(kadd(s[i], ext[r * 16 + i]));
+        kext(s);
+    }
+    for (int r = 0; r < 20; r++) {
+        s[0] = kcube(kadd(s[0], intc[r]));
+        kint(s);
+    }
+    for (int r = 4; r < 8; r++) {
+        for (int i = 0; i < 16; i++) s[i] = kcube(kadd(s[i], ext[r * 16 + i]));
+        kext(s);
+    }
+}
+
+// One row per thread through PaddingFreeSponge<_, 16, 8, 8>: each 8 values overwrite the front of the state, then a permutation.
+kernel void kb_leaf(device const uint *rows [[buffer(0)]],
+                    device uint *out [[buffer(1)]],
+                    constant uint *ext [[buffer(2)]],
+                    constant uint *intc [[buffer(3)]],
+                    constant uint &width [[buffer(4)]],
+                    constant uint &n [[buffer(5)]],
+                    uint gid [[thread_position_in_grid]]) {
+    if (gid >= n) return;
+    device const uint *r = rows + (ulong)gid * width;
+    uint s[16];
+    for (int i = 0; i < 16; i++) s[i] = 0;
+    for (uint b = 0; b < width; b += 8) {
+        uint len = min(8u, width - b);
+        for (uint k = 0; k < len; k++) s[k] = r[b + k];
+        kpermute(s, ext, intc);
+    }
+    device uint *o = out + (ulong)gid * 8;
+    for (int i = 0; i < 8; i++) o[i] = s[i];
+}
+
+// One node per thread: TruncatedPermutation<_, 2, 8, 16> of its two children.
+kernel void kb_compress(device const uint *prev [[buffer(0)]],
+                        device uint *out [[buffer(1)]],
+                        constant uint *ext [[buffer(2)]],
+                        constant uint *intc [[buffer(3)]],
+                        constant uint &n [[buffer(4)]],
+                        uint gid [[thread_position_in_grid]]) {
+    if (gid >= n) return;
+    device const uint *p = prev + (ulong)gid * 16;
+    uint s[16];
+    for (int i = 0; i < 16; i++) s[i] = p[i];
+    kpermute(s, ext, intc);
+    device uint *o = out + (ulong)gid * 8;
+    for (int i = 0; i < 8; i++) o[i] = s[i];
+}

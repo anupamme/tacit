@@ -5,10 +5,12 @@
 //! permuted. [`hash_rows`] computes the same digests on the GPU, one row per thread. Each digest is the four little-endian
 //! u64 Montgomery limbs p3-bn254-fr stores for a `Bn254Fr`. [`compress_pairs`] computes the layer above a layer of such
 //! digests, each node `TruncatedPermutation<_, 2, 1, 3>` of its two children, and [`grind`] searches the outer challenger's
-//! proof-of-work nonces. Elsewhere than macOS, or with `TACIT_METAL=0`, the GPU is
+//! proof-of-work nonces; [`kb_hash_rows`] and [`kb_compress_pairs`] do the same work for the core and recursion stages'
+//! KoalaBear commitments. Elsewhere than macOS, or with `TACIT_METAL=0`, the GPU is
 //! reported unavailable and callers keep their CPU path.
 
 mod rc;
+mod rc_kb;
 
 use std::sync::OnceLock;
 
@@ -77,6 +79,44 @@ pub fn compress_pairs(prev: &[[u64; 4]], out: &mut [[u64; 4]]) -> bool {
     true
 }
 
+/// KoalaBear leaf hashing for the core and recursion stages' commitments (PaddingFreeSponge<Poseidon2 width 16, 16, 8, 8>):
+/// `out.len()` rows of `width` values in Montgomery form, as p3-koala-bear stores them, to eight-value digests in the same form.
+pub fn kb_hash_rows(rows: &[u32], width: usize, out: &mut [[u32; 8]]) -> bool {
+    let n = out.len();
+    if gpu().is_none() || width == 0 || rows.len() != n * width {
+        return n == 0;
+    }
+    let per = ((64usize << 20) / width / 4096).max(1) * 4096;
+    let mut start = 0;
+    while start < n {
+        let end = (start + per).min(n);
+        let rc = unsafe { tacit_kb_leaf_run(rows[start * width..end * width].as_ptr(), (end - start) as u32, width as u32, out[start..end].as_mut_ptr() as *mut u32) };
+        if rc != 0 {
+            return false;
+        }
+        start = end;
+    }
+    true
+}
+
+/// KoalaBear node compression (TruncatedPermutation<Poseidon2 width 16, 2, 8, 16>): each pair of `prev` into `out`.
+pub fn kb_compress_pairs(prev: &[[u32; 8]], out: &mut [[u32; 8]]) -> bool {
+    if gpu().is_none() || prev.len() != 2 * out.len() {
+        return false;
+    }
+    let per = 1usize << 22;
+    let mut start = 0;
+    while start < out.len() {
+        let end = (start + per).min(out.len());
+        let rc = unsafe { tacit_kb_compress_run(prev[2 * start..2 * end].as_ptr() as *const u32, (end - start) as u32, out[start..end].as_mut_ptr() as *mut u32) };
+        if rc != 0 {
+            return false;
+        }
+        start = end;
+    }
+    true
+}
+
 /// Proof-of-work for SP1's outer challenger: the least nonce under the KoalaBear prime that passes `bits` with the sponge in
 /// `state` (Bn254Fr Montgomery limbs) and `prefix` (the canonical KoalaBear values already buffered, at most 15). None when
 /// the GPU is unavailable or a dispatch fails; the caller checks the nonce with the challenger itself.
@@ -113,7 +153,9 @@ fn gpu() -> Option<&'static Gpu> {
 
 #[cfg(target_os = "macos")]
 extern "C" {
-    fn tacit_leafhash_init(msl: *const u8, ext: *const u64, intc: *const u64, name: *mut u8, name_len: usize) -> i32;
+    fn tacit_leafhash_init(msl: *const u8, ext: *const u64, intc: *const u64, kext: *const u32, kint: *const u32, name: *mut u8, name_len: usize) -> i32;
+    fn tacit_kb_leaf_run(rows: *const u32, n: u32, width: u32, out: *mut u32) -> i32;
+    fn tacit_kb_compress_run(prev: *const u32, n: u32, out: *mut u32) -> i32;
     fn tacit_leafhash_run(rows: *const u32, n: u32, width: u32, monty: u32, out: *mut u64) -> i32;
     fn tacit_compress_run(prev: *const u64, n: u32, out: *mut u64) -> i32;
     fn tacit_grind_run(state: *const u64, prefix: *const u32, plen: u32, bits: u32, start: u32, n: u32, found: *mut u32) -> i32;
@@ -126,6 +168,16 @@ unsafe fn tacit_leafhash_run(_: *const u32, _: u32, _: u32, _: u32, _: *mut u64)
 
 #[cfg(not(target_os = "macos"))]
 unsafe fn tacit_compress_run(_: *const u64, _: u32, _: *mut u64) -> i32 {
+    -1
+}
+
+#[cfg(not(target_os = "macos"))]
+unsafe fn tacit_kb_leaf_run(_: *const u32, _: u32, _: u32, _: *mut u32) -> i32 {
+    -1
+}
+
+#[cfg(not(target_os = "macos"))]
+unsafe fn tacit_kb_compress_run(_: *const u32, _: u32, _: *mut u32) -> i32 {
     -1
 }
 
@@ -151,10 +203,21 @@ fn init() -> Option<Gpu> {
             }
         }
     }
+    // KoalaBear constants in Montgomery form: x·2^32 mod p.
+    let kmonty = |x: u32| ((x as u64) << 32).rem_euclid(0x7f000001) as u32;
+    let mut kext = [0u32; 8 * 16];
+    let mut kint = [0u32; 20];
+    for (r, row) in rc_kb::RC16.iter().enumerate() {
+        match r {
+            0..=3 => (0..16).for_each(|i| kext[r * 16 + i] = kmonty(row[i])),
+            4..=23 => kint[r - 4] = kmonty(row[0]),
+            _ => (0..16).for_each(|i| kext[(r - 20) * 16 + i] = kmonty(row[i])),
+        }
+    }
     let msl = concat!(include_str!("leafhash.metal"), "\0");
     let mut name = [0u8; 128];
     let rc = unsafe {
-        tacit_leafhash_init(msl.as_ptr(), ext.as_ptr() as *const u64, int.as_ptr() as *const u64, name.as_mut_ptr(), name.len())
+        tacit_leafhash_init(msl.as_ptr(), ext.as_ptr() as *const u64, int.as_ptr() as *const u64, kext.as_ptr(), kint.as_ptr(), name.as_mut_ptr(), name.len())
     };
     if rc != 0 {
         return None;

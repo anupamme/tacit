@@ -4594,6 +4594,8 @@ dependencies = [
  "slop-symmetric",
  "sp1-sdk",
  "tacit-leafhash",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

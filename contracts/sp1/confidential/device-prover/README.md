@@ -9,6 +9,12 @@ It takes the ops whose proofs pin nothing that moves while it works: wraps (`wra
 `stealthrefund`). A proof that takes minutes is then as good as one that takes seconds. Swaps, pool joins and borrows pin the
 pool's price, so the page leaves those to Tacit's relay. The list is `DEVICE_TYPES` in `dapp/device-prover.js`.
 
+## Get it
+
+Download `tacit-prover-macos-arm64.tar.gz` or `tacit-prover-linux-x86_64.tar.gz` from the repository's tacit-prover releases and
+check it against the `.sha256` beside it (`shasum -a 256 -c`). The workflow that makes them is
+`.github/workflows/tacit-prover-release.yml`. Or build it:
+
 ## Build
 
 You need Rust (stable), Go 1.24 or newer (for the Groth16 step) and a C compiler. On macOS, Xcode's command line tools
@@ -25,12 +31,16 @@ guest's verifying key is not the pool's `PROGRAM_VKEY` (`0x006cd47f…d6e3`).
 ## Run
 
 ```sh
-./target/release/tacit-prover            # serve on 127.0.0.1:47815
+./target/release/tacit-prover install    # start at login and stay ready (launchd, or a systemd user unit on Linux)
+./target/release/tacit-prover uninstall  # stop that
+./target/release/tacit-prover            # serve on 127.0.0.1:47815, in this terminal
 ./target/release/tacit-prover check      # every faster path against the reference code, then exit
 ./target/release/tacit-prover prove f    # one proof of the bincode SP1Stdin in f, to f.proof.json
 ```
 
-Then, on tacit.finance, open **Prove** and switch on **Prove on this computer**. On the tETH page it is the prover sheet's
+Installed, it loads its keys once at login, so a page finds it ready, and it idles at no CPU. Then, on tacit.finance, open
+**Prove** and switch on **Prove on this computer**. There you can also keep wraps of a few sizes ready: they are proved while
+the prover is idle and sent at once when you make that much private. On the tETH page it is the prover sheet's
 **This computer** switch. Your browser asks once before the page reaches the local network.
 
 The first proof downloads SP1's Groth16 circuit, v6.1.0: 6.2 GB, 8.4 GB unpacked, to `~/.sp1/circuits`. Its verifying key
@@ -46,6 +56,7 @@ start loads in seconds.
 | `SP1_WORKER_NUM_*_WORKERS` | 1 per stage under 16 GB of RAM | the SDK's own concurrency settings |
 | `SP1_WORKER_VERIFY_INTERMEDIATES` | `false` | the final proof is verified before it is returned, which no wrong step survives |
 
+While it proves, `GET /job` says the stage (core, shrink, wrap, groth16) and an ETA from the last proof on this machine.
 The server listens on 127.0.0.1 only and answers a browser only from an allowed origin. It makes one proof at a time, and
 the rest wait in a queue. A job's id is the hash of its input, so a page reloaded mid-proof picks up the same job. Finished
 proofs are kept on disk, without their inputs.

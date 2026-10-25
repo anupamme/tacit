@@ -138,6 +138,9 @@ where
     if let Some(digests) = crate::gpu::first_digest_layer::<P, PW, H, M, DIGEST_ELEMS>(h, &tallest_matrices, max_height) {
         return digests;
     }
+    if let Some(digests) = crate::gpu::first_digest_layer_kb::<P, PW, H, M, DIGEST_ELEMS>(h, &tallest_matrices, max_height) {
+        return digests;
+    }
     let max_height_padded = max_height.next_power_of_two();
 
     let default_digest: [PW::Value; DIGEST_ELEMS] = [PW::Value::default(); DIGEST_ELEMS];
@@ -255,6 +258,9 @@ where
     if let Some(next) = crate::gpu::compress::<P, C, DIGEST_ELEMS>(prev_layer, c) {
         return next;
     }
+    if let Some(next) = crate::gpu::compress_kb::<P, C, DIGEST_ELEMS>(prev_layer, c) {
+        return next;
+    }
     let width = P::WIDTH;
     let next_len = prev_layer.len() / 2;
 
@@ -289,7 +295,7 @@ where
 
 /// Converts a packed array `[P; N]` into its underlying `P::WIDTH` scalar arrays.
 #[inline]
-fn unpack_array<P: PackedValue, const N: usize>(
+pub(crate) fn unpack_array<P: PackedValue, const N: usize>(
     packed_digest: [P; N],
 ) -> impl Iterator<Item = [P::Value; N]> {
     (0..P::WIDTH).map(move |j| packed_digest.map(|p| p.as_slice()[j]))

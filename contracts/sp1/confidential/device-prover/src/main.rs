@@ -2,9 +2,11 @@
 // stays warm (the recursion programs and the Groth16 key are loaded once), takes a program input the page built with
 // dapp/sp1-stdin.js, and returns the Groth16 proof the pool verifies. Listens on 127.0.0.1 only.
 //
-//   tacit-prover [serve]          GET /health, POST /prove {stdin}, GET /job?id=
+//   tacit-prover [serve]          GET /health, POST /prove {stdin}, GET /job?id= (its stage and an ETA while it proves)
 //   tacit-prover prove <stdin>    one proof to <stdin>.proof.json
-//   tacit-prover check            the GPU leaf hash against the CPU hasher, then exit
+//   tacit-prover check            every faster path against the code it replaces, then exit
+//   tacit-prover install          start at login and stay ready (launchd on macOS, a systemd user unit on Linux)
+//   tacit-prover uninstall        stop that
 //
 // Env: TACIT_PROVER_PORT (47815), TACIT_PROVER_ORIGINS (comma list, default tacit.finance + localhost:8080),
 // TACIT_PROVER_DIR (~/.tacit-prover: finished proofs), TACIT_METAL=0 (CPU leaf hashing), and the SDK's
@@ -45,8 +47,11 @@ fn main() {
     if cmd == "check" {
         std::process::exit(if check() { 0 } else { 1 });
     }
+    if cmd == "install" || cmd == "uninstall" {
+        std::process::exit(match service(cmd == "install") { Ok(m) => { println!("{m}"); 0 } Err(e) => { eprintln!("{e}"); 1 } });
+    }
     lean_workers();
-    sp1_sdk::utils::setup_logger();
+    logger();
     let t = Instant::now();
     let client = ProverClient::builder().cpu().build();
     let pk = client.setup(Elf::Static(ELF)).expect("setup failed");
@@ -108,6 +113,7 @@ fn read_stdin(raw: &[u8]) -> Option<SP1Stdin> {
 
 fn run(client: &sp1_sdk::blocking::CpuProver, pk: &sp1_sdk::SP1ProvingKey, stdin: SP1Stdin, job: &mut Job) {
     let t = Instant::now();
+    progress::start();
     // Execute first: an input the guest rejects fails in a second, not after the whole proof.
     match client.execute(Elf::Static(ELF), stdin.clone()).run() {
         Err(e) => {
@@ -122,6 +128,9 @@ fn run(client: &sp1_sdk::blocking::CpuProver, pk: &sp1_sdk::SP1ProvingKey, stdin
         Ok(proof)
     });
     job.secs = t.elapsed().as_secs_f64();
+    if res.is_ok() {
+        progress::finish(&store_dir());
+    }
     match res {
         Ok(p) => {
             job.status = "done";
@@ -148,7 +157,128 @@ fn job_json(j: &Job) -> serde_json::Value {
     if j.status == "failed" {
         o["error"] = j.error.clone().into();
     }
+    if j.status == "proving" {
+        if let Some((stage, eta)) = progress::now(&store_dir()) {
+            o["stage"] = stage.into();
+            if let Some(eta) = eta {
+                o["eta"] = eta.round().into();
+            }
+        }
+    }
     o
+}
+
+// Where the running proof is (core, shrink, wrap, groth16), from the SDK's own tracing spans, and how long the rest took on
+// this machine the last time: each finished proof's stage times are kept beside its proofs.
+mod progress {
+    use std::path::Path;
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    pub const STAGES: [&str; 4] = ["core", "shrink", "wrap", "groth16"];
+    static MARKS: Mutex<Vec<(&'static str, Instant)>> = Mutex::new(Vec::new());
+
+    pub fn start() {
+        *MARKS.lock().unwrap() = vec![("core", Instant::now())];
+    }
+    pub fn mark(stage: &'static str) {
+        let mut m = MARKS.lock().unwrap();
+        if !m.is_empty() && m.last().map(|x| x.0) != Some(stage) {
+            m.push((stage, Instant::now()));
+        }
+    }
+    fn last(dir: &Path) -> Option<serde_json::Value> {
+        serde_json::from_slice(&std::fs::read(dir.join("timing.json")).ok()?).ok()
+    }
+    pub fn now(dir: &Path) -> Option<(&'static str, Option<f64>)> {
+        let m = MARKS.lock().unwrap();
+        let (stage, since) = *m.last()?;
+        let eta = last(dir).map(|t| {
+            let at = STAGES.iter().position(|s| *s == stage).unwrap_or(0);
+            let of = |s: &str| t[s].as_f64().unwrap_or(0.0);
+            (of(stage) - since.elapsed().as_secs_f64()).max(0.0) + STAGES[at + 1..].iter().map(|s| of(s)).sum::<f64>()
+        });
+        Some((stage, eta))
+    }
+    pub fn finish(dir: &Path) {
+        let m = MARKS.lock().unwrap();
+        if m.len() != STAGES.len() {
+            return;
+        }
+        let end = Instant::now();
+        let mut t = serde_json::Map::new();
+        for (i, (stage, at)) in m.iter().enumerate() {
+            let next = m.get(i + 1).map_or(end, |x| x.1);
+            t.insert(stage.to_string(), (next - *at).as_secs_f64().round().into());
+        }
+        let _ = std::fs::create_dir_all(dir);
+        let _ = std::fs::write(dir.join("timing.json"), serde_json::Value::Object(t).to_string());
+    }
+
+    pub struct Stages;
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Stages {
+        fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, _: &tracing::span::Id, _: tracing_subscriber::layer::Context<'_, S>) {
+            match attrs.metadata().name() {
+                "prove shrink" => mark("shrink"),
+                "prove wrap" => mark("wrap"),
+                "prove groth16" => mark("groth16"),
+                _ => {}
+            }
+        }
+    }
+}
+
+// The SDK's flat logger (RUST_LOG, quiet by default, the GPU paths' notes shown), with the stage watcher beside it.
+fn logger() {
+    use tracing_subscriber::{filter::LevelFilter, fmt::format::FmtSpan, prelude::*, EnvFilter};
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,p3_merkle_tree=info,p3_challenger=info"));
+    let fmt = tracing_subscriber::fmt::layer().compact().with_target(false).with_span_events(FmtSpan::CLOSE).with_filter(env);
+    tracing_subscriber::registry().with(fmt).with(progress::Stages.with_filter(LevelFilter::INFO)).init();
+}
+
+// Starts the prover at login and keeps it running, so its keys stay loaded and a page finds it ready.
+fn service(on: bool) -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or("no HOME")?);
+    let sh = |cmd: &str, args: &[&str]| std::process::Command::new(cmd).args(args).status().map(|s| s.success()).unwrap_or(false);
+    let log = store_dir().join("daemon.log");
+    let _ = std::fs::create_dir_all(store_dir());
+    if cfg!(target_os = "macos") {
+        let uid = String::from_utf8(std::process::Command::new("id").arg("-u").output().map_err(|e| e.to_string())?.stdout).unwrap_or_default();
+        let domain = format!("gui/{}", uid.trim());
+        let plist = home.join("Library/LaunchAgents/finance.tacit.prover.plist");
+        sh("launchctl", &["bootout", &format!("{domain}/finance.tacit.prover")]);
+        if !on {
+            let _ = std::fs::remove_file(&plist);
+            return Ok("tacit-prover no longer starts at login".into());
+        }
+        let _ = std::fs::create_dir_all(plist.parent().unwrap());
+        std::fs::write(&plist, format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\"><dict><key>Label</key><string>finance.tacit.prover</string>\
+             <key>ProgramArguments</key><array><string>{}</string><string>serve</string></array>\
+             <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>\
+             <key>StandardOutPath</key><string>{}</string><key>StandardErrorPath</key><string>{}</string></dict></plist>\n",
+            exe.display(), log.display(), log.display())).map_err(|e| e.to_string())?;
+        if !sh("launchctl", &["bootstrap", &domain, &plist.to_string_lossy()]) {
+            return Err(format!("launchctl could not load {}", plist.display()));
+        }
+        Ok(format!("tacit-prover starts at login now and is starting ({}); its log is {}", plist.display(), log.display()))
+    } else {
+        let unit = home.join(".config/systemd/user/tacit-prover.service");
+        if !on {
+            sh("systemctl", &["--user", "disable", "--now", "tacit-prover"]);
+            let _ = std::fs::remove_file(&unit);
+            return Ok("tacit-prover no longer starts at login".into());
+        }
+        let _ = std::fs::create_dir_all(unit.parent().unwrap());
+        std::fs::write(&unit, format!("[Unit]\nDescription=tacit-prover\n\n[Service]\nExecStart={} serve\nRestart=always\n\n[Install]\nWantedBy=default.target\n", exe.display()))
+            .map_err(|e| e.to_string())?;
+        if !(sh("systemctl", &["--user", "daemon-reload"]) && sh("systemctl", &["--user", "enable", "--now", "tacit-prover"])) {
+            return Err(format!("systemctl could not start {}", unit.display()));
+        }
+        Ok(format!("tacit-prover starts at login now and is running ({})", unit.display()))
+    }
 }
 
 fn store_dir() -> PathBuf {
@@ -438,6 +568,41 @@ fn check_gpu() -> bool {
         let same = ran && gpu == cpu;
         ok &= same;
         println!("{n:6} nodes:       {}  CPU (one thread) {:.1} us/node, GPU ({dev}) {:.2} us/node",
+            if same { "equal" } else { "DIFFERENT" }, tc.as_secs_f64() * 1e6 / n as f64, tg.as_secs_f64() * 1e6 / n as f64);
+    }
+    // The core and recursion stages' trees: KoalaBear rows and nodes against slop's own sponge and compressor.
+    {
+        use slop_koala_bear::{my_kb_16_perm, KoalaBear, KoalaPerm};
+        use slop_symmetric::{PaddingFreeSponge, PseudoCompressionFunction, TruncatedPermutation};
+        let h = PaddingFreeSponge::<KoalaPerm, 16, 8, 8>::new(my_kb_16_perm());
+        let c = TruncatedPermutation::<KoalaPerm, 2, 8, 16>::new(my_kb_16_perm());
+        let raw = |v: &KoalaBear| unsafe { std::mem::transmute::<KoalaBear, u32>(*v) };
+        for (n, width) in [(4096usize, 1usize), (8192, 7), (8192, 8), (8192, 9), (16384, 16), (8192, 33), (4096, 136)] {
+            let rows: Vec<KoalaBear> = (0..n * width).map(|_| KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001))).collect();
+            let t = Instant::now();
+            let cpu: Vec<[u32; 8]> = rows.chunks(width).map(|r| h.hash_iter(r.iter().copied()).map(|x| raw(&x))).collect();
+            let tc = t.elapsed();
+            let words: Vec<u32> = rows.iter().map(raw).collect();
+            let mut gpu = vec![[0u32; 8]; n];
+            let t = Instant::now();
+            let same = tacit_leafhash::kb_hash_rows(&words, width, &mut gpu) && gpu == cpu;
+            let tg = t.elapsed();
+            ok &= same;
+            println!("KoalaBear {n:6} rows x {width:3}: {}  CPU (one thread) {:.2} us/row, GPU {:.3} us/row",
+                if same { "equal" } else { "DIFFERENT" }, tc.as_secs_f64() * 1e6 / n as f64, tg.as_secs_f64() * 1e6 / n as f64);
+        }
+        let n = 1 << 16;
+        let prev: Vec<[KoalaBear; 8]> = (0..2 * n).map(|_| core::array::from_fn(|_| KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001)))).collect();
+        let t = Instant::now();
+        let cpu: Vec<[u32; 8]> = prev.chunks(2).map(|p| c.compress([p[0], p[1]]).map(|x| raw(&x))).collect();
+        let tc = t.elapsed();
+        let words: Vec<[u32; 8]> = prev.iter().map(|d| d.map(|x| raw(&x))).collect();
+        let mut gpu = vec![[0u32; 8]; n];
+        let t = Instant::now();
+        let same = tacit_leafhash::kb_compress_pairs(&words, &mut gpu) && gpu == cpu;
+        let tg = t.elapsed();
+        ok &= same;
+        println!("KoalaBear {n:6} nodes:      {}  CPU (one thread) {:.2} us/node, GPU {:.3} us/node",
             if same { "equal" } else { "DIFFERENT" }, tc.as_secs_f64() * 1e6 / n as f64, tg.as_secs_f64() * 1e6 / n as f64);
     }
     ok

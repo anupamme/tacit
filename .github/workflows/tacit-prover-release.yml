@@ -1,0 +1,58 @@
+# Build tacit-prover (contracts/sp1/confidential/device-prover) for macOS on Apple silicon and Linux x86-64, and attach both, with
+# their SHA-256, to a DRAFT release: someone checks the draft and publishes it. The page's "Get tacit-prover" link points at the
+# published release, so nobody needs Rust or Go to prove on their own machine. The guest ELF is committed and pinned (build.rs),
+# and the prover refuses to start unless the guest's verifying key is the pool's.
+# Trigger manually (workflow_dispatch) with the release tag.
+name: tacit-prover-release
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (a draft release is made under it)'
+        default: 'tacit-prover-v0.1.0'
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-14, name: tacit-prover-macos-arm64 }
+          - { os: ubuntu-22.04, name: tacit-prover-linux-x86_64 }   # GLIBC 2.35, as the other prover builds
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build deps (protoc for sp1-prover-types)
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y protobuf-compiler; else brew install protobuf; fi
+      # The Groth16 FFI's go.mod asks for Go 1.24: the runner's Go fetches that toolchain itself (GOTOOLCHAIN=auto), checked
+      # against the Go checksum database.
+      - name: Build
+        working-directory: contracts/sp1/confidential/device-prover
+        run: cargo build --release --locked
+      - name: Package
+        working-directory: contracts/sp1/confidential/device-prover
+        run: |
+          mkdir -p dist && cp target/release/tacit-prover dist/
+          tar -C dist -czf "${{ matrix.name }}.tar.gz" tacit-prover
+          shasum -a 256 "${{ matrix.name }}.tar.gz" | tee "${{ matrix.name }}.tar.gz.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            contracts/sp1/confidential/device-prover/${{ matrix.name }}.tar.gz
+            contracts/sp1/confidential/device-prover/${{ matrix.name }}.tar.gz.sha256
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions: { contents: write }
+    steps:
+      - name: Fetch the builds
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --dir dist
+      - name: Draft release
+        env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ github.event.inputs.tag }}' }
+        run: |
+          gh release create "$TAG" --repo "${{ github.repository }}" --draft --target "${{ github.sha }}" \
+            --title "$TAG" --notes "tacit-prover: proves wraps, sends, withdrawals, stealth claims and farm joins for the live pool on your own machine. Check the SHA-256 before running it." \
+            dist/*/*.tar.gz dist/*/*.tar.gz.sha256
