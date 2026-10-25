@@ -168,15 +168,15 @@ main:focus { outline: none; }
 @media (hover: hover) { .pxs a.px:hover b { color: var(--ink); } .pxs a.px:hover .num { text-decoration: underline; text-underline-offset: 3px; } }
 /* The farms under the prices: a pair and its APR a chip, best first, each opening the tile's Earn tab on that pool's ETH zap. One line that
    scrolls sideways on a phone, and its height is kept while empty, so nothing moves when the farms are read. */
-.fms { display: flex; gap: 8px; height: 32px; margin: 0 0 8px; padding: 1px 0; overflow-x: auto; scrollbar-width: none; opacity: 0; transition: opacity .35s; }
+.fms { display: flex; gap: 6px; height: 26px; margin: 0 0 8px; padding: 1px 0; overflow-x: auto; scrollbar-width: none; opacity: 0; transition: opacity .35s; }
 .fms::-webkit-scrollbar { display: none; }
 .fms.on { opacity: 1; }
-.fms a { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 5px; color: var(--ink); text-decoration: none; white-space: nowrap; font-size: 12.5px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; transition: background .15s, border-color .15s; }
-.fms .pair .tk { width: 22px; height: 22px; }
-.fms .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
-.fms b { font-weight: 500; }
-.fms small { font: 500 10.5px var(--mono); letter-spacing: .08em; color: var(--mute); }
-@media (hover: hover) { .fms a:hover { background: var(--field); border-color: var(--ink); } .fms a:hover .pair .tk + .tk { box-shadow: 0 0 0 2px var(--field); } }
+.fms a { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px 0 3px; color: var(--mute); text-decoration: none; white-space: nowrap; font-size: 12px; line-height: 22px; border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
+.fms .pair .tk { width: 16px; height: 16px; }
+.fms .pair .tk + .tk { margin-left: -5px; box-shadow: 0 0 0 1.5px var(--paper); }
+.fms b { font-weight: 400; color: var(--ink); }
+.fms small { font: 500 10px var(--mono); letter-spacing: .08em; }
+@media (hover: hover) { .fms a:hover { border-color: var(--hair-2); } .fms a:hover small { color: var(--ink); } }
 .fms a:active { transform: scale(.98); }
 @media (max-width: 640px) { .fms { margin: 0 -16px 8px; padding: 1px 16px; scroll-padding: 0 16px; } }          /* runs to the screen's edge, so a chip cut off there reads as more to scroll to */
 .chip.act svg { width: 18px; height: 18px; flex: none; }

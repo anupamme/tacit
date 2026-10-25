@@ -8390,7 +8390,7 @@ await step('fmchips', async () => {
       ok(s.chips.length >= 2 && !!pub && pub.icons === '#tk-tac,#tk-eth' && s.chips.every((c) => c.apr > 0 && c.icons.split(',').length === 2), `fmchips (${name}): the public pool and the private pools, each a pair of marks and its APR (${s.chips.map((c) => `${c.hx.slice(11)} ${c.apr}%`).join(', ')})`);
       ok(s.chips.every((c, i) => i === 0 || s.chips[i - 1].apr >= c.apr), `fmchips (${name}): best APR first`);
       ok(s.chips.every((c) => c.hx === 'earn:ether:public' ? c.href === '#farm/public' : /^earn:ether:p\d+$/.test(c.hx) && c.href === `#farm/private-${c.hx.slice(12)}`), `fmchips (${name}): each keeps its farm's link for a new tab`);
-      ok(Math.abs(s.top - top0) < 1 && s.h >= 30 && !s.scroll, `fmchips (${name}): the row was already there, so the hero did not move (${Math.round(s.top - top0)}px), and the page does not scroll sideways`);
+      ok(Math.abs(s.top - top0) < 1 && s.h >= 24 && !s.scroll, `fmchips (${name}): the row was already there, so the hero did not move (${Math.round(s.top - top0)}px), and the page does not scroll sideways`);
       for (const c of [s.chips[0], pub]) {
         const key = c.hx === 'earn:ether:public' ? 'precision' : c.hx.slice(12);
         await p.click(`#fms a[data-hx="${c.hx}"]`);
