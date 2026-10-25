@@ -727,7 +727,7 @@ function paintSides() {
   gw.className = `where${inPriv || (pool && !S.to) ? ' priv' : ''}`; gw.textContent = inPriv || (pool && !S.to) ? (S.toTacit ? `to ${tacitName(S.toTacit)}` : 'to your private balance') : S.to && to ? `to ${who(to)}` : (out && !W.account) || laterOn(kindOf(S.pay, S.get)) ? 'to an address' : 'to your wallet';
   gw.disabled = false; gw.setAttribute('aria-expanded', String(S.toOpen)); gw.hidden = placed();
   $('#to').hidden = !S.toOpen || placed(); $('#to-in').setAttribute('aria-invalid', String(inPriv ? !!S.toTacitBad : !!S.toBad));
-  $('#to-in').placeholder = inPriv ? 'Send to a Tacit address: tacit1… or name.wei' : pool ? 'Your private balance, or tacit1…, name.wei or 0x…' : LATER.on || (out && !W.account) ? 'Address it goes to: 0x… or name.eth' : 'Send to another address: 0x… or name.eth';
+  $('#to-in').placeholder = inPriv ? 'Send to a Tacit address: tacit1… or name.wei' : pool ? 'Your private balance, or tacit1…, name.wei or 0x…' : LATER.on ? 'Address it goes to: a new 0x… or name.eth' : (out && !W.account) ? 'Address it goes to: 0x… or name.eth' : 'Send to another address: 0x… or name.eth';
   if (inPriv) {
     $('#to-note').textContent = S.toTacitBad || (S.toTacitBusy ? 'Looking it up…' : S.toTacit ? (S.toTacit.name ? `Sent to ${S.toTacit.name}: they claim it in their Tacit wallet` : 'They claim it in their Tacit wallet') : '');
     $('#to-note').className = S.toTacitBad ? 'err' : '';
@@ -833,6 +833,7 @@ function paintQuote() {
     if (r.pout) lines.push(['Chain sees', `${get.sym} to ${S.to ? who(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
     else if (r.pin) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} for ETH, then a deposit`]);
     else if (r.priv) lines.push(['Chain sees', isEth(S.pay) ? `your ${tidy(amtFmt(q.wei, 18))} ETH deposited` : 'a swap, not whose']);
+    else if (laterOn(kind)) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} going in, not where it goes`]);
     if (laterOn(kind)) {
       // through a token's own pool its relay is paid in that token; through the ETH pool, in ETH
       const hopFee = r.hop ? laterFee(q) : null, fee = r.hop ? hopFee : LATER.fee, fu = fee != null ? (r.hop ? usdOf(S.pay, fee) : usdOf(lc(R.ZERO), fee)) : null;
@@ -1240,9 +1241,9 @@ function paintLater(q, r, kind) {
   if (el.dataset.k !== k) {
     el.dataset.k = k;
     el.classList.toggle('on', LATER.on);
-    el.innerHTML = `<button type="button" class="tgl" id="later-on" role="switch" aria-checked="${LATER.on}" title="${esc(LATER_TIP)}"><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg><b>Swap privately</b><span class="pill" aria-hidden="true"></span></button>`
+    el.innerHTML = `<button type="button" class="tgl" id="later-on" role="switch" aria-checked="${LATER.on}" title="${esc(LATER_TIP)}"><svg class="tk sm" aria-hidden="true"><use href="#tk-peth"/></svg><span class="tg-t"><b>Swap privately</b>${LATER.on ? '' : '<small>hides where it goes</small>'}</span><span class="pill" aria-hidden="true"></span></button>`
       + (LATER.on ? (viaRow ? viaHtml(th) : '')
-        + `<div class="buf"><span>Buffer</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="Buffer added to the deposit, as a share of the swap"><b id="later-xv"></b></div>`
+        + `<div class="buf" title="Deposit more than you swap, so the deposit and the swap do not match. What is not swapped stays yours, private in the pool."><span>Hide amount</span><input type="range" id="later-x" min="5" max="100" step="5" value="${LATER.pct}" aria-label="How much more to deposit than you swap, so the two do not match; the extra stays yours, private"><b id="later-xv"></b></div>`
         + `<ol class="st pre" aria-label="How it goes"><li><i class="mk" aria-hidden="true">1</i><span>Deposit <b id="later-dep"></b></span></li><li><i class="mk" aria-hidden="true">2</i><span>Wait</span></li><li><i class="mk" aria-hidden="true">3</i><span>Swap</span></li>${laterPool() && laterDest().kind !== 'address' ? '<li><i class="mk" aria-hidden="true">4</i><span>Private</span></li>' : ''}</ol>` : '');
   }
   if (!LATER.on) return;
@@ -1869,7 +1870,9 @@ function arrows(box, attr) {
   });
 }
 
-const side = (s, label, name, o = {}) => `<span class="sides" role="radiogroup" aria-label="${label}" data-side="${s}"><button type="button" role="radio" data-p="0" aria-checked="true">Wallet</button><button type="button" role="radio" data-p="1" aria-checked="false"><i class="lock" aria-hidden="true"></i>${name}</button>${o.moves ? '<button type="button" role="radio" data-p="2" aria-checked="false"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span class="pl">Bitcoin</span></button>' : ''}</span>`;
+// each place says what it means where a pointer rests on it: the wallet is seen by anyone; Private is unseen (a private balance, or, for a token
+// that has none, a swap through the private pool to an address); Bitcoin is TAC and tETH held on Bitcoin
+const side = (s, label, name, o = {}) => `<span class="sides" role="radiogroup" aria-label="${label}" data-side="${s}"><button type="button" role="radio" data-p="0" aria-checked="true" title="Your wallet: seen by anyone">Wallet</button><button type="button" role="radio" data-p="1" aria-checked="false" title="${s === 'pay' ? 'Your private balance: no one sees how much or whose' : 'Private: into your private balance, or out to an address nothing links to you'}"><i class="lock" aria-hidden="true"></i>${name}</button>${o.moves ? '<button type="button" role="radio" data-p="2" aria-checked="false" title="On Bitcoin: TAC and tETH held at your Bitcoin address"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span class="pl">Bitcoin</span></button>' : ''}</span>`;
 const markup = (o) => `<p class="sr" id="sw-live" role="status" aria-live="polite"></p>
   ${o.lane === false ? '' : `<div class="mode" role="radiogroup" aria-label="Chain">
     <button type="button" role="radio" data-mode="wallet" aria-checked="true">Ethereum</button>
