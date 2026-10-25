@@ -83,17 +83,54 @@ no permission, and you pay only the network fee:
 
 1. **Send the headers.** `BitcoinLightRelay.advanceTip(headers)` takes Bitcoin's block headers and checks
    each one's proof of work, so only real blocks are accepted.
-2. **Make the proof.** Run the reflection prover
-   ([`worker-relay/src/reflection-folder.js`](../worker-relay/src/reflection-folder.js)) with your own
+2. **Make the proof.** Prove the batch the API holds open (below) with `bitcoin_prove` and your own
    account on Succinct's prover network. Everyone runs the same program on the same public inputs.
 3. **Submit it.** `attestBitcoinStateProven(publicValues, proof)` accepts any valid proof over the pool's
-   current state, from any wallet.
+   current state, from any wallet. Then `POST /reflection/landed`, and the API adopts the batch.
 
 [Community ops](https://tacit.finance/weld/keeper/) does the first and the last from your own wallet, and
 [`tools/community-runner.mjs`](../tools/community-runner.mjs) does them on a loop from your own machine
 ([COMMUNITY-OPS.md](./COMMUNITY-OPS.md)). To
 check the deployment itself, run [`tools/verify-live.mjs`](./VERIFY-LIVE.md) and rebuild the programs from
 source ([`REPRODUCIBLE-BUILDS.md`](./REPRODUCIBLE-BUILDS.md)).
+
+### The open batch
+
+The API (`https://api.tacit.finance`) holds open the batch it last assembled for Tacit's relay, byte for byte.
+A landed copy of it is a batch the API already knows, so Tacit's relay goes on from it. These routes are public
+and CORS-open.
+
+| route | |
+|---|---|
+| `GET /reflection/open?network=mainnet` | `{ pool, job: { jobId, priorDigest, attestedTo, from, blocks, modeB, ethContentHash, bytes, at } \| null }`. Worth proving while the pool's `attestedReflectionDigest()` equals `priorDigest`. |
+| `GET /reflection/open/job?network=mainnet&jobId=` | The batch (tens of MB); its `input` is the prover input. Three per caller, then one every five minutes. |
+| `GET /reflection/eth-state/proof?network=mainnet&contentHash=` | For a batch with `modeB: 1`, the Ethereum proof it verifies inside (`ethCompressedProofB64`). |
+| `POST /reflection/landed` | `{ network }` → `{ adopted, attestedTo }`. The API reads the pool's digest three blocks back from two endpoints and adopts only a batch it assembled. |
+| `GET /reflection/burndep-list?network=mainnet` | The burns whose provenance bundles are registered for the reflection to fold. |
+
+`bitcoin_prove` is the Linux x86-64 build in the `prover-bins` release that
+[`worker-relay/Dockerfile`](../worker-relay/Dockerfile) names, pinned in `worker-relay/prover/bin/SHA256SUMS`.
+Fund its account as in [`OPEN-RELAYER.md`](./OPEN-RELAYER.md#proving-with-your-own-prover-account).
+`REFLECT_GAS_LIMIT` caps the request; the network holds that cap's cost from the credit while it proves.
+
+```sh
+API=https://api.tacit.finance POOL=0x000000000Ed1eabD231Be41d93b719056F7febFC
+J=$(curl -s "$API/reflection/open?network=mainnet" | jq .job)
+cast call $POOL 'attestedReflectionDigest()(bytes32)' --rpc-url $RPC_URL    # must equal .priorDigest
+curl -s "$API/reflection/open/job?network=mainnet&jobId=$(jq -r .jobId <<<"$J")" | jq .input > reflection_input.json
+mkdir -p out
+[ "$(jq .modeB <<<"$J")" = 1 ] && curl -s \
+  "$API/reflection/eth-state/proof?network=mainnet&contentHash=$(jq -r .ethContentHash <<<"$J")" \
+  | jq -r .ethCompressedProofB64 | base64 -d > out/eth_compressed.bin    # Mode-B only
+PROOF_MODE=groth16 REFLECT_FIXTURE=reflection_input.json PROVER_OUT=out SP1_PROVER=network \
+  NETWORK_PRIVATE_KEY=0x… NETWORK_RPC_URL=https://rpc.mainnet.succinct.xyz REFLECT_GAS_LIMIT=20000000000 \
+  worker-relay/prover/bin/bitcoin_prove
+cast send $POOL 'attestBitcoinStateProven(bytes,bytes)' 0x$(cat out/bitcoin_pv.hex) \
+  0x$(cat out/bitcoin_proof_bytes.hex) --rpc-url $RPC_URL --private-key 0x…
+curl -s -X POST "$API/reflection/landed" -H 'content-type: application/json' -d '{"network":"mainnet"}'
+```
+
+If another prover lands the same batch first, the pool's digest moves and your send fails its simulation.
 
 ## What you trust
 
