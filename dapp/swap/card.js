@@ -268,6 +268,8 @@ function mend(changed) {
 // A side's switch: Wallet, Private (the home its coin goes in) or Bitcoin. Between a wallet and the DeFi pool the card's own switch does it.
 function setPlace(side, place) {
   if (S.busy) return;
+  // the To side reads Private while Swap privately is on (its coin still goes to an address): Wallet then turns it off, for a public swap
+  if (side === 'get' && place === 'wallet' && hidden()) { setSide('get', false); return; }
   const at = atOf(side), cur = side === 'pay' ? S.pay : S.get;
   if (place === 'private' ? isPrivAt(at) : place === at) return;
   // To going private makes the From coin private where it can (TAC stays TAC, ETH becomes tETH); an outside token's To side keeps the card's
@@ -365,7 +367,8 @@ function fit(changed) {
 function setSide(side, priv) {
   const k = side === 'pay' ? 'inP' : 'outP';
   if (S.busy) return;
-  if (side === 'get' && !S.outP && (priv ? outRoute(S.get) === 'later' && !LATER.on : hidden())) { LATER.on = priv; if (priv) laterUp(); changed(); paint(); return; }
+  if (side === 'get' && !S.outP && (priv ? outRoute(S.get) === 'later' && !LATER.on : hidden())) { LATER.on = priv; hopSave(priv ? 'private' : 'public'); if (priv) laterUp(); changed(); paint(); return; }
+  if (side === 'get') S.hopPublic = !priv;                                                          // To: Wallet chosen, for this visit
   if (S[k] === priv) return;
   if (side === 'get' && !priv) LATER.on = false;
   const was = side === 'pay' ? S.pay : S.get, now_ = priv ? (isEth(was) ? 'teth' : inPool(was) ? was : 'teth') : was === 'teth' ? lc(R.ZERO) : was;
@@ -467,6 +470,7 @@ let qTimer = 0;
 function requote(now_ = false) {
   clearTimeout(qTimer);
   if (S.btc) return;
+  if (hopDefault()) { changed(); paint(); }
   const mk = syncMove();
   if (mk) {
     const my = ++S.seq;
@@ -1149,6 +1153,16 @@ const laterPair = (kind, pay = S.pay, get = S.get) => laterPay(pay)
   && (isEth(pay) ? kind === 'agg' || (kind === 'tac' && get === lc(R.TAC)) : (kind === 'agg' && get !== lc(R.WETH)) || kind === 'any' || kind === 'out' || kind === 'tac');
 const laterFits = (kind) => !S.inP && !S.outP && laterPair(kind);
 const laterOn = (kind) => LATER.on && laterFits(kind);
+// ETH from the wallet buying a public token goes through the private pool by default (Swap privately): the hop is what sets this swap apart.
+// A public swap stays one press away (To: Wallet, or the switch), and the way chosen is kept for this browser.
+const HOP_KEY = 'tacit-swap-hop';
+const hopPref = () => { try { return localStorage.getItem(HOP_KEY); } catch { return null; } };
+const hopSave = (v) => { S.hopPublic = v === 'public'; try { localStorage.setItem(HOP_KEY, v); } catch { } };
+function hopDefault() {
+  if (LATER.on || S.hopPublic || hopPref() === 'public' || S.busy || !isEth(S.pay) || S.inP || S.outP || inPool(S.get) || outRoute(S.get) !== 'later') return false;
+  LATER.on = true; laterUp();
+  return true;
+}
 // TAC can end in a private balance: the key's own (the field empty), or a Tacit address typed there (tacit1… or name.wei); a 0x address is paid as such
 // (a swap through a token's own pool pays an address only)
 const laterPool = () => LATER.on && S.get === lc(R.TAC) && laterFits(kindOf(S.pay, S.get)) && !(!isEth(S.pay) && viaToken());
@@ -1896,6 +1910,7 @@ function wire() {
     if (e.target.closest('[data-open-pool]')) { openPoolGo(); return; }
     if (!e.target.closest('#later-on')) return;
     LATER.on = !LATER.on;
+    hopSave(LATER.on ? 'private' : 'public');
     if (LATER.on) laterUp();
     changed(); paint();
     if (S.q && kindOf(S.pay, S.get) === 'agg') requote(true);

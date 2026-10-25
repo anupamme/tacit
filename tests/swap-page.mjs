@@ -106,13 +106,15 @@ async function fundedWallet() {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false, keeperDown = false, tokenPools = false } = {}) {
+async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false, keeperDown = false, tokenPools = false, hop = 'public' } = {}) {
   // `tokenPools`: whether the relay serves the token pools (else their routes answer as a relay that does not serve them)
   const keeper = { down: keeperDown, notified: [] };
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
   await ctx.addInitScript(() => { try { localStorage.setItem('tacit-trade-hedge-ms', '0'); } catch { /* storage is a convenience */ } });
+  // ETH from the wallet buying a public token opens on Swap privately; the blocks that look at public swaps start as a visitor who chose those
+  if (hop) await ctx.addInitScript((v) => { try { if (!sessionStorage.getItem('hop-set')) { sessionStorage.setItem('hop-set', '1'); localStorage.setItem('tacit-swap-hop', v); } } catch { /* storage is a convenience */ } }, hop);
   if (fontDelay) await ctx.route('**/*.woff2', async (route) => { await sleep(fontDelay); await route.continue(); });
   if (shifts) await ctx.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
@@ -171,6 +173,26 @@ const pick = async (page, side, sym) => {
     if (await page.isVisible('#pk .pk-x')) await page.keyboard.press('Escape');
   }
 };
+
+// ── the privacy hop by default: wallet ETH buying a public token opens on Swap privately; To: Wallet makes it a public swap, kept for the browser ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { hop: null });
+  await pick(page, 'get', 'USDC');
+  await typeAmt(page, '0.1');
+  await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 60000).catch(() => {});
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && /Private/.test(await page.textContent('.sides[data-side="get"] [aria-checked="true"]')), 'ETH for USDC opens on Swap privately, the To side reading Private');
+  await sidePriv(page, 'get', false);
+  await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'false', null, 30000).catch(() => {});
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.evaluate(() => localStorage.getItem('tacit-swap-hop'))) === 'public', 'To: Wallet makes it a public swap, and the choice is kept');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#amt', { timeout: 60000 });
+  await pick(page, 'get', 'USDT');
+  await typeAmt(page, '0.1');
+  await sleep(3000);
+  ok((await page.getAttribute('#later-on', 'aria-checked').catch(() => 'false')) !== 'true', 'and after a reload a token bought with ETH stays a public swap');
+  ok(!errors.length, `the hop's default: no page errors (${errors.slice(0, 2).join(' | ')})`);
+  await browser.close();
+}
 
 // ── no wallet: the page, the quotes, the gate, a private swap's receipt ──
 {
