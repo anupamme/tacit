@@ -7,8 +7,8 @@
 // zRouter for exactly the deposit's ETH and deposits it with this device's proof; from there the swap is the same. (The TAC pool deployed with
 // the TAC vaults could hold TAC itself, but nothing is in it yet and no keeper sends for it, so a hop through it would hide nothing.)
 import { hexToBytes, keccak_256 } from '/vendor/tacit-deps.min.js';
-import { checkZRouterCall } from '/zrouter-guard.js';
-import { bestRoute } from '/swap/aggregate.js?cb=9759a1ca';
+import { checkZRouterCall } from '/zrouter-guard.js?cb=f5ae4bcd';
+import { bestRoute } from '/swap/aggregate.js?cb=3c73982e';
 import { readAccess, readToken, permitTyped, permit2Typed, splitSig, randomNonce as permit2Nonce, encApprove, quoteTacitToToken, buildTacitToToken, quoteAnyToTac, buildAnyToTac } from '/swap/route.js?cb=ce610210';
 import { makeTokenPools, poolState, RELAYER, KEEPERS, SERVED } from '/evm-pool-tokens.js?cb=cdc195bc';
 export { SERVED };

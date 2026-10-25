@@ -1,7 +1,8 @@
 // What zQuoter may hand back for zRouter to run, read against the terms that were asked for. A quoter answers with ready-made
 // calldata, and zRouter runs each call as the sender. The answer is accepted only when it is a swap, a short chain of swaps, a split of
 // the input across side-by-side swaps, or a mix of those (paths side by side, each a swap or a chain), through zRouter's own routes,
-// that takes the asked token from the sender and pays the asked recipient: no executor call, no sweep, no permit, no other function. worker-relay/src/lib/zrouter-guard.js is the same file (tests/zrouter-guard.test.mjs).
+// that takes the asked token from the sender and pays the asked recipient: no executor call, no sweep, no permit, no other function. An outside solver's
+// route (snwap through one of zSwap's forwarders) is a call of its own, held to its terms by checkSnwapCall at the end. worker-relay/src/lib/zrouter-guard.js is the same file (tests/zrouter-guard.test.mjs).
 
 export const ZROUTER = '0x000000000000fb114709235f1ccbffb925f600e4';
 export const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
@@ -172,5 +173,56 @@ function checkSplit(legs, want, pools) {
   if (want.amount != null && spent !== BigInt(want.amount)) return 'the swap has another amount';
   if (want.maxIn != null && spent > BigInt(want.maxIn)) return 'the swap can spend more than allowed';
   if (want.minOut != null && paid < BigInt(want.minOut)) return 'the swap can pay less than allowed';
+  return null;
+}
+
+// ── An outside solver's route, run through zRouter's snwap ──
+// snwap(tokenIn, amountIn, recipient, tokenOut, amountOutMin, executor, executorData) moves exactly amountIn of tokenIn from the sender to
+// the executor (ETH in rides as the call's value, with an amountIn of 0), runs the executor apart from the router's own approvals, and
+// reverts unless the recipient's balance of tokenOut rose by at least amountOutMin. Whatever the executor does, the sender pays the asked
+// amount and the recipient gets the floor, or nothing happens. The executor must be one of zSwap's forwarders, each of which calls its
+// solver's router with the solver's calldata and sends all it then holds of tokenOut to the recipient it is named.
+export const SNWAP_EXECUTORS = {
+  '0xbb11c36fbf566b5fad265218bcdb4f528d14e0b5': '0x',
+  '0xac3eaf97bbdfb7611c9489d0662ffe7f517e17e6': 'ParaSwap',
+  '0x087735d470fd040661d8c48935e2d665ea682fc5': 'KyberSwap',
+  '0xd290cc62fc6e37fa34227454c5df95f0345f7d7e': '1inch',
+  '0x33da92fd1d5672b471cf0b1aea19e728c9fb74a7': 'OKX',
+};
+// zRouter's SafeExecutor (zRouter.safeExecutor()): it calls whatever it is told, so anything it holds is anyone's
+export const SAFE_EXECUTOR = '0x25fc36455aa30d012bbfb86f283975440d7ee8db';
+const SNWAP = '5f3bd1c8', FORWARD = '54d61b9c';
+// the bytes argument at word `at` of a call's head, read as a whole number of words that ends the call
+function tailBytes(h, at, words) {
+  if (num(word(h, at)) !== BigInt(words * 32)) throw new Error('a bytes argument is not where it belongs');
+  const len = Number(num(word(h, words))), start = 8 + (words + 1) * 64;
+  if (h.length !== start + Math.ceil(len / 32) * 64) throw new Error('the call has the wrong length');
+  return h.slice(start, start + len * 2);
+}
+// → { tokenIn, amountIn, to, tokenOut, minOut, executor, router, fwdIn, fwdOut, fwdTo }; throws when it is not one snwap to a forwarder's swap
+export function decodeSnwap(callData) {
+  const h = strip(callData);
+  if (h.slice(0, 8) !== SNWAP) throw new Error(`the call is not a snwap (selector ${h.slice(0, 8)})`);
+  if (h.length < 8 + 8 * 64) throw new Error('the call has the wrong length');
+  const f = tailBytes(h, 6, 7);
+  if (f.slice(0, 8) !== FORWARD || f.length < 8 + 6 * 64) throw new Error('the executor is not handed a forwarder swap');
+  tailBytes(f, 4, 5);
+  return {
+    tokenIn: addr(word(h, 0)), amountIn: num(word(h, 1)), to: addr(word(h, 2)), tokenOut: addr(word(h, 3)), minOut: num(word(h, 4)), executor: addr(word(h, 5)),
+    router: addr(word(f, 0)), fwdIn: addr(word(f, 1)), fwdOut: addr(word(f, 2)), fwdTo: addr(word(f, 3)),
+  };
+}
+// `want`: { to, tokenIn, tokenOut, amount, minOut } and optionally `executor`. → null when the call is acceptable, else the reason it is refused.
+export function checkSnwapCall(callData, want) {
+  let s;
+  try { s = decodeSnwap(callData); } catch (e) { return String((e && e.message) || e); }
+  const ethIn = lc(want.tokenIn) === ETH;
+  if (!SNWAP_EXECUTORS[s.executor] || (want.executor && s.executor !== lc(want.executor))) return 'the executor is not an allowed forwarder';
+  if (s.tokenIn !== lc(want.tokenIn) || s.fwdIn !== lc(want.tokenIn)) return 'the swap does not take the asked token';
+  if (s.tokenOut !== lc(want.tokenOut) || s.fwdOut !== lc(want.tokenOut)) return 'the swap does not pay the asked token';
+  if (s.to !== lc(want.to) || s.fwdTo !== lc(want.to)) return 'the swap does not pay the asked recipient';
+  if (s.to === ZROUTER || s.to === SAFE_EXECUTOR || SNWAP_EXECUTORS[s.to]) return 'the swap pays a contract anyone can take from';
+  if (s.amountIn !== (ethIn ? 0n : BigInt(want.amount))) return 'the swap has another amount';
+  if (!(s.minOut > 0n) || s.minOut < BigInt(want.minOut)) return 'the swap can pay less than allowed';
   return null;
 }

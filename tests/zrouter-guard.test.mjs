@@ -4,7 +4,7 @@
 //   node tests/zrouter-guard.test.mjs
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { checkZRouterCall, decodeZRouterCall, CURVE_POOLS, ZROUTER, WETH } from '../dapp/zrouter-guard.js';
+import { checkZRouterCall, decodeZRouterCall, checkSnwapCall, decodeSnwap, SNWAP_EXECUTORS, CURVE_POOLS, ZROUTER, WETH } from '../dapp/zrouter-guard.js';
 
 const fixtures = JSON.parse(readFileSync(new URL('./fixtures/zrouter-quotes.json', import.meta.url), 'utf8'));
 let n = 0; const ok = (c, m) => { if (c) { console.log('ok  -', m); n++; } else { console.error('FAIL -', m); process.exitCode = 1; } };
@@ -172,6 +172,33 @@ assert.throws(() => decodeZRouterCall('0x12345678'), /not a swap/);
   // a leg's own amount zeroed: a path that takes nothing of the asked token
   const hopAmt = legs[1].amount.toString(16).padStart(64, '0'), zeroed = hy.callData.replace(hopAmt, '0'.repeat(64));
   ok(zeroed !== hy.callData && checkZRouterCall(zeroed, { ...hy.want, amount: undefined, maxIn: undefined }) !== null, 'refuses a first hop with no amount of its own');
+}
+
+// An outside solver's route: snwap through one of zSwap's forwarders, paying the asked recipient at least the floor (dapp/swap/solvers.js
+// writes it the same way). It is accepted only through checkSnwapCall, never as a zQuoter answer.
+{
+  const ETH0 = '0x' + '0'.repeat(40), USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', ME = '0x' + '5e'.repeat(20), ROUTER = '0x6131b5fae19ea4f9d964eac0408e4408b66337b5';
+  const kyber = Object.keys(SNWAP_EXECUTORS).find((a) => SNWAP_EXECUTORS[a] === 'KyberSwap');
+  const bytesOf = (h) => { const x = h.replace(/^0x/, ''); return wordN(x.length / 2) + x.padEnd(Math.ceil(x.length / 64) * 64, '0'); };
+  const snwap = ({ tokenIn = ETH0, amountIn = 0n, to = ME, tokenOut = USDC, minOut = 1000n, fwd = kyber, router = ROUTER, fIn = tokenIn, fOut = tokenOut, fTo = to, data = 'e21fd0e9' + '11'.repeat(70) } = {}) =>
+    '0x5f3bd1c8' + pad(tokenIn) + wordN(amountIn) + pad(to) + pad(tokenOut) + wordN(minOut) + pad(fwd) + wordN(7 * 32) + bytesOf('54d61b9c' + pad(router) + pad(fIn) + pad(fOut) + pad(fTo) + wordN(5 * 32) + bytesOf(data));
+  const want = { to: ME, tokenIn: ETH0, tokenOut: USDC, amount: 10n ** 17n, minOut: 1000n };
+  const d = decodeSnwap(snwap());
+  ok(checkSnwapCall(snwap(), want) === null && d.executor === kyber && d.router === ROUTER && d.fwdTo === ME, 'accepts a snwap of ETH through a forwarder that pays the recipient the floor');
+  ok(checkSnwapCall(snwap({ tokenIn: USDC, tokenOut: ETH0, amountIn: 5n * 10n ** 6n }), { ...want, tokenIn: USDC, tokenOut: ETH0, amount: 5n * 10n ** 6n }) === null, 'accepts a token in, for exactly the asked amount');
+  ok(checkSnwapCall(snwap({ tokenIn: USDC, tokenOut: ETH0, amountIn: 5n * 10n ** 6n + 1n }), { ...want, tokenIn: USDC, tokenOut: ETH0, amount: 5n * 10n ** 6n }) !== null, 'refuses a token in for another amount');
+  ok(checkSnwapCall(snwap({ amountIn: 1n }), want) !== null, 'refuses ETH in that also names an amount to pull');
+  ok(checkSnwapCall(snwap({ fwd: OTHER }), want) !== null, 'refuses an executor that is not an allowed forwarder');
+  ok(checkSnwapCall(snwap(), { ...want, executor: Object.keys(SNWAP_EXECUTORS)[0] }) !== null, 'refuses another forwarder than the one asked for');
+  ok(checkSnwapCall(snwap({ to: OTHER, fTo: OTHER }), want) !== null, 'refuses a snwap that pays someone else');
+  ok(checkSnwapCall(snwap({ fTo: OTHER }), want) !== null, 'refuses a forwarder told to pay someone else than the checked recipient');
+  ok([kyber, ZROUTER, '0x25fc36455aa30d012bbfb86f283975440d7ee8db'].every((x) => checkSnwapCall(snwap({ to: x }), { ...want, to: x }) !== null), 'refuses paying a forwarder, zRouter or its executor, which anyone could take from');
+  ok(checkSnwapCall(snwap({ fOut: WETH }), want) !== null && checkSnwapCall(snwap({ tokenOut: WETH, fOut: WETH }), want) !== null, 'refuses another token out, in the snwap or the forwarder');
+  ok(checkSnwapCall(snwap({ fIn: USDC }), want) !== null, 'refuses a forwarder told to spend another token');
+  ok(checkSnwapCall(snwap({ minOut: 999n }), want) !== null && checkSnwapCall(snwap({ minOut: 0n }), { ...want, minOut: 0n }) !== null, 'refuses a floor under the one asked, and a floor of nothing');
+  ok(checkSnwapCall(snwap().slice(0, -64), want) !== null && checkSnwapCall(snwap() + '00'.repeat(32), want) !== null, 'refuses a call cut short or with words added');
+  ok(checkSnwapCall(snwap().replace('54d61b9c', 'deadbeef'), want) !== null, 'refuses an executor handed anything but a forwarder swap');
+  ok(checkZRouterCall(snwap(), { to: ME, tokenIn: ETH0, tokenOut: USDC }) !== null, 'a snwap is never accepted as a zQuoter answer');
 }
 
 console.log(`${n} checks`);

@@ -13,7 +13,7 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 import { takeEarly } from '/trade/rpc.js?cb=63f04503';
 import { mountFarm } from '/trade/farm.js?cb=d0ca4914';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=c07717c4';
-import { makePointsNote } from '/points-note.js?cb=eacef061';
+import { makePointsNote } from '/points-note.js?cb=dc44d257';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';

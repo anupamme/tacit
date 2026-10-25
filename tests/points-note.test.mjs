@@ -21,4 +21,8 @@ assert.equal(await note.load(), 0); const seen = calls;
 clock += 61e3; answer = program(); assert.equal(await note.load(), 1000, 'an unread answer is asked again in a minute'); assert.equal(calls, seen + 1);
 clock += 601e3; answer = new Error('down');
 assert.equal(await note.load(), 1000, 'a failed read leaves the last one standing'); clock += 61e3; answer = null; assert.equal(await note.load(), 1000);
+clock += 601e3; answer = program({ rates: { zswapeth: 1000, wrap: 1250, evmpooldeposit: 1000 }, weights: [{ fromDay: day - 5, weights: { evmpooldeposit: 0.5 } }] }); await note.load();
+assert.equal(note.est(10n ** 18n, 'wrap'), 1250, 'a wrap is priced at its own rate');
+assert.equal(note.est(2n * 10n ** 18n, 'evmpooldeposit'), 1000, 'a deposit into an ETH pool at its own, with the day’s weight');
+assert.equal(note.est(10n ** 18n), 1000, 'and a swap at zswapeth\'s'); assert.equal(note.est(10n ** 18n, 'cusdmint'), 0, 'an activity it does not read says nothing');
 console.log('ok - the points note reads the terms once in ten minutes, never blocks, and says what only the Precision pool earns');

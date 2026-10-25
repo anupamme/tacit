@@ -5,7 +5,7 @@
 // the asked recipient, spends exactly the amount and pays at least its claimed output less the slippage) before it may be offered; the best
 // that passes is the route. All of it is views on the chain: nothing here leaves the page.
 // by the same paths the page imports them by, so the page holds one copy of each
-import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '/zrouter-guard.js';
+import { checkZRouterCall, decodeZRouterCall, ZROUTER } from '/zrouter-guard.js?cb=f5ae4bcd';
 import { ZQUOTER, ZERO, SOURCES } from '/swap/route.js?cb=ce610210';
 
 const SEL = { viaEth: 'e453166e', split: '892af013', hybrid: '85f86a90', quotes: 'e1fd10bc' };
@@ -104,17 +104,4 @@ export async function bestRoute({ ethCall, to, refundTo = to, tokenIn, tokenOut,
   }
   // `curvePools`: the unlisted Curve pools a simulation let through, for a caller that checks the route again (later.js writes another recipient in)
   return { out: best.out, min: best.min, callData: best.callData, value: best.value, name: best.name, kind: best.kind, legs: best.legs, quotes, tokenIn, tokenOut, amountIn: amt, to, deadline: dl, curvePools: best.curvePools || [] };
-}
-
-// What KyberSwap's public router says it would pay for the same trade: a reference beside the onchain route, never a way the page swaps.
-// → the amount out, or null when it does not answer within the time (or has no route).
-const KS = 'https://aggregator-api.kyberswap.com/ethereum/api/v1/routes', KS_ETH = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-export async function kyberOut({ tokenIn, tokenOut, amountIn, ms = 3000, get = globalThis.fetch }) {
-  const ac = new AbortController(), t = setTimeout(() => ac.abort(), ms), tok = (a) => (lc(a) === ZERO ? KS_ETH : a);
-  try {
-    const r = await get(`${KS}?${new URLSearchParams({ tokenIn: tok(tokenIn), tokenOut: tok(tokenOut), amountIn: String(amountIn) })}`, { signal: ac.signal });
-    if (!r.ok) return null;
-    const out = (await r.json())?.data?.routeSummary?.amountOut;
-    return /^\d+$/.test(String(out ?? '')) && BigInt(out) > 0n ? BigInt(out) : null;
-  } catch { return null; } finally { clearTimeout(t); }
 }

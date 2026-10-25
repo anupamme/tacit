@@ -29,6 +29,7 @@ const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com', SHOTS = 
 const PORT = 22000 + Math.floor(Math.random() * 1000), WEB = PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const ZQUOTER = '0x000000bd2db80567c23e353ca95a251c573cbf9b';
+const ZROUTER = '0x000000000000fb114709235f1ccbffb925f600e4';
 // A node that caps a call's gas below what zQuoter's scan asks for (50M on some public nodes), or that is unreachable, is followed by the next.
 const UPSTREAMS = [FORK, 'https://mainnet.gateway.tenderly.co'];
 const up = async (method, params) => {
@@ -124,6 +125,12 @@ async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'li
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: r });
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
   });
+  // The outside solvers are asked from here as tacit.finance asks them (zFi's proxy answers no other origin); their firm routes, built for
+  // mainnet now, run on the fork.
+  await ctx.route(/^https:\/\/(api\.zfi\.wei\.is|api\.paraswap\.io|aggregator-api\.kyberswap\.com)\//, async (route) => {
+    try { const res = await route.fetch({ headers: { ...route.request().headers(), origin: 'https://tacit.finance' } }); await route.fulfill({ response: res, headers: { ...res.headers(), 'access-control-allow-origin': '*' } }); }
+    catch { await route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*' }, body: '{}' }).catch(() => {}); }
+  });
   // The private ETH pool's keeper quotes its fee for a withdrawal into a swap: stubbed, so a pass does not depend on a service that may be asleep.
   // (a token pool's keeper, at the route its token names, quotes in that token: 1.5 of a six-decimal one here)
   await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/quote/, (route) => route.fulfill(keeper.down ? { status: 503, headers: { 'access-control-allow-origin': '*' }, body: '{}' } : { status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(tokenQuote(route.request().url())) }));
@@ -155,7 +162,15 @@ const ackIf = async (page) => {
 const rowTips = (page) => page.$$eval('#rcpt div', (ds) => ds.map((d) => d.title).filter(Boolean));
 // Each side's Wallet / Private switch.
 const sidePriv = (page, side, on) => page.click(`.sides[data-side="${side}"] [data-p="${on ? 1 : 0}"]`);
-const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pay-coin' : '#get-coin'); await page.click(`.pk-r:has(b:text-is("${sym}"))`); };
+// a coin chosen in the picker; chosen again if the list arrived and was drawn anew under the click
+const pick = async (page, side, sym) => {
+  const coin = side === 'pay' ? '#pay-coin' : '#get-coin';
+  for (let i = 0; i < 3; i++) {
+    await page.click(coin); await page.click(`.pk-r:has(b:text-is("${sym}"))`);
+    if ((await page.textContent(coin)).trim().startsWith(sym)) return;
+    if (await page.isVisible('#pk .pk-x')) await page.keyboard.press('Escape');
+  }
+};
 
 // ── no wallet: the page, the quotes, the gate, a private swap's receipt ──
 {
@@ -203,6 +218,15 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.click('#pay-coin');
   await until(page, () => document.querySelectorAll('.pk-r img.tk').length >= 8, null, 60000);
   ok(await page.$$eval('.pk-r b', (x) => x.some((e) => e.textContent === 'rETH') && !x.some((e) => e.textContent === 'stETH')), 'the picker lists the onchain token list (rETH in, stETH left out) with its logos');
+  { const look = await page.evaluate(() => { const rows = [...document.querySelectorAll('.pk-r')], of = (sym) => rows.find((b) => b.querySelector('b')?.textContent === sym);
+      const img = (sym) => of(sym)?.querySelector('img'), far = img('ZRX') || img('YFI');
+      return { n: rows.length, link: (img('LINK')?.getAttribute('src') || img('LINK')?.dataset.src) || '', pepe: !!of('PEPE'), farWaits: !!far && !far.getAttribute('src') && !!far.dataset.src, heads: [...document.querySelectorAll('.pk-g')].map((g) => g.textContent) }; });
+    ok(look.n > 400 && /^\/swap\/logos\/0x514910771af9ca656af840dff83e8264ecf986ca\.webp$/.test(look.link) && look.pepe, `and the Uniswap list's tokens beside it, each logo kept on this site (${look.n} tokens, LINK ${look.link})`);
+    ok(look.farWaits, 'a logo far down the list is not fetched until it scrolls into view');
+    ok(look.heads[0] === 'With private pools' && look.heads[1] === 'Any token', `the coins Tacit holds privately lead the list under their own heading (${look.heads.join(', ')})`); }
+  await page.fill('#pk-q', 'link');
+  { const first = await page.evaluate(() => [...document.querySelectorAll('.pk-r:not([hidden])')].sort((a, b) => (Number(a.style.order) || 0) - (Number(b.style.order) || 0))[0]?.querySelector('b')?.textContent);
+    ok(first === 'LINK', `a search puts the symbol itself first (${first})`); }
   await page.keyboard.press('Escape');
   await pick(page, 'pay', 'USDC');
   ok((await page.textContent('#get-coin')).includes('TAC'), 'USDC buys TAC');
@@ -323,7 +347,13 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '1');
   await quoted(page);
   { const rc = (await page.textContent('#rcpt')).replace(/\s+/g, ' ');
-    ok(/Route(Uniswap|Sushi|Curve|zAMM)/.test(rc) && /At least[\d.,]+ USDC/.test(rc) && (await rowTips(page)).some((t) => /Compared with \d+ pools?/.test(t)), `ETH → USDC: the route and the least it pays, with the pools it was compared with in a tooltip (${rc})`);
+    await until(page, () => !document.querySelector('#rows[data-more]') && !document.querySelector('#out').classList.contains('busy'), null, 30000).catch(() => {});
+    if (await page.$('#rows [data-routes-all]')) await page.click('#rows [data-routes-all]');
+    const rows = await page.$$eval('#rows [data-route]', (b) => b.map((x) => ({ k: x.dataset.route, t: x.textContent.replace(/\s+/g, ' ').trim() })));
+    const onchain = rows.find((x) => x.k === 'agg'), solvers = rows.filter((x) => x.k.startsWith('sv:'));
+    ok(solvers.length >= 2 && !!onchain && /(Uniswap|Sushi|Curve|zAMM).*onchain/.test(onchain.t) && solvers.every((x) => /solver/.test(x.t)) && rows.filter((x) => /best/.test(x.t)).length === 1,
+      `ETH → USDC: zQuoter's onchain route raced against the outside solvers, one of them best (${rows.map((x) => x.t).join(' | ')})`);
+    ok(/At least[\d.,]+ USDC/.test(rc), `and the least it pays (${rc})`);
     ok(!/Chain sees/.test(rc) && (await page.$$('#rcpt div')).length <= 6, `a public swap needs no line on what the chain sees, and a short receipt (${(await page.$$('#rcpt div')).length} rows)`); }
   ok(await page.isVisible('.sw-foot'), 'a public swap has its slippage row');
   // Swap privately: the wallet's ETH deposited now into the private ETH pool, swapped later from it to an address
@@ -495,13 +525,22 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.click('#wallet-chip');
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   const swapped = async (what) => { await page.click('#go'); await until(page, () => /Done|failed|would fail|Nothing was sent/i.test(document.querySelector('#q').textContent), null, 180000); return (await page.textContent('#q')).trim(); };
+  // the route picked by hand: an outside solver's (KyberSwap's when it answered), or zQuoter's own
+  const route = async (k) => { await until(page, () => !document.querySelector('#rows[data-more]') && !document.querySelector('#out').classList.contains('busy'), null, 30000).catch(() => {}); if (await page.$('#rows [data-routes-all]')) await page.click('#rows [data-routes-all]'); const ks = await page.$$eval('#rows [data-route]', (b) => b.map((x) => x.dataset.route)); const pickK = k === 'sv' ? (ks.includes('sv:kyber') ? 'sv:kyber' : ks.find((x) => x.startsWith('sv:'))) : k; if (pickK) await page.click(`#rows [data-route="${pickK}"]`); return pickK; };
+  const snwapSent = () => { const t = walletLog.sends[walletLog.sends.length - 1]; return t && String(t.to).toLowerCase() === ZROUTER && /5f3bd1c8/.test(String(t.data)); };
   await pick(page, 'get', 'USDC');
   await typeAmt(page, '0.1'); await quoted(page); await ackIf(page);
   ok((await page.textContent('#go')).trim() === 'Buy USDC', `ETH → USDC is a buy of USDC (${(await page.textContent('#go')).trim()})`);
-  { const u0 = await bal(USDC, w.account), said = await swapped(), u1 = await bal(USDC, w.account);
-    ok(/Done/.test(said) && u1 > u0, `ETH → USDC landed on the best route: ${Number(u1 - u0) / 1e6} USDC (${said.slice(0, 80)})`); }
-  await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'DAI');
+  { const via = await route('sv'), floor = BigInt(Math.floor(Number((await page.textContent('#rcpt')).replace(/\s+/g, ' ').match(/At least([\d.,]+) USDC/)[1].replace(/,/g, '')) * 1e6)), u0 = await bal(USDC, w.account), said = await swapped(), u1 = await bal(USDC, w.account);
+    ok(!!via && /Done/.test(said) && snwapSent() && u1 - u0 >= floor, `ETH → USDC through ${via}: a snwap through its forwarder, ${Number(u1 - u0) / 1e6} USDC got, at least the ${Number(floor) / 1e6} shown (${said.slice(0, 80)})`); }
+  await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'ETH');
+  await typeAmt(page, '100'); await quoted(page); await ackIf(page);
+  { const via = await route('sv'), u0 = await bal(USDC, w.account), e0 = BigInt(await rpcA('eth_getBalance', [w.account, 'latest'])), signs = walletLog.signs, said = await swapped(), u1 = await bal(USDC, w.account), e1 = BigInt(await rpcA('eth_getBalance', [w.account, 'latest']));
+    ok(!!via && /Done/.test(said) && snwapSent() && u0 - u1 === 100n * 10n ** 6n && e1 > e0, `USDC → ETH through ${via}: exactly 100 USDC spent, ${Number(e1 - e0) / 1e18} ETH got less gas (${said.slice(0, 80)})`);
+    ok(walletLog.signs > signs || walletLog.sends.length >= 2, 'the USDC reached zRouter by its permit or an allowance, ahead of the snwap'); }
+  await pick(page, 'get', 'DAI');
   await typeAmt(page, '50'); await quoted(page); await ackIf(page);
+  await route('agg');
   { const d0 = await bal(DAI, w.account), u0 = await bal(USDC, w.account), signs = walletLog.signs, said = await swapped(), d1 = await bal(DAI, w.account), u1 = await bal(USDC, w.account);
     ok(/Done/.test(said) && d1 > d0 && u0 - u1 === 50n * 10n ** 6n, `USDC → DAI: exactly 50 USDC spent, ${Number(d1 - d0) / 1e18} DAI got (${said.slice(0, 80)})`);
     ok(walletLog.signs > signs || walletLog.sends.length >= 2, 'the USDC reached zRouter by its permit or an allowance'); }
@@ -526,8 +565,11 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await typeAmt(page, '0.2');
   await quoted(page);
   ok(/^Buy TAC$/.test(await page.textContent('#go')), 'the button buys TAC');
-  const t0 = await bal(TAC, w.account);
+  const t0 = await bal(TAC, w.account), earns = (await page.textContent('#rows [aria-checked="true"]').catch(() => '')).match(/([\d,]+)\+ points/)?.[1];
   await page.click('#go');
+  // a route that earns pops its points from the button as it is sent, before it lands
+  const pop = await until(page, () => document.querySelector('.rpop b')?.textContent || '', null, earns ? 60000 : 5000).then((h) => h.jsonValue(), () => '');
+  ok(earns ? pop.startsWith(`+${earns}`) : !pop, earns ? `the ${earns} points it earns pop from the button as it is sent (${pop})` : 'a route that earns nothing pops nothing');
   await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
   const t1 = await bal(TAC, w.account);
   ok(t1 > t0, `ETH → TAC landed: +${Number(t1 - t0) / 1e18} TAC`);
@@ -721,10 +763,10 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   page.on('request', (r) => { if (/0000006013df75a31678b786061c2b54bf531524/i.test(r.postData() || '')) asked.push(r.url()); });
   await page.click('#pay-coin');
   await until(page, () => [...document.querySelectorAll('#pk .pk-r b')].some((b) => b.textContent === 'LUSD'), null, 30000);
-  const rows = await page.$$eval('#pk .pk-r', (rs) => rs.map((r) => [r.querySelector('b').textContent, r.querySelector('small')?.textContent || '']));
-  const any = rows.filter(([sym]) => !['ETH', 'TAC', 'tacUSD', 'tacBTC'].includes(sym));
-  ok(any.length >= 10 && any[0][0] === 'USDC' && any[1][0] === 'USDT' && /private pool/.test(any[0][1]) && /private pool/.test(any[1][1]) && !/private pool/.test(any[2][1]),
-    `the picker lists the list's tokens, USDC and USDT first and named as having a private pool (${any.slice(0, 4).map(([a, b]) => `${a}: ${b}`).join(' | ')})`);
+  const groups = await page.$$eval('#pk .pk-l > *', (els) => { const out = []; for (const e of els) { if (e.classList.contains('pk-g')) out.push([e.textContent, []]); else if (e.classList.contains('pk-r') && out.length) out[out.length - 1][1].push(e.querySelector('b').textContent); } return out; });
+  const pooledG = groups.find(([h]) => h === 'With private pools')?.[1] || [], anyG = groups.find(([h]) => h === 'Any token')?.[1] || [];
+  ok(pooledG.join() === 'ETH,TAC,tacUSD,tacBTC,USDC,USDT' && anyG.length >= 10 && !anyG.includes('USDC'),
+    `the picker leads with the coins that have private pools, USDC and USDT among them, then the list's tokens (${pooledG.join(' ')} | ${anyG.slice(0, 4).join(' ')})`);
   ok(!asked.length, `and nothing asks the registry for it (${asked.length})`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
