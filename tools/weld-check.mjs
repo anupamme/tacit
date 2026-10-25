@@ -7262,7 +7262,7 @@ await step('farmzapeth', async () => {
     await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
     await p.click('#hx-routes [data-hxr="0"]');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
-    ok(/one transaction/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Make ETH private first instead: 2 steps, earns points/.test(await text(p, '#hx-alt')), `farmzapeth: the Earn tab offers the zap for ETH not yet private, and making it private first as the other way (${(await text(p, '#hx-routes [data-hxr="0"]')).replace(/\s+/g, ' ')})`);
+    ok(!/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /one transaction/.test(await text(p, '#hx-receipt')) && /Make ETH private first instead: 2 steps, earns points/.test(await text(p, '#hx-alt')), `farmzapeth: the Earn tab offers the zap for ETH not yet private, and making it private first as the other way (${(await text(p, '#hx-routes [data-hxr="0"]')).replace(/\s+/g, ' ')})`);
     await p.click('#hx-alt button');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 60000);
     ok(/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Zap in one transaction instead/.test(await text(p, '#hx-alt')), 'farmzapeth: and the link swaps the two');
@@ -7762,8 +7762,8 @@ await step('hxlink', async () => {
 });
 
 // The hero's panel: each verb's button opens the form that does it with the amount in (Swap is the swap card's own, and swaps in place). A
-// private farm from ETH is one step when the tETH held covers it; otherwise the ETH is made private first, and the wrap's sheet offers the
-// second step at its top, which opens with the same amount.
+// private farm from ETH is one step when the tETH held covers it; otherwise it is the zap (one transaction from the paying account), or, by
+// its link, the ETH made private first, whose sheet offers the second step at its top, which opens with the same amount.
 await step('hxpanel', async () => {
   const r = await openFarmKey('4a7e'.padEnd(64, '6'), { notes: [[FARM_CETH, 5000000n], [FARM_CETH, 5000000n]], swap: true });
   const p = r.page;
@@ -7782,12 +7782,20 @@ await step('hxpanel', async () => {
   };
   const form = (sel, v) => until(p, ([s, x]) => document.querySelector(s)?.value === x, [sel, v], 120000).then(() => true, () => false);
   try {
-    await press('earn', '0.05', null, 'Farm with ETH');
+    await press('earn', '0.05', 'precision', 'Farm with ETH');
     ok(await form('#pf-amt', '0.05'), 'hxpanel: Earn opens the public farm with the ETH in');
     await press('earn', '0.01', '0', 'Farm privately');
     ok(await form('#sj-a-0', '0.01'), 'hxpanel: a private farm, with tETH held, opens on tETH alone with the amount');
-    // More than the tETH held: the ETH is made private first, and the wrap's sheet names the farm next, which then opens with the same amount.
-    await press('earn', '1', '0', 'Make ETH private');
+    // More than the tETH held: the zap, which opens the farm on ETH with the amount; or, by its link, the ETH made private first, and the
+    // wrap's sheet names the farm next, which then opens with the same amount.
+    await press('earn', '1', '0', 'Zap into the farm');
+    ok(await form('#sz-a-0', '1') && await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true'), 'hxpanel: a private farm for more than the tETH held is the zap, opened on ETH with the amount');
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="earn"]');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 120000);
+    await p.click('#hx-alt button');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 120000);
+    await p.click('#hx-go');
     ok(await form('#w-amt', '1') && /Then farm it in/.test(await text(p, '#sheet-eth .farm-back')), `hxpanel: a private farm for more than the tETH held makes the ETH private first, and names the farm next (${(await text(p, '#sheet-eth .farm-back')).trim()})`);
     await p.click('#sheet-eth .farm-back a');
     ok(await form('#sj-a-0', '1') && !!(await p.$('#sheet-farm[open]')), 'hxpanel: the second step opens that farm on tETH alone with the same amount');

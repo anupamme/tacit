@@ -67,12 +67,12 @@ export function zapPlan({ eth, ra, rb, total, feeBps = 30n, unitA = 10n ** 10n, 
   };
   for (let d = -48n; d <= 48n; d++) tryX(x0 + d);
   if (!best) return null;
-  const mid = (ra * 10n ** 18n) / rb, after = (best.ra2 * 10n ** 18n) / best.rb2;
+  const mid = (Number(rb) * Number(best.x) * Number(g)) / (Number(ra) * 10000);
   return {
     swapIn: best.x * unitA, ethLeg: best.a * unitA, bLeg: best.b * unitB, floor: (best.b + 1n) * unitB, value: (best.x + best.a) * unitA, shares: best.s,
     out: best.out * unitB, spare: (best.out - best.b) * unitB, left: BigInt(eth) - (best.x + best.a) * unitA,
-    // the price the swap moves the pool by (A per B), as a share
-    impact: Number(after - mid) / Number(mid), reservesAfter: { ra: best.ra2, rb: best.rb2 }, shareOfPool: Number(best.s) / Number(total + best.s),
+    // what the swap gets under the pool's price before it (its fee aside), as a share: as the farm's one-sided join says it
+    impact: mid > 0 ? Math.max(0, 1 - Number(best.out) / mid) : 0, reservesAfter: { ra: best.ra2, rb: best.rb2 }, shareOfPool: Number(best.s) / Number(total + best.s),
   };
 }
 
