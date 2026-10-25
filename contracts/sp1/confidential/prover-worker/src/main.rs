@@ -10,6 +10,11 @@
 // the worker refuses to start on another), WARM=0 to skip the warm-up proof at start.
 // BENCH=<dir>: no board; every `*.bin` in the directory (a bincode SP1Stdin, as tests/fixtures/sp1-stdin holds them) is
 // proved BENCH_RUNS times (default 3) and the times are printed, cold first. This is how a machine is measured.
+// POOL (default 1): with nothing from the board, the worker proves the API's proof pool (wraps pages keep ready, whose inputs hold
+// no secret): only a job that has waited POOL_MIN_AGE_SECS (default 600, so the people mining it for points get it first), leased
+// with this worker's token, which the API credits nothing; a lease is asked for at most every POOL_EVERY_SECS (default 30).
+//   POST {BOARD_URL}/prover/pool/lease  { minAgeMs }  → { id, stdin (0x bincode SP1Stdin), lease } | 204
+//   POST {BOARD_URL}/prover/pool/submit { id, lease, publicValues, proof } | { id, lease, error }
 // RELOAD_FLAG (default /workspace/worker.reload): when that file exists and no job is in hand, the worker removes it and
 // exits 0, so the loop around it starts a fresh worker (and GPU server) with whatever binary and env are now in place,
 // never in the middle of a proof.
@@ -208,6 +213,12 @@ fn main() {
     let recycle_flag = env_or("RECYCLE_FLAG", "/workspace/worker.recycle");
     let recycle_max = env_or("RECYCLE_MAX_JOBS", "2").parse::<u32>().unwrap_or(2);
     let mut recycle_from: Option<u32> = None;
+    // A board job that comes in while a pool wrap is proved waits that one proof (under a minute here), well inside the relay's
+    // PROVER_BOARD_WAIT_SECS before it would go to the prover network.
+    let pool_on = env_or("POOL", "1") == "1";
+    let pool_min_age_ms = env_or("POOL_MIN_AGE_SECS", "600").parse::<u64>().unwrap_or(600) * 1000;
+    let pool_every = Duration::from_secs(env_or("POOL_EVERY_SECS", "30").parse::<u64>().unwrap_or(30));
+    let mut pool_last: Option<Instant> = None;
     // A proof that never ends (a GPU kernel that hangs leaves the server alive and silent, and the client waiting on it for ever) is
     // ended from outside: a watchdog thread sees a job in hand for longer than JOB_TIMEOUT_SECS (15 minutes by default, three times a
     // long op) and exits the process, so the loop around it starts a fresh worker and GPU server and the job goes back to the board.
@@ -257,6 +268,28 @@ fn main() {
                     println!("[{name}] {jobs_done} jobs on this GPU server and nothing waiting; exiting so the loop starts a fresh worker and GPU server");
                     std::process::exit(4);
                 }
+                if pool_on && pool_last.map_or(true, |t| t.elapsed() >= pool_every) {
+                    pool_last = Some(Instant::now());
+                    if let Some(outcome) = pool_job(&agent, &base, &auth, pool_min_age_ms, &job_since, |stdin| {
+                        let p = client.prove(&pk, stdin).groth16().cycle_limit(512_000_000).run().map_err(|e| format!("groth16 proof failed: {e}"))?;
+                        Ok((p.public_values.as_slice().to_vec(), p.bytes()))
+                    }) {
+                        quiet = 0;
+                        jobs_done += 1;
+                        match outcome {
+                            Ok(secs) => { failed_in_a_row = 0; println!("[{name}] pool wrap: proved in {secs:.1} s"); }
+                            Err(e) => {
+                                println!("[{name}] pool wrap: failed: {e}");
+                                failed_in_a_row += 1;
+                                if gpu_gone(&e) || failed_in_a_row >= 3 {
+                                    println!("[{name}] exiting so the loop starts a fresh worker and GPU server");
+                                    std::process::exit(2);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
                 quiet += 1;
                 if quiet % 100 == 1 { println!("[{name}] waiting for work"); }
                 std::thread::sleep(poll);
@@ -300,7 +333,7 @@ fn main() {
                 serde_json::json!({ "jobId": job.job_id, "error": e.chars().take(300).collect::<String>() })
             }
         };
-        let transport_dead = matches!(&outcome, Err(e) if e.contains("early eof") || e.contains("Could not connect") || e.contains("Connection reset") || e.contains("Broken pipe"));
+        let transport_dead = matches!(&outcome, Err(e) if gpu_gone(e));
         failed_in_a_row = if outcome.is_ok() { 0 } else { failed_in_a_row + 1 };
         // The answer is worth a few tries: the proof is made, and a lost answer would send the relay to the network for nothing.
         for attempt in 0..5 {
@@ -331,4 +364,55 @@ fn main() {
             std::process::exit(4);
         }
     }
+}
+
+// The client's errors when the GPU server is gone rather than one input failing.
+fn gpu_gone(e: &str) -> bool {
+    e.contains("early eof") || e.contains("Could not connect") || e.contains("Connection reset") || e.contains("Broken pipe")
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1).max(1)
+}
+
+// One proof-pool job: leased (one that has waited `min_age_ms`), proved with `prove`, and its proof (or why it could not be made)
+// sent back. → None when nothing was leased; else how long the proof took, or why it failed. The job watchdog sees it as a job.
+fn pool_job(
+    agent: &ureq::Agent,
+    base: &str,
+    auth: &str,
+    min_age_ms: u64,
+    job_since: &std::sync::atomic::AtomicU64,
+    prove: impl FnOnce(SP1Stdin) -> Result<(Vec<u8>, Vec<u8>), String>,
+) -> Option<Result<f64, String>> {
+    let r = agent.post(&format!("{base}/prover/pool/lease")).set("Authorization", auth).send_json(serde_json::json!({ "minAgeMs": min_age_ms })).ok()?;
+    if r.status() != 200 {
+        return None;
+    }
+    let lease: serde_json::Value = r.into_json().ok()?;
+    let (id, tok) = (lease["id"].as_str()?.to_string(), lease["lease"].as_str()?.to_string());
+    let stdin = lease["stdin"].as_str().unwrap_or_default().to_string();
+    let t = Instant::now();
+    job_since.store(now_secs(), std::sync::atomic::Ordering::Relaxed);
+    let outcome = hex::decode(stdin.trim_start_matches("0x"))
+        .map_err(|e| format!("stdin is not hex: {e}"))
+        .and_then(|b| bincode::deserialize::<SP1Stdin>(&b).map_err(|e| format!("stdin is not a bincode SP1Stdin: {e}")))
+        .and_then(prove);
+    job_since.store(0, std::sync::atomic::Ordering::Relaxed);
+    let body = match &outcome {
+        Ok((pv, proof)) => serde_json::json!({ "id": id, "lease": tok, "publicValues": format!("0x{}", hex::encode(pv)), "proof": format!("0x{}", hex::encode(proof)) }),
+        Err(e) => serde_json::json!({ "id": id, "lease": tok, "error": e.chars().take(300).collect::<String>() }),
+    };
+    // The API asks Ethereum's verifier before it keeps a proof; while no node answers (503) the lease holds and the proof is sent again.
+    for _ in 0..6 {
+        match agent.post(&format!("{base}/prover/pool/submit")).send_json(body.clone()) {
+            Ok(_) => break,
+            Err(ureq::Error::Status(503, _)) | Err(ureq::Error::Transport(_)) => std::thread::sleep(Duration::from_secs(20)),
+            Err(ureq::Error::Status(code, r)) => {
+                println!("pool job {id}: not taken ({code}): {}", r.into_string().unwrap_or_default().chars().take(200).collect::<String>());
+                break;
+            }
+        }
+    }
+    Some(outcome.map(|_| t.elapsed().as_secs_f64()))
 }
