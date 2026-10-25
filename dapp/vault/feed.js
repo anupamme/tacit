@@ -18,8 +18,12 @@ export const SEL = {
 };
 export const GRACE = 10;             // blocks after an interval ends before it counts (TacIntervalOracle.GRACE)
 export const BLOCK_SECONDS = 12;
-export const RECORD_GAS = 950_000;    // measured: about 0.93M gas for one record
-export const PER_TX = 10;             // records in one transaction, well inside a transaction's gas limit
+export const RECORD_GAS = 945_000;    // measured on mainnet: a batch of 10 records used 9.45M gas
+// A transaction may use at most 2^24 gas since Fusaka (EIP-7825), and a wallet's own batch of calls (EIP-5792) is one transaction too, so no single confirmation
+// carries more than about 17 records. A batch is 16 (about 15.1M gas), and `GAS_ROOM` is what a batch is let use: one estimated over it is cut down before it is sent.
+export const TX_GAS_CAP = 16_777_216;
+export const PER_TX = 16;
+export const GAS_ROOM = 16_000_000;
 
 // ── RLP, for a block header ──
 const concat = (...parts) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let i = 0; for (const p of parts) { out.set(p, i); i += p.length; } return out; };

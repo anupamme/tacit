@@ -4,7 +4,7 @@ import {
   makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=2846737a';
-import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=69eaea4d';
+import { makeFeed, RECORD_GAS, PER_TX, GAS_ROOM, encBatch, MULTICALL3 } from '/vault/feed.js?cb=4ca779bc';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=91c83890';
 import { makePools } from '/vault/pools.js?cb=10b10a42';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
@@ -164,7 +164,11 @@ const syn = (x, v) => M.fmtAmount(v, x.k.dp);
 const pctOf = (bps) => `${Math.floor(Number(bps) / 100).toLocaleString('en-US')}%`;
 const feeText = (bps) => `${Number(bps) / 100}%`;
 const gasEth = (n) => (F.gas != null ? (Number(BigInt(n * RECORD_GAS) * F.gas) / 1e18).toFixed(4) : null);
-const recordHint = (n) => { const c = Math.ceil(n / PER_TX), eth = gasEth(n); return `Takes ${c} wallet confirmation${c === 1 ? '' : 's'}${eth ? `, about ${eth} ETH` : ''}.`; };
+// How many confirmations recording `n` prices takes, when the last `leave` of them go with the person's own transaction (`what`, as "your borrow")
+const recordHint = (n, leave = 0, what = '') => {
+  const ride = leave && what && n > leave ? leave : 0, c = Math.ceil((n - ride) / PER_TX), eth = gasEth(n - ride);
+  return `Takes ${c} wallet confirmation${c === 1 ? '' : 's'}${eth ? `, about ${eth} ETH` : ''}.${ride ? ` The last ${ride} then go with ${what}.` : ''}`;
+};
 const priceText = (x, p, dir) => x.k.price(M.fmtUnits(M.sigTo(p, 3, dir), 18, 18));
 const zoneName = { liquidation: 'Liquidation', redemption: 'Redemption', safe: 'Safe' };
 
@@ -401,7 +405,7 @@ function planCore() {
       const f = feedOf(x.V);
       if (!x.stale && ((!f && !F.tried) || (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)))) { P.cta = 'Checking prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
-      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; P.hint = recordHint(f.missing); return P; }
+      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; P.hint = recordHint(f.missing, viaOf(x.V) ? BATCH_MAX : 0, 'your borrow'); return P; }
       P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
     }
     if (none) { P.cta = 'Enter an amount'; return P; }
@@ -456,7 +460,7 @@ function planCore() {
     const f = feedOf(x.V);
     if (!x.stale && f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)) { P.cta = 'Checking prices…'; return P; }
     if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
-    if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; P.hint = recordHint(f.missing); return P; }
+    if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; P.hint = recordHint(f.missing, viaOf(x.V) ? BATCH_MAX : 0, 'your withdrawal'); return P; }
     P.cta = 'Withdrawing is paused'; P.hint = 'With a debt, withdrawing waits until prices are recorded.'; return P;
   }
   if (m.collateral === 0n) { P.cta = 'Nothing to withdraw'; return P; }
@@ -555,7 +559,8 @@ async function run(kindOverride) {
   const from = W.account;
   const cancel = kindOverride === 'cancel';
   const typed = S.amt, shown = cancel ? null : planOf();
-  if (shown?.record) { pokeFeed(viaOf(V) ? BATCH_MAX : 0); return; }
+  // the older prices first, from here: the last ones (as many as one transaction carries with the person's own) are left to go with it
+  if (shown?.record) { pokeFeed(viaOf(V) && shown.record > BATCH_MAX ? BATCH_MAX : 0, shown.kind === 'withdraw' ? 'your withdrawal' : 'your borrow'); return; }
   if (!cancel && !shown.ok) return;
   S.busy = true; S.pre = false; lockAll(); renderTicket();
   try {
@@ -665,7 +670,8 @@ const feed = makeFeed({
   headerRpc: makeRpc([walletNode({ prefer: true }), ...HISTORY], { spread: true, onWait: busyNote }),
   proofRpc: makeRpc([walletNode({ prefer: true }), ...ARCHIVE], { spread: true, onWait: busyNote }),
 });
-const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };
+// `ticket`: the recording under way was started from the ticket, which shows its progress too
+const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null, ticket: false };
 const ALREADY = '0x103b4afe';
 const WALLET_HINT_MS = 20e3;
 class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then try again.'); } }
@@ -673,7 +679,11 @@ const feedOf = (V) => (V ? F.by[V.key] || null : null);
 const oracleOf = (V) => V.oracle || V.addr;
 const keepFeed = (V, st) => { for (const m of VS) if (oracleOf(m) === oracleOf(V)) F.by[m.key] = st; };
 const VENUE = ['Precision pool', 'Tacit pool'];
-const setFeed = (note, bad = false) => { F.note = note; F.bad = bad; const el = $('#feed-status'); if (el) { el.innerHTML = note; el.className = `status${bad ? ' err' : ''}`; } };
+const setFeed = (note, bad = false) => {
+  F.note = note; F.bad = bad;
+  const el = $('#feed-status'); if (el) { el.innerHTML = note; el.className = `status${bad ? ' err' : ''}`; }
+  if (F.ticket) say(bad ? `<span class="err">${note}</span>` : note);
+};
 async function loadFeed() {
   if (!VS.length || F.busy) return;
   const firsts = [...new Map(VS.map((v) => [oracleOf(v), v])).values()];
@@ -817,23 +827,32 @@ async function sendAsBundle(from, calls) {
   }
 }
 
-async function pokeFeed(leave = 0) {
+// A batch whose estimate is over GAS_ROOM keeps its newest records and leaves the rest for the next round (a node that does not estimate leaves it as it is).
+async function fitBatch(recs, data) {
+  const gas = await rpc('eth_estimateGas', [{ from: W.account, to: MULTICALL3, data }]).then((g) => Number(BigInt(g)), () => null);
+  if (gas == null || gas <= GAS_ROOM || recs.length < 2) return { recs, data };
+  const keep = Math.max(1, Math.floor(recs.length * GAS_ROOM / gas));
+  return { recs: recs.slice(0, keep), data: encBatch(recs.slice(0, keep).map((r) => ({ to: r.to, data: r.data }))) };
+}
+// Records the missing prices, a batch to a confirmation, until at most `leave` are missing. Started from the ticket (`what`: "your borrow"), its progress shows there
+// too, and once the rest can go with the person's own transaction the ticket takes over.
+async function pokeFeed(leave = 0, what = '') {
   if (F.busy) return;
   if (!W.account) { await connectWallet(); return; }
-  F.busy = true; renderFeed();
+  F.busy = true; F.ticket = !!what; renderFeed();
   try {
     for (let round = 1; round <= 12; round++) {
       const V = cur(), st = await feed.read(V.addr);
       keepFeed(V, st);
       renderFeed();
       if (st.missing <= leave) break;
-      const part = feed.nextBatch(st);
+      const part = feed.nextBatch(st, Math.min(PER_TX, st.missing - leave));
       setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
       const recs = await feed.build(part);
       const checked = await verifiedRecords(part, recs, setFeed);
       if (!checked) { setFeed('Someone else is recording too; reading again…'); continue; }
-      const data = checked.data;
-      setFeed(`Confirm batch ${round} of ${round - 1 + Math.ceil(st.missing / PER_TX)} in your wallet (${part.length} record${part.length === 1 ? '' : 's'}).`);
+      const fit = await fitBatch(recs, checked.data), data = fit.data;
+      setFeed(`Confirm batch ${round} of ${round - 1 + Math.ceil((st.missing - leave) / PER_TX)} in your wallet (${fit.recs.length} record${fit.recs.length === 1 ? '' : 's'}).`);
       const hash = await askWallet(() => wallet.sendTx({ to: MULTICALL3, data, from: W.account }), round);
       setFeed(`Sent ${txLink(hash)}. Waiting for it to land…`);
       const rc = await wallet.receipt(hash);
@@ -841,11 +860,17 @@ async function pokeFeed(leave = 0) {
       setFeed(`Batch ${round} recorded ${txLink(hash)}.`);
     }
     F.busy = false; await loadFeed();
-    setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : leave && feedOf(cur())?.missing <= leave ? `The older prices are recorded. The last ${feedOf(cur()).missing} go with your transaction.` : 'Recorded what could be. Some newer prices still need adding: record again.');
+    const left = feedOf(cur())?.missing;
+    if (feedOf(cur())?.ready) { setFeed('The price feed is up to date.'); if (what) { F.ticket = false; say(`The prices are recorded: check the amount for ${what}, then press the button.`); $('#amt').focus({ preventScroll: true }); } }
+    else if (leave && left <= leave) {
+      setFeed(`The older prices are recorded. The last ${left} go with ${what || 'your transaction'}.`);
+      // the ticket takes over: its button now does the person's own transaction, with the last records in it
+      if (what) { F.ticket = false; say(`The older prices are recorded. The last ${left} go with ${what}: check the amount, then press the button.`); $('#amt').focus({ preventScroll: true }); }
+    } else setFeed('Recorded what could be. Some newer prices still need adding: record again.');
   } catch (e) {
     F.busy = false;
     setFeed(errText(e), !(e instanceof UserStopped || e instanceof StopWaiting));
-  } finally { F.busy = false; await loadFeed(); refresh(); }
+  } finally { F.busy = false; F.ticket = false; await loadFeed(); refresh(); }
 }
 
 function readHash() {
