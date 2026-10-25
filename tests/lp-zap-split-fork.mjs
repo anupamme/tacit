@@ -56,8 +56,8 @@ try {
     const st = await poolState(), b = await bestSplit(st, r.eth, r.inPool.swapIn);
     const commit = '0x' + hex(keccak_256(new TextEncoder().encode(`split:${r.eth}:${Date.now()}`)));
     const [l1, l2] = b.sp.legs, split = { ...b.sp, legs: [l1, { ...l2, feeBps: Number(st.fee) }] };
-    const built = venues.buildSplit({ split, account: who, to: ROUTER, minOut: b.p.floor, deadline });
-    ok(built.value === b.p.swapIn, `${Number(r.eth) / 1e18} ETH: the split's zRouter call is sent exactly the ETH the plan swaps`);
+    const built = venues.buildSplit({ split, account: who, to: ROUTER, minOut: b.p.out, deadline });
+    ok(built.value === b.p.swapIn && built.minOut === b.p.out && b.p.out >= b.p.floor, `${Number(r.eth) / 1e18} ETH: the split's zRouter call is sent exactly the ETH the plan swaps, and must pay the least the plan counts on (over the add's leg)`);
     const data = zapCalldata({ plan: b.p, router: ROUTER, amm: AMM, tokenB: TAC, assetA: TETH, assetB: TAC_ID, feeBps: Number(st.fee), deadline, commit, swapData: built.data });
     const sim = (await ethCall(ROUTER, data, 'latest', { from: who, value: '0x' + b.p.value.toString(16) })).slice(2);
     ok(BigInt('0x' + sim.slice(64, 128)) === b.p.shares && '0x' + sim.slice(0, 64) === depositId(b.p.shares, commit), `${Number(r.eth) / 1e18} ETH: simulated, the split zap mints exactly the ${b.p.shares} shares planned`);
@@ -71,7 +71,7 @@ try {
   for (const venue of ['tacit', 'precision']) {
     const st = await poolState(), eth = 10n ** 18n, inPool = zapPlan({ eth, ra: st.ra, rb: st.rb, total: st.t, feeBps: st.fee }), b = await bestSplit(st, eth, inPool.swapIn);
     const [l1, l2] = b.sp.legs, split = { ...b.sp, legs: [l1, { ...l2, feeBps: Number(st.fee) }] }, commit = '0x' + 'd4'.repeat(31) + (venue === 'tacit' ? '01' : '02');
-    const data = zapCalldata({ plan: b.p, router: ROUTER, amm: AMM, tokenB: TAC, assetA: TETH, assetB: TAC_ID, feeBps: Number(st.fee), deadline, commit, swapData: venues.buildSplit({ split, account: who, to: ROUTER, minOut: b.p.floor, deadline }).data });
+    const data = zapCalldata({ plan: b.p, router: ROUTER, amm: AMM, tokenB: TAC, assetA: TETH, assetB: TAC_ID, feeBps: Number(st.fee), deadline, commit, swapData: venues.buildSplit({ split, account: who, to: ROUTER, minOut: b.p.out, deadline }).data });
     if (venue === 'tacit') await send(other, AMM, '0x' + sel('swapPublic(bytes32,bytes32,uint32,uint256,uint256,uint64,address)') + b32(TETH) + b32(TAC_ID) + word(st.fee) + word(2n * 10n ** 17n) + word(1) + word(deadline) + b32(other), 2n * 10n ** 17n);
     else {
       // someone else's buy of TAC on the Precision pool: its own guard and route legs through zRouter

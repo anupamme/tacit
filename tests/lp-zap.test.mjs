@@ -112,6 +112,26 @@ ok(exact > 0 && reverted > 0, `with something landing first a zap is exact or re
   };
   const best = await zapSplitSearch({ eth, ra: L.ra, rb: L.rb, total: L.t, x0: inPool.swapIn, quote }), wIn = zapWorth({ ra: L.ra, rb: L.rb, total: L.t }, inPool);
   ok(best && best.worth.perSent > wIn.perSent + 0.015 && best.plan.value * 1000n >= eth * 995n, `a 1 ETH zap into tETH/TAC split with a venue as deep keeps ${best ? (best.worth.perSent * 100).toFixed(2) : '—'}% of what it sends, against ${(wIn.perSent * 100).toFixed(2)}% all in the pool`);
+
+  // what the search takes, whatever the quotes: a plan that sends at least 99.5% of the ETH and sends back no more than 1% of it as TAC
+  // beyond the slippage room, or none (the zap then swaps all in the pool). A quote that fails, and a venue cheaper and much deeper than
+  // the pool (whose extra TAC would look like gain at the pool's price), must not make it buy TAC only to send it back
+  const fits = (b) => !b || (Number(b.plan.left) <= Number(eth) * 0.005 && b.plan.backA <= Number(eth) * 0.01);
+  let n3 = 0;
+  const flaky = async (X) => (++n3 === 3 ? null : quote(X));
+  const b1 = await zapSplitSearch({ eth, ra: L.ra, rb: L.rb, total: L.t, x0: inPool.swapIn, quote: flaky });
+  ok(fits(b1), `with a quote that fails, the search takes a plan that sends about all of it and little back, or none (${b1 ? `${b1.plan.backA / 1e18} ETH of TAC back` : 'none'})`);
+  const cheap = { ra: L.ra * 20n, rb: (L.rb * 20n * 105n) / 100n };
+  const quoteCheap = async (X) => {
+    let top = null;
+    for (let f = 1n; f < 40n; f++) {
+      const ammX = (X / U) * f / 40n, extX = X / U - ammX, o = ammOut(L.ra, L.rb, ammX, FEE) + ammOut(cheap.ra, cheap.rb, extX, FEE);
+      if (!top || o > top.o) top = { o, ammIn: ammX * U, extIn: extX * U, extOut: ammOut(cheap.ra, cheap.rb, extX, FEE) * U };
+    }
+    return top;
+  };
+  const b2 = await zapSplitSearch({ eth, ra: L.ra, rb: L.rb, total: L.t, x0: inPool.swapIn, quote: quoteCheap });
+  ok(b2 && fits(b2), `with a venue 5% cheaper and twenty times as deep, the search takes the balanced split, not one that buys TAC to send back (${b2 ? `${(b2.plan.backA / 1e18).toFixed(5)} ETH of TAC back, ${(Number(b2.plan.left) / 1e18).toFixed(5)} ETH left` : 'none'})`);
 }
 
 // the calldata: the zap's selector, the legs, the shares as minShares, the swap's floor a unit over the B leg, the router paid the swap

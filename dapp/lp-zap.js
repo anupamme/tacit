@@ -109,44 +109,48 @@ export function zapCalldata({ plan, router, amm, tokenB, assetA, assetB, feeBps 
 }
 
 // What a zap ends with at the pool's price before it, in A units: the position (its share of the pool after the swap's own part and the add)
-// and what comes back (A not sent or not taken, B over what the add takes), per unit of A sent. Plans that send different amounts compare
-// by this, so one cannot look better by depositing less.
-export function zapWorth({ ra, rb, total }, plan, unitA = 10n ** 10n, unitB = 10n ** 10n) {
+// and what comes back (A not sent or not taken, and B over what the add takes, at `backPrice` A per B if given: the price the swap paid for
+// it, so B bought only to come back is no gain), per unit of A sent. Plans that send different amounts compare by this.
+export function zapWorth({ ra, rb, total }, plan, unitA = 10n ** 10n, unitB = 10n ** 10n, backPrice = null) {
   ra = BigInt(ra); rb = BigInt(rb); total = BigInt(total);
   const uA = BigInt(unitA), uB = BigInt(unitB), x = (plan.ammIn ?? plan.swapIn) / uA, outU = (plan.ammOut ?? plan.out) / uB;
   const ra2 = ra + x, rb2 = rb - outU, S = plan.shares, takeA = (S * ra2 + total - 1n) / total, takeB = (S * rb2 + total - 1n) / total;
   const price = Number(ra) / Number(rb), pos = (Number(S) / Number(total + S)) * (Number(ra2 + takeA) + Number(rb2 + takeB) * price);
-  const back = Number(plan.ethLeg / uA - takeA) + (Number(plan.paid ?? plan.out) / Number(uB) - Number(takeB)) * price;
+  const back = Number(plan.ethLeg / uA - takeA) + (Number(plan.paid ?? plan.out) / Number(uB) - Number(takeB)) * (backPrice ?? price);
   const sent = Number(plan.value) / Number(uA);
   return { worth: pos + back, sent, perSent: (pos + back) / sent, left: Number(plan.left) / Number(uA) };
 }
 
 // The best split of a zap's swap between this pool and another venue: `quote(X)` divides a swap of X wei (→ { ammIn, extIn, extOut } or
-// null, ammIn a whole number of units). The total is the one at which the add takes about all the ETH and about all the B (the secant of
-// least B against B needed, from the all-in-pool swap and 15% more), and the other venue's part counts at `slipBps` under its quote.
-// → { plan, worth } with plan.paid the B expected, or null when no split is quoted.
-export async function zapSplitSearch({ eth, ra, rb, total, feeBps = 30n, x0, quote, slipBps = 50n, unitA = 10n ** 10n, unitB = 10n ** 10n }) {
-  const st = { ra: BigInt(ra), rb: BigInt(rb), total: BigInt(total) }, uA = BigInt(unitA);
+// null, ammIn a whole number of units), and the other venue's part counts at `slipBps` under its quote. The total swapped is the one at
+// which the add takes about all of the ETH and about all of the B: found by secant from the all-in-pool swap and 15% more (or 15% less, or
+// 35% more, to bracket it), refined once. Only a plan that sends at least 99.5% of the ETH and sends back no more than `maxBackBps` of it
+// as B over the other venue's room is taken: B over that was bought at a cost only to come back. → { plan, worth }, plan.paid the B
+// expected, or null (no such plan: the zap swaps all in the pool).
+export async function zapSplitSearch({ eth, ra, rb, total, feeBps = 30n, x0, quote, slipBps = 50n, maxBackBps = 100n, unitA = 10n ** 10n, unitB = 10n ** 10n }) {
+  const st = { ra: BigInt(ra), rb: BigInt(rb), total: BigInt(total) }, uA = BigInt(unitA), uB = BigInt(unitB), E = Number(BigInt(eth)), slip = BigInt(slipBps);
   const planOf = (q) => {
     if (!q) return null;
-    const p = zapSplitPlan({ eth, ...st, feeBps, ammIn: q.ammIn, extIn: q.extIn, extMin: (q.extOut * (10000n - BigInt(slipBps))) / 10000n, unitA, unitB });
-    return p && { ...p, paid: p.ammOut + q.extOut, q };
+    const extMin = (q.extOut * (10000n - slip)) / 10000n, p = zapSplitPlan({ eth, ...st, feeBps, ammIn: q.ammIn, extIn: q.extIn, extMin, unitA, unitB });
+    if (!p) return null;
+    const paid = p.ammOut + q.extOut;
+    // the B back beyond the other venue's room, in wei of A at the price the swap paid for it
+    return { ...p, paid, q, backA: (Number(paid - p.bLeg - (q.extOut - extMin)) * Number(p.swapIn)) / Number(paid) };
   };
-  // B short (< 0: ETH left) or over (> 0: B back), in units of A at the pool's price after the swap's own part
-  const gap = (p) => (p ? Number(p.left) / Number(uA) > 0.5 ? -Number(p.left) / Number(uA) : Number(p.spare) / Number(BigInt(unitB)) * Number(p.reservesAfter.ra) / Number(p.reservesAfter.rb) : null);
-  const at = (k) => ((BigInt(x0) * BigInt(k)) / 1000n / uA) * uA;
-  const [p1, p2] = await Promise.all([quote(at(1000)).then(planOf), quote(at(1150)).then(planOf)]);
-  let pick = [p1, p2].filter(Boolean);
-  const g1 = gap(p1), g2 = gap(p2);
-  if (p1 && p2 && g1 < 0 && g2 > 0) {
-    const X = at(1000) + ((at(1150) - at(1000)) * BigInt(Math.round((-g1 / (g2 - g1)) * 1e6))) / 1000000n;
-    const p3 = await quote((X / uA) * uA).then(planOf);
-    if (p3) pick.push(p3);
+  // short of B (< 0: the ETH left unsent) or over (> 0: the B back), in wei of A: zero where the add takes about all of both
+  const gap = (p) => (Number(p.left) > E / 10000 ? -Number(p.left) : p.backA);
+  const at = (k) => (BigInt(x0) * BigInt(k)) / 1000n, tried = [];
+  const ask = (X) => Promise.resolve().then(() => quote((X / uA) * uA)).then(planOf, () => null).then((p) => { if (p) tried.push(p); return p; });
+  let [lo, hi] = await Promise.all([ask(at(1000)), ask(at(1150))]);
+  if (lo && gap(lo) > 0) { const p = await ask(at(850)); if (p && gap(p) < 0) { hi = lo; lo = p; } }
+  else if (hi && gap(hi) < 0) { const p = await ask(at(1350)); if (p && gap(p) > 0) { lo = hi; hi = p; } }
+  for (let i = 0; i < 2 && lo && hi && gap(lo) < 0 && gap(hi) > 0; i++) {
+    const X = lo.swapIn + ((hi.swapIn - lo.swapIn) * BigInt(Math.round((-gap(lo) / (gap(hi) - gap(lo))) * 1e6))) / 1000000n, p = await ask(X);
+    if (!p || Math.abs(gap(p)) <= E * 0.002) break;
+    if (gap(p) < 0) lo = p; else hi = p;
   }
-  // the plans that send about all of it (within 0.5%, else 2%): one that sends less is not the deposit asked for
-  const within = (f) => pick.filter((p) => Number(p.left) / Number(BigInt(eth)) <= f);
-  pick = within(0.005).length ? within(0.005) : within(0.02);
-  if (!pick.length) return null;
-  const scored = pick.map((p) => ({ plan: p, worth: zapWorth(st, p, unitA, unitB) }));
+  const fit = tried.filter((p) => Number(p.left) <= E * 0.005 && p.backA <= (E * Number(maxBackBps)) / 10000);
+  if (!fit.length) return null;
+  const scored = fit.map((p) => ({ plan: p, worth: zapWorth(st, p, unitA, unitB, Number(p.swapIn) / Number(uA) / (Number(p.paid) / Number(uB))) }));
   return scored.reduce((a, b) => (b.worth.perSent > a.worth.perSent ? b : a));
 }

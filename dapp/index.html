@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-SucBQl33Juq1OLOLnVxvDaIsAc43hr8z8q2/u7vJmrQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rAxYnho0bFTrhkR7drr30mUiDh4HFeWfwGYZVxsFqEo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1639,7 +1639,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { zapPlan, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=d4096cc9';
+import { zapPlan, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=30ac5028';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
@@ -3431,8 +3431,8 @@ async function ensureChain(id) {
   }
   if (Number(await S.provider.request({ method: 'eth_chainId' })) !== id) throw new Error(`Switch your wallet to ${CHAIN_META[id].chainName}, then try again.`);
 }
-async function sendTx({ to, data, value = 0n, chainId = 1, via = payer(), label, nest = null, finishes = null, sweep = false }) {
-  if (via === 'tacit') return actTx(await sendFromTacit({ to, data, value: BigInt(value), chainId, sweep }), { label, chainId, nest, finishes });
+async function sendTx({ to, data, value = 0n, chainId = 1, via = payer(), label, nest = null, finishes = null, sweep = false, protect = false }) {
+  if (via === 'tacit') return actTx(await sendFromTacit({ to, data, value: BigInt(value), chainId, sweep, protect }), { label, chainId, nest, finishes });
   if (!S.provider || !S.wallet) await connect();
   await ensureChain(chainId);
   const tx = { from: S.wallet, to, data: '0x' + strip(data), chainId: '0x' + chainId.toString(16) };
@@ -3453,7 +3453,15 @@ function sendFromTacit(o) {
   TACQ.set(nk, p);
   return p;
 }
-async function sendFromTacitNow({ to, data, value, chainId, sweep = false }, a) {
+// Flashbots Protect: a transaction sent through it is kept out of the public mempool until it is included, and is not included (so costs
+// nothing) if it would revert. The zap uses it from the Tacit account: nothing can trade ahead of it to make it revert, or take its slippage.
+const PROTECT_RPC = 'https://rpc.flashbots.net';
+async function protectSend(raw) {
+  const j = await (await fetch(PROTECT_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_sendRawTransaction', params: [raw] }), signal: AbortSignal.timeout(10000) })).json();
+  if (j.error || !/^0x[0-9a-f]{64}$/i.test(j.result || '')) throw new Error(j.error?.message || 'Flashbots Protect did not take it');
+  return j.result;
+}
+async function sendFromTacitNow({ to, data, value, chainId, sweep = false, protect = false }, a) {
   const call = await chainRpc(chainId);
   const where = chainId === 1 ? '' : ` on ${DEVICE_CHAINS.find((c) => c.chainId === chainId).name}`;
   const hex = (n) => '0x' + BigInt(n).toString(16);
@@ -3472,7 +3480,7 @@ async function sendFromTacitNow({ to, data, value, chainId, sweep = false }, a) 
   const { raw } = evmTx.signEip1559({ chainId: BigInt(chainId), nonce: n, maxPriorityFeePerGas: prio, maxFeePerGas: maxFee, gasLimit, to, value, data: tx.data }, a.priv);
   const h0 = '0x' + bytesToHex(keccak_256(hexToBytes(strip(raw))));
   let h;
-  try { h = await call('eth_sendRawTransaction', [raw]); }
+  try { h = protect && chainId === 1 ? await protectSend(raw).catch(() => call('eth_sendRawTransaction', [raw])) : await call('eth_sendRawTransaction', [raw]); }
   catch (e) {
     if (!/already known|known transaction/i.test(e?.message || '') && !(await call('eth_getTransactionByHash', [h0]).catch(() => null))) throw e;
     h = h0;
@@ -9588,9 +9596,11 @@ function farmZap(el, p, status, has, top) {
       const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used: zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId).map((x) => x.index) });
       built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
       const deadline = Math.floor(Date.now() / 1000) + 1200;
-      // a split's swap is the trade venues' own (one zRouter call, the Precision route and this pool's swapPublic), paying the router at least the floor
-      const swap = sp && zapVenues().buildSplit({ split: { ...sp, legs: [sp.legs[0], { ...sp.legs[1], feeBps: Number(res.feeBps ?? 30) }] }, account: from, to: ADDR.confRouter, minOut: plan.floor, deadline: BigInt(deadline) });
-      if (swap && swap.value !== plan.swapIn) throw new Error('The split swap does not match its plan, so nothing was sent. Press again for a fresh quote.');
+      // a split's swap is the trade venues' own (one zRouter call, the Precision route and this pool's swapPublic), and it must pay the router
+      // the least the plan counts on (this pool's part, and the Precision part at its slippage under the quote): so what comes back has that
+      // floor too, and only the slippage room is open to a trade landing first. It is over the add's leg, so some always comes back.
+      const swap = sp && zapVenues().buildSplit({ split: { ...sp, legs: [sp.legs[0], { ...sp.legs[1], feeBps: Number(res.feeBps ?? 30) }] }, account: from, to: ADDR.confRouter, minOut: plan.out, deadline: BigInt(deadline) });
+      if (swap && (swap.value !== plan.swapIn || swap.minOut !== plan.out || plan.out < plan.floor)) throw new Error('The split swap does not match its plan, so nothing was sent. Press again for a fresh quote.');
       const data = zapCalldata({ plan, router: ADDR.confRouter, amm: ADDR.publicAmm, tokenB, assetA: res.assetA, assetB: res.assetB, feeBps: Number(res.feeBps ?? 30), deadline: BigInt(deadline), commit: built.commit, swapData: swap?.data });
       // run as it will be sent: it must mint exactly the shares the note commits to, or nothing is sent
       const sim = strip(await rpc('eth_call', [{ from, to: ADDR.confRouter, data, value: '0x' + plan.value.toString(16) }, 'latest']));
@@ -9598,7 +9608,7 @@ function farmZap(el, p, status, has, top) {
       run.go({ label: `Zap ${fmt(plan.value, 18, 6)} ETH into ${label}`, status: () => status, clear: () => clearField(aIn) });
       run.take(kDep(built));
       run.check();
-      hash = runTx(run, await sendTx({ to: ADDR.confRouter, data, value: plan.value, label: run.to.label }));
+      hash = runTx(run, await sendTx({ to: ADDR.confRouter, data, value: plan.value, label: run.to.label, protect: true }));
       ZAP_LIVE++; guarded = true;
       const rec = { pub, pid, poolId: p.poolId, shares: String(plan.shares), index, depositId: built.depositId, tx: hash, deadline, at: Date.now() };
       zapKeep(rec);
