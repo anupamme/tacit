@@ -12,7 +12,7 @@ import { checkSnwapCall, SNWAP_EXECUTORS, SAFE_EXECUTOR } from '/zrouter-guard.j
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { makePointsNote } from '/points-note.js?cb=dc44d257';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
-import { SERVED } from '/evm-pool-tokens.js?cb=cdc195bc';
+import { SERVED } from '/evm-pool-tokens.js?cb=e1ab5d24';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
@@ -1144,7 +1144,7 @@ const pageSigner = { get address() { return W.account; }, ready: async () => { i
   // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
   canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
   get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=69157231').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=69d85db0').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
 // the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
 const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));

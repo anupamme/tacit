@@ -1,0 +1,89 @@
+{
+ "1": [
+  {
+   "sym": "TAC",
+   "token": "0xA1313eb9f3A445606D9583bcAc3ebeB56a858279",
+   "dec": 18,
+   "pool": "0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe",
+   "router": "0x000000fA029Eaf69840C1490Bf9AA6C094794D5a",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/1-tac/evm-pool/keeper",
+   "permit": "1"
+  },
+  {
+   "sym": "USDC",
+   "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+   "dec": 6,
+   "pool": "0x6C0be904750Fe1b50cd7207cc94731642d99e908",
+   "router": "0xe77D82b9A7B686ADc5F31F4cb83286981AC55FE4",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/1-xa0b86991c6/evm-pool/keeper",
+   "permit": "2"
+  },
+  {
+   "sym": "USDT",
+   "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+   "dec": 6,
+   "pool": "0x73872ceEaADd2C603BD057073D403f08DCB31EB9",
+   "router": "0x5650c850872bc89FC6E22CBB7a51b0e0DAC97198",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/1-xdac17f958d/evm-pool/keeper",
+   "permit": null
+  },
+  {
+   "sym": "wstETH",
+   "token": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+   "dec": 18,
+   "pool": "0x0a83Fb67EE2708F10BCdd8FE23Fa3B30A0247Aac",
+   "router": "0x9416C7BFb7f8d1f164E50f4e055Bd2D8542d60DA",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/1-x7f39c581f5/evm-pool/keeper",
+   "permit": "1"
+  }
+ ],
+ "4663": [
+  {
+   "sym": "USDG",
+   "token": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+   "dec": 6,
+   "pool": "0x4430C0eFdFef640d54abB5a7cDdC63819468d8CA",
+   "router": "0x61E662d16300E107971971014e05beC392Bc0C6D",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/4663-x5fc5360d04/evm-pool/keeper",
+   "permit": "1"
+  },
+  {
+   "sym": "USDe",
+   "token": "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
+   "dec": 18,
+   "pool": "0x1BC62D5fF0a76b8f944C70Bf324EAf9a028f062F",
+   "router": "0xaBDDfD0270eE33FF3788dA4521Af16cbA88818e5",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/4663-x5d3a1ff2b6/evm-pool/keeper",
+   "permit": null
+  }
+ ],
+ "8453": [
+  {
+   "sym": "USDC",
+   "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+   "dec": 6,
+   "pool": "0xCAf6BE2e337AEcAB4a4eA183452f78800fD1616D",
+   "router": "0x7401aFD518eED7f4656DA367d2Fdd0E527cd7838",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/8453-x833589fcd6/evm-pool/keeper",
+   "permit": "2"
+  },
+  {
+   "sym": "USDT",
+   "token": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+   "dec": 6,
+   "pool": "0xC720d51Fa8B768F6b0ba58Bf0812CA76355bcee4",
+   "router": "0xFDf6AAa7451Ec5A97090346C4A021aCe5e67a749",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/8453-xfde4c96c85/evm-pool/keeper",
+   "permit": null
+  },
+  {
+   "sym": "wstETH",
+   "token": "0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452",
+   "dec": 18,
+   "pool": "0x95e51d1BF626390c2C99b748d7A2D31829D94746",
+   "router": "0x3B240f0B684b25C522741b05C14a2aAb4C0ce451",
+   "keeper": "https://tacit-evm-pool-keepers.onrender.com/8453-xc1cba3fcea/evm-pool/keeper",
+   "permit": null
+  }
+ ]
+}

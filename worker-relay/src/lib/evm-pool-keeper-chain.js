@@ -79,6 +79,13 @@ const CHECKPOINTS_ABI = parseAbi([
   'function postedAt(uint256 size) view returns (uint256)',
   'function post(uint256 size, uint256 blockNumber, bytes32[32] filled)',
 ]);
+// The catch-up hub: the same points for any pool, named first (TacitEvmPoolCheckpointsHub); its errors, so a refused post says why.
+export const HUB_ABI = parseAbi([
+  'function latest(address pool) view returns (uint256)',
+  'function postedAt(address pool, uint256 size) view returns (uint256)',
+  'function post(address pool, uint256 size, uint256 blockNumber, bytes32[32] filled)',
+  'error NotEven()', 'error BadBlock()', 'error Known()', 'error NotHeld()',
+]);
 const POOL_ABI = [
   fn('transact', [
     { type: 'uint256[2]' }, { type: 'uint256[2][2]' }, { type: 'uint256[2]' }, { type: 'uint256[11]' }, { type: 'address' },
@@ -154,7 +161,9 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     ? { address: cfg.pool, abi: POOL_ABI, functionName: 'transact' }
     : functionName === 'checkpoints.post'
       ? { address: cfg.pointsAddress, abi: CHECKPOINTS_ABI, functionName: 'post' }
-      : { address: cfg.router, abi: ROUTER_ABI, functionName });
+      : functionName === 'hub.post'
+        ? { address: cfg.pointsHub, abi: HUB_ABI, functionName: 'post' }
+        : { address: cfg.router, abi: ROUTER_ABI, functionName });
   // One signer, one nonce: the loop and relay requests (and any other pool's keeper on this chain with the same key) send through this
   // queue one at a time.
   const signer = signerOf(chainId, account.address);
@@ -202,6 +211,9 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     pointPostedAt: async (size) => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'postedAt', [BigInt(size)])),
     // The pool the registry keeps points for (one registry per pool: another pool's keeper must not post there).
     pointPool: async () => getAddress(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'POOL')),
+    // The hub's newest count for this pool, and the time a count of it was posted (0 for one never posted).
+    hubLatest: async () => Number(await read(cfg.pointsHub, HUB_ABI, 'latest', [cfg.pool])),
+    hubPostedAt: async (size) => Number(await read(cfg.pointsHub, HUB_ABI, 'postedAt', [cfg.pool, BigInt(size)])),
     // Any view on the chain (a price feed the fee checks read).
     readContract: (address, abi, functionName, args = [], opts = {}) => pub.readContract({ address, abi, functionName, args, ...opts }),
     knownRoot: async (root) => read(cfg.pool, POOL_ABI, 'everKnownRoot', [b32(root)]),

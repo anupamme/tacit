@@ -77,3 +77,64 @@ test('proofs are made one at a time across chains, in the order asked, and a fai
   assert.equal(results[1].status, 'rejected'); assert.equal(results[2].value, 'c');
   assert.equal(s.vkHash, 'vk'); assert.equal(s.verify(), true);
 });
+
+// ── catch-up points: the ETH pool's to its registry, every other pool's to the hub ──
+const { pointPosterFor, historyStep } = await import('../src/evm-pool-keepers.js');
+const { loadKeeperConfig, CHECKPOINTS, CHECKPOINT_HUB } = await import('../src/lib/evm-pool-keeper-config.js');
+const ETH_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', TAC_POOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe';
+const ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
+const edge = (size) => ({ confirmed: { tree: { size, toJSON: () => ({ filled: Array.from({ length: 32 }, (_, i) => String(size * 100 + i)) }) }, block: 1000 + size } });
+// A keeper's chain as the poster sees it: the registry keeps the ETH pool's points, the hub has code, nothing posted anywhere yet.
+const pointChain = (pool, address, chainId = 1) => {
+  const sent = [];
+  return {
+    sent, pool, address, chainId,
+    hasCode: async () => true, pointPool: async () => ETH_POOL, pointLatest: async () => 0, pointPostedAt: async () => 0, hubLatest: async () => 0, hubPostedAt: async () => 0,
+    canFront: async () => ({ ok: true, balance: 10n ** 18n, need: 10n ** 15n }),
+    send: async (fn, args, opts) => { sent.push({ fn, args, opts }); return `0x${fn === 'hub.post' ? 'b' : 'a'}${sent.length}`; },
+  };
+};
+const pointsCfg = (env = {}) => loadKeeperConfig({ EVM_POOL_ADDR: ETH_POOL, EVM_POOL_ROUTER_ADDR: ROUTER, EVM_POOL_RPC_URL: 'https://eth', ...env });
+
+test("the hub is on by default; a chain's or a pool's own EVM_POOL_KEEPER_POINTS_HUB turns it off there, and EVM_POOL_KEEPER_POINTS=0 stops every post", () => {
+  const env = { EVM_POOL_ADDR: ETH_POOL, EVM_POOL_ROUTER_ADDR: ROUTER, EVM_POOL_RPC_URL: 'https://eth', EVM_POOL_ADDR_1_TAC: TAC_POOL, EVM_POOL_ROUTER_ADDR_1_TAC: ROUTER, EVM_POOL_KEEPER_POINTS_HUB_8453: '0' };
+  const eth = loadKeeperConfig(envFor(1, env)), base = loadKeeperConfig(envFor(8453, env)), tac = loadKeeperConfig(envFor('1-tac', env));
+  assert.equal(eth.pointsAddress, CHECKPOINTS); assert.equal(eth.pointsHub, CHECKPOINT_HUB);
+  assert.equal(CHECKPOINT_HUB, '0x00000000C824B4F120C03f4Bdd4Bf4656232E835');
+  assert.equal(base.pointsHub, null, 'off on Base alone'); assert.equal(base.pointsAddress, CHECKPOINTS, 'the registry stays on there');
+  assert.equal(tac.pointsHub, CHECKPOINT_HUB, "a named pool takes its chain's hub");
+  assert.equal(loadKeeperConfig(envFor('1-tac', { ...env, EVM_POOL_KEEPER_POINTS_HUB_1_TAC: '0' })).pointsHub, null, 'and its own knob wins');
+  const none = pointsCfg({ EVM_POOL_KEEPER_POINTS: '0' });
+  assert.equal(none.pointsAddress, null); assert.equal(none.pointsHub, null);
+  assert.equal(pointsCfg({ EVM_POOL_KEEPER_POINTS_HUB: '0x00000000000000000000000000000000000000b0' }).pointsHub, '0x00000000000000000000000000000000000000B0');
+});
+
+test("the keepers sharing a key on a chain each post their own points, the ETH pool's to the registry and the TAC pool's to the hub, one at a time", async () => {
+  let clock = 1_800_000_000_000;
+  const key = '0x00000000000000000000000000000000000000c1', cfg = pointsCfg(), logs = [];
+  const eth = { chain: pointChain(ETH_POOL, key), leafSync: { sync: async () => edge(400) }, log: (m) => logs.push(m) };
+  const tac = { chain: pointChain(TAC_POOL, key), leafSync: { sync: async () => edge(600) }, log: (m) => logs.push(m) };
+  for (const k of [eth, tac]) k.poster = pointPosterFor({ chain: k.chain, cfg, log: k.log, now: () => clock });
+  assert.equal(await historyStep(eth), '0xa1');
+  assert.deepEqual([eth.chain.sent[0].fn, eth.chain.sent[0].args[0]], ['checkpoints.post', 400n]);
+  assert.equal(await historyStep(tac), null, 'the TAC pool waits for the key');
+  clock += 5 * 60_000 + 1;
+  assert.equal(await historyStep(tac), '0xb1');
+  assert.deepEqual([tac.chain.sent[0].fn, tac.chain.sent[0].args[0], tac.chain.sent[0].args[1], tac.chain.sent[0].args[2], tac.chain.sent[0].opts.gas], ['hub.post', TAC_POOL, 600n, 1600n, 2500000n]);
+  assert.equal(eth.poster.target(), 'registry'); assert.equal(tac.poster.target(), 'hub');
+  // a pool on another chain, with the same key, does not wait for chain 1's
+  const other = { chain: pointChain(TAC_POOL, key, 8453), leafSync: { sync: async () => edge(800) }, log: () => {} };
+  other.poster = pointPosterFor({ chain: other.chain, cfg, log: other.log, now: () => clock });
+  assert.equal(await historyStep(other), '0xb1');
+});
+
+test('a pool served on a day\'s allowance of gas posts no points; a failed sync or read is logged and the loop goes on', async () => {
+  const cfg = pointsCfg();
+  assert.equal(pointPosterFor({ chain: pointChain(TAC_POOL, '0x00000000000000000000000000000000000000c2'), cfg, budgeted: true }), null);
+  const logs = [], k = { chain: pointChain(TAC_POOL, '0x00000000000000000000000000000000000000c3'), leafSync: { sync: async () => { throw new Error('node down'); } }, log: (m) => logs.push(m) };
+  k.poster = pointPosterFor({ chain: k.chain, cfg, log: k.log });
+  assert.equal(await historyStep(k), null); assert.match(logs.join(), /history sync: node down/); assert.equal(k.chain.sent.length, 0);
+  k.leafSync.sync = async () => edge(400); k.chain.hubLatest = async () => { throw new Error('hub read failed'); };
+  assert.equal(await historyStep(k), null); assert.match(logs.join(), /catch-up point: hub read failed/);
+  assert.equal(await historyStep({ leafSync: { sync: async () => edge(400) }, poster: null, log: () => {} }), null, 'a keeper with no poster only syncs');
+});

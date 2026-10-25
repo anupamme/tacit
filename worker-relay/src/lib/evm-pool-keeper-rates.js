@@ -4,7 +4,10 @@
 //   tac:<TacPairOracle>     TAC: the lower of the two venues' spot prices the vaults' pair oracle reads (Precision and the Tacit pool), and
 //                           of its latest recorded price when it has one; and the lowest such price read over the last cfg.rateWindowSecs,
 //                           so raising the fee's worth takes holding both venues up for that long
-//   usd:<Chainlink feed>    a token worth one US dollar (TACD): ETH per dollar from an ETH/USD feed, refused once its answer is stale
+//   usd:<Chainlink feed>[:<max age, s>]
+//                           a token worth one US dollar (TACD): ETH per dollar from an ETH/USD feed, refused once its answer is stale:
+//                           older than two hours, or than the age named, for a chain whose feed is written less often (Robinhood
+//                           Chain's ETH/USD is written on a 0.5% move or once a day, so an answer a day old is still within 0.5%)
 //   eth                     a token worth one ETH (TACE)
 //   zq[:<zQuoter>]          any token zQuoter routes (an opened token pool): what one whole token sells for, the best pool's quote, and the
 //                           lowest over the window, as TAC's
@@ -19,8 +22,9 @@ const ZQ_ABI = parseAbi(['function getQuotes(bool exactOut, address tokenIn, add
 export const ZQUOTER = '0x000000bd2DB80567c23E353ca95a251c573cBf9B';
 const FEED_ABI = parseAbi(['function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)', 'function decimals() view returns (uint8)']);
 const TOKEN_ABI = parseAbi(['function decimals() view returns (uint8)']);
-// Chainlink's ETH/USD heartbeat is an hour; an answer older than two is not a price.
-const FEED_STALE_SECS = 2 * 3600;
+// Chainlink's ETH/USD heartbeat is an hour on Ethereum; an answer older than two is not a price. A feed named with its own age may take up
+// to two days (past its heartbeat, an answer is a feed that has stopped).
+const FEED_STALE_SECS = 2 * 3600, FEED_STALE_MAX_SECS = 2 * 86400;
 const ETH = '0x0000000000000000000000000000000000000000';
 
 // "tac:<address>" | "usd:<address>" | "eth" | "" → { kind, address? } or null.
@@ -29,10 +33,15 @@ export function parseRateFeed(v) {
   if (!s) return null;
   if (s === 'eth') return { kind: 'eth' };
   if (s === 'zq') return { kind: 'zq', address: ZQUOTER };
-  const [kind, address] = s.split(':').map((x) => x.trim());
+  const [kind, address, age] = s.split(':').map((x) => x.trim());
   if (kind === 'zq' && isAddress(address || '')) return { kind, address: getAddress(address) };
-  if ((kind === 'tac' || kind === 'usd') && isAddress(address || '')) return { kind, address: getAddress(address) };
-  throw new Error(`EVM_POOL_KEEPER_RATE_FEED: bad value "${s}" (tac:<pair oracle>, usd:<ETH/USD feed>, eth or zq[:<zQuoter>])`);
+  if (kind === 'tac' && isAddress(address || '')) return { kind, address: getAddress(address) };
+  if (kind === 'usd' && isAddress(address || '')) {
+    if (!age) return { kind, address: getAddress(address) };
+    const secs = /^\d+$/.test(age) ? Number(age) : NaN;
+    if (secs >= 60 && secs <= FEED_STALE_MAX_SECS) return { kind, address: getAddress(address), maxAgeSecs: secs };
+  }
+  throw new Error(`EVM_POOL_KEEPER_RATE_FEED: bad value "${s}" (tac:<pair oracle>, usd:<ETH/USD feed>[:<max age, 60 to ${FEED_STALE_MAX_SECS} s>], eth or zq[:<zQuoter>])`);
 }
 
 // `read(address, abi, functionName, args)` is a view call (makeKeeperChain's readContract). → { refresh, rate } where refresh() reads the
@@ -70,7 +79,7 @@ export function makeRateFeed({ feed, token, read, cfg, log = () => {}, now = () 
     }
     const [[, answer, , updatedAt], fdec] = await Promise.all([read(feed.address, FEED_ABI, 'latestRoundData'), read(feed.address, FEED_ABI, 'decimals')]);
     if (BigInt(answer) <= 0n) throw new Error('the ETH/USD feed has no answer');
-    if (now() / 1000 - Number(updatedAt) > FEED_STALE_SECS) throw new Error(`the ETH/USD feed's answer is ${Math.round((now() / 1000 - Number(updatedAt)) / 60)} minutes old`);
+    if (now() / 1000 - Number(updatedAt) > (feed.maxAgeSecs ?? FEED_STALE_SECS)) throw new Error(`the ETH/USD feed's answer is ${Math.round((now() / 1000 - Number(updatedAt)) / 60)} minutes old`);
     // a dollar is 10^fdec / answer ETH
     return perBase((E18 * 10n ** BigInt(fdec)) / BigInt(answer));
   }

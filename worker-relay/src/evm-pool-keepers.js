@@ -12,16 +12,20 @@
 //   EVM_POOL_KEEPER_DB_<chainId>             the chain's store (default <EVM_POOL_KEEPER_DB dir>/keeper-<chainId>.db; keeper-1-tac.db …)
 //   EVM_POOL_SEED_FEED_<chainId>             another keeper's feed base (…/evm-pool/keeper) an empty store is seeded from, root-checked
 //   EVM_POOL_SEED_RESET_<chainId>=1          empty a part-replayed store first (one time; unset after)
-//   EVM_POOL_TOKEN_POOLS_<chainId>=<block>   serve the token pools anyone opens on Ethereum (dapp/evm-pool-tokens.js) for the tokens in
-//                                            its SERVED and EVM_POOL_TOKEN_POOLS_ALLOW_<chainId> (addresses, comma-separated), found from
-//                                            CreateX's logs from that block on, each as the named pool <chainId>-x<token's first ten hex
-//                                            digits> with the chain's key and zQuoter's price (EVM_POOL_TOKEN_POOLS_MAX, default 30); POST
-//                                            /token-pools { token } names any other token's pool, kept once it is on chain and served on a
-//                                            day's allowance of gas (EVM_POOL_TOKEN_POOLS_DAY_WEI, default 0.003 ETH; at most
-//                                            EVM_POOL_TOKEN_POOLS_NAMED, default 10)
+//   EVM_POOL_TOKEN_POOLS_<chainId>=<block>   serve the token pools anyone opens on that chain (dapp/evm-pool-tokens.js, a chain its
+//                                            TOKEN_POOL_CHAINS names) for the tokens in EVM_POOL_TOKEN_POOLS_ALLOW_<chainId> (addresses,
+//                                            comma-separated) and, on Ethereum, its SERVED, found from CreateX's logs from that block on,
+//                                            each as the named pool <chainId>-x<token's first ten hex digits> with the chain's key and
+//                                            zQuoter's price unless its own EVM_POOL_KEEPER_RATE_FEED_<CHAINID>_X… names another
+//                                            (EVM_POOL_TOKEN_POOLS_MAX, default 30); POST /token-pools { token, chainId? } names any other
+//                                            token's pool on that chain (Ethereum when none is named), kept once it is on chain and served
+//                                            on a day's allowance of gas (EVM_POOL_TOKEN_POOLS_DAY_WEI, default 0.003 ETH; at most
+//                                            EVM_POOL_TOKEN_POOLS_NAMED, default 10); GET /token-pools[?chainId=] lists a chain's
 //
 // Pools on one chain may share a key: their sends go through one queue per signer (evm-pool-keeper-chain.js), so they never race for a
 // nonce. A pool that holds a token is paid in it; EVM_POOL_KEEPER_RATE_FEED keeps its price in ETH current (evm-pool-keeper-rates.js).
+// Each keeper posts its pool's catch-up points (evm-pool-keeper-points.js): the ETH pool's to its registry (EVM_POOL_KEEPER_POINTS),
+// any other pool's to the hub (EVM_POOL_KEEPER_POINTS_HUB, 0 for none) once the hub has code on its chain (dapp/admin/token-pools/HUB.md).
 //
 // HTTP, on PORT: /<id>/evm-pool/keeper/* and /<id>/health are that keeper's routes, exactly as its own service served them at
 // /evm-pool/keeper/* and /health; the unprefixed routes are the first keeper's, so a page built for one keeper still works. GET /health
@@ -41,11 +45,12 @@ import { makePipeline } from './lib/evm-pool-keeper-pipeline.js';
 import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
 import { seedFromFeed } from './lib/evm-pool-keeper-seed.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
+import { makePointPoster, signerGate } from './lib/evm-pool-keeper-points.js';
 import { makeRateFeed, parseRateFeed } from './lib/evm-pool-keeper-rates.js';
 import { makeTokenPoolDiscovery } from './lib/evm-pool-token-discovery.js';
 import { makeGasBudget, budgeted } from './lib/evm-pool-gas-budget.js';
 import { createIntakeHandler, IntakeError } from './lib/evm-pool-keeper-intake.js';
-import { makeTokenPools, keeperIdOf, SERVED, CHAIN_ID as TOKEN_POOLS_CHAIN } from '../../dapp/evm-pool-tokens.js';
+import { makeTokenPools, keeperIdOf, SERVED, CHAIN_ID as TOKEN_POOLS_CHAIN, TOKEN_POOL_CHAINS } from '../../dapp/evm-pool-tokens.js';
 import { keccak_256 } from '../../dapp/vendor/tacit-deps.min.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -115,6 +120,23 @@ export function serialProver(prover) {
   };
 }
 
+// A keeper's catch-up point poster (lib/evm-pool-keeper-points.js): the ETH pool's points go to its registry, any other pool's to the
+// hub once the hub has code on the chain, and the pools that share a key on a chain post one at a time. A pool served on a day's
+// allowance of gas (named on request) posts none: one post would spend most of the day's allowance, which is for its users' relays.
+export function pointPosterFor({ chain, cfg, budgeted = false, log, now }) {
+  if (budgeted) return null;
+  return makePointPoster({ chain, cfg, log, ...(now ? { now } : {}), gate: signerGate(chain.chainId, chain.address) });
+}
+
+// A keeper's history step: its stored history (the /events feed) brought up to date, then a catch-up point posted from it when one is
+// due. → the hash of a post sent, or null.
+export async function historyStep(k) {
+  let synced;
+  try { synced = await k.leafSync.sync(); } catch (e) { k.log(`history sync: ${safeErr(e)}`); return null; }
+  if (!k.poster) return null;
+  try { return await k.poster.maybePost(synced); } catch (e) { k.log(`catch-up point: ${safeErr(e)}`); return null; }
+}
+
 // A plain JSON-RPC call over `urls`, each tried in turn (the token pools' discovery reads logs and views through the chain keeper's nodes).
 const rpcOver = (urls) => async (method, params) => {
   let last;
@@ -180,7 +202,8 @@ async function main() {
     const assetKey = chain.asset.toLowerCase();
     if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey) && !rates) clog(`warning: no EVM_POOL_KEEPER_MIN_FEES, _TOKEN_RATES or _RATE_FEED entry for the pool asset ${assetKey}; deposits will be skipped`);
     clog(`keeper ${account.address} on chain ${chain.chainId}: pool ${chain.pool} router ${chain.router} asset ${chain.asset} vk ${prover.vkHash.slice(0, 16)} store ${cfg.dbPath}${cfg.dryRun ? ' (dry run)' : ''}`);
-    const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, lastTickOk: true, log: clog };
+    const poster = pointPosterFor({ chain, cfg, budgeted: !!dayBudgetWei, log: clog });
+    const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, poster, lastTickOk: true, log: clog };
     k.handler = createIntakeHandler({ store, chain, zk, assetField, cfg, log: clog, leafSync, pipeline, isReady: () => k.lastTickOk });
     pools.set(poolKey, id);
     return k;
@@ -207,7 +230,7 @@ async function main() {
         catch (e) { k.lastTickOk = false; k.log(`tick failed: ${safeErr(e)}`); }
         if (Date.now() - lastHistory >= k.cfg.historySecs * 1000) {
           lastHistory = Date.now();
-          try { await k.leafSync.sync(); } catch (e) { k.log(`history sync: ${safeErr(e)}`); }
+          await historyStep(k);
         }
         await sleep(k.cfg.pollSecs * 1000);
       }
@@ -226,8 +249,9 @@ async function main() {
   }
   if (!running.length) { log('no chain is enabled'); return; }
 
-  // POST /token-pools { token }: someone names a token pool for the relay to keep (set once the token pools are on, below)
-  const tokenApi = { notify: null, list: null };
+  // POST /token-pools { token, chainId? }: someone names a token pool for the relay to keep, on the chain named or Ethereum (each chain's
+  // set once its token pools are on, below)
+  const tokenApis = new Map();  // chainId → { notify, list }
   const asked = new Map();      // client → the times it named a pool in the last hour
   const askedOk = (who) => { const t = Date.now(), a = (asked.get(who) || []).filter((x) => t - x < 3_600_000); if (a.length >= 30) return false; a.push(t); asked.set(who, a); return true; };
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
@@ -235,20 +259,25 @@ async function main() {
   const port = Number(process.env.PORT || 10000);
   createServer((req, res) => {
     const url = req.url || '/';
-    if (url === '/token-pools' || url === '/token-pools/') {
+    const [path, query = ''] = url.split('?');
+    if (path === '/token-pools' || path === '/token-pools/') {
       if (req.method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }); return res.end(); }
-      if (!tokenApi.notify) return json(res, 404, { error: 'this relay keeps no token pools' });
-      if (req.method === 'GET') return json(res, 200, tokenApi.list());
+      const apiOf = (c) => (/^\d{1,10}$/.test(String(c ?? TOKEN_POOLS_CHAIN)) ? tokenApis.get(Number(c ?? TOKEN_POOLS_CHAIN)) : null);
+      const none = (c) => json(res, 404, { error: `this relay keeps no token pools${c != null && Number(c) !== TOKEN_POOLS_CHAIN ? ` on chain ${c}` : ''}` });
+      if (req.method === 'GET') { const c = new URLSearchParams(query).get('chainId'); const api = apiOf(c); return api ? json(res, 200, api.list()) : none(c); }
       if (req.method !== 'POST') return json(res, 405, { error: 'GET or POST' });
+      if (!tokenApis.size) return none(null);
       const who = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
       if (!askedOk(who)) return json(res, 429, { error: 'rate limited' });
       let body = '';
       req.on('data', (c) => { body += c; if (body.length > 1024) req.destroy(); });
       req.on('end', async () => {
-        let token = null;
-        try { token = JSON.parse(body || '{}').token; } catch { /* below */ }
-        if (!/^0x[0-9a-fA-F]{40}$/.test(String(token || '')) || BigInt(token) === 0n) return json(res, 400, { error: 'name a token: { "token": "0x…" }' });
-        try { return json(res, 200, await tokenApi.notify(token)); } catch (e) { return json(res, 502, { error: safeErr(e) }); }
+        let token = null, chainId = null;
+        try { ({ token, chainId = null } = JSON.parse(body || '{}')); } catch { /* below */ }
+        if (!/^0x[0-9a-fA-F]{40}$/.test(String(token || '')) || BigInt(token) === 0n) return json(res, 400, { error: 'name a token: { "token": "0x…", "chainId"?: 1 }' });
+        const api = apiOf(chainId);
+        if (!api) return none(chainId);
+        try { return json(res, 200, await api.notify(token)); } catch (e) { return json(res, 502, { error: safeErr(e) }); }
       });
       return;
     }
@@ -271,18 +300,19 @@ async function main() {
   for (const id of running) runKeeper(keepers.get(id));
 
   // Token pools anyone opens (dapp/evm-pool-tokens.js), found on chain and served as they appear: EVM_POOL_TOKEN_POOLS_<chainId>=<first block>
-  // turns it on for Ethereum's own pool running here; each runs on that chain's nodes and key, paid in its token at zQuoter's price. Only the
-  // tokens listed are served: deep enough that whoever opens a pool cannot set the price its fees are taken at.
+  // turns it on for a chain whose own pool runs here; each runs on that chain's nodes and key, paid in its token at zQuoter's price (or the
+  // feed its own knob names). Only the tokens listed are served: deep enough that whoever opens a pool cannot set the price its fees are
+  // taken at. SERVED is Ethereum's list; another chain serves what its EVM_POOL_TOKEN_POOLS_ALLOW_<chainId> names.
   for (const chainId of [...new Set(running.filter(chainPool).map((id) => keepers.get(id).chainId))]) {
     const from = process.env[`EVM_POOL_TOKEN_POOLS_${chainId}`];
     if (!from) continue;
     const tlog = (...a) => console.log(`[evm-pool-token-pools ${chainId} ${new Date().toISOString()}]`, ...a);
-    if (chainId !== TOKEN_POOLS_CHAIN) { tlog(`token pools are on chain ${TOKEN_POOLS_CHAIN} only`); continue; }
+    if (!TOKEN_POOL_CHAINS[chainId]) { tlog(`no token pools on chain ${chainId}: dapp/evm-pool-tokens.js has no constants for it`); continue; }
     const ck = keepers.get(String(chainId));
     const code = JSON.parse(readFileSync(new URL('../../dapp/evm-pool/token-pool-code.json', import.meta.url), 'utf8'));
-    const tp = makeTokenPools({ code, keccak256: keccak_256 });
+    const tp = makeTokenPools({ code, keccak256: keccak_256, chain: TOKEN_POOL_CHAINS[chainId] });
     const extra = String(process.env[`EVM_POOL_TOKEN_POOLS_ALLOW_${chainId}`] || '').split(',').map((x) => x.trim()).filter(Boolean);
-    const tokens = [...new Set([...Object.keys(SERVED), ...extra.map((x) => x.toLowerCase())])];
+    const tokens = [...new Set([...(chainId === TOKEN_POOLS_CHAIN ? Object.keys(SERVED) : []), ...extra.map((x) => x.toLowerCase())])];
     for (const t of extra) tp.poolOf(t);   // a bad address stops here, at start
     const disc = makeTokenPoolDiscovery({ tp, tokens, rpc: rpcOver([...(ck.cfg.logRpcUrls?.length ? ck.cfg.logRpcUrls : []), ...ck.cfg.rpcUrls]), fromBlock: BigInt(from),
       statePath: join(dirname(ck.cfg.dbPath), `token-pools-${chainId}.json`), confirmations: BigInt(process.env.EVM_POOL_TOKEN_POOLS_CONFIRMATIONS || 3),
@@ -296,8 +326,9 @@ async function main() {
       const f = makeRateFeed({ feed: parseRateFeed(feed), token, read: ck.chain.readContract, cfg: { rates: new Map(), rateWindowSecs: 0, rateMaxAgeSecs: 0 } });
       return (await f.refresh()) != null;
     };
+    const idOf = (token) => keeperIdOf(token, chainId);
     const serve = async (p) => {
-      const id = keeperIdOf(p.token), inst = { id, chainId, suffix: suffixOf(id) };
+      const id = idOf(p.token), inst = { id, chainId, suffix: suffixOf(id) };
       if (keepers.has(id)) return;
       if (served.size >= max) { tlog(`${max} token pools served already; ${p.token}'s waits`); return; }
       const feed = process.env[`EVM_POOL_KEEPER_RATE_FEED${inst.suffix}`] || 'zq';
@@ -313,20 +344,21 @@ async function main() {
         tlog(`serving the ${p.token} pool at /${id}/evm-pool/keeper`);
       } catch (e) { tlog(`${p.token}'s pool not served yet: ${safeErr(e)}`); }
     };
-    tokenApi.notify = async (token) => {
+    const notify = async (token) => {
       const r = await disc.notify(token);
       // kept now, or kept before and not served yet (its price unread then): served as soon as it can be
       const entry = r.entry || (r.status === 'known' || r.status === 'served' ? disc.known().find((x) => x.token.toLowerCase() === token.toLowerCase()) : null);
-      if (entry && !keepers.has(keeperIdOf(entry.token))) serve(entry).catch(() => {});
-      return { status: r.status, pool: r.pool ?? null, id: keeperIdOf(token), serving: keepers.has(keeperIdOf(token)) };
+      if (entry && !keepers.has(idOf(entry.token))) serve(entry).catch(() => {});
+      return { status: r.status, pool: r.pool ?? null, id: idOf(token), serving: keepers.has(idOf(token)) };
     };
-    tokenApi.list = () => ({ chainId, pools: running.filter((id) => id.startsWith(`${chainId}-x`)).map((id) => { const k = keepers.get(id); return { id, pool: k.cfg.pool, asset: k.chain.asset, named: !!k.chain.gasBudget, ...(k.chain.gasBudget ? { gasLeftWei: k.chain.gasBudget.left().toString() } : {}) }; }) });
+    const list = () => ({ chainId, pools: running.filter((id) => id.startsWith(`${chainId}-x`)).map((id) => { const k = keepers.get(id); return { id, pool: k.cfg.pool, asset: k.chain.asset, named: !!k.chain.gasBudget, ...(k.chain.gasBudget ? { gasLeftWei: k.chain.gasBudget.left().toString() } : {}) }; }) });
+    tokenApis.set(chainId, { notify, list });
     (async () => {
       for (const p of disc.known()) await serve(p);
       for (;;) {
         try { for (const p of await disc.scan()) await serve(p); } catch (e) { tlog(`scan: ${safeErr(e)}`); }
         // a pool found before its token could be priced is tried again each round
-        for (const p of disc.known()) if (!keepers.has(keeperIdOf(p.token))) await serve(p);
+        for (const p of disc.known()) if (!keepers.has(idOf(p.token))) await serve(p);
         await sleep(Number(process.env.EVM_POOL_TOKEN_POOLS_SECS || 300) * 1000);
       }
     })();

@@ -6,7 +6,8 @@
 // from, dapp/evm-pool/token-pool-code.json, checked here against their init-code hashes), so whoever sends it, it is the same contract.
 // TAC and the TAC vaults' synths have pools of their own already, at mined addresses (FIXED).
 //
-// `makeTokenPools({ code, keccak256 })`: `code` is token-pool-code.json, `keccak256(bytes) → bytes`.
+// `makeTokenPools({ code, keccak256, chain? })`: `code` is token-pool-code.json, `keccak256(bytes) → bytes`, and `chain` the chain's
+// constants (TOKEN_POOL_CHAINS), Ethereum's when left out. The same token has a pool of its own on each chain, under salts of that chain.
 
 export const CHAIN_ID = 1;
 export const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
@@ -16,6 +17,15 @@ export const ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4';
 export const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 export const V1 = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
 export const POSEIDON4 = '0x555333f3f677Ca3930Bf7c56ffc75144c51D9767';
+const ZERO = '0x0000000000000000000000000000000000000000';
+// What a token pool is built with on each chain: the constructor arguments of the live ETH pool and router there (as their immutables
+// read), so a token pool on any chain is that chain's ETH pool and router with the token as the asset. V1 is on Ethereum alone: the
+// routers on Base and Robinhood Chain were built with none (zero), which leaves their V1 wraps off; the rest is at the same address on all.
+export const TOKEN_POOL_CHAINS = {
+  1: { chainId: 1, verifier: VERIFIER, zRouter: ZROUTER, permit2: PERMIT2, v1: V1, poseidon4: POSEIDON4 },
+  8453: { chainId: 8453, verifier: VERIFIER, zRouter: ZROUTER, permit2: PERMIT2, v1: ZERO, poseidon4: POSEIDON4 },
+  4663: { chainId: 4663, verifier: VERIFIER, zRouter: ZROUTER, permit2: PERMIT2, v1: ZERO, poseidon4: POSEIDON4 },
+};
 export const KEEPERS = 'https://tacit-evm-pool-keepers.onrender.com';
 // The relay's address for every Ethereum pool (the ETH pool's keeper sends for the token pools too).
 export const RELAYER = '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0';
@@ -49,34 +59,46 @@ const addrWord = (a) => lc(strip(a)).padStart(64, '0');
 const padRight = (h) => h + '0'.repeat((64 - (h.length % 64)) % 64);
 const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(String(a || ''));
 // The keeper route of a token pool opened under these salts: the chain and the token's first ten hex digits (a name the relay's routes take).
-export const keeperIdOf = (token) => FIXED[lc(token)]?.id || `1-x${lc(strip(token)).slice(0, 10)}`;
+export const keeperIdOf = (token, chainId = CHAIN_ID) => (Number(chainId) === CHAIN_ID && FIXED[lc(token)]?.id) || `${Number(chainId)}-x${lc(strip(token)).slice(0, 10)}`;
 
-export function makeTokenPools({ code, keccak256 }) {
+export function makeTokenPools({ code, keccak256, chain = TOKEN_POOL_CHAINS[CHAIN_ID] }) {
   if (!code?.pool || !code?.router || !code?.check) throw new Error('evm-pool-tokens: no creation code');
+  const chainId = Number(chain?.chainId);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error('evm-pool-tokens: a chain id');
+  if (!isAddr(chain.verifier) || BigInt(chain.verifier) === 0n || ![chain.zRouter, chain.permit2, chain.v1, chain.poseidon4].every(isAddr)) {
+    throw new Error(`evm-pool-tokens: chain ${chainId}'s verifier, zRouter, Permit2, V1 and Poseidon addresses`);
+  }
   const k = (hex) => '0x' + hexOf(keccak256(bytesOf(hex)));
-  const poolInit = (token) => '0x' + strip(code.pool) + addrWord(VERIFIER) + addrWord(token);
-  const routerInit = (pool) => '0x' + strip(code.router) + [pool, ZROUTER, PERMIT2, V1, POSEIDON4].map(addrWord).join('');
-  // the code must rebuild the live TAC pool and router, or nothing it would open or find is the pool it claims
-  if (k(poolInit(code.check.asset)) !== lc(code.check.poolInitHash) || k(routerInit(code.check.pool)) !== lc(code.check.routerInitHash)) {
+  const initsOf = (c) => ({
+    pool: (token) => '0x' + strip(code.pool) + addrWord(c.verifier) + addrWord(token),
+    router: (pool) => '0x' + strip(code.router) + [pool, c.zRouter, c.permit2, c.v1, c.poseidon4].map(addrWord).join(''),
+  });
+  // the code must rebuild the live TAC pool and router (on Ethereum, with Ethereum's arguments), or nothing it would open or find is the
+  // pool it claims
+  const eth = initsOf(TOKEN_POOL_CHAINS[CHAIN_ID]);
+  if (k(eth.pool(code.check.asset)) !== lc(code.check.poolInitHash) || k(eth.router(code.check.pool)) !== lc(code.check.routerInitHash)) {
     throw new Error('evm-pool-tokens: the creation code does not rebuild the live TAC pool and router');
   }
+  const { pool: poolInit, router: routerInit } = initsOf(chain);
+  // TAC and the synths have their mined pools on Ethereum only
+  const fixedOf = (token) => (chainId === CHAIN_ID ? FIXED[lc(token)] : undefined);
   const checksum = (a) => {
     const h = lc(strip(a)), d = hexOf(keccak256(new TextEncoder().encode(h)));
     return '0x' + [...h].map((c, i) => (parseInt(d[i], 16) >= 8 ? c.toUpperCase() : c)).join('');
   };
   // 20 zero bytes and 0x00 (anyone may use it; CreateX guards it as keccak256(salt)), then eleven bytes fixed by the kind, chain and token
-  const saltOf = (kind, token) => '0x' + '00'.repeat(21) + k('0x' + hexOf(new TextEncoder().encode(`tacit-evm-token-${kind}-v1`)) + word(CHAIN_ID) + addrWord(token)).slice(2, 24);
+  const saltOf = (kind, token) => '0x' + '00'.repeat(21) + k('0x' + hexOf(new TextEncoder().encode(`tacit-evm-token-${kind}-v1`)) + word(chainId) + addrWord(token)).slice(2, 24);
   const create2 = (salt, init) => checksum('0x' + k('0xff' + strip(CREATEX) + strip(k(salt)) + strip(k(init))).slice(-40));
 
-  // → { token, pool, router, poolSalt?, routerSalt?, poolGuard? (the salt as CreateX logs it), fixed, id, keeper }
+  // → { chainId, token, pool, router, poolSalt?, routerSalt?, poolGuard? (the salt as CreateX logs it), fixed, id, keeper }
   function poolOf(token) {
     if (!isAddr(token) || BigInt(token) === 0n) throw new Error('evm-pool-tokens: a token address');
-    const f = FIXED[lc(token)];
-    if (f) return { token: checksum(token), pool: f.pool, router: f.router, fixed: true, from: f.from, id: f.id, keeper: `${KEEPERS}/${f.id}/evm-pool/keeper` };
+    const f = fixedOf(token);
+    if (f) return { chainId, token: checksum(token), pool: f.pool, router: f.router, fixed: true, from: f.from, id: f.id, keeper: `${KEEPERS}/${f.id}/evm-pool/keeper` };
     const poolSalt = saltOf('pool', token), pool = create2(poolSalt, poolInit(token));
     const routerSalt = saltOf('router', token), router = create2(routerSalt, routerInit(pool));
-    const id = keeperIdOf(token);
-    return { token: checksum(token), pool, router, poolSalt, routerSalt, poolGuard: k(poolSalt), fixed: false, id, keeper: `${KEEPERS}/${id}/evm-pool/keeper` };
+    const id = keeperIdOf(token, chainId);
+    return { chainId, token: checksum(token), pool, router, poolSalt, routerSalt, poolGuard: k(poolSalt), fixed: false, id, keeper: `${KEEPERS}/${id}/evm-pool/keeper` };
   }
   // Whether `address` is the pool (or router) these salts give `token`: what a pool found on chain must be to be served or shown.
   const isPool = (token, address) => lc(poolOf(token).pool) === lc(address);
@@ -106,7 +128,7 @@ export function makeTokenPools({ code, keccak256 }) {
     const heads = tuples.map((t) => { const h = word(off); off += t.length / 2; return h; });
     return { to: MULTICALL3, data: SEL.aggregate3 + word(32) + word(calls.length) + heads.join('') + tuples.join(''), value: 0n, gas: 5_200_000n };
   }
-  return { poolOf, isPool, isRouter, openTx, deploySteps, poolInit, routerInit, saltOf };
+  return { chainId, poolOf, isPool, isRouter, openTx, deploySteps, poolInit, routerInit, saltOf };
 }
 
 // Whether a token's pool and router are on chain: `ethCall(to, data)` → the hex a view returns ('0x' or a revert where there is none).

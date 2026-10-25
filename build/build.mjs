@@ -468,6 +468,8 @@ const PINNED_PAGES = [
   { name: 'ceremony/index.html', file: CEREMONY_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },
   { name: 'secret-sats/index.html', file: SECRET_SATS_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },
   { name: 'tacit-v1/index.html', file: TACIT_V1_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },
+  // the token pools' admin page: one classic inline script, which sends what the owner presses from their wallet
+  { name: 'admin/token-pools/index.html', file: join(DAPP_DIR, 'admin', 'token-pools', 'index.html'), script: INLINE_CLASSIC, ...HASH_ONLY },
 ];
 function updatePinnedCsp(page) {
   const htmlText = readFileSync(page.file).toString('utf8');

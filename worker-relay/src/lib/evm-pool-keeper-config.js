@@ -13,6 +13,10 @@ const ETH = '0x0000000000000000000000000000000000000000';
 // The catch-up registry, the same address on every chain the pool is on: CreateX CREATE2 under a salt anyone may use
 // (contracts/script/deploy-checkpoints.mjs), so the address is fixed by the registry's init code and any account may deploy it.
 export const CHECKPOINTS = '0x00000000C3267616ED5E0DAA6F6490D109d6844D';
+// The catch-up hub (TacitEvmPoolCheckpointsHub), which keeps points for every pool on a chain and reads the registry above through
+// for the ETH pool: the same address on every chain (CreateX CREATE2 under an open salt, tools/checkpoint-hub-kit.mjs), so nothing
+// but the hub's own code can ever be there, and a keeper may name it before it is deployed.
+export const CHECKPOINT_HUB = '0x00000000C824B4F120C03f4Bdd4Bf4656232E835';
 // The shared relay EOA. A keeper key that derives to it is refused outright.
 export const RELAY_EOA = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7';
 const BUILD = new URL('../../../dapp/circuits/evm-pool/build/', import.meta.url).pathname;
@@ -98,6 +102,9 @@ export function loadKeeperConfig(env = process.env) {
     // leaves, or this long has passed, since the newest point; off with EVM_POOL_KEEPER_POINTS=0, or on a chain where the
     // registry has no code. A post is simulated first and costs gas only; one per count, the first to land.
     pointsAddress: (() => { const v = str(env, 'EVM_POOL_KEEPER_POINTS', CHECKPOINTS); return v === '0' || !isAddress(v) ? null : getAddress(v); })(),
+    // A pool the registry is not for (a token pool, the TAC pools) posts its points to the hub instead, once the hub has code on its
+    // chain; off with EVM_POOL_KEEPER_POINTS_HUB=0, and with EVM_POOL_KEEPER_POINTS=0, which stops every post.
+    pointsHub: (() => { const v = str(env, 'EVM_POOL_KEEPER_POINTS_HUB', CHECKPOINT_HUB); return v === '0' || str(env, 'EVM_POOL_KEEPER_POINTS') === '0' || !isAddress(v) ? null : getAddress(v); })(),
     pointsEvery: int(env, 'EVM_POOL_KEEPER_POINTS_EVERY', 2000),
     pointsMaxAgeSecs: int(env, 'EVM_POOL_KEEPER_POINTS_MAX_AGE_SECS', 86400),
     pointsGas: big(env, 'EVM_POOL_KEEPER_POINTS_GAS', 2500000n),

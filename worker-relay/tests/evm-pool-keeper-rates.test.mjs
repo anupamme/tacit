@@ -102,3 +102,15 @@ test('an opened token pool is priced from zQuoter: one whole token sold for ETH 
   assert.equal(await f.refresh(), null, 'no pool sells it: no price read');
   assert.deepEqual(parseRateFeed('zq:0x000000bd2DB80567c23E353ca95a251c573cBf9B'), { kind: 'zq', address: '0x000000bd2DB80567c23E353ca95a251c573cBf9B' });
 });
+
+test("a feed written less often is named with its own age: an answer within it is a price, one past it is not, and the age is bounded", async () => {
+  const t = 1_800_000_000_000, USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
+  assert.deepEqual(parseRateFeed(`usd:${FEED}:90000`), { kind: 'usd', address: FEED, maxAgeSecs: 90000 });
+  assert.deepEqual(parseRateFeed(`usd:${FEED}`), { kind: 'usd', address: FEED }, 'no age: two hours, as before');
+  for (const bad of [`usd:${FEED}:59`, `usd:${FEED}:172801`, `usd:${FEED}:1h`, `usd:${FEED}:-5`]) assert.throws(() => parseRateFeed(bad), /RATE_FEED/, bad);
+  // a day old: refused at two hours, a price at 25
+  const at = (age, feed) => makeRateFeed({ feed: parseRateFeed(feed), token: USDG, read: reader({ decimals: 6, [`${FEED.toLowerCase()}:decimals`]: 8, latestRoundData: [1n, 250_000_000_000n, 0n, BigInt(t / 1000 - age), 1n] }), cfg: cfgOf(), now: () => t });
+  assert.equal(await at(86_000, `usd:${FEED}`).refresh(), null);
+  assert.equal(await at(86_000, `usd:${FEED}:90000`).refresh(), 4n * 10n ** 26n, 'a six-decimal dollar at $2,500, per 1e18 base units');
+  assert.equal(await at(91_000, `usd:${FEED}:90000`).refresh(), null, 'past its own age it is stale');
+});

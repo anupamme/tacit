@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ixBzlKDfoWjL7FopI5UmYGhUggNYh4jcXk5ia4z5UlY='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://mainnet.base.org https://base.gateway.tenderly.co https://base-rpc.publicnode.com https://rpc.mainnet.chain.robinhood.com; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>tacit admin · token pools</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+:root {
+  --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
+  --ink: #1A1A1A; --mute: #625C4F;
+  --hair: rgba(26,26,26,.12); --hair-2: rgba(26,26,26,.28);
+  --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130E; --card: #1F1C15; --field: #191711;
+    --ink: #EDE5CF; --mute: #A39B85;
+    --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
+    --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font: 13px/1.6 var(--mono); letter-spacing: -.01em;
+  background-image: radial-gradient(var(--hair) 1px, transparent 1px); background-size: 24px 24px;
+  padding: 0 max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
+}
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.shell { max-width: 1120px; margin: 0 auto; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 22px 0 6px; }
+.brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; }
+.brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
+.brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
+.lead { margin: 0 0 18px; color: var(--mute); }
+.wallet { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.btn { min-height: 36px; padding: 6px 14px; border: 1px solid var(--hair-2); border-radius: 999px; background: var(--card); cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.go { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chip { padding: 4px 10px; border: 1px solid var(--hair); border-radius: 999px; background: var(--field); font-variant-numeric: tabular-nums; }
+.wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
+table { width: 100%; border-collapse: collapse; min-width: 880px; font-variant-numeric: tabular-nums; }
+th, td { padding: 11px 12px; text-align: left; border-bottom: 1px solid var(--hair); vertical-align: middle; white-space: nowrap; }
+td.stc { white-space: normal; min-width: 200px; max-width: 320px; }
+th { font-weight: 500; font-size: 11px; color: var(--mute); text-transform: uppercase; letter-spacing: .08em; }
+tr:last-child td { border-bottom: 0; }
+td.tok b { font-weight: 500; }
+td.act { text-align: right; }
+.st { display: inline-flex; align-items: center; gap: 6px; }
+.st::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); }
+.st.open::before { background: var(--ok); }
+.st.half::before { background: var(--warn); }
+.st.open { color: var(--ok); } .st.half { color: var(--warn); }
+.note { display: block; font-size: 11px; color: var(--mute); }
+.note.err { color: var(--err); }
+.note.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <a class="brand" href="/"><b>tacit</b><i>token pools</i></a>
+    <div class="wallet"><span class="chip" id="who" hidden></span><span id="pick"></span><button class="btn" id="connect" type="button">Connect wallet</button></div>
+  </header>
+  <p class="lead">Open each chain's catch-up hub, and each private token pool and its router, from your wallet.</p>
+  <div class="wrap">
+    <table>
+      <thead><tr><th>Chain</th><th>Token</th><th>Pool</th><th>Router</th><th>Status</th><th>Gas · cost</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="7" class="mute">Reading the kits…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<script>
+// The token pool kits (kits.json beside this page, written by tools/token-pool-kits.mjs): each row's pool and router read from its chain
+// (eth_getCode at the addresses the salts give them), and the kit's one transaction sent from the connected wallet when it is pressed,
+// after it is run on the chain (eth_call and eth_estimateGas from the wallet's address), which must create exactly the pool and router
+// shown. A kit whose pool is there already sends only its router. Nothing is sent but what the owner presses Send for.
+// Each chain's catch-up hub (hub.json, written by tools/checkpoint-hub-kit.mjs) is a row of its own, read and sent the same way: its
+// one transaction is CreateX's, which must create the hub at the address shown.
+'use strict';
+const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
+const L1_FEE_ORACLE = '0x420000000000000000000000000000000000000F';   // Base's gas price oracle: the L1 data fee of a transaction's bytes
+const ETH_USD = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419';
+const ADD_CHAIN = {
+  8453: { chainId: '0x2105', chainName: 'Base', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'] },
+  4663: { chainId: '0x1237', chainName: 'Robinhood Chain', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'], blockExplorerUrls: ['https://robinhoodchain.blockscout.com'] },
+};
+const $ = (id) => document.getElementById(id);
+const lc = (s) => String(s || '').toLowerCase();
+const strip = (h) => String(h || '').replace(/^0x/, '');
+const word = (v) => BigInt(v).toString(16).padStart(64, '0');
+const hx = (v) => '0x' + BigInt(v).toString(16);
+const short = (a) => a.slice(0, 6) + '…' + a.slice(-4);
+const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); for (const k of kids) if (k != null) e.append(k); return e; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtGas = (g) => (Number(g) / 1e6).toFixed(2) + 'M gas';
+const fmtEth = (wei) => { const e = Number(wei) / 1e18; return (e >= 0.001 ? e.toFixed(5) : e.toPrecision(3)) + ' ETH'; };
+const reason = (e) => String(e?.data?.message || e?.message || e).replace(/^.*?execution reverted:?\s*/i, 'reverted ').slice(0, 140);
+
+let KITS = null, HUBS = [], hubErr = null, ethUsd = null;
+const W = { found: new Map(), prov: null, name: '', account: null, chain: null };
+
+// ── reads, over the kit's chain's own nodes, each tried in turn ──
+async function rpc(chainId, method, params = []) {
+  let last;
+  for (const url of KITS.chains[chainId].rpc) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+      const j = await r.json();
+      // a revert is the chain's answer; any other error (a node's limit, its trouble) asks the next node
+      if (j.error) throw Object.assign(new Error(j.error.message), { data: j.error, final: /revert/i.test(`${j.error.message} ${JSON.stringify(j.error.data ?? '')}`) });
+      return j.result;
+    } catch (e) { if (e.final) throw e; last = e; }
+  }
+  throw last || new Error('no node answered');
+}
+const hasCode = async (chainId, a) => strip(await rpc(chainId, 'eth_getCode', [a, 'latest'])).length > 0;
+// A row is a kit (its pool and router) or a chain's hub (`hub` set: the hub at `expected`).
+async function stateOf(kit) {
+  if (kit.hub) return (await hasCode(kit.chainId, kit.expected)) ? 'open' : 'none';
+  const [pool, router] = await Promise.all([hasCode(kit.chainId, kit.pool), hasCode(kit.chainId, kit.router)]);
+  return pool && router ? 'open' : pool ? 'half' : 'none';
+}
+// The addresses a run of the transaction creates, as CreateX returns them: Multicall3's (bool, bytes)[] for both, or one address.
+function madeBy(tx, ret) {
+  const r = strip(ret), at = (b) => Number(BigInt('0x' + (r.slice(b * 2, b * 2 + 64) || '0')));
+  if (lc(tx.to) !== MULTICALL3) return ['0x' + r.slice(24, 64)];
+  const base = at(0), n = at(base), out = [];
+  for (let i = 0; i < n; i++) {
+    const e = base + 32 + at(base + 32 + 32 * i), ok = at(e) === 1, d = e + at(e + 32);
+    out.push(ok && at(d) === 32 ? '0x' + r.slice((d + 32) * 2 + 24, (d + 32) * 2 + 64) : null);
+  }
+  return out;
+}
+
+// ── the wallet: any injected one (EIP-6963, else window.ethereum), each announced as it answers (most answer at once) ──
+const wallets = () => { const l = [...W.found.values()]; if (!l.length && window.ethereum?.request) l.push({ info: { name: 'Browser wallet' }, provider: window.ethereum }); return l; };
+const ask = (method, params) => W.prov.request({ method, params });
+addEventListener('eip6963:announceProvider', (e) => { if (e.detail?.provider?.request) { W.found.set(e.detail.info?.uuid || String(W.found.size), e.detail); drawPick(); } });
+dispatchEvent(new Event('eip6963:requestProvider'));
+function drawPick() {
+  const l = wallets(), pick = $('pick');
+  pick.replaceChildren();
+  if (W.prov || l.length < 2) return;
+  for (const w of l) pick.append(el('button', { className: 'btn', type: 'button', textContent: w.info?.name || 'Wallet', onclick: () => connect(w) }), ' ');
+  $('connect').hidden = true;
+}
+async function connect(w) {
+  try {
+    const [account] = await w.provider.request({ method: 'eth_requestAccounts' });
+    if (!account) return;
+    W.prov = w.provider; W.name = w.info?.name || 'Wallet'; W.account = account; W.chain = Number(await ask('eth_chainId'));
+    W.prov.on?.('accountsChanged', (a) => { W.account = a?.[0] || null; if (!W.account) W.prov = null; drawWho(); draw(); });
+    W.prov.on?.('chainChanged', (c) => { W.chain = Number(c); drawWho(); });
+    drawWho(); draw();
+  } catch (e) { $('who').hidden = false; $('who').textContent = reason(e); }
+}
+function drawWho() {
+  const who = $('who');
+  $('pick').replaceChildren();
+  $('connect').hidden = !!W.prov;
+  who.hidden = !W.prov;
+  if (W.prov) who.textContent = `${W.name} · ${short(W.account)} · ${KITS?.chains[W.chain]?.name || 'chain ' + W.chain}`;
+  else drawPick();
+}
+$('connect').onclick = () => { const l = wallets(); if (!l.length) { $('who').hidden = false; $('who').textContent = 'No wallet in this browser'; return; } if (l.length > 1) { $('connect').hidden = true; drawPick(); return; } connect(l[0]); };
+async function onChain(chainId) {
+  if (W.chain === chainId) return;
+  try { await ask('wallet_switchEthereumChain', [{ chainId: hx(chainId) }]); }
+  catch (e) {
+    if ((e?.code === 4902 || e?.data?.originalError?.code === 4902) && ADD_CHAIN[chainId]) await ask('wallet_addEthereumChain', [ADD_CHAIN[chainId]]);
+    else throw e;
+  }
+  W.chain = Number(await ask('eth_chainId'));
+  drawWho();
+  if (W.chain !== chainId) throw new Error(`the wallet is on chain ${W.chain}, not ${chainId}`);
+}
+
+// ── a row: read, check, send ──
+const rows = new Map();   // kit → { state, checked: { tx, gas, want }, busy, note }
+function txOf(kit, state) { return kit.hub ? (state === 'none' ? kit : null) : state === 'none' ? kit.open : state === 'half' ? kit.routerOnly : null; }
+async function check(kit) {
+  const r = rows.get(kit);
+  r.busy = true; r.note = { text: 'Running it on the chain…' }; draw();
+  try {
+    r.state = await stateOf(kit);
+    const tx = txOf(kit, r.state);
+    if (!tx) { r.checked = null; r.note = null; return; }
+    const from = W.account || '0x000000000000000000000000000000000000dEaD';
+    const want = kit.hub ? [kit.expected] : r.state === 'none' ? [kit.pool, kit.router] : [kit.router];
+    const made = madeBy(tx, await rpc(kit.chainId, 'eth_call', [{ from, to: tx.to, data: tx.data, value: '0x0' }, 'latest']));
+    if (made.length !== want.length || made.some((a, i) => lc(a) !== lc(want[i]))) throw new Error(`it would create ${made.join(', ')}, not the addresses shown`);
+    const est = BigInt(await rpc(kit.chainId, 'eth_estimateGas', [{ from, to: tx.to, data: tx.data, value: '0x0' }]));
+    const price = BigInt(await rpc(kit.chainId, 'eth_gasPrice'));
+    let l1 = 0n;
+    if (kit.chainId === 8453) {
+      const d = strip(tx.data);
+      l1 = BigInt(await rpc(8453, 'eth_call', [{ to: L1_FEE_ORACLE, data: '0x49948e0e' + word(32) + word(d.length / 2) + d + '0'.repeat((64 - (d.length % 64)) % 64) }, 'latest']));
+    }
+    const room = (est * 5n) / 4n, gas = room > BigInt(tx.gas || 0) ? room : BigInt(tx.gas || 0);
+    r.checked = { tx, gas, est, wei: est * price + l1, from };
+    r.note = null;
+  } catch (e) { r.checked = null; r.note = { text: reason(e), err: true }; }
+  finally { r.busy = false; draw(); }
+}
+async function send(kit) {
+  const r = rows.get(kit);
+  if (!W.prov) { r.note = { text: 'Connect a wallet first', err: true }; return draw(); }
+  if (!r.checked || lc(r.checked.from) !== lc(W.account)) await check(kit);
+  if (!r.checked) return;
+  r.busy = true; r.note = { text: 'Confirm in your wallet…' }; draw();
+  try {
+    await onChain(kit.chainId);
+    // the state again, just before it goes: what is there decides what is sent
+    if ((await stateOf(kit)) !== r.state) throw new Error('its state changed: check it again');
+    const { tx, gas } = r.checked;
+    const hash = await ask('eth_sendTransaction', [{ from: W.account, to: tx.to, data: tx.data, value: '0x0', gas: hx(gas) }]);
+    r.hash = hash; r.note = { text: 'Sent, waiting for the block…' }; draw();
+    let rc = null;
+    for (let i = 0; i < 400 && !rc; i++) { await sleep(3000); rc = await rpc(kit.chainId, 'eth_getTransactionReceipt', [hash]).catch(() => null); }
+    if (!rc) throw new Error('no receipt yet: see the explorer');
+    if (rc.status !== '0x1') throw new Error(`reverted in block ${BigInt(rc.blockNumber)}`);
+    r.state = await stateOf(kit);
+    r.checked = null;
+    const done = kit.hub ? 'Deployed: the hub is where it should be' : 'Open: the pool and router are where they should be';
+    r.note = r.state === 'open' ? { text: `${done} (${fmtGas(BigInt(rc.gasUsed))})`, ok: true } : { text: 'Mined, but the code is not where it should be', err: true };
+  } catch (e) { r.note = { text: reason(e), err: true }; }
+  finally { r.busy = false; draw(); }
+}
+
+function link(kit, kind, v) {
+  return el('a', { href: `${KITS.chains[kit.chainId].explorer}/${kind}/${v}`, target: '_blank', rel: 'noopener', textContent: short(v), title: v });
+}
+function draw() {
+  if (!KITS) return;
+  const body = $('rows');
+  body.replaceChildren();
+  if (hubErr) body.append(el('tr', {}, el('td', { colSpan: 7, className: 'note err', textContent: `No hub kit: ${hubErr}` })));
+  for (const kit of [...HUBS, ...KITS.kits]) {
+    const r = rows.get(kit);
+    const [open, none] = kit.hub ? ['deployed', 'not deployed'] : ['open', 'not open'];
+    const st = r.state === 'open' ? el('span', { className: 'st open', textContent: open }) : r.state === 'half' ? el('span', { className: 'st half', textContent: 'pool only' }) : r.state === 'none' ? el('span', { className: 'st', textContent: none }) : el('span', { className: 'note', textContent: '…' });
+    const cost = r.checked ? el('span', {}, `${fmtGas(r.checked.est)} · ${fmtEth(r.checked.wei)}`, ethUsd ? el('span', { className: 'note', textContent: `≈ $${(Number(r.checked.wei) / 1e18 * ethUsd).toFixed(2)}` }) : null) : el('span', { className: 'note', textContent: r.state === 'open' ? '' : '—' });
+    let btn = null;
+    if (r.state === 'none' || r.state === 'half') {
+      const label = r.checked ? (r.state === 'half' ? 'Send router' : 'Send') : 'Check';
+      btn = el('button', { className: 'btn' + (r.checked ? ' go' : ''), type: 'button', textContent: r.busy ? '…' : label, disabled: r.busy || (r.checked && !W.prov) });
+      btn.onclick = () => (r.checked ? send(kit) : check(kit));
+    }
+    const act = el('td', { className: 'act' }, btn);
+    const extra = [];
+    if (r.hash) extra.push(el('span', { className: 'note' }, 'tx ', link(kit, 'tx', r.hash)));
+    if (r.note) extra.push(el('span', { className: 'note' + (r.note.err ? ' err' : r.note.ok ? ' ok' : ''), textContent: r.note.text }));
+    body.append(el('tr', {},
+      el('td', { textContent: kit.chain }),
+      kit.hub ? el('td', { className: 'tok' }, el('b', { textContent: 'Catch-up hub' }), el('span', { className: 'note', textContent: 'every pool’s points' }))
+        : el('td', { className: 'tok' }, el('b', { textContent: kit.sym }), el('span', { className: 'note' }, link(kit, 'token', kit.token))),
+      el('td', {}, link(kit, 'address', kit.hub ? kit.expected : kit.pool)),
+      el('td', {}, kit.hub ? null : link(kit, 'address', kit.router)),
+      el('td', { className: 'stc' }, st, ...extra),
+      el('td', {}, cost),
+      act));
+  }
+}
+
+(async () => {
+  try { KITS = await (await fetch('./kits.json', { cache: 'no-store' })).json(); }
+  catch (e) { $('rows').replaceChildren(el('tr', {}, el('td', { colSpan: 7, className: 'note err', textContent: `No kits: ${reason(e)}` }))); return; }
+  // the hubs, one a chain the kits read, each named as the kits' chain is
+  try {
+    const list = await (await fetch('./hub.json', { cache: 'no-store' })).json();
+    HUBS = list.filter((h) => KITS.chains[h.chainId]).map((h) => ({ ...h, hub: true, chain: KITS.chains[h.chainId].name }));
+  } catch (e) { hubErr = reason(e); }
+  for (const kit of [...HUBS, ...KITS.kits]) rows.set(kit, { state: null, checked: null, busy: false, note: null });
+  draw(); drawPick();
+  rpc(1, 'eth_call', [{ to: ETH_USD, data: '0xfeaf968c' }, 'latest']).then((r) => { ethUsd = Number(BigInt('0x' + strip(r).slice(64, 128))) / 1e8; draw(); }).catch(() => {});
+  await Promise.all([...HUBS, ...KITS.kits].map(async (kit) => { const r = rows.get(kit); try { r.state = await stateOf(kit); } catch (e) { r.note = { text: reason(e), err: true }; } draw(); }));
+})();
+</script>
+</body>
+</html>

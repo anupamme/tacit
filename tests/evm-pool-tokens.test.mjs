@@ -6,7 +6,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { keccak_256 } from '@noble/hashes/sha3';
-import { makeTokenPools, poolState, keeperIdOf, encodeAggregate3, decodeAggregate3, FIXED, SERVED, CREATEX, MULTICALL3 } from '../dapp/evm-pool-tokens.js';
+import { makeTokenPools, poolState, keeperIdOf, encodeAggregate3, decodeAggregate3, FIXED, SERVED, CREATEX, MULTICALL3, TOKEN_POOL_CHAINS, VERIFIER, ZROUTER, PERMIT2, V1, POSEIDON4 } from '../dapp/evm-pool-tokens.js';
 
 const require = createRequire(new URL('../worker-relay/package.json', import.meta.url));
 const { decodeFunctionData, parseAbi, keccak256, concat, toHex, encodeAbiParameters, getAddress } = require('viem');
@@ -109,4 +109,60 @@ test('both asked in one read (Multicall3), encoded as viem encodes it and its an
   assert.deepStrictEqual(await poolState(tp, USDC, half), { pool: true, router: false });
   const wrong = async () => answer([{ success: true, returnData: w(TAC) }, { success: true, returnData: w(p.pool) }]);
   assert.deepStrictEqual(await poolState(tp, USDC, wrong), { pool: false, router: true });
+});
+
+// ── the same pools on other chains (TOKEN_POOL_CHAINS): Base and Robinhood Chain, whose ETH routers were built without V1 ──
+const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+// the kits' pools and routers, as tests/token-pool-kits-fork.mjs opened them on forks of their chains
+const OPENED = [
+  [1, '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0', '0x0a83Fb67EE2708F10BCdd8FE23Fa3B30A0247Aac', '0x9416C7BFb7f8d1f164E50f4e055Bd2D8542d60DA'],
+  [8453, BASE_USDC, '0xCAf6BE2e337AEcAB4a4eA183452f78800fD1616D', '0x7401aFD518eED7f4656DA367d2Fdd0E527cd7838'],
+  [8453, '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', '0xC720d51Fa8B768F6b0ba58Bf0812CA76355bcee4', '0xFDf6AAa7451Ec5A97090346C4A021aCe5e67a749'],
+  [8453, '0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452', '0x95e51d1BF626390c2C99b748d7A2D31829D94746', '0x3B240f0B684b25C522741b05C14a2aAb4C0ce451'],
+  [4663, '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', '0x4430C0eFdFef640d54abB5a7cDdC63819468d8CA', '0x61E662d16300E107971971014e05beC392Bc0C6D'],
+  [4663, '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34', '0x1BC62D5fF0a76b8f944C70Bf324EAf9a028f062F', '0xaBDDfD0270eE33FF3788dA4521Af16cbA88818e5'],
+];
+
+test("Ethereum stays the default: the same pools, salts and routes as before, whether its constants are passed or not", () => {
+  const named = makeTokenPools({ code, keccak256: keccak_256, chain: TOKEN_POOL_CHAINS[1] });
+  for (const t of [USDC, ...Object.keys(SERVED), TAC]) assert.deepStrictEqual(named.poolOf(t), tp.poolOf(t));
+  assert.strictEqual(tp.chainId, 1); assert.strictEqual(keeperIdOf(USDC), keeperIdOf(USDC, 1));
+});
+
+test("on another chain a token's pool takes that chain's salts, and its router is built as that chain's ETH router (no V1)", () => {
+  for (const c of [8453, 4663]) {
+    const t = makeTokenPools({ code, keccak256: keccak_256, chain: TOKEN_POOL_CHAINS[c] }), p = t.poolOf(BASE_USDC);
+    assert.strictEqual(p.chainId, c); assert.strictEqual(p.id, `${c}-x833589fcd6`); assert.strictEqual(p.keeper, `https://tacit-evm-pool-keepers.onrender.com/${c}-x833589fcd6/evm-pool/keeper`);
+    assert.notStrictEqual(t.saltOf('pool', BASE_USDC), tp.saltOf('pool', BASE_USDC)); assert.notStrictEqual(p.pool, tp.poolOf(BASE_USDC).pool);
+    const salt = '0x' + '00'.repeat(21) + keccak256(concat([toHex('tacit-evm-token-pool-v1'), encodeAbiParameters([{ type: 'uint256' }, { type: 'address' }], [BigInt(c), BASE_USDC])])).slice(2, 24);
+    assert.strictEqual(t.saltOf('pool', BASE_USDC), salt);
+    // the pool's arguments are Ethereum's; the router's are the chain's ETH router's: its zRouter, Permit2 and Poseidon, and no V1
+    assert.strictEqual(t.poolInit(BASE_USDC), concat([code.pool, encodeAbiParameters([{ type: 'address' }, { type: 'address' }], [VERIFIER, BASE_USDC])]).toLowerCase());
+    const zero = '0x0000000000000000000000000000000000000000';
+    assert.strictEqual(t.routerInit(p.pool), concat([code.router, encodeAbiParameters(Array(5).fill({ type: 'address' }), [p.pool, ZROUTER, PERMIT2, zero, POSEIDON4])]).toLowerCase());
+    assert.strictEqual(p.router, getAddress('0x' + keccak256(concat(['0xff', CREATEX, keccak256(p.routerSalt), keccak256(t.routerInit(p.pool))])).slice(-40)));
+    // TAC's mined pool is Ethereum's alone: elsewhere TAC is a token like any other
+    const tac = t.poolOf(TAC);
+    assert.strictEqual(tac.fixed, false); assert.strictEqual(tac.id, `${c}-xa1313eb9f3`); assert.notStrictEqual(t.openTx(TAC), null);
+  }
+  assert.strictEqual(TOKEN_POOL_CHAINS[1].v1, V1);
+});
+
+test('the kits open the pools and routers the forks opened, with the transactions the module builds', () => {
+  const kits = JSON.parse(readFileSync(new URL('../dapp/admin/token-pools/kits.json', import.meta.url), 'utf8')).kits;
+  assert.strictEqual(kits.length, OPENED.length);
+  for (const [c, token, pool, router] of OPENED) {
+    const t = makeTokenPools({ code, keccak256: keccak_256, chain: TOKEN_POOL_CHAINS[c] }), p = t.poolOf(token), kit = kits.find((k) => k.chainId === c && k.token === token);
+    assert.deepStrictEqual([p.pool, p.router], [pool, router]);
+    assert.deepStrictEqual([kit.pool, kit.router, kit.poolSalt, kit.routerSalt, kit.keeper.id], [pool, router, p.poolSalt, p.routerSalt, p.id]);
+    assert.strictEqual(kit.open.to, MULTICALL3); assert.strictEqual(kit.open.data, t.openTx(token).data);
+    assert.strictEqual(kit.routerOnly.to, CREATEX); assert.strictEqual(kit.routerOnly.data, t.openTx(token, { pool: true, router: false }).data);
+    assert.ok(BigInt(kit.open.gas) >= t.openTx(token).gas && kit.open.value === '0');
+  }
+});
+
+test("a chain's constants must name a verifier and four addresses", () => {
+  assert.throws(() => makeTokenPools({ code, keccak256: keccak_256, chain: { ...TOKEN_POOL_CHAINS[8453], verifier: '0x0000000000000000000000000000000000000000' } }), /verifier/);
+  assert.throws(() => makeTokenPools({ code, keccak256: keccak_256, chain: { ...TOKEN_POOL_CHAINS[8453], v1: undefined } }), /V1/);
+  assert.throws(() => makeTokenPools({ code, keccak256: keccak_256, chain: { chainId: 0 } }), /chain id/);
 });
