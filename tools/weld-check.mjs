@@ -162,6 +162,9 @@
 //            then permitAndDeposit with a permit that account signs, taken by the real vApp on the fork); the switch and each sheet's note
 //   selfprove with the switch on, a withdrawal and a swap are proved on the holder's credit (no submit to the relay) and settled from the
 //            wallet, Activity naming its steps; too little credit, a request not taken, an op it cannot prove, and a pool that moved
+//   selfdevice the prove sheet's switch for this computer's prover (tacit-prover on 127.0.0.1, answered here): it looks for the prover and turns
+//            the own-credit switch off; a withdrawal proved there and settled from the wallet, nothing to the relay; a swap it does not take
+//            goes to the relay with a note; a proof it could not make offers Try again or the relay
 //   relaystate what the relay says of itself (GET /confidential/relay) at the press: paused offers proving it yourself (and the line, for
 //            an op that does not expire) with nothing submitted; held sends it from the paying account; an Activity exit while paused
 //   relayfail a relayed job whose proof failed ("settle failed: prove failed: …") offers proving it yourself
@@ -184,7 +187,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -10562,6 +10565,208 @@ await step('selfprove', async () => {
     ok(/Your own credit can’t prove this one from here yet, so Tacit’s relay proves it\./.test(await text(r.page, '#toast-container')) && submits.slice(s4).some((x) => x.type === 'stealthlock' && !x.mode),
       `selfprove: an op the credit cannot prove goes to the relay, with a note (${submits.slice(s4).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')})`);
     if (r.errors.length) { fails++; console.log('FAIL selfprove page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; if (restore) await restore(); await r.browser.close(); }
+});
+
+await step('selfdevice', async () => {
+  const hex = '5e1f2'.padEnd(64, '9'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const r = await openPage({ account: A0, key: K0 });
+  // The prover on this computer: `up` answers, `fail` makes its next proofs fail; each input it is sent is kept.
+  const dev = { up: true, fail: false, asked: [] };
+  await r.page.route('http://127.0.0.1:47815/**', (route) => {
+    const q = route.request(), u = new URL(q.url());
+    const cors = { 'access-control-allow-origin': q.headers().origin || '*', 'access-control-allow-private-network': 'true', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET, POST' };
+    if (!dev.up) return route.abort('connectionrefused');
+    if (q.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors, body: '' });
+    const json = (b) => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(b) });
+    if (u.pathname === '/health') return json({ ok: true, vkey: '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3', busy: false, queued: 0, gpu: 'Apple M2' });
+    if (u.pathname === '/prove') { dev.asked.push(JSON.parse(q.postData() || '{}')); return json({ id: 'w' + dev.asked.length }); }
+    if (u.pathname === '/job') return json(dev.fail ? { status: 'failed', error: 'the guest rejects this input' } : { status: 'done', secs: 240, publicValues: '0x' + '01'.repeat(32), proof: '0x' + '07'.repeat(32) });
+    return route.fulfill({ status: 404, headers: cors, body: '{}' });
+  });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      let made = null;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        made ||= [['5', 0], ['6', 1], ['50', 2], ['40', 3]].map(([cents, index]) => {
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (BigInt(cents) * 10n ** 16n).toString(), ticker: 'cETH', index });
+          return ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        });
+        b.notes = [...b.notes, ...made];
+        for (const n of made) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.value = BigInt(g.value) + BigInt(n.value); g.notes = [...g.notes, n]; }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      return ux;
+    }` }));
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  const body = () => r.page.evaluate(() => (document.querySelector('#prove-body')?.textContent || '').replace(/\s+/g, ' '));
+  const idle = () => until(r.page, () => !document.querySelector('#sheet-eth [aria-busy="true"]'), null, 600000);
+  const tab = async (m) => {
+    await idle();
+    for (let i = 0; i < 300; i++) {
+      if (await r.page.$eval(`[data-v1="${m}"]`, (b) => b.getAttribute('aria-selected') === 'true').catch(() => false)) return;
+      await r.page.click(`[data-v1="${m}"]`).catch(() => {});
+      await sleep(2000);
+    }
+    throw new Error(`the ${m} tab did not open`);
+  };
+  const withdraw = async (amt) => {
+    await tab('out');
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', amt);
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    await r.page.click('#o-go');
+  };
+  const ended = () => until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+  const settles = (from) => walletTxs.slice(from).filter((x) => String(x.to).toLowerCase() === POOL_ADDR && x.data.startsWith('0x' + SETTLE_SEL));
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await r.page.evaluate((p) => localStorage.setItem('tacit-lite-prove-self-v1:' + p, 'true'), pub);
+    await toWallet(r.page);
+    await r.page.waitForSelector('[data-pay="wallet"]');
+    await r.page.click('[data-pay="wallet"]');
+    await until(r.page, () => document.querySelector('[data-pay="wallet"]')?.classList.contains('main'));
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+
+    // (a) The switch: off until chosen (nothing reaches 127.0.0.1 before), then it finds the prover, names it, and the own-credit switch goes off.
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] #sp-dev', { timeout: 60000 });
+    const before = dev.asked.length;
+    ok(!(await r.page.isChecked('#sp-dev')) && await r.page.isChecked('#sp-on') && /Off\. Run tacit-prover on this computer/.test(await body()),
+      `selfdevice: the switch for this computer starts off, with where to get its prover (${(await body()).match(/Prove on this computer.{0,140}/)?.[0]})`);
+    await r.page.click('#sp-dev');
+    await until(r.page, () => /On: this computer \(Apple M2\) proves your sends, wraps, claims and farm joins/.test(document.querySelector('#prove-body')?.textContent || ''), null, 30000).catch(() => {});
+    const keys = await r.page.evaluate((p) => [localStorage.getItem('tacit-lite-prove-device-v1:' + p), localStorage.getItem('tacit-lite-prove-self-v1:' + p)], pub);
+    ok(/On: this computer \(Apple M2\) proves your sends, wraps, claims and farm joins/.test(await body()) && await r.page.isChecked('#sp-dev') && !(await r.page.isChecked('#sp-on'))
+      && keys[0] === 'true' && keys[1] == null && await r.page.isDisabled('#sp-seal') && dev.asked.length === before,
+      `selfdevice: switched on, it finds the prover and names it, and the own-credit switch goes off (${keys}; ${(await body()).match(/Prove on this computer.{0,160}/)?.[0]})`);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 600000 });
+    await until(r.page, () => /Private 1\.01 tETH/.test(document.querySelector('#sheet-eth')?.textContent || ''), null, 600000).catch(() => {});
+    ok(/Proved on this computer and sent from/.test(await text(r.page, '#sheet-eth .sp-note').catch(() => '')), `selfdevice: the sheet says its actions are proved on this computer (${await text(r.page, '#sheet-eth .sp-note').catch(() => '')})`);
+
+    // (b) A whole-note withdrawal: proved on this computer from sp1-stdin.js's input, settled from the wallet with the proof it made; nothing to the relay.
+    restore = await stubPoolSettle('ok');
+    const s0 = submits.length, w0 = walletTxs.length, d0 = dev.asked.length;
+    await withdraw('0.5');
+    const stage = await until(r.page, () => /This computer is proving it|Waiting for the prover on this computer/.test(document.querySelector('#v1-status')?.textContent || ''), null, 120000).then(() => true, () => false);
+    await ended();
+    const one = settles(w0), sent = dev.asked.slice(d0);
+    ok(stage && /Done\./.test(await said()) && submits.length === s0 && sent.length === 1 && sent[0].type === 'unwrap' && /^0x[0-9a-f]{200,}$/.test(sent[0].stdin)
+      && one.length === 1 && one[0].from.toLowerCase() === A0 && one[0].data.includes('07'.repeat(32)),
+      `selfdevice: a withdrawal is proved on this computer (no submit to the relay) and settled from the wallet (${await said()}; submits ${submits.length - s0}, asked ${sent.map((x) => x.type)}, settles ${one.length})`);
+    await openActivity(r.page);
+    const row = (await actRows(r.page)).find((x) => x.id.startsWith('op:') && /Withdraw 0\.5 ETH/.test(x.text)) || { text: '' };
+    ok(/Done in .*proved on this computer/.test(row.text) && !/Succinct|own credit/.test(row.text), `selfdevice: Activity says it was proved on this computer (${row.text.slice(0, 160)})`);
+    await restore(); restore = null;
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 60000 });
+
+    // (b2) A wrap: proved on this computer before anything is deposited, then one router transaction from the wallet deposits and settles it.
+    // The router on the fork would check the deposit settled, which a stand-in proof cannot do, so it takes any call here.
+    const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
+    restore = () => rpc('anvil_setCode', [ROUTER_ADDR, routerCode]);
+    await tab('wrap');
+    await r.page.waitForSelector('#w-amt', { timeout: 120000 });
+    ok(/One transaction from .* once it is proved on this computer/.test(await text(r.page, '#sheet-eth')), 'selfdevice: the wrap form says one transaction, once it is proved on this computer');
+    await r.page.fill('#w-amt', '0.05');
+    await until(r.page, () => !document.querySelector('#w-go').disabled, null, QUOTE_WAIT);
+    const sW = submits.length, wW = walletTxs.length, dW = dev.asked.length;
+    await r.page.click('#w-go');
+    await ended();
+    const viaRouter = walletTxs.slice(wW).filter((x) => String(x.to).toLowerCase() === ROUTER_ADDR);
+    ok(/Done\./.test(await said()) && submits.length === sW && dev.asked.slice(dW).map((x) => x.type).join() === 'wrap' && walletTxs.length - wW === 1 && viaRouter.length === 1
+      && BigInt(viaRouter[0].value || 0) === 5n * 10n ** 16n && viaRouter[0].data.startsWith('0x50de88e1') && viaRouter[0].data.includes('07'.repeat(32)),
+      `selfdevice: a wrap is proved here first, then deposited and settled in one router transaction (${await said()}; asked ${dev.asked.slice(dW).map((x) => x.type)}, sent ${walletTxs.slice(wW).map((x) => `${x.to.slice(0, 10)}/${x.data.slice(0, 10)}`)})`);
+
+    // (b3) A size kept ready: picked in the prove sheet, it is proved here while the prover is idle, and a wrap of that size then
+    // goes out at once from the voucher, with nothing more asked of the prover.
+    const kept = () => r.page.evaluate((p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]'), pub);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] [data-keep="10000000000000000"]', { timeout: 30000 });
+    const dK = dev.asked.length;
+    await r.page.click('[data-keep="10000000000000000"]');
+    await until(r.page, (p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]').some((v) => v.status === 'ready' && v.amount === '10000000000000000'), pub, 60000).catch(() => {});
+    ok((await kept()).some((v) => v.status === 'ready' && v.amount === '10000000000000000') && dev.asked.length === dK + 1 && dev.asked[dK].type === 'wrap',
+      `selfdevice: a size picked to keep ready is proved here and kept (${(await kept()).map((v) => `${v.amount}/${v.status}`)})`);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await tab('wrap');
+    await r.page.fill('#w-amt', '0.01');
+    await until(r.page, () => /ready now, made here earlier/.test(document.querySelector('#w-rcpt')?.textContent || '') && !document.querySelector('#w-go').disabled, null, QUOTE_WAIT).catch(() => {});
+    ok(/ready now, made here earlier/.test(await text(r.page, '#w-rcpt')), `selfdevice: the receipt says its proof is ready now (${(await text(r.page, '#w-rcpt')).replace(/\s+/g, ' ').slice(0, 160)})`);
+    const wV = walletTxs.length, dV = dev.asked.length;
+    await r.page.click('#w-go');
+    await ended();
+    const vSent = walletTxs.slice(wV).filter((x) => String(x.to).toLowerCase() === ROUTER_ADDR);
+    ok(/Done\./.test(await said()) && dev.asked.length === dV && vSent.length === 1 && BigInt(vSent[0].value || 0) === 10n ** 16n && !(await kept()).some((v) => v.amount === '10000000000000000'),
+      `selfdevice: a wrap of that size goes out from the voucher, nothing asked of the prover, and the voucher is used up (${await said()}; asked ${dev.asked.length - dV})`);
+
+    // (b4) A proof whose send the wallet declined is kept: pressed again, it goes out with nothing proved again.
+    await r.page.evaluate(() => {
+      const real = window.ethereum.request.bind(window.ethereum); let once = true;
+      window.ethereum.request = (a) => (a.method === 'eth_sendTransaction' && once ? (once = false, Promise.reject(Object.assign(new Error('User rejected the request.'), { code: 4001 }))) : real(a));
+    });
+    await tab('send'); await tab('wrap');
+    await r.page.waitForSelector('#w-amt', { timeout: 60000 });
+    await r.page.fill('#w-amt', '0.02');
+    await until(r.page, () => !document.querySelector('#w-go').disabled, null, QUOTE_WAIT);
+    const dD = dev.asked.length, wD = walletTxs.length;
+    await r.page.click('#w-go');
+    await until(r.page, () => /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 120000).catch(() => {});
+    ok(dev.asked.length === dD + 1 && (await kept()).some((v) => v.status === 'ready' && v.amount === '20000000000000000') && walletTxs.length === wD,
+      `selfdevice: a proof whose send the wallet declined is kept (${(await kept()).map((v) => `${v.amount}/${v.status}`)}; ${await said()})`);
+    await r.page.fill('#w-amt', '');
+    await r.page.fill('#w-amt', '0.02');
+    await until(r.page, () => !document.querySelector('#w-go').disabled && /ready now/.test(document.querySelector('#w-rcpt')?.textContent || ''), null, QUOTE_WAIT).catch(() => {});
+    await r.page.click('#w-go');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    ok(/Done\./.test(await said()) && dev.asked.length === dD + 1 && walletTxs.slice(wD).filter((x) => String(x.to).toLowerCase() === ROUTER_ADDR).length === 1,
+      `selfdevice: pressed again, it goes out with nothing proved again (${await said()}; asked ${dev.asked.length - dD})`);
+    await restore(); restore = null;
+
+    // (c) The prover could not make it: Try again, or let the relay prove this one, which then goes out from the wallet.
+    dev.fail = true;
+    await withdraw('0.4');
+    await until(r.page, () => /could not prove it/.test(document.querySelector('#v1-status')?.textContent || ''), null, 120000).catch(() => {});
+    const np = await said();
+    ok(/The prover on this computer could not prove it \(the guest rejects this input\)\. Nothing was sent\./.test(np) && /Try again/.test(np) && /Let the relay prove this one/.test(np),
+      `selfdevice: a proof it could not make offers Try again or the relay (${np})`);
+    dev.fail = false; proveStub = true; restore = await stubPoolSettle('ok');
+    const s1 = submits.length, w1 = walletTxs.length;
+    await r.page.click('#v1-status [data-selfdo]:last-of-type');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    const asked = submits.slice(s1);
+    ok(asked.length === 1 && asked[0].type === 'unwrap' && asked[0].mode === 'prove' && settles(w1).length === 1, `selfdevice: the relay proves that one, and it goes out from the wallet (${asked.map((x) => `${x.type}/${x.mode}`)})`);
+    proveStub = false; await restore(); restore = null;
+
+    // (d) A swap pins the pool's price, so this computer does not take it: the relay does, with a note.
+    await tab('swap');
+    await r.page.fill('#sw-amt', '0.05');
+    await until(r.page, () => !document.querySelector('#sw-go').disabled || !!document.querySelector('#sw-ack input'), null, QUOTE_WAIT);
+    if (await r.page.$('#sw-ack input[type="checkbox"]')) await r.page.check('#sw-ack input[type="checkbox"]');
+    else if (await r.page.$('#sw-ack input')) await r.page.fill('#sw-ack input', (await text(r.page, '#sw-ack b')).trim());
+    await until(r.page, () => !document.querySelector('#sw-go').disabled, null, 60000);
+    const s2 = submits.length, d2 = dev.asked.length;
+    await r.page.click('#sw-go');
+    await until(r.page, () => /This computer proves only what can wait/.test(document.querySelector('#toast-container')?.textContent || ''), null, 120000).catch(() => {});
+    await chainUntil(async () => submits.length > s2, 120000);
+    ok(/This computer proves only what can wait while it works, so Tacit’s relay proves this one\./.test(await text(r.page, '#toast-container')) && submits.length > s2 && dev.asked.length === d2,
+      `selfdevice: a swap goes to the relay with a note, and nothing to this computer (${submits.slice(s2).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL selfdevice page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; if (restore) await restore(); await r.browser.close(); }
 });
 

@@ -64,6 +64,45 @@ export async function wrapEth({ priv, wei, tip, to, from, wallet, say = () => {}
   if (rc.status !== '0x1') throw Object.assign(new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`), { reverted: true });
   return own ? proveOwn({ t, built, hash, wallet, from, prover: own, say }) : self ? proveRelay({ t, built, hash, wallet, from, say }) : settle({ t, built, hash, say });
 }
+
+// The note is proved first, then one transaction from the wallet deposits the ETH and settles the proof together (the router's
+// wrapAndSettleETH), so the ETH leaves the wallet only once the proof exists and nothing waits on a prover afterwards. `prover` is a
+// relay.useProver prover (this computer, or the holder's own credit) or null for the relay, which is paid `tip` in the same transaction.
+// A proof whose transaction was not sent comes back on the error as `ready`, and a later call with it sends without proving again.
+export async function wrapFirst({ priv, wei, tip = 0n, to = null, from, wallet, say = () => {}, ux = null, prover = null, ready = null }) {
+  const t = ux || await getUx();
+  let r = ready;
+  if (!r) {
+    say('prepare');
+    const index = await t.nextWrapIndex({ walletPriv: priv(), ticker: 'cETH' });
+    if (prover) t.relay.useProver(prover);
+    try {
+      r = await t.proveWrap({ walletPriv: priv(), amountWei: wei, ticker: 'cETH', index, onBuilt: () => say('proving'),
+        waitOpts: { timeoutMs: 45 * 60e3, intervalMs: 4000, ...(prover ? {} : { viaRelay: true }), onUpdate: (st) => { if (st?.stage) say('stage', st.inputPublic ? `${st.stage}:public` : st.stage, st.secs); } } });
+    } catch (e) {
+      try { t.releaseWrapIndex?.({ walletPriv: priv(), ticker: 'cETH', index }); } catch { }
+      throw e;
+    } finally { if (prover) t.relay.useProver(null); }
+  }
+  const call = t.wrapSettleCall({ built: r.built, proven: r.proven, ...(prover ? {} : { ethFeeWei: tip, feeRecipient: to }) });
+  say('check');
+  try { await rpc('eth_call', [{ from, to: call.to, value: '0x' + call.value.toString(16), data: call.data }, 'latest']); }
+  catch (e) {
+    if (await consumed(r.built)) return { hash: null, built: r.built, already: true };
+    throw Object.assign(new Error(e?.revert ? 'The deposit would not go through, so nothing was sent. Try again in a moment.' : 'The deposit could not be checked, so nothing was sent. Try again in a moment.'), { ready: r });
+  }
+  say('confirm');
+  let hash;
+  try { hash = await wallet.sendTx({ to: call.to, data: call.data, value: call.value, from }); }
+  catch (e) { throw Object.assign(e, { ready: r }); }
+  say('sent', hash);
+  let rc;
+  try { rc = await wallet.receipt(hash); } catch (e) { throw Object.assign(e, { sent: hash }); }
+  if (rc.status !== '0x1') throw Object.assign(new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`), { reverted: true, ready: r });
+  if (!prover && r.proven.jobId) t.relay.landed(r.proven.jobId, hash).catch(() => {});
+  return { hash, built: r.built };
+}
+
 export async function proveRelay({ t = null, built, hash = null, wallet, from, say = () => {} }) {
   const ux = t || await getUx();
   say('proving', hash);
@@ -111,6 +150,11 @@ export function ownWords(e) {
   return relayWords(e);
 }
 export const ownable = (e) => e?.code === 'prove_budget' || e?.code === 'relay_paused' || /prove (failed|timed out)|prove capacity/i.test(String(e?.message || ''));
+export function deviceWords(e) {
+  if (/failed to fetch|networkerror|load failed/i.test(String(e?.message || ''))) return 'The prover on this computer stopped answering. Start tacit-prover again and press once more.';
+  if (e?.code === 'device_prover') return `The prover on this computer: ${String(e.message || '').replace(/^Error:\s*/, '')}.`.replace(/\.\.$/, '.');
+  return relayWords(e);
+}
 
 const WRAP_SETTLE_GAS = 593_000n;
 const DEPOSIT_STATUS = '0x7da9874f';

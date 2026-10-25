@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-E4rjm4Qn4N/kRo7+KfisPkHFHzmvInuw0iR32HGU+vY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Fp7tc2Wbg83F3eAW8gWjS2yKeNcqN/BSMOhmJjLaKuE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -2278,7 +2278,7 @@ function runJob(run, jobId, step, self = null) {
   JOBS.set(jobId, { run, in: run.nest || (to?.one ? run.op : null), label: main ? to?.label || run.label : step.step || step, self });
   if (to && !run.away && !OWN_JOB.test(jobId)) { try { handoff(run, main); } catch (e) { console.error('hand-off', e); } }
   if (!to?.one) return;
-  const op = actGet(run.op) || actPut(run.op, { kind: 'op', label: to.label, steps: [], status: 'pending', pub: run.pub, dest: to.dest || null, sheet: run.sheet || undefined, own: OWN_JOB.test(jobId) || undefined });
+  const op = actGet(run.op) || actPut(run.op, { kind: 'op', label: to.label, steps: [], status: 'pending', pub: run.pub, dest: to.dest || null, sheet: run.sheet || undefined, own: OWN_JOB.test(jobId) ? (DEV_JOB.test(jobId) ? 'device' : true) : undefined });
   for (const t of run.txs.splice(0)) { const x = actGet(t.id); if (x) { x.in = run.op; op.steps.push({ id: t.id, main: false, step: t.step, doing: t.doing }); } }
   op.steps.push({ id, main, step: main ? null : step.step, doing: main ? null : step.doing });
   if (self && main) op.self = self;
@@ -2445,7 +2445,7 @@ function actSaid(it, prev) {
   const shown = !!line && inView;
   const spn = ownJob(it.id) || it.own;
   if ((it.kind === 'job' || it.kind === 'op') && prev == null && !ended(it)) {
-    if (spn) { if (!(mine && inView)) toast(html`${it.label}: proving it with your own credit. ${view}`); }
+    if (spn) { if (!(mine && inView)) toast(html`${it.label}: ${ownWord(it).replace('proved', 'proving it')}. ${view}`); }
     else if (!(run?.noted && inView)) toast(html`${it.label}: queued for the relay. ${view}`);
   }
   else if (good && ['failed', 'stale', 'unknown'].includes(prev) && !it.sent) toast(html`${it.label} went through after all. ${link}`, false, 9000);
@@ -2493,8 +2493,8 @@ function jobSteps(j) {
   if (s === 'failed' || s === 'unknown') return [st('Queued', 'done'), st('Proving', j.prov ? 'done' : ''), st(s === 'failed' ? 'Failed' : 'No record', 'bad')];
   if (OPENISH.includes(s)) return [st('Queued', 'done'), st('Proved', 'done'), st(s === 'sending' ? 'Sending' : 'Ready to send', 'now')];
   if (ownJob(j.id)) {
-    const at = s === 'settled' ? 4 : s === 'proven' ? 3 : j.stage === 'proved' ? 2 : j.stage === 'assigned' ? 1 : 0;
-    return ['Asked Succinct', 'Proving', 'Proved', 'Sent'].map((l, i) => st(l, i < at ? 'done' : i === at ? 'now' : ''));
+    const dev = DEV_JOB.test(j.id), at = s === 'settled' ? 4 : s === 'proven' ? 3 : j.stage === 'proved' ? 2 : j.stage === 'assigned' || j.stage === 'device' ? 1 : 0;
+    return [dev ? 'This computer' : 'Asked Succinct', 'Proving', 'Proved', 'Sent'].map((l, i) => st(l, i < at ? 'done' : i === at ? 'now' : ''));
   }
   const at = { pending: 0, proving: 1 }[s] ?? 3;
   return ['Queued', 'Proving', s === 'proven' ? 'Proved' : 'Done'].map((l, i) => st(l, i < at ? 'done' : i === at ? 'now' : ''));
@@ -2549,7 +2549,7 @@ function actFoot(it) {
     proving: () => jobWhere(it),
     open: () => jobWhere(it),
     sending: () => jobWhere(it),
-    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? `, proved with your own credit${it.inPub ? ' (public input)' : ''}` : it.sealed ? ', sealed to Tacit’s prover machine and proved there' : LANE_SAID[it.lane] || ''}${link ? ' · ' : ''}${link}`,
+    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? `, ${ownWord(it)}${it.inPub ? ' (public input)' : ''}` : it.sealed ? ', sealed to Tacit’s prover machine and proved there' : LANE_SAID[it.lane] || ''}${link ? ' · ' : ''}${link}`,
     proven: () => (ownJob(it.id) ? jobWhere(it) : JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.'
       : `Proved, but the page that asked for it stopped waiting, so it was never sent.${openOf(it) ? '' : ' Start it again.'}`),
     confirmed: () => html`${it.flip ? 'Confirmed' : `Confirmed in ${took}`} · ${link}`,
@@ -2578,10 +2578,10 @@ function selfWork(it) {
 }
 function selfLine(it) {
   if (SELF.has(it.id)) return html`<div class="actr-f">${SELF.get(it.id)}</div>`;
-  const err = it.selfErr && !ended(it) ? html`<div class="actr-f err">${it.selfErr}${it.selfProve && !spOn() ? html` <button class="link" type="button" data-prove-open>Prove it yourself</button>` : ''}</div>` : '';
+  const err = it.selfErr && !ended(it) ? html`<div class="actr-f err">${it.selfErr}${it.selfProve && !ownOn() ? html` <button class="link" type="button" data-prove-open>Prove it yourself</button>` : ''}</div>` : '';
   if (!selfWork(it)) { OFFERED.delete(it.id); return err; }
   OFFERED.add(it.id);
-  if ((RS.why === 'paused' || RS.why === 'down') && !spOn()) {
+  if ((RS.why === 'paused' || RS.why === 'down') && !ownOn()) {
     return html`${err}<div class="actr-f"><button class="link" type="button" data-prove-open>Prove it yourself</button>: the relay isn’t proving right now. Switch on your own prover credit, then ${it.self.exit ? 'send it' : 'finish it'} from ${your()} here.</div>`;
   }
   return html`${err}<div class="actr-f"><button class="link" type="button" data-self="${it.id}">${it.self.exit ? 'Send it' : 'Finish it'} from ${your()}</button>
@@ -2765,6 +2765,7 @@ const costNote = () => { costPaint(); return html` <span data-selfcost>${COST.te
 // Proving with your own credit needs the credit and the network fee for the settle on hand. A wrap checks them before its deposit goes
 // out, which would otherwise sit in the pool, untipped and unsettled, until they are.
 async function ownReady(type) {
+  if (devOn()) { await selfGasCheck(); return; }
   const p = await spProver();
   if (!p || !p.supports(type)) return;
   const [have, need] = await Promise.all([p.balance(), p.needWei(type)]);
@@ -2831,7 +2832,7 @@ async function selfDo(run, spec) {
   run.take(...(spec.keys || []));
   let own = false;
   try {
-    own = spec.open ? false : spec.own ?? (spOn() && (await ownCan(spec.types)));
+    own = spec.open ? false : spec.own ?? (ownOn() && (await ownCan(spec.types)));
     await payingAccount();
     const need = await selfGasWei(), have = await ethBalance();
     if (have != null && have < need) {
@@ -2873,6 +2874,25 @@ const SP = { prover: null, who: null, mod: null, credit: null, need: null, credi
 const spMod = lazy(() => import('/self-prover.js?cb=b615e1f8').then((m) => (SP.mod = m)));
 const SP_PREF = 'tacit-lite-prove-self-v1:';
 const spOn = () => !!S.key && store.get(SP_PREF + S.key.pubHex) === true;
+// This computer's prover (tacit-prover on 127.0.0.1) as the other way to prove your own actions. It and your own credit exclude each other.
+// The browser asks before a page first reaches the local network, so it is looked for only once chosen.
+const DEV_PREF = 'tacit-lite-prove-device-v1:';
+const devOn = () => !!S.key && store.get(DEV_PREF + S.key.pubHex) === true;
+const ownOn = () => spOn() || devOn();
+const LOCAL = { prover: null, found: null, at: 0, looking: null };
+const DEVICE_GET = 'https://github.com/src-company/tacit/tree/main/contracts/sp1/confidential/device-prover';
+const devMod = lazy(() => import('/device-prover.js?cb=92d426ad'));
+async function devProver({ fresh = false } = {}) {
+  if (!fresh && LOCAL.found && Date.now() - LOCAL.at < 60e3) return LOCAL.prover;
+  return (LOCAL.looking ||= (async () => {
+    try {
+      LOCAL.prover ||= (await devMod()).makeDeviceProver({ keccak256: keccak_256 });
+      LOCAL.found = await LOCAL.prover.health(); LOCAL.at = Date.now();
+      return LOCAL.found ? LOCAL.prover : null;
+    } catch { LOCAL.found = null; return null; }
+    finally { LOCAL.looking = null; }
+  })());
+}
 const SP_SEAL = 'tacit-lite-seal-v1:';
 const sealOn = () => !!S.key && store.get(SP_SEAL + S.key.pubHex) === true;
 const sealMods = lazy(() => Promise.all([import('/sp1-stdin.js?cb=7c201927'), import('/sealed-input.js?cb=3a04fe3d')]));
@@ -2899,8 +2919,9 @@ function sealable(type, op, t) {
     default: return false;
   }
 }
-const OWN_JOB = /^spn:/;
+const OWN_JOB = /^spn:/, DEV_JOB = /^(job:)?spn:device-/;
 const ownJob = (id) => /^(job:)?spn:/.test(String(id || ''));
+const ownWord = (it) => (it.own === 'device' || DEV_JOB.test(it.id) ? 'proved on this computer' : 'proved with your own credit');
 const proveFmt = (wei, dp = 2) => fmt(BigInt(wei || 0), 18, dp);
 const perProof = () => SP.mod?.PROVE_PER_PROOF || 0.4;
 async function spProver() {
@@ -2917,23 +2938,37 @@ async function spProver() {
 function spApply() {
   const r = SP.ux?.relay;
   if (!r?.useProver) return;
+  if (devOn()) {
+    r.useProver(LOCAL.found && LOCAL.prover ? LOCAL.prover.prove : null);
+    if (r.useSealer) r.useSealer(null);
+    if (!LOCAL.found) devProver().then((x) => { if (!devOn()) return; if (x) r.useProver(x.prove); if ($('#sheet-prove')?.open) reProve(); }, () => {});
+    if (S.key && VOUCH.keep !== S.key.pubHex) {
+      VOUCH.keep = S.key.pubHex;
+      resumeVouchers().catch(() => {});
+      setInterval(() => { if (devOn()) keepReady().catch(() => {}); }, 60e3);
+    }
+    return;
+  }
   const p = spOn() && SP.prover && SP.who === S.acct?.address ? SP.prover : null;
   r.useProver(p ? p.prove : null);
   if (r.useSealer) r.useSealer(sealOn() && !p ? sealOp : null);
   if (spOn() && !p) spProver().then((x) => { if (x) spApply(); }, () => {});
 }
 const VIA_RELAY = { viaRelay: true };
-const ownNow = (types) => spOn() && [].concat(types).every((x) => !SP.prover || SP.prover.supports(x));
-const NO_RELAY_FEE = 'None: proved with your own credit';
+const ownNow = (types) => (devOn() ? [].concat(types).every((x) => DEVICE_TYPES.includes(x)) : spOn() && [].concat(types).every((x) => !SP.prover || SP.prover.supports(x)));
+const DEVICE_TYPES = ['wrap', 'wraptransfer', 'transfer', 'unwrap', 'sendunwrap', 'stealthlock', 'stealthclaim', 'stealthrefund', 'farmbond'];
+const NO_RELAY_FEE_CREDIT = 'None: proved with your own credit';
+const noRelayFee = () => (devOn() ? 'None: proved on this computer' : NO_RELAY_FEE_CREDIT);
 async function ownCan(types) {
+  if (devOn()) { const d = await devProver(); return !!d && [].concat(types || []).every((x) => d.supports(x)); }
   let p;
   try { p = await spProver(); } catch (e) { throw Object.assign(new Error('Proving with your credit could not start; nothing was sent.'), { code: 'prover_load', cause: e }); }
   return !!p && [].concat(types || []).every((x) => p.supports(x));
 }
 async function proveOwn(types) {
-  if (!spOn()) return false;
+  if (!ownOn()) return false;
   if (await ownCan(types)) { spApply(); return true; }
-  if (Date.now() - SP.note > 5000) { SP.note = Date.now(); toast('Your own credit can’t prove this one from here yet, so Tacit’s relay proves it.'); }
+  if (Date.now() - SP.note > 5000) { SP.note = Date.now(); toast(devOn() ? (LOCAL.found ? 'This computer proves only what can wait while it works, so Tacit’s relay proves this one.' : 'The prover on this computer isn’t answering, so Tacit’s relay proves this one.') : 'Your own credit can’t prove this one from here yet, so Tacit’s relay proves it.'); }
   return false;
 }
 async function proveWith(types, fn) { return fn((await proveOwn(types)) ? {} : VIA_RELAY); }
@@ -2970,15 +3005,18 @@ async function selfNow(spec) {
   } catch (e) { if (proverSaid(e)) throw offerProve(spec, e); throw e; }
 }
 const SP_STAGE = { uploading: 'Preparing the private input for Succinct’s prover…', requested: 'Asked Succinct’s prover…', assigned: 'A prover took it, about half a minute…', proved: 'Proved.' };
+const DEV_STAGE = { uploading: 'Handing it to the prover on this computer…', queued: 'Waiting for the prover on this computer…', device: 'This computer is proving it, a few minutes…' };
+const etaWords = (s) => (s == null ? null : s < 90 ? 'about a minute left' : `about ${Math.round(s / 60)} minutes left`);
 const SP_PUBLIC = 'Succinct’s network isn’t taking private inputs right now, so this one goes with a public input, which anyone can read…';
-const spSaid = (stage, status, pub = false) => (pub && stage === 'uploading' && status !== 'proven' ? SP_PUBLIC
-  : `${status === 'proven' ? 'Proved.' : SP_STAGE[stage] || 'Succinct’s prover is on it…'}${pub ? ' (public input)' : ''}`);
+const spSaid = (stage, status, pub = false, eta = null) => (pub && stage === 'uploading' && status !== 'proven' ? SP_PUBLIC
+  : `${status === 'proven' ? 'Proved.' : devOn() ? (stage === 'device' && eta != null ? `This computer is proving it, ${etaWords(eta)}…` : DEV_STAGE[stage] || DEV_STAGE.device) : SP_STAGE[stage] || 'Succinct’s prover is on it…'}${pub ? ' (public input)' : ''}`);
 const spPublicNow = () => !!SP.prover?.privateOff?.();
-const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '') || (st && st.jobId === null && st.stage)) tell(spSaid(st.stage, st.status, !!st.inputPublic)); } });
-const proverSaid = (e) => e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load';
+const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '') || (st && st.jobId === null && st.stage)) tell(spSaid(st.stage, st.status, !!st.inputPublic, st.eta)); } });
+const proverSaid = (e) => e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load' || e?.code === 'device_prover';
 const relayCantProve = (e) => proveCapped(e) || relayCode(e) === 'relay_paused' || relayCode(e) === 'prove_reserved' || /prove failed:|prove timed out/i.test(String(e?.message || ''));
 const spMsg = (e) => (e?.code === 'prover_credit' ? `Your prover credit is ${proveFmt(e.have)} PROVE; this needs ${proveFmt(e.need)} on hand.`
   : e?.code === 'prover_load' ? 'Proving with your credit could not start; nothing was sent. Try again, or let the relay prove this one.'
+  : e?.code === 'device_prover' ? `The prover on this computer could not prove it (${String(e.message || '').replace(/\.$/, '')}). Nothing was sent. Try again, or let the relay prove this one.`
   : 'Succinct’s prover did not take it in time. Nothing was sent. The network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.');
 function offerProve(spec, e) {
   if (spec.on || !spec.status?.()) return Object.assign(new Error(spMsg(e)), { said: true });
@@ -3606,7 +3644,7 @@ render.wallet = () => {
       <button class="opt${pays === 'wallet' ? ' main' : ''}" type="button" role="radio" aria-checked="${String(pays === 'wallet')}" data-pay="wallet"><span class="opt-t">${eth}Wallet${pays === 'wallet' ? html`<span class="tag">pays</span>` : ''}<span class="num w-bal" id="ac-wbal">${S.wallet ? html`<span class="sk" style="--w:5ch"></span>` : ''}</span></span><span class="opt-m">${S.wallet ? short(S.wallet, 8) : 'Connect one to pay from it'}</span></button>
     </div>
     <p class="note" id="ac-l2" hidden></p>
-    <div class="kv"><span>Proofs</span><b>${spOn() ? 'Your own prover credit' : 'Tacit’s relay'}</b><button class="link" type="button" data-prove-open>${spOn() ? 'manage' : 'prove them yourself'}</button></div>
+    <div class="kv"><span>Proofs</span><b>${devOn() ? 'This computer' : spOn() ? 'Your own prover credit' : 'Tacit’s relay'}</b><button class="link" type="button" data-prove-open>${ownOn() ? 'manage' : 'prove them yourself'}</button></div>
     ${segSub('wal', WAL.mode, [['add', 'Add ETH'], ['out', 'Send out']])}
     <div id="ac-form"></div>
     <div class="status" role="status" id="ac-status"></div>
@@ -3727,9 +3765,17 @@ function paintProve() {
   if (!SP.srcChosen && SP.src === 'prove' && SP.wProve === 0n && SP.wEth > 0n && !$('#sp-amt')?.value && !$('#prove-body [aria-busy="true"]')) { SP.src = 'eth'; reProve(); return; }
   if (SP.src !== 'acct' && SP.held > 0n && !$('[data-sps="acct"]') && !$('#prove-body [aria-busy="true"]')) reProve();
   const then = $('#sp-then');
-  if (then) then.disabled = !spOn();
+  if (then) then.disabled = !ownOn();
 }
 const reProve = () => keep($('#sheet-prove'), renderProve);
+// What the switch for this computer's prover says: what it found, or where to get it.
+function devNote(dev) {
+  const get = html`<a href="${DEVICE_GET}" target="_blank" rel="noopener">tacit-prover</a>`;
+  if (!dev) return html`Off. Run ${get} on this computer to prove your sends, wraps, claims and farm joins here, with no credit or relay fee.`;
+  if (LOCAL.looking) return 'Looking for the prover on this computer…';
+  if (!LOCAL.found) return html`On, but the prover on this computer isn’t answering. Start ${get}; until then Tacit’s relay proves your actions.`;
+  return html`On: ${LOCAL.found.gpu ? `this computer (${LOCAL.found.gpu})` : 'this computer'} proves your sends, wraps, claims and farm joins, sent from ${your()}. The rest go through Tacit’s relay.`;
+}
 const SIZES = [1, 5, 20];
 const sizesNow = () => SIZES.filter((n) => proveFor(n) > (SP.credit ?? 0n));
 function sizeRow() {
@@ -3742,7 +3788,7 @@ function renderProve() {
     mount(el, html`<p class="gate-p">Open your Tacit wallet first: its Tacit account is your prover account, and its credit pays for your proofs.</p>${signIn(el.id)}`);
     return wireSignIn(el, el.id, () => openProve());
   }
-  const a = S.acct, on = spOn(), seal = sealOn(), src = SP.src === 'acct' && !(SP.held > 0n) ? 'prove' : SP.src;
+  const a = S.acct, on = spOn(), dev = devOn(), seal = sealOn(), src = SP.src === 'acct' && !(SP.held > 0n) ? 'prove' : SP.src;
   SP.src = src;
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
@@ -3763,15 +3809,18 @@ function renderProve() {
         <div class="rcpt" id="sp-rcpt" hidden></div>
         <button class="btn" type="button" id="sp-go" ${src !== 'acct' && !S.wallet ? '' : 'disabled'}>${src !== 'acct' && !S.wallet ? 'Connect wallet' : 'Add PROVE'}</button>
         <div class="status" role="status" id="sp-status"></div></div></li>
-      <li class="${on ? 'step done' : 'step now'}"><span class="n">3</span><div><h3>Prove with your credit</h3>
+      <li class="${on || dev ? 'step done' : 'step now'}"><span class="n">3</span><div><h3>Prove with your credit</h3>
         <label class="pick"><input type="checkbox" id="sp-on" ${on ? 'checked' : ''}><span>Prove my actions with my own credit</span></label>
         <p class="note">${on ? `On: each private action is proved with your credit (about ${perProof()} PROVE) and sent from ${your()}. One it can’t prove from here goes through Tacit’s relay, and says so.`
           : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
-        <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
-        <p class="note">${on ? 'Not needed while your own credit proves: nothing of yours reaches the relay.'
+        <label class="pick"><input type="checkbox" id="sp-dev" ${dev ? 'checked' : ''}><span>Prove on this computer</span></label>
+        <p class="note" id="sp-dev-note">${devNote(dev)}</p>
+        ${dev ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once: ${KEEP_SIZES.map((w) => html` <button class="link" type="button" data-keep="${w}" aria-pressed="${String(keepSizes().includes(w))}">${keepSizes().includes(w) ? '✓ ' : ''}${fmt(w, 18, 2)} ETH</button>`)}</p>` : ''}
+        <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on || dev ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
+        <p class="note">${on || dev ? `Not needed while ${dev ? 'this computer' : 'your own credit'} proves: nothing of yours reaches the relay.`
           : seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
           : 'Off: the relay reads each action to prove it. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
-        ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
+        ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on || dev ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
     </ol>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
   wireSub(el, 'sps', (v) => { SP.src = v; SP.srcChosen = true; SP.q = null; reProve(); });
@@ -3827,9 +3876,29 @@ function renderProve() {
   $('#sp-on').onchange = (e) => {
     if (midAction()) { e.target.checked = !e.target.checked; return; }
     store.set(SP_PREF + S.key.pubHex, e.target.checked ? true : null);
+    if (e.target.checked) { store.set(DEV_PREF + S.key.pubHex, null); $('#sp-dev').checked = false; }
     spApply(); paintSp(); reProve();
     toast(e.target.checked ? 'Your private actions are proved with your own credit now.' : 'Tacit’s relay proves your actions again.');
   };
+  $('#sp-dev').onchange = (e) => {
+    if (midAction()) { e.target.checked = !e.target.checked; return; }
+    const on_ = e.target.checked;
+    store.set(DEV_PREF + S.key.pubHex, on_ ? true : null);
+    if (on_) { store.set(SP_PREF + S.key.pubHex, null); $('#sp-on').checked = false; }
+    spApply(); paintSp(); reProve();
+    if (!on_) return toast('Tacit’s relay proves your actions again.');
+    devProver({ fresh: true }).then((x) => {
+      if (!devOn()) return;
+      spApply(); paintSp(); reProve();
+      toast(x ? 'Your sends, wraps and claims are proved on this computer now.' : 'The prover on this computer isn’t answering yet, so Tacit’s relay proves your actions until it does.');
+    });
+  };
+  $$('[data-keep]', el).forEach((b) => b.onclick = () => {
+    const w = BigInt(b.dataset.keep), now = keepSizes(), next = now.includes(w) ? now.filter((x) => x !== w) : [...now, w];
+    store.set(KEEP_PREF + S.key.pubHex, next.length ? next.map(String) : null);
+    reProve();
+    if (next.includes(w)) { toast(`A ${fmt(w, 18, 2)} ETH wrap is proved on this computer while it is idle, ready to send at once.`); keepReady().catch(() => {}); }
+  });
   $('#sp-seal').onchange = (e) => {
     if (midAction()) { e.target.checked = !e.target.checked; return; }
     store.set(SP_SEAL + S.key.pubHex, e.target.checked ? true : null);
@@ -3839,7 +3908,7 @@ function renderProve() {
   const then = $('#sp-then');
   if (then) then.onclick = () => {
     const spec = SP.then;
-    if (!spec || !spOn()) return;
+    if (!spec || !ownOn()) return;
     SP.then = null;
     $('#sheet-prove').close();
     if (spec.sheet && $(`#sheet-${spec.sheet}`) && !$(`#sheet-${spec.sheet}`).open) openSheet(spec.sheet);
@@ -3902,13 +3971,13 @@ async function spFund(src, wei, tell) {
 }
 function paintSp() {
   for (const o of $$('.sp-note')) o.remove();
-  if (!spOn()) return;
-  for (const name of ['eth', 'tac', 'borrow', 'farm']) {
+  if (!ownOn()) return;
+  for (const name of devOn() ? ['eth'] : ['eth', 'tac', 'borrow', 'farm']) {
     const head = $(`#sheet-${name} .sheet-head`);
     if (!head) continue;
     const p = document.createElement('p');
     p.className = 'sp-note';
-    p.innerHTML = html`Proved with your own credit (about ${perProof()} PROVE) and sent from ${your()}. <a href="#prove-self" data-link="prove-self">Change</a>`.s;
+    p.innerHTML = html`Proved ${devOn() ? 'on this computer' : html`with your own credit (about ${perProof()} PROVE)`} and sent from ${your()}. <a href="#prove-self" data-link="prove-self">Change</a>`.s;
     head.after(p);
   }
 }
@@ -4531,7 +4600,7 @@ function v1Wrap(el, status) {
     <div class="amt"><input id="w-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="ETH to wrap"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
     <div class="rcpt" id="w-rcpt" aria-live="polite" hidden></div>
     <button class="btn" type="button" id="w-go" disabled>Make ETH private</button>
-    <p class="note">${ownNow(['wrap']) ? html`Two transactions from ${your()}: the deposit, then the settle, proved with your own credit, so there is no relay tip.` : html`One transaction from ${your()}. A small fee in it pays Tacit’s relay to do the privacy work.`}</p>
+    <p class="note">${ownNow(['wrap']) ? html`One transaction from ${your()} once it is proved ${devOn() ? 'on this computer' : 'with your own credit'}, so nothing waits in the pool meanwhile and there is no relay tip.` : html`One transaction from ${your()}. A small fee in it pays Tacit’s relay to do the privacy work.`}</p>
     <p class="note mute" data-pool="v1">${poolLine('v1')}</p>`);
   const input = $('#w-amt'), go = $('#w-go'), rc = $('#w-rcpt');
   let bal = null, q = null, seq = 0;
@@ -4567,9 +4636,12 @@ function v1Wrap(el, status) {
       const { j, own, tip, to } = await readTip(wei);
       if (my !== seq || !input.isConnected) return;
       q = { wei, tip, to, at: Date.now() };
+      const ready = own && S.key ? (await vouchers()).pick(S.key.pubHex, 'cETH', wei) : null;
+      if (my !== seq || !input.isConnected) return;
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} tETH</b></div>
-        <div class="kv"><span>Relay tip</span><b>${own ? 'none: you prove it with your own credit' : `${fmt(tip, 18, 6)} ETH`}</b></div>
+        <div class="kv"><span>Relay tip</span><b>${own ? `none: ${devOn() ? 'proved on this computer' : 'you prove it with your own credit'}` : `${fmt(tip, 18, 6)} ETH`}</b></div>
+        ${ready ? html`<div class="kv"><span>Proof</span><b>ready now, made here earlier${ready.length > 1 ? ` (${ready.length} wraps, one confirmation where your wallet batches)` : ''}</b></div>` : ''}
         <div class="kv"><span>${payName()} sends</span><b>${fmt(wei + tip, 18, 6)} ETH</b></div>
         ${pointsRow(wei, 'v1')}`);
       rc.hidden = false;
@@ -4595,6 +4667,15 @@ function v1Wrap(el, status) {
     try {
       t = await getUx(); priv = walletPriv();
       if (ownNow(['wrap'])) await ownReady('wrap');
+      if (ownNow(['wrap']) && (await proveOwn(['wrap']))) {
+        const pop = () => rewardPop(go, { pts: hxPts('wrap', Number(x.wei) / 1e18)?.pts });
+        if (devOn() && VOUCH.ahead?.ticker === 'cETH' && VOUCH.ahead.wei === String(x.wei)) { say(status, DEV_STAGE.device); await VOUCH.ahead.p; }
+        const ready = (await vouchers()).pick(S.key.pubHex, 'cETH', x.wei);
+        if (ready) await sendVouchers({ run, t, via, list: ready, status, sheet: 'eth', pop });
+        else await proveFirstWrap({ run, t, priv, via, wei: x.wei, status, sheet: 'eth', pop });
+        run.to.clear(); input.dispatchEvent(new Event('input'));
+        return;
+      }
       say(status, 'Preparing your note…');
       const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'cETH' });
       w = t.buildWrap({ walletPriv: priv, amountWei: x.wei, ticker: 'cETH', index });
@@ -4649,7 +4730,7 @@ async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
   if (n) return n;
   const tk = POOL_TK[k] || tickerOf(t, P.scan[k].id) || 'cETH';
   // Proved with your own credit the cut carries no relay fee (the previews count none), so none is held back here either.
-  const own = spOn() && await ownCan(['transfer']).catch(() => false);
+  const own = ownOn() && await ownCan(['transfer']).catch(() => false);
   const fee = own ? 0n : BigInt(await t.quoteOpFee(tk, 'transfer')), need = amount + fee;
   const up = freeNotes(P.scan[k].notes).sort(byValue);
   let picked = up.filter((x) => BigInt(x.value) >= need).slice(0, 1), sum = picked.length ? BigInt(picked[0].value) : 0n;
@@ -4837,7 +4918,7 @@ function v1Swap(el, status) {
         <div class="kv"><span>Price</span><b>1 ${unit} ≈ ${sig(Number(plan.amountOut) / Number(units - fee))} ${unitTo}</b></div>
         ${lossLine(plan.impact)}
         <div class="kv"><span>At least</span><b>${show(minOut, dpTo, unitTo)}</b></div>
-        <div class="kv"><span>Relay fee</span><b>${own ? NO_RELAY_FEE : show(fee, 8)}</b></div>
+        <div class="kv"><span>Relay fee</span><b>${own ? noRelayFee() : show(fee, 8)}</b></div>
         ${split ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan[from].notes).some((n) => BigInt(n.value) >= units + split) ? 'split a note' : 'combine notes'}</span><b>${show(split, 8)}</b></div>` : ''}
         ${swapStops(from, to).length > 1 ? html`<div class="kv"><span>Through</span><b>tETH, two pools in one settle</b></div>` : ''}`);
       rc.hidden = false;
@@ -4920,7 +5001,7 @@ function v1Out(el, status) {
       try { if (raw) recipientOf(raw); } catch (x) { bad = x; }
       q = { units, fee, minFee, own };
       const box = boxNow(), dev = box && raw.toLowerCase() === box.toLowerCase();
-      mount(rc, html`<div class="kv"><span>Relay fee</span><b>${own ? NO_RELAY_FEE : `${fmt(fee, 8, 8)} ETH`}</b></div>${size && units + size <= held ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan?.eth.notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${fmt(size, 8, 8)} ETH</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${fmt(units - fee > 0n ? units - fee : 0n, 8, 8)} ETH</b></div>
+      mount(rc, html`<div class="kv"><span>Relay fee</span><b>${own ? noRelayFee() : `${fmt(fee, 8, 8)} ETH`}</b></div>${size && units + size <= held ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan?.eth.notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${fmt(size, 8, 8)} ETH</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${fmt(units - fee > 0n ? units - fee : 0n, 8, 8)} ETH</b></div>
         ${dev ? html`<div class="kv"><span>Lands in</span><b>private ETH on this device, on Ethereum, less at most 0.25%</b></div>${(() => { const min = OBOX.min ?? (DEV.chain?.chainId === 1 && DEV.quote?.receiveMin ? BigInt(DEV.quote.receiveMin) : null); return min == null ? html`<p class="note">Below the relay’s floor, which moves with network fees, it waits at your deposit address on Ethereum until you sweep it in from Receive.</p>` : (own ? units : units - fee) * E10 >= min ? '' : html`<p class="note">What arrives is below the relay’s floor of ${fmt(min, 18, 4)} ETH, so it waits at your deposit address on Ethereum until you sweep it in from Receive.</p>`; })()}` : ''}`);
       rc.hidden = false;
       go.disabled = units + size > held || units <= fee || !raw || !!bad;
@@ -8084,6 +8165,130 @@ function renderTacBal(el) {
     } catch (e) { run.fail(status, e); }
   });
 }
+// Wraps proved ahead (/wrap-vouchers.js): the sizes picked in the prove sheet, kept ready on this computer while its prover is idle,
+// and any wrap proved here or with your credit that was then not sent (a wallet that declined, say). A wrap the vouchers make up
+// exactly goes out with no proving wait; the rest prove first as below. Nothing is proved on a guess while an amount is typed: a
+// proof here takes minutes and cannot be stopped, so one for an amount then changed would hold up the one wanted.
+const VOUCH = { mod: null, ahead: null, keep: 0 };
+const vouchers = async () => (VOUCH.mod ||= (await import('/wrap-vouchers.js?cb=c0733027')).makeVouchers());
+const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
+const KEEP_SIZES = [10n ** 16n, 10n ** 17n, 10n ** 18n];
+const keepSizes = () => (S.key ? (store.get(KEEP_PREF + S.key.pubHex) || []).map(BigInt) : []);
+// One wrap of `wei` proved on this computer and kept as a voucher; its job is kept with it, so a reload picks it up.
+function proveAhead(ticker, wei) {
+  if (!devOn() || !LOCAL.found || !S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
+  const pub = S.key.pubHex, me = { ticker, wei: String(wei) };
+  me.p = (async () => {
+    const v = await vouchers(), t = await getUx(), priv = walletPriv();
+    if (v.list(pub, ticker).some((x) => x.amount === String(wei))) return;
+    let rec = null;
+    try {
+      spApply();
+      const index = await t.nextWrapIndex({ walletPriv: priv, ticker });
+      const r = await t.proveWrap({ walletPriv: priv, amountWei: wei, ticker, index,
+        onBuilt: (b) => { rec = { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, assetId: b.wrapArgs.assetId, memos: b.memos, at: Date.now(), status: 'proving' }; v.put(pub, rec); },
+        waitOpts: { onUpdate: (st) => { if (rec && st?.jobId && !rec.job) { rec.job = st.jobId; v.put(pub, rec); } } } });
+      v.put(pub, { ...rec, status: 'ready', publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos });
+    } catch { if (rec) v.drop(pub, rec.depositId); }
+  })().finally(() => { if (VOUCH.ahead === me) VOUCH.ahead = null; });
+  VOUCH.ahead = me;
+  return me.p;
+}
+// Vouchers still proving when the page last closed: their jobs, followed to the end where the prover still has them.
+async function resumeVouchers() {
+  if (!devOn() || !S.key || !(await devProver())) return;
+  const pub = S.key.pubHex, v = await vouchers();
+  for (const x of v.list(pub, null, 'proving')) {
+    if (!x.job) { v.drop(pub, x.depositId); continue; }
+    LOCAL.prover.resume(String(x.job).replace(/^(job:)?spn:/, '')).then(
+      (r) => v.put(pub, { ...x, status: 'ready', publicValues: r.publicValues, proof: r.proof, memos: x.memos || null }),
+      () => v.drop(pub, x.depositId));
+  }
+}
+// The sizes picked in the prove sheet, kept ready: one missing at a time, while the prover has nothing else to do.
+async function keepReady() {
+  if (VOUCH.ahead || !devOn() || !S.key || !keepSizes().length) return;
+  const h = await LOCAL.prover?.health?.().catch(() => null);
+  if (!h || h.busy || h.queued) return;
+  const have = (await vouchers()).list(S.key.pubHex, 'cETH').map((x) => x.amount);
+  const want = keepSizes().find((w) => !have.includes(String(w)));
+  if (want) proveAhead('cETH', want);
+}
+// Ready vouchers sent: each deposits and settles through the router, together in one wallet confirmation where the wallet
+// batches calls. One whose deposit is in the pool already was sent elsewhere: it is dropped and nothing is sent.
+async function sendVouchers({ run, t, via, list, status, sheet, pop = null }) {
+  const pub = S.key.pubHex, v = await vouchers(), tell = (m) => run.say(status, m), from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
+  for (const x of list) {
+    if (wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) {
+      v.drop(pub, x.depositId);
+      throw Object.assign(new Error('A wrap kept ready here had been sent already, so nothing was sent. Press again.'), { said: true });
+    }
+  }
+  const calls = list.map((x) => t.wrapSettleCall(v.call(x)));
+  for (const c of calls) {
+    try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: c.to, data: c.data, value: '0x' + c.value.toString(16) }, 'latest']); }
+    catch (e) { throw Object.assign(new Error(`Nothing was sent: the router refuses a wrap kept ready here. ${revertText(e) || ''}`.trim()), { said: true }); }
+  }
+  run.take(...list.map((x) => kDep({ depositId: x.depositId })));
+  tell(`Proved already on this computer. Sending it from ${your()}…`);
+  let hash = null;
+  if (calls.length > 1 && via !== 'tacit' && (await canBatch())) {
+    try { hash = runTx(run, await sendBatch(calls, run.to.label), 'Wrap', 'Wrapping'); } catch (e) { if (!e?.noBatch) throw e; }
+  }
+  if (!hash) {
+    for (const c of calls) { hash = runTx(run, await sendTx({ to: c.to, data: c.data, value: c.value, via, label: run.to.label }), 'Wrap', 'Wrapping'); await waitTx(hash); }
+  }
+  pop?.();
+  await waitTx(hash);
+  for (const x of list) v.drop(pub, x.depositId);
+  tell(html`<span class="ok">Done.</span> ${txLink(hash)}`); toast(`${run.to.label}: done`);
+  await scanPrivate(true).catch(() => {});
+  rerender(sheet);
+  return hash;
+}
+// A wrap proved before anything is deposited (a wrap's proof pins no chain state), then deposited and settled in one transaction from
+// the paying account through the router: native ETH as the call's value, a token through a permit signed once the proof exists (so a
+// slow proof never runs out the permit). Nothing waits in the pool while the proof takes minutes, and a page closed mid-proof leaves
+// nothing behind. `token`: { address, permit (its EIP-2612 name), sym } for a token wrap.
+async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 'cETH', token = null, pop = null }) {
+  const tell = (v) => run.say(status, v);
+  tell(spSaid('uploading', null));
+  const index = await t.nextWrapIndex({ walletPriv: priv, ticker });
+  let sent = false, r = null;
+  try {
+    r = await t.proveWrap({ walletPriv: priv, amountWei: wei, ticker, index, waitOpts: spTell(run.wait(null, 60 * 60e3), tell), onBuilt: (b) => run.take(kDep(b)) });
+    run.check();
+    // The permit is the sending account's: the Tacit account signs its own here, a wallet in the wallet.
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800), from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
+    const value = BigInt(r.built.amount), spender = t.cfg.router;
+    const permit = !token ? null : via === 'tacit'
+      ? permitFromTacit({ token: token.address, name: token.permit, version: '1', owner: from, spender, value, nonce: wordAt(await ethCall(token.address, '7ecebe00' + addrWord(from)), 0), deadline })
+      : await permitSig({ token: token.address, name: token.permit, what: token.sym, spender, value, deadline, status });
+    const call = t.wrapSettleCall({ built: r.built, proven: r.proven, permit: permit && { v: permit.v, r: permit.r, s: permit.s, deadline } });
+    try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: call.to, data: call.data, value: '0x' + call.value.toString(16) }, 'latest']); }
+    catch (e) { throw Object.assign(new Error(`Nothing was sent: the router refuses this as it stands. ${revertText(e) || ''}`.trim()), { said: true }); }
+    tell(`Sending it from ${your()}…`);
+    const hash = runTx(run, await sendTx({ to: call.to, data: call.data, value: call.value, via, label: run.to.label }), 'Wrap', 'Wrapping');
+    sent = true;
+    pop?.();
+    tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
+    await waitTx(hash);
+    tell(html`<span class="ok">Done.</span> ${txLink(hash)}`); toast(`${run.to.label}: done`);
+    await scanPrivate(true).catch(() => {});
+    rerender(sheet);
+    return hash;
+  } catch (e) {
+    if (e?.code === 'device_prover') throw Object.assign(new Error(`The prover on this computer could not prove it (${String(e.message || '').replace(/\.$/, '')}). Nothing was sent: press again, or switch it off to let the relay wrap it.`), { said: true });
+    throw e;
+  } finally {
+    // A proof made and then not sent is kept as a voucher (an ETH wrap needs nothing more to send it), so pressing again sends it at once.
+    if (!sent && r && !token && S.key) {
+      const b = r.built;
+      (await vouchers()).put(S.key.pubHex, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, assetId: b.wrapArgs.assetId,
+        at: Date.now(), status: 'ready', publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos });
+    } else if (!sent) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
+  }
+}
 async function tacWrapFromWallet(t, priv, wei, status) {
   const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'TAC' });
   const w = t.buildWrap({ walletPriv: priv, amountWei: wei.toString(), ticker: 'TAC', index });
@@ -8107,7 +8312,7 @@ function tacShield(el, status, acctBal, walletBal) {
     <div class="amt"><input id="tsh-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="TAC to make private"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
     <div class="rcpt" id="tsh-rcpt" hidden></div>
     <button class="btn" type="button" id="tsh-go" disabled>Make private</button>
-    <p class="note">One transaction from ${from}${src === 'wallet' ? ', with a signed permit' : ''}; Tacit’s relay does the privacy work after. It stays private until you send it or make it public again.</p>${swap}`);
+    <p class="note">One transaction from ${from}${src === 'wallet' ? ', with a signed permit' : ''}; ${ownNow(['wrap']) ? `it is proved ${devOn() ? 'on this computer' : 'with your own credit'} first, so nothing waits in the pool` : 'Tacit’s relay does the privacy work after'}. It stays private until you send it or make it public again.</p>${swap}`);
   wireSwap();
   const amt = $('#tsh-amt'), go = $('#tsh-go'), rc = $('#tsh-rcpt');
   let q = null;
@@ -8132,6 +8337,14 @@ function tacShield(el, status, acctBal, walletBal) {
     let sent = false, landed = false;
     try {
       const t = await getUx(), priv = walletPriv();
+      // Proved here or with your own credit: the proof first, then one transaction deposits and settles it.
+      if (ownNow(['wrap']) && (await proveOwn(['wrap']))) {
+        await ownReady('wrap');
+        await proveFirstWrap({ run, t, priv, via: src, wei: x.wei, status, sheet: 'tac', ticker: 'TAC', token: { address: ADDR.tac, permit: 'Tacit Token', sym: 'TAC' } });
+        run.to.clear(); amt.dispatchEvent(new Event('input'));
+        await loadTacHoldings(true).catch(() => {}); rerender('tac');
+        return;
+      }
       say(status, src === 'wallet' ? 'Preparing your note, about half a minute…' : 'Sending from your Tacit account…');
       run.check();
       const w = src === 'wallet' ? await tacWrapFromWallet(t, priv, x.wei, status) : await t.routerWrap({ walletPriv: priv, amountWei: x.wei.toString(), ticker: 'TAC' });
@@ -9598,7 +9811,7 @@ function farmZap(el, p, status, has, top) {
         ${joinYield(p, plan.shares, plan.ethLeg / zapUnit)}
         ${back >= 10n ** BigInt(18 - dpB) ? html`<div class="kv"><span>Back to ${your()}</span><b>about ${fmt(back, 18, dpB)} ${other}</b></div>` : ''}
         <div class="kv"><span>Network fee, from ${your()}</span><b>about ${fmt(gas, 18, 5)} ETH</b></div>
-        <div class="kv"><span>Then</span><b>the relay makes your share private and farms it, a few minutes</b></div>`);
+        <div class="kv"><span>Then</span><b>${ownNow(['farmbond']) && devOn() ? 'the relay makes your share private, then this computer puts it in the farm' : 'the relay makes your share private and farms it, a few minutes'}</b></div>`);
       mount(ackBox, lossGate(`sz-ackv-${pid}`, q.impact, 'deposit'));
       wireAck(ackBox, `sz-ackv-${pid}`, q.impact, gateOk);
       if (q.over) warn(rc, have != null && (have === 0n || plan.value <= have) ? lowEth() : 'More ETH than you hold, with the network fee. Try Max.');
@@ -9727,7 +9940,9 @@ async function zapFinish(run, p, rec, built, tell, status) {
   if (st === 1n) {
     tell('The relay is making your share a private note, about a minute…');
     const what = `Make your ${pairName(p.pair)} share private`;
-    await proveOr({ run, types: ['wrap'], label: what, sheet: 'farm', status: () => status, tell, wait: () => run.wait(what, 15 * 60e3, { deps: [kDep(built)] }),
+    // Its proof holds nothing secret (the share count and commitment are on chain), so the relay makes it while this computer keeps
+    // to the bond, which spends the note: minutes sooner, and the note's key still never leaves this machine.
+    await proveOr({ run, types: ['wrap'], ...(devOn() ? { self: false } : {}), label: what, sheet: 'farm', status: () => status, tell, wait: () => run.wait(what, 15 * 60e3, { deps: [kDep(built)] }),
       then: 'Your share is a private note. Press Finish it to put it in the farm.', after: () => rerender('farm'),
       go: (y) => y.t.submitWrapSettle({ built, waitOpts: y.waitOpts, selfSettle: y.selfSettle, depositTx: rec.tx }),
       relayed: () => t.submitWrapSettle({ built, waitOpts: run.wait(what, 15 * 60e3, { deps: [kDep(built)] }), depositTx: rec.tx }) });
@@ -9753,7 +9968,7 @@ async function stepBond(run, p, notes, tell, status) {
   run.take(...mine.map(kNote));
   let r = null;
   for (const [i, n] of mine.entries()) {
-    tell(`The relay is putting your share in the farm${mine.length > 1 ? ` (${i + 1} of ${mine.length})` : ''}…`);
+    tell(`${!ownNow(['farmbond']) ? 'The relay is' : devOn() ? 'This computer is' : 'Your credit is'} putting your share in the farm${mine.length > 1 ? ` (${i + 1} of ${mine.length})` : ''}…`);
     r = await proveOr({ run, types: ['farmbond'], label, sheet: 'farm', status: () => status, tell, wait: () => run.wait(label, 20 * 60e3),
       then: 'In the farm: TAC streams to your private position.', after: () => Promise.allSettled([loadPositions(), loadFarms(true, { private: true })]).then(() => rerender('farm')),
       go: (y) => y.t.farmBond({ walletPriv: y.priv, lpNote: n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }),
@@ -10991,7 +11206,7 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
           const size = own || freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units) ? 0n : BigInt(await t.quoteOpFee(tk, 'transfer'));
           if (stale()) return;
           q = recipient && { units, recipient, out: true };
-          mount(rc, html`<div class="kv"><span>Relay fee</span><b>${own ? NO_RELAY_FEE : `${show(fee)} ${dtk}`}</b></div>${size ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${show(size)} ${dtk}</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${show(units > fee ? units - fee : 0n)} ${a.out}</b></div>`);
+          mount(rc, html`<div class="kv"><span>Relay fee</span><b>${own ? noRelayFee() : `${show(fee)} ${dtk}`}</b></div>${size ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${show(size)} ${dtk}</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${show(units > fee ? units - fee : 0n)} ${a.out}</b></div>`);
           if (units <= fee) { q = null; warn(rc, `Send more than the ${show(fee)} ${dtk} relay fee.`); }
           else if (units + size > src.held) { q = null; warn(rc, feeRoom(units, size, src.held, P.scan[k].notes, (v) => `${show(v)} ${dtk}`) || 'More than your private balance.'); }
           else if (recipient && ownAccount(recipient)) rc.insertAdjacentHTML('beforeend', linkNote());

@@ -38,8 +38,8 @@ test('health trusts only a prover for this pool', async () => {
 
 test('it takes only ops whose proofs pin no moving state', () => {
   const d = makeDeviceProver({ keccak256: keccak_256, fetchImpl: async () => { throw new Error('unused'); } });
-  for (const t of ['wrap', 'transfer', 'unwrap', 'sendunwrap', 'stealthlock', 'stealthclaim']) assert.ok(d.supports(t) && d.prove.supports(t), t);
-  for (const t of ['swap', 'route', 'lp', 'cdpmint', 'bridgemint', 'wrapswap']) assert.ok(!d.supports(t), t);
+  for (const t of ['wrap', 'transfer', 'unwrap', 'sendunwrap', 'stealthlock', 'stealthclaim', 'farmbond']) assert.ok(d.supports(t) && d.prove.supports(t), t);
+  for (const t of ['swap', 'route', 'lp', 'cdpmint', 'bridgemint', 'wrapswap', 'farmharvest']) assert.ok(!d.supports(t), t);
   assert.ok(DEVICE_TYPES.every((t) => d.supports(t)));
 });
 

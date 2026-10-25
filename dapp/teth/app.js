@@ -2,8 +2,8 @@ import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deaf
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/teth/read.js?cb=b2a110d0';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=b4ed1994';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/teth/prover.js?cb=1baba054';
+import { wrapEth, wrapFirst, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, deviceWords, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=7fe044af';
+import { ownPref, setOwnPref, devicePref, setDevicePref, deviceProver, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/teth/prover.js?cb=c6371e16';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=9c6bb081';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
@@ -17,7 +17,7 @@ const PRESETS = [['0.01 ETH', '0.01'], ['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'
 
 const D = { pool: null, hist: null, rates: {}, program: null, rows: [], floor: null, held: null, bal: null, btc: null, btcFailed: false };
 let amtTimer = 0;
-const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, left: null, cost: null, steps: null, ready: false, ownOnce: null };
+const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, left: null, cost: null, steps: null, ready: false, ownOnce: null, kept: null };
 
 const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
@@ -219,6 +219,7 @@ async function requote() {
   if (!wei) { S.quote = null; renderQuote(); renderGo(); return; }
   const issue = wrapIssue(wei);
   if (issue) { S.quote = { wei, issue }; renderQuote(); renderGo(); return; }
+  if (devOn()) { S.quote = { wei, tip: 0n, to: NO_TIP, device: true, floor: D.floor }; renderQuote(); renderGo(); if (!S.cost) fillCost(); return; }
   if (ownOn()) { S.quote = { wei, tip: 0n, to: NO_TIP, own: true, floor: D.floor }; renderQuote(); renderGo(); if (!S.cost) fillCost(); return; }
   S.quote = { wei, loading: true }; renderQuote(); renderGo();
   try {
@@ -240,9 +241,9 @@ function renderQuote() {
   if (q.err) { box.innerHTML = `<p class="note err">${esc(q.err)}</p>`; return; }
   if (q.loading) { box.innerHTML = '<div class="kv"><span>Relay tip</span><b class="mute">reading…</b></div>'; return; }
   const thenSettle = () => `, then the settle<span class="mute self-cost-fee">${S.cost ? ` · network fee about ${esc(fmtUnits(S.cost, 18, 5))} ETH` : ''}</span>`;
-  if (q.own) {
-    box.innerHTML = `<div class="kv"><span>Relay tip</span><b>none: you prove it yourself</b></div>
-    <div class="kv"><span>Your wallet sends</span><b>${esc(fmtUnits(q.wei, 18, 6))} ETH${thenSettle()}</b></div>
+  if (q.own || q.device) {
+    box.innerHTML = `<div class="kv"><span>Relay tip</span><b>none: ${q.device ? 'this computer proves it' : 'you prove it yourself'}</b></div>
+    <div class="kv"><span>Your wallet sends</span><b>${esc(fmtUnits(q.wei, 18, 6))} ETH in one transaction<span class="mute self-cost-fee">${S.cost ? ` · network fee about ${esc(fmtUnits(S.cost, 18, 5))} ETH` : ''}</span></b></div>
     <div class="kv"><span>Private to</span><b>${esc(ownerText())}</b></div>`;
     $('#tk-note').innerHTML = noteHtml();
     return;
@@ -256,8 +257,8 @@ function renderQuote() {
   $('#tk-note').innerHTML = noteHtml();
 }
 const ownerText = () => (key.unlocked ? (key.key.address ? `the Tacit wallet of ${short(key.key.address, 4)}` : key.key.label ? `your passkey “${key.key.label}”` : `the Tacit wallet ${short(key.key.pubHex, 4)}`) : 'the Tacit wallet you open next');
-const noteHtml = () => (S.quote?.own
-  ? 'Your wallet sends the deposit and the settle. Your Tacit account’s PROVE credit pays Succinct’s prover for the proof. Deposits count toward <a href="/rewards/">TAC points</a>.'
+const noteHtml = () => (S.quote?.device || S.quote?.own
+  ? `${S.quote.device ? 'This computer proves your note' : 'Your PROVE credit pays Succinct’s prover for your note'} before any ETH moves, then one transaction deposits and settles it. Deposits count toward <a href="/rewards/">TAC points</a>.`
   : 'One transaction pays the deposit and a small tip to Tacit’s relay. Deposits count toward <a href="/rewards/">TAC points</a>.');
 function renderGo() {
   const go = $('#go'), q = S.quote, wei = getWei();
@@ -278,6 +279,11 @@ const STEPS = [['key', 'Open your Tacit wallet'], ['prepare', 'Prepare the depos
 const OWN_STEPS = [...STEPS.slice(0, 4), ['input', 'Prepare the input for Succinct’s prover'], ['asked', 'Succinct’s prover proves it, about half a minute'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
 const OWN_FINISH = OWN_STEPS.slice(4);
 const HELD_STEPS = [...STEPS.slice(0, 4), ['proving', 'The relay proves your note'], ['check', 'The settle is checked before it is sent'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
+// A new note is proved before the ETH moves, then one transaction from the wallet deposits and settles it.
+const FIRST_PROVE = { device: [['proving', 'This computer proves it, a few minutes']],
+  own: [['input', 'Prepare the input for Succinct’s prover'], ['asked', 'Succinct’s prover proves it, about half a minute']] };
+const firstSteps = (lane) => [['key', 'Open your Tacit wallet'], ['prepare', 'Prepare your note'], ...FIRST_PROVE[lane], ['confirm', 'Confirm in your wallet: one transaction deposits and settles it'], ['landing', 'It lands on Ethereum']];
+const DEVICE_FINISH = [['proving', 'This computer proves it, a few minutes'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
 function paintSteps(now_ = null, { failed = false, all = false } = {}) {
   const el = $('#steps');
   if (!now_ && !all) { el.hidden = true; el.innerHTML = ''; return; }
@@ -350,9 +356,13 @@ async function press({ anyway = false } = {}) {
   const q = S.quote;
   if (S.busy || S.stuck) return;
   if (!q || q.wei !== getWei() || q.tip == null) { clearTimeout(amtTimer); requote(); return; }
-  if (q.own && creditShort()) { openProverSheet(); return; }
+  if (q.device || q.own) { await proveFirst(q, q.device ? 'device' : 'own'); return; }
+  await pressRelay(q, { anyway });
+}
+// The relay's way: the deposit goes first with its tip, and the relay proves and settles it, so the holder can leave once it is sent.
+async function pressRelay(q, { anyway = false } = {}) {
   const from = W.account, hadKey = key.unlocked;
-  S.busy = true; S.steps = (q.own ? OWN_STEPS : STEPS).slice(hadKey ? 1 : 0);
+  S.busy = true; S.steps = STEPS.slice(hadKey ? 1 : 0);
   lockTicket(); renderGo(); renderChips(); renderWaiting(); say('');
   let at = null, settled = null, held = false;
   const relayStep = (k, hash) => { at = k === 'sent' ? 'landing' : k; paintSteps(at); if (hash && k === 'sent') say(`Deposit sent ${txLink(hash)}. Waiting for it to land…`); else if (k === 'proving') say(`${hash ? `Deposited ${txLink(hash)}. ` : ''}The relay is finishing it, about a minute…`); else if (k === 'confirm') say('Confirm the deposit in your wallet…'); else if (k === 'prepare') say('Preparing the deposit, about half a minute…'); };
@@ -365,41 +375,113 @@ async function press({ anyway = false } = {}) {
     else if (k === 'settle-confirm') say(`Proved. Confirm the settle in your wallet. ${esc(walletName())} pays the network fee${esc(costTxt())}.`);
     else { settled = d; say(`Settle sent ${txLink(d)}. Waiting for it to land…`); }
   };
-  const step = q.own ? ownSteps((k) => { at = k; }, (h) => { settled = h; }) : (k, d) => (held ? heldStep : relayStep)(k, d);
+  const step = (k, d) => (held ? heldStep : relayStep)(k, d);
   try {
     if (!hadKey) {
       paintSteps('key'); at = 'key'; await signIn();
       const h = await loadHeld();
       if (h?.pending?.length && S.askedPending !== h.pub) { S.askedPending = h.pub; paintSteps(null); say('A deposit of yours is waiting to become private. Press Finish above to complete it, or press the button again to make a new one.'); return; }
-      if (!!q.own !== ownOn()) { paintSteps(null); requote(); say(ownOn() ? 'This Tacit wallet proves with its own PROVE credit, so the deposit carries no relay tip. Check the amounts and press again.' : 'This Tacit wallet is set to let the relay prove. Check the amounts and press again.'); return; }
+      if (laneNow() !== 'relay') { paintSteps(null); requote(); say(laneNow() === 'device' ? 'This Tacit wallet is set to prove on this computer, so the deposit carries no relay tip. Check the amounts and press again.' : 'This Tacit wallet proves with its own PROVE credit, so the deposit carries no relay tip. Check the amounts and press again.'); return; }
     }
     if (W.account !== from) throw new Error('Your wallet switched accounts. Nothing was sent. Try again.');
-    if (!q.own) {
-      const rs = await relayState();
-      if (relayStopped(rs) && !anyway) { paintSteps(null); say(PAUSED_CHOICE); return; }
-      held = rs?.state === 'held';
-      if (held && !q.held) { paintSteps(null); requote(); say('The relay can’t send this one right now, so your wallet sends the settle and pays its network fee. Check the amounts and press again.'); return; }
-      if (held) S.steps = HELD_STEPS.slice(hadKey ? 1 : 0);
-    }
-    let prover = null;
-    if (q.own) {
-      prover = await ensureProver();
-      const c = await readCredit(prover);
-      setCredit(c);
-      if (c.credit == null || c.need == null) { paintSteps(null); say('Could not read your prover credit. Nothing was sent. Try again in a moment.', true); return; }
-      if (c.credit < c.need) { paintSteps(null); say(`${esc(ownWords({ code: 'prover_credit', have: c.credit, need: c.need }))} Nothing was sent. <button class="linkbtn" type="button" id="ps-open">Add PROVE</button>`, true); return; }
-    }
-    await wrapEth({ priv: () => key.priv(), wei: q.wei, tip: q.tip, to: q.to, from, wallet, say: step, own: prover, self: held });
+    const rs = await relayState();
+    if (relayStopped(rs) && !anyway) { paintSteps(null); say(PAUSED_CHOICE); return; }
+    held = rs?.state === 'held';
+    if (held && !q.held) { paintSteps(null); requote(); say('The relay can’t send this one right now, so your wallet sends the settle and pays its network fee. Check the amounts and press again.'); return; }
+    if (held) S.steps = HELD_STEPS.slice(hadKey ? 1 : 0);
+    await wrapEth({ priv: () => key.priv(), wei: q.wei, tip: q.tip, to: q.to, from, wallet, say: step, self: held });
     S.ownOnce = null;
     paintSteps(null, { all: true });
-    say(`<span class="ok">Done.</span> ${esc(fmtUnits(q.wei, 18, 8))} tETH is private now, in your balance and ready to send, swap, farm or bridge.${q.own && settled ? ` Proved with your own credit${S.pubInput ? ' (its input went public: Succinct’s network was not taking private inputs)' : ''} and settled from your wallet ${txLink(settled)}.` : held && settled ? ` Settled from your wallet ${txLink(settled)}.` : ''} <a href="#" data-mode-go="use">What next →</a>`);
+    say(`<span class="ok">Done.</span> ${esc(fmtUnits(q.wei, 18, 8))} tETH is private now, in your balance and ready to send, swap, farm or bridge.${held && settled ? ` Settled from your wallet ${txLink(settled)}.` : ''} <a href="#" data-mode-go="use">What next →</a>`);
     S.amt = ''; $('#amt').value = ''; S.quote = null; S.seq++; renderQuote(); keepInHash();
     const before = D.held?.pub === key.key.pubHex ? D.held.value ?? null : null;
     loadHeldUntil((h) => (before != null ? (h.value ?? 0n) >= before + q.wei / E10 : !(h.pending || []).length));
   } catch (e) { if (e?.deposit) S.ownOnce = null; fail(e, at, q); }
-  finally { S.busy = false; lockTicket(); renderGo(); renderChips(); renderWaiting(); renderOwn(); readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {}); if (q.own) refreshCredit(); }
+  finally { S.busy = false; lockTicket(); renderGo(); renderChips(); renderWaiting(); renderOwn(); readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {}); }
 }
-const PAUSED_CHOICE = 'The relay isn’t proving right now. <button class="linkbtn" type="button" id="own-now">Prove it with your own credit</button> or <button class="linkbtn" type="button" id="anyway">deposit anyway</button>: it goes through once the relay is back, or you finish it from your wallet.';
+// Proved here or with the holder's own credit: the note is proved before any ETH moves, then one transaction from the wallet deposits
+// and settles it, so nothing is left waiting on a prover. A proof whose transaction was not sent is kept for the next press.
+async function proveFirst(q, lane) {
+  if (lane === 'own' && creditShort()) { openProverSheet(); return; }
+  const from = W.account, hadKey = key.unlocked;
+  S.busy = true; S.steps = firstSteps(lane).slice(hadKey ? 1 : 0);
+  lockTicket(); renderGo(); renderChips(); renderWaiting(); say('');
+  let at = null;
+  const step = firstSay(lane, (k) => { at = k; }, q);
+  try {
+    if (!hadKey) {
+      paintSteps('key'); at = 'key'; await signIn();
+      const h = await loadHeld();
+      if (h?.pending?.length && S.askedPending !== h.pub) { S.askedPending = h.pub; paintSteps(null); say('A deposit of yours is waiting to become private. Press Finish above to complete it, or press the button again to make a new one.'); return; }
+      if (laneNow() !== lane) { paintSteps(null); requote(); say(laneNow() === 'relay' ? 'This Tacit wallet is set to let the relay prove. Check the amounts and press again.' : `This Tacit wallet is set to prove ${laneNow() === 'device' ? 'on this computer' : 'with its own PROVE credit'}. Check the amounts and press again.`); return; }
+    }
+    if (W.account !== from) throw new Error('Your wallet switched accounts. Nothing was sent. Try again.');
+    let prover;
+    if (lane === 'own') {
+      const p = await ensureProver();
+      const c = await readCredit(p);
+      setCredit(c);
+      if (c.credit == null || c.need == null) { paintSteps(null); say('Could not read your prover credit. Nothing was sent. Try again in a moment.', true); return; }
+      if (c.credit < c.need) { paintSteps(null); say(`${esc(ownWords({ code: 'prover_credit', have: c.credit, need: c.need }))} Nothing was sent. <button class="linkbtn" type="button" id="ps-open">Add PROVE</button>`, true); return; }
+      prover = p.prove;
+    } else {
+      const d = await findDevice();
+      if (!d) { paintSteps(null); say('The prover on this computer isn’t answering, so nothing was sent. Start tacit-prover and press again, or <button class="linkbtn" type="button" id="ps-open">change how it is proved</button>.', true); return; }
+      prover = d.prove;
+    }
+    // A proof kept from a press that did not send, or a wrap of this amount kept ready (on this page or the front page's prove sheet).
+    const vs = await vouchers(), pub = key.key.pubHex;
+    const v = vs.list(pub, 'cETH', 'ready').find((x) => x.amount === String(q.wei));
+    const kept = S.kept && S.kept.wei === q.wei && S.kept.lane === lane && S.kept.pub === pub ? S.kept.r : v ? vs.call(v) : null;
+    const r = await wrapFirst({ priv: () => key.priv(), wei: q.wei, from, wallet, say: step, prover, ready: kept });
+    if (r.built?.depositId) vs.drop(pub, r.built.depositId);
+    S.kept = null; S.ownOnce = null;
+    paintSteps(null, { all: true });
+    const by = lane === 'device' ? ' Proved on this computer.' : ` Proved with your own credit${S.pubInput ? ' (its input went public: Succinct’s network was not taking private inputs)' : ''}.`;
+    say(`<span class="ok">Done.</span> ${esc(fmtUnits(q.wei, 18, 8))} tETH is private now, in your balance and ready to send, swap, farm or bridge.${r.hash ? ` Sent ${txLink(r.hash)}.` : ''}${by} <a href="#" data-mode-go="use">What next →</a>`);
+    S.amt = ''; $('#amt').value = ''; S.quote = null; S.seq++; renderQuote(); keepInHash();
+    const before = D.held?.pub === key.key.pubHex ? D.held.value ?? null : null;
+    loadHeldUntil((h) => (before != null ? (h.value ?? 0n) >= before + q.wei / E10 : true));
+  } catch (e) { failFirst(e, at, q, lane); }
+  finally { S.busy = false; lockTicket(); renderGo(); renderChips(); renderWaiting(); renderOwn(); readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {}); if (lane === 'own') refreshCredit(); }
+}
+// Wraps proved and then not sent, or kept ready from the front page's prove sheet: one store for both pages (/wrap-vouchers.js).
+let vouchP = null;
+const vouchers = () => (vouchP ||= import('/wrap-vouchers.js?cb=c0733027').then((m) => m.makeVouchers(), (e) => { vouchP = null; throw e; }));
+function firstSay(lane, set, q) {
+  S.pubInput = false;
+  return (k, d) => {
+    let at = { prepare: 'prepare', proving: lane === 'own' ? 'input' : 'proving', check: 'confirm', confirm: 'confirm', sent: 'landing' }[k];
+    if (k === 'stage') at = lane === 'own' ? (String(d || '').split(':')[0] === 'proved' ? 'confirm' : 'asked') : 'proving';
+    if (at) { set(at); paintSteps(at); }
+    if (k === 'prepare') say('Preparing your note…');
+    else if (k === 'proving') say(lane === 'device' ? 'This computer is proving it. Nothing has left your wallet yet…' : 'Preparing the private input…');
+    else if (k === 'stage' && lane === 'own') {
+      const [s, pub] = String(d || '').split(':');
+      if (pub) S.pubInput = true;
+      if (pub && s === 'uploading') say('Succinct’s network isn’t taking private inputs right now, so this one goes with a public input, which anyone can read…');
+      else say(`${s === 'requested' ? 'Asked Succinct’s prover. It proves it in about half a minute…' : s === 'assigned' ? 'Succinct’s prover is proving it…' : s === 'proved' ? 'Proved.' : 'Preparing the private input…'}${pub ? ' (public input)' : ''}`);
+    }
+    else if (k === 'check') say('Proved. Checking the transaction before it is sent…');
+    else if (k === 'confirm') say(`Proved. Confirm in your wallet: one transaction deposits ${esc(fmtUnits(q.wei, 18, 6))} ETH and makes it private. ${esc(walletName())} pays the network fee${esc(costTxt())}.`);
+    else if (k === 'sent') say(`Sent ${txLink(d)}. Waiting for it to land…`);
+  };
+}
+function failFirst(e, at, q, lane) {
+  if (e instanceof Cancelled || e?.unlockCancelled) { paintSteps(null); say(''); return; }
+  if (e?.ready) {
+    S.kept = { r: e.ready, wei: q.wei, lane, pub: key.key?.pubHex };
+    if (key.key?.pubHex) vouchers().then((vs) => vs.keep(key.key.pubHex, 'cETH', e.ready)).catch(() => {});
+  }
+  const keep = e?.ready ? ' The proof is kept: press again to send it.' : '';
+  if (e instanceof UserStopped || e?.userStopped || e?.code === 4001) { paintSteps(null); say(`${esc(e.message)}${keep}`); return; }
+  paintSteps(at, { failed: true });
+  // Sent and not yet confirmed: the deposit and its settle land together or not at all, so it is only waited on.
+  if (e?.sent) { S.stuck = { hash: e.sent, wei: q.wei, landed: false, first: true }; renderGo(); say(stuckText(e, S.stuck)); return; }
+  const words = lane === 'device' ? deviceWords(e) : ownWords(e);
+  say(`<span class="err">${esc(words)}</span>${keep || (/nothing was sent/i.test(words) ? '' : ' Nothing was sent.')}${lane === 'own' && e?.code === 'prover_credit' ? ' <button class="linkbtn" type="button" id="ps-open">Add PROVE</button>' : ''}`);
+}
+const PAUSED_CHOICE = 'The relay isn’t proving right now. <button class="linkbtn" type="button" id="dev-now">Prove it on this computer</button>, <button class="linkbtn" type="button" id="own-now">prove it with your own credit</button> or <button class="linkbtn" type="button" id="anyway">deposit anyway</button>: it goes through once the relay is back, or you finish it from your wallet.';
 async function ownNow() {
   if (S.busy || !key.unlocked) return;
   S.ownOnce = key.key.pubHex; say(''); renderOwn(); requote();
@@ -433,6 +515,7 @@ function fail(e, at, q) {
 const OWN_OFFER = ' Or <button class="linkbtn" type="button" id="own">prove it with your own credit</button>.';
 function stuckText(e, st) {
   const amt = esc(fmtUnits(st.wei, 18, 6));
+  if (st.first) return `Sent ${txLink(st.hash)}. It is not confirmed yet, and it makes your ${amt} ETH private the moment it lands. There is no need to send it again: <button class="linkbtn" type="button" id="retry">Check again</button>.`;
   if (!st.landed) return `<span class="err">${esc(relayWords(e))}</span><br>Your ${amt} ETH deposit was sent ${txLink(st.hash)} but is not confirmed yet. There is no need to send it again: <button class="linkbtn" type="button" id="retry">Check again</button>, or once it lands, finish it on tacit.finance’s Private ETH tab with the same Tacit wallet.`;
   const where = `Your ${amt} ETH is in the Tacit pool, but it is not private yet.`;
   if (st.own) {
@@ -447,7 +530,7 @@ function stuckText(e, st) {
 const walletName = () => (W.account && W.name ? W.name : 'Your wallet');
 const costTxt = () => (S.cost ? ` (about ${fmtUnits(S.cost, 18, 5)} ETH)` : '');
 const selfOffer = (label, id) => `<button class="linkbtn" type="button" id="${id}">${esc(label)}</button>: ${esc(walletName())} pays the network fee<span class="self-cost">${esc(costTxt())}</span>.`;
-function fillCost() { settleCost().then((c) => { if (c) S.cost = c; for (const el of document.querySelectorAll('.self-cost')) el.textContent = costTxt(); if (S.quote?.own || S.quote?.held) renderQuote(); }); }
+function fillCost() { settleCost().then((c) => { if (c) S.cost = c; for (const el of document.querySelectorAll('.self-cost')) el.textContent = costTxt(); if (S.quote?.own || S.quote?.device || S.quote?.held) renderQuote(); }); }
 const SELF_STEPS = [['proving', 'The relay proves your note'], ['check', 'The settle is checked before it is sent'], ['confirm', 'Confirm the settle in your wallet'], ['landing', 'It lands on Ethereum']];
 function selfSteps(set) {
   return (k, hash) => {
@@ -473,6 +556,7 @@ async function landing(st) {
 async function retry({ relay = false } = {}) {
   const st = S.stuck;
   if (!st || S.busy || !(await landing(st))) return;
+  if (st.first) { S.stuck = null; paintSteps(null, { all: true }); say(`<span class="ok">Done.</span> ${esc(fmtUnits(st.wei, 18, 8))} tETH is private now.`); renderGo(); loadHeldUntil(() => true); return; }
   if (!relay && (st.own || ownOn())) { runOwn(); return; }
   S.busy = true; S.steps = STEPS.slice(3); lockTicket(); renderGo();
   try {
@@ -526,10 +610,36 @@ async function runOwn() {
   }
   finally { S.busy = false; lockTicket(); renderGo(); refreshCredit(); }
 }
+// Waiting deposits proved on this computer: each settle goes from the wallet.
+async function finishOnDevice(p) {
+  if (!W.account && !(await connect.connect())) return;
+  S.busy = true; S.steps = DEVICE_FINISH; lockTicket(); renderGo(); renderWaiting(); say(''); paintSteps('proving');
+  let at = 'proving';
+  try {
+    const d = await findDevice();
+    if (!d) { paintSteps(null); say(`The prover on this computer isn’t answering. Start tacit-prover and press Finish again, or <button class="linkbtn" type="button" id="ps-open">change how it is proved</button>. ${KEPT}`, true); return; }
+    const { done, err, left } = await finish({ priv: () => key.priv(), pending: p, own: { prover: d, wallet, from: W.account }, say: devSteps((k) => { at = k; }) });
+    S.left = left.length ? left : null;
+    if (err) { if (!(err instanceof UserStopped || err?.userStopped)) paintSteps(at, { failed: true }); else paintSteps(null); say(`<span class="err">${done ? `${done} settled; another did not: ` : ''}${esc(deviceWords(err))} ${KEPT}</span>`); }
+    else { paintSteps(null, { all: true }); say('<span class="ok">Done.</span> They are private now, proved on this computer.'); }
+  } catch (e) { paintSteps(null); say(`${esc(deviceWords(e))} ${KEPT}`, true); }
+  finally { S.busy = false; lockTicket(); renderGo(); renderWaiting(); await loadHeldUntil((h) => !(h.pending || []).length); }
+}
+function devSteps(set) {
+  return (k, d) => {
+    const at = { input: 'proving', stage: 'proving', 'settle-check': 'settle', 'settle-confirm': 'settle', 'settle-sent': 'settling' }[k];
+    if (at) { set(at); paintSteps(at); }
+    if (k === 'input' || k === 'stage') say('This computer is proving it…');
+    else if (k === 'settle-check') say('Proved. Checking the settle before it is sent…');
+    else if (k === 'settle-confirm') say(`Proved. Confirm the settle in your wallet. ${esc(walletName())} pays the network fee${esc(costTxt())}.`);
+    else if (k === 'settle-sent') say(`Settle sent ${txLink(d)}. Waiting for it to land…`);
+  };
+}
 async function runFinish({ relay = false } = {}) {
   if (S.busy || !key.unlocked) return;
   const p = S.left && relay ? S.left : D.held?.pending || [];
   if (!p.length) return;
+  if (!relay && devOn()) { await finishOnDevice(p); return; }
   const own = !relay && ownOn();
   if (own && !W.account && !(await connect.connect())) return;
   if (!own && await relayAside(p)) return;
@@ -601,7 +711,25 @@ async function runSelfPending() {
 const NO_TIP = '0x0000000000000000000000000000000000000000';
 const O = { pub: null, prover: null, unavailable: null, loading: false, err: null, credit: null, need: null, held: null, waiting: 0, sheet: null,
   f: { mode: 'prove', amt: '2', quote: null, seq: 0, timer: 0, wprove: null, msg: '' } };
-const ownOn = () => key.unlocked && (ownPref(key.key.pubHex) || S.ownOnce === key.key.pubHex);
+const ownOn = () => key.unlocked && !devOn() && (ownPref(key.key.pubHex) || S.ownOnce === key.key.pubHex);
+// This computer's prover (tacit-prover). The browser asks before a page first reaches the local network, so it is looked for only when
+// the holder chooses it or it is already their choice.
+const DEVICE_GET = 'https://github.com/src-company/tacit/tree/main/contracts/sp1/confidential/device-prover';
+const DV = { found: null, looked: false, looking: false };
+const devOn = () => key.unlocked && devicePref(key.key.pubHex);
+const laneNow = () => (devOn() ? 'device' : ownOn() ? 'own' : 'relay');
+async function findDevice() {
+  DV.looking = true; renderOwn();
+  try { const d = await deviceProver(); DV.found = await d.health(); return DV.found ? d : null; }
+  catch { DV.found = null; return null; }
+  finally { DV.looking = false; DV.looked = true; renderOwn(); }
+}
+async function devNow() {
+  if (S.busy || !key.unlocked) return;
+  const d = await findDevice();
+  if (!d) { openProverSheet(); return; }
+  S.ownOnce = null; setDevicePref(key.key.pubHex, true); say(''); renderOwn(); await requote(); press();
+}
 const fmtP = (wei, d = 2) => fmtUnits(wei, 18, d);
 const creditShort = () => O.pub === key.key?.pubHex && O.credit != null && O.need != null && O.credit < O.need;
 function forgetProver() { O.pub = null; O.prover = null; O.credit = O.need = O.held = null; O.err = null; O.waiting = 0; O.f.quote = null; O.sheet?.close(); }
@@ -662,15 +790,20 @@ function ownSteps(set, onSettle = () => {}) {
   };
 }
 function renderOwn() {
-  const on = ownOn(), n = on && O.pub === key.key?.pubHex ? proofsFor(O.prover?.sp, O.credit, O.need) : null;
-  $('#prover-line').innerHTML = `<div class="kv"><span>Proved by</span><b>${on ? `your own PROVE credit${creditShort() ? ' <span class="warn">(not enough for a proof)</span>' : n != null ? `, enough for about ${grp(n, 0)} proof${n === 1 ? '' : 's'}` : ''}` : 'Tacit’s relay'} · <button class="linkbtn" type="button" id="ps-open">${on ? 'Change' : 'Prove it yourself'}</button></b></div>`;
+  const dev = devOn(), on = ownOn(), n = on && O.pub === key.key?.pubHex ? proofsFor(O.prover?.sp, O.credit, O.need) : null;
+  const by = dev ? `this computer${DV.found?.gpu ? ` <span class="mute">· ${esc(DV.found.gpu)}</span>` : DV.looked && !DV.found && !DV.looking ? ' <span class="warn">(not answering)</span>' : ''}`
+    : on ? `your own PROVE credit${creditShort() ? ' <span class="warn">(not enough for a proof)</span>' : n != null ? `, enough for about ${grp(n, 0)} proof${n === 1 ? '' : 's'}` : ''}` : 'Tacit’s relay';
+  $('#prover-line').innerHTML = `<div class="kv"><span>Proved by</span><b>${by} · <button class="linkbtn" type="button" id="ps-open">${dev || on ? 'Change' : 'Prove it yourself'}</button></b></div>`;
   if (O.sheet && !O.sheet.closed) renderSheet();
 }
 function openProverSheet() {
   if (O.sheet && !O.sheet.closed) return;
   const o = overlay({ title: 'Prove it yourself', top: true, onClose: () => { O.sheet = null; } });
   O.sheet = o; O.f.msg = '';
-  o.body.innerHTML = `<p class="note" style="margin-top:0">Your Tacit account can pay for its own proofs with PROVE credit on Succinct’s prover network. The deposit’s private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network is not taking private inputs, they go as a public input instead, which anyone can read, and the steps say so. Your wallet sends the settle and pays its network fee, and the deposit carries no relay tip.</p>
+  o.body.innerHTML = `<label class="ps-switch" style="margin-top:0"><input type="checkbox" id="ps-dev"><span>Prove on this computer</span></label>
+    <p class="note" id="ps-dev-note"></p>
+    <h3 class="ps-h">Or with your own credit</h3>
+    <p class="note">Your Tacit account can pay for its own proofs with PROVE credit on Succinct’s prover network. The deposit’s private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network is not taking private inputs, they go as a public input instead, which anyone can read, and the steps say so. Your wallet sends the settle and pays its network fee, and the deposit carries no relay tip.</p>
     <div id="ps-acct"></div>
     <label class="ps-switch"><input type="checkbox" id="ps-on"><span>Prove with your own credit</span></label>
     <h3 class="ps-h">Add PROVE</h3>
@@ -692,6 +825,12 @@ function openProverSheet() {
     else if (e.target.id === 'ps-go') runFund();
   });
   o.body.addEventListener('change', (e) => {
+    if (e.target.id === 'ps-dev' && key.unlocked && !S.busy) {
+      const pub = key.key.pubHex;
+      if (!e.target.checked) { setDevicePref(pub, false); requote(); renderOwn(); return; }
+      findDevice().then((d) => { if (d && key.key?.pubHex === pub) { S.ownOnce = null; setDevicePref(pub, true); } requote(); renderOwn(); });
+      return;
+    }
     if (e.target.id !== 'ps-on' || !key.unlocked || S.busy) return;
     S.ownOnce = null; setOwnPref(key.key.pubHex, e.target.checked);
     if (e.target.checked) refreshCredit();
@@ -761,6 +900,12 @@ function renderSheet() {
   }
   const sw = $s('#ps-on');
   sw.checked = ownOn(); sw.disabled = !key.unlocked || S.busy || !!O.unavailable;
+  const dsw = $s('#ps-dev');
+  dsw.checked = devOn(); dsw.disabled = !key.unlocked || S.busy || DV.looking;
+  $s('#ps-dev-note').innerHTML = DV.looking ? 'Looking for tacit-prover on this computer…'
+    : DV.found ? `tacit-prover is running here${DV.found.gpu ? `, hashing on ${esc(DV.found.gpu)}` : ''}. Your note is proved in a few minutes and nothing about it leaves this computer.`
+    : DV.looked ? `tacit-prover isn’t running here. <a href="${DEVICE_GET}" target="_blank" rel="noopener noreferrer">Get it</a>, start it, then turn this on.`
+    : `Proves your note with tacit-prover on this computer, with no tip and nothing sent anywhere. <a href="${DEVICE_GET}" target="_blank" rel="noopener noreferrer">Get it</a>.`;
   b.querySelectorAll('[data-ps-mode]').forEach((x) => { x.setAttribute('aria-pressed', String(x.dataset.psMode === O.f.mode)); x.disabled = S.busy; });
   const eth = O.f.mode === 'eth', wei = psAmt(), lack = !eth && O.held != null ? (wei > O.held ? wei - O.held : 0n) : wei;
   $s('#ps-lbl').textContent = eth ? 'ETH to pay' : 'PROVE to add';
@@ -961,6 +1106,7 @@ $('#status').addEventListener('click', (e) => {
   else if (e.target.id === 'self') runSelf();
   else if (e.target.id === 'self-pending') runSelfPending();
   else if (e.target.id === 'own-now') ownNow();
+  else if (e.target.id === 'dev-now') devNow();
   else if (e.target.id === 'anyway') { say(''); press({ anyway: true }); }
   const g = e.target.closest('[data-mode-go]'); if (g) { e.preventDefault(); setMode(g.dataset.modeGo); }
 });

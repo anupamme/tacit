@@ -1,14 +1,15 @@
 // The prover on the holder's own machine (tacit-prover, contracts/sp1/confidential/device-prover/) as a relay.useProver prover, beside
 // self-prover.js for the holder's Succinct credit. The page builds the program input byte for byte (sp1-stdin.js), the machine proves
 // it on 127.0.0.1, and nothing about the op leaves the device. It takes the ops whose proofs pin no state that moves while it works
-// (a wrap, a transfer, an unwrap, a stealth send), so a proof that takes minutes is as good as one that takes seconds.
+// (a wrap, a transfer, an unwrap, a stealth send, a farm bond: the pool takes any root it has had, and a bond's nonce is the key's
+// own), so a proof that takes minutes is as good as one that takes seconds.
 //
 // A browser asks the user before a site first reaches the local network, so a page calls health() only once the holder has chosen
 // this prover, never on load.
 import { stdinFor, SELF_PROVE_TYPES } from './sp1-stdin.js';
 
 export const DEVICE_PROVER_BASE = 'http://127.0.0.1:47815';
-export const DEVICE_TYPES = Object.freeze(['wrap', 'wraptransfer', 'transfer', 'unwrap', 'sendunwrap', 'stealthlock', 'stealthclaim', 'stealthrefund']
+export const DEVICE_TYPES = Object.freeze(['wrap', 'wraptransfer', 'transfer', 'unwrap', 'sendunwrap', 'stealthlock', 'stealthclaim', 'stealthrefund', 'farmbond']
   .filter((t) => SELF_PROVE_TYPES.includes(t)));
 const POOL_VKEY = '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3';
 
@@ -38,17 +39,26 @@ export function makeDeviceProver({ keccak256, base = DEVICE_PROVER_BASE, fetchIm
     const memoHashes = memos.map((m) => hex(keccak256(unhex(m))));
     const stdin = stdinFor(type, { ...op, memoHashes });
     const { id } = await call('/prove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, stdin: hex(stdin) }) });
+    onUpdate({ requestId: `device-${id}`, status: 'proving', stage: 'queued' });
+    return follow(id, onUpdate);
+  }
+  prove.supports = supports;
+
+  // A job followed to its proof. Updates carry the prover's own stage (core, shrink, wrap, groth16) as `phase` and `eta`, the
+  // seconds the rest took on this machine last time.
+  async function follow(id, onUpdate) {
     const requestId = `device-${id}`;
-    onUpdate({ requestId, status: 'proving', stage: 'queued' });
     for (;;) {
       await sleep(pollMs);
       const j = await call(`/job?id=${encodeURIComponent(id)}`);
       if (j.status === 'done') return { requestId, publicValues: j.publicValues, proof: j.proof, private: true, secs: j.secs };
       if (j.status === 'failed') throw Object.assign(new Error(j.error || 'this computer could not make the proof'), { code: 'device_prover' });
-      onUpdate({ requestId, status: 'proving', stage: j.status === 'queued' ? 'queued' : 'device', secs: j.secs });
+      onUpdate({ requestId, status: 'proving', stage: j.status === 'queued' ? 'queued' : 'device', secs: j.secs, ...(j.stage ? { phase: j.stage } : {}), ...(j.eta != null ? { eta: j.eta } : {}) });
     }
   }
-  prove.supports = supports;
 
-  return { health, supports, prove };
+  // A proof asked for before (by its requestId), picked up again after a reload: the prover keeps working on its own.
+  const resume = (requestId, { onUpdate = () => {} } = {}) => follow(String(requestId).replace(/^device-/, ''), onUpdate);
+
+  return { health, supports, prove, resume };
 }

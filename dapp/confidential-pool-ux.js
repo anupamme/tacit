@@ -1470,6 +1470,47 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { to: cfg.router, value: value.toString(), calldata, gasLimit: gasLimit.toString(), jobId, depositCommit };
   }
 
+  // A wrap proved before any value moves. OP_WRAP's public values pin nothing on chain (the deposit id is keccak(asset, value, commit),
+  // with no root and no deadline), so its proof is good whenever it is sent, and the router deposits and settles it in one transaction.
+  // The ETH stays in the wallet until the proof exists, so a slow or stopped prover leaves no deposit waiting. The proof comes from
+  // whatever relay.prove uses: this device's prover, the holder's own credit, or the relay.
+  async function proveWrap({ walletPriv, amountWei, ticker = 'cETH', index, waitOpts, onBuilt } = {}) {
+    if (!cfg.router) throw new Error('ConfidentialRouter not deployed for this network');
+    if (index == null) index = await nextWrapIndex({ walletPriv, ticker });
+    const built = buildWrap({ walletPriv, amountWei, ticker, index });
+    onBuilt?.(built);
+    const proven = await relay.prove({ type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand }, waitOpts);
+    if (!proven.publicValues || !proven.proof) throw new Error(`the prover returned no proof for this wrap (${proven.status || 'no status'})`);
+    return { built, proven: { ...proven, memos: proven.memos || built.memos } };
+  }
+
+  // The router call that deposits a wrap and settles its proof in one transaction, for any wallet to send: native ETH as the call's
+  // value (wrapAndSettleETH), a token through the holder's EIP-2612 `permit` ({ deadline, v, r, s }, wrapAndSettleWithPermit) or a
+  // Permit2 `permit2` ({ permitSingle, signature }, wrapAndSettleWithPermit2), each for exactly the wrap's amount and naming the router.
+  // A relay-proved wrap pays the relay its fee on top (`ethFeeWei` to `feeRecipient`, by default the relay's).
+  function wrapSettleCall({ built, proven, ethFeeWei = 0n, feeRecipient, gasLimit = 750000n, permit = null, permit2 = null }) {
+    if (!cfg.router) throw new Error('ConfidentialRouter not deployed for this network');
+    const meta = _poolAssets.find((m) => String(m.assetId).toLowerCase() === String(built.wrapArgs.assetId).toLowerCase());
+    if (!meta) throw new Error('wrapSettleCall: not a pool asset');
+    ethFeeWei = BigInt(ethFeeWei || 0n);
+    const skimTo = ethFeeWei > 0n ? (feeRecipient || cfg.relayFeeRecipient) : '0x0000000000000000000000000000000000000000';
+    if (ethFeeWei > 0n && (!skimTo || /^0x0+$/i.test(skimTo))) throw new Error('wrapSettleCall: a fee needs a recipient');
+    const amount = BigInt(built.amount), settle = { commit: built.commit, publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos, feeRecipient: skimTo };
+    if (meta.native) {
+      return { to: cfg.router, value: amount + ethFeeWei, data: _router.wrapAndSettleETHCalldata({ wrapAmount: amount, ...settle }), gasLimit: BigInt(gasLimit) };
+    }
+    if (!meta.underlying) throw new Error(`wrapSettleCall: ${meta.ticker} has no token to wrap from`);
+    if (permit) {
+      const data = _router.wrapAndSettleWithPermitCalldata({ token: meta.underlying, amount, deadline: BigInt(permit.deadline), v: permit.v, r: permit.r, s: permit.s, ...settle });
+      return { to: cfg.router, value: ethFeeWei, data, gasLimit: BigInt(gasLimit) };
+    }
+    if (permit2) {
+      const data = _router.wrapAndSettleWithPermit2Calldata({ token: meta.underlying, amount, permitSingle: permit2.permitSingle, signature: permit2.signature, ...settle });
+      return { to: cfg.router, value: ethFeeWei, data, gasLimit: BigInt(gasLimit) };
+    }
+    throw new Error(`wrapSettleCall: a ${meta.ticker} wrap needs the holder's permit for the router`);
+  }
+
   async function sendPreparedTx({ walletPriv, to, value = 0n, calldata, gasLimit }) {
     const acct = account(walletPriv);
     return _sendEvmTx({ acct, to, value: BigInt(value), data: calldata, gasLimit: BigInt(gasLimit) });
@@ -3148,7 +3189,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

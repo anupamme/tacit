@@ -29,6 +29,23 @@ const prefs = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}'
 export const ownPref = (pubHex) => !!(pubHex && prefs()[pubHex]);
 export function setOwnPref(pubHex, on) {
   try { const m = prefs(); if (on) m[pubHex] = true; else delete m[pubHex]; localStorage.setItem(PREF, JSON.stringify(m)); } catch { /* a preference, not state */ }
+  if (on) setDevicePref(pubHex, false);
+}
+
+// Which keys prove on this computer (tacit-prover on 127.0.0.1), kept the same way. It and the own-credit preference exclude each other.
+const DEV = 'tacit-device-prover-v1';
+const devs = () => { try { return JSON.parse(localStorage.getItem(DEV) || '{}') || {}; } catch { return {}; } };
+export const devicePref = (pubHex) => !!(pubHex && devs()[pubHex]);
+export function setDevicePref(pubHex, on) {
+  try { const m = devs(); if (on) m[pubHex] = true; else delete m[pubHex]; localStorage.setItem(DEV, JSON.stringify(m)); } catch { /* a preference, not state */ }
+  if (on) setOwnPref(pubHex, false);
+}
+let devP = null;
+export function deviceProver() {
+  return (devP ||= import('/device-prover.js?cb=92d426ad').then((m) => m.makeDeviceProver({ keccak256: keccak_256 })).catch((e) => {
+    devP = null;
+    throw Object.assign(new Error('Could not load the prover for this computer. Try again in a moment.'), { code: 'unavailable', cause: e });
+  }));
 }
 
 const addr = (a) => strip(a).toLowerCase().padStart(64, '0');

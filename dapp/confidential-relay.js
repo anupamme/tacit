@@ -227,8 +227,9 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   }
 
   async function prove(opSpec, waitOpts = {}) {
+    // A prover that declines this op type (a device prover takes only ops whose proofs pin no moving state) leaves it to the relay.
     const own = waitOpts && waitOpts.viaRelay ? null : ownProver;
-    if (own) return proveOwn(own, opSpec, waitOpts);
+    if (own && (typeof own.supports !== 'function' || own.supports(opSpec.type))) return proveOwn(own, opSpec, waitOpts);
     const r = await submitOp({ ...opSpec, mode: 'prove' }, waitOpts);
     const st = r.status === 'proven' || r.status === 'settled' ? { jobId: r.jobId, ...(await status(r.jobId)) } : await waitForProof(r.jobId, waitOpts);
     return st.status === 'proven' ? { ...st, memos: provenMemos(st, opSpec, r.sealedMemos) } : st;
@@ -291,7 +292,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
         if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null, ...(u.public ? { inputPublic: true } : {}) }); } catch { } }
         return;
       }
-      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}) };
+      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}), ...(u.eta != null ? { eta: u.eta } : {}) };
       ownJobs.set(jobId, st);
       announce(st);
       if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { } }
