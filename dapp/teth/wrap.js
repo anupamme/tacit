@@ -1,4 +1,4 @@
-import { getUx, forgetUx } from '/trade/poolux.js?cb=b5025c37';
+import { getUx, forgetUx } from '/trade/poolux.js?cb=b5793943';
 import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/teth/read.js?cb=b2a110d0';
 import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=509d6618';
 

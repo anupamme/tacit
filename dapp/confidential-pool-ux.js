@@ -746,7 +746,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       }
     }
     const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag, leafCount: st.leaves.length };
-    if (o.spent) out.spentNotes = (st.owned || []).filter((n) => st.spent.has(lc(n.nullifier))).map((n) => ({ nullifier: n.nullifier, asset: n.asset, value: n.value }));
+    if (o.spent) out.spentNotes = (st.owned || []).filter((n) => st.spent.has(lc(n.nullifier))).map((n) => ({ nullifier: n.nullifier, asset: n.asset, value: n.value, owner: n.owner }));
     if (o.positions && cfg.farm && cfg.farm.manager && o.fromBlock == null && o.toBlock == null) {
       out.diag = { ...st.diag, errors: { ...((st.diag && st.diag.errors) || {}) } };
       try { out.farmPositions = await farmPositions({ walletPriv: scanPriv, events, _scan: st, _diag: {} }); }
@@ -847,7 +847,17 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const amount = BigInt(amountWei);
     const unitScale = BigInt(meta.unitScale);
     if (amount <= 0n || amount % unitScale !== 0n) throw new Error('amount not aligned to unitScale');
-    const value = amount / unitScale;
+    return _wrapOf({ walletPriv, meta, value: amount / unitScale, amount, index });
+  }
+  // A share note for LP shares a public add minted and ConfidentialPool.shieldShares turned into a pending deposit (the router's
+  // zapETHIntoShieldedLP does both in one transaction): the note, commitment, opening proof and memo of a wrap, for the pool's LP-share asset
+  // at `shares` (the pool's own units, so no scale). submitWrapSettle settles it with the same OP_WRAP.
+  function buildShareWrap({ walletPriv, poolId, shares, index = 0 }) {
+    const value = BigInt(shares);
+    if (value <= 0n) throw new Error('buildShareWrap: no shares');
+    return _wrapOf({ walletPriv, meta: { assetId: _lp.lpShareId(poolId) }, value, amount: value, index });
+  }
+  function _wrapOf({ walletPriv, meta, value, amount, index }) {
     if (value > (2n ** 64n - 1n)) throw new Error('value exceeds u64');
 
     const id = identity(walletPriv);
@@ -953,6 +963,59 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       try { localStorage.setItem(hintKey, String(i + 1)); } catch { }
       return i;
     }
+  }
+  // A share note's index (buildShareWrap): the next one this key has not used for the pool's LP-share asset. Shielded shares leave no Wrap
+  // log to walk, so it is the first past the hint (kept as a wrap's is) whose note this key does not already hold.
+  function nextShareIndex({ walletPriv, poolId, owned = [], used = [] } = {}) {
+    const id = identity(walletPriv), assetId = String(_lp.lpShareId(poolId)).toLowerCase(), hintKey = _wrapHintKey(id.pubHex, assetId);
+    const owners = new Set(owned.filter((n) => String(n.asset).toLowerCase() === assetId).map((n) => String(n.owner).toLowerCase()));
+    const taken = _reservedWrapIndex.get(hintKey) || new Set();
+    for (let i = _wrapIndexHint(id.pubHex, assetId); ; i++) {
+      if (taken.has(i) || used.includes(i) || owners.has(String(pool.nkToOwner(pool.deriveNote(id.priv, assetId, i).secret)).toLowerCase())) continue;
+      taken.add(i); _reservedWrapIndex.set(hintKey, taken);
+      try { localStorage.setItem(hintKey, String(i + 1)); } catch { }
+      return i;
+    }
+  }
+  // Hands back a share index reserved for a zap that was never sent (the wallet prompt was declined), as releaseWrapIndex does for a wrap.
+  function releaseShareIndex({ walletPriv, poolId, index } = {}) {
+    if (!Number.isInteger(index) || index < 0) return;
+    const key = _wrapHintKey(identity(walletPriv).pubHex, String(_lp.lpShareId(poolId)).toLowerCase()), taken = _reservedWrapIndex.get(key);
+    if (taken && taken.delete(index) && !taken.size) _reservedWrapIndex.delete(key);
+    try { if (parseInt(localStorage.getItem(key), 10) === index + 1) localStorage.setItem(key, String(index)); } catch { }
+  }
+  // Zaps whose shielded shares no note has opened yet, found from the key and the chain alone: the router refunds part of the swap to the
+  // sender, so a Transfer from the router names each zap the key's accounts sent; its calldata (sent directly, or inside a contract wallet's
+  // call) holds the shares and the commitment, and the share-note index that makes that commitment is walked from the key.
+  // → [{ poolId, shares, index, depositId, tx }] still pending.
+  async function shareDeposits(walletPriv, { router, pools = [], accounts = [], fromBlock } = {}) {
+    const id = identity(walletPriv), accts = [...new Set([account(walletPriv).address, ...accounts].filter(Boolean).map(lc))];
+    const tokens = [...new Set(pools.map((p) => lc(p.token)))];
+    if (!router || !tokens.length) return [];
+    const logs = await headBlock().then((to) => getLogsChunked({
+      address: tokens, topics: [_topic('Transfer(address,address,uint256)'), _addrTopic(router), accts.map(_addrTopic)],
+    }, Number(fromBlock ?? cfg.deployBlock ?? 0), to));
+    const found = [];
+    for (const hash of [...new Set(logs.map((l) => lc(l.transactionHash)))]) {
+      const input = lc((await rpc('eth_getTransactionByHash', [hash]).catch(() => null))?.input || '');
+      for (let at = input.indexOf('f9d1fa01'); at > 0; at = input.indexOf('f9d1fa01', at + 8)) {
+        if (at % 2) continue;
+        const w = (i) => input.slice(at + 8 + i * 64, at + 72 + i * 64), token = '0x' + w(0).slice(24), fee = Number(BigInt('0x' + (w(1) || '0')));
+        const p = pools.find((x) => lc(x.token) === token && (x.feeBps == null || Number(x.feeBps) === fee));
+        if (!p || w(6).length < 64) continue;
+        const shares = BigInt('0x' + w(4)), commit = '0x' + w(6), asset = lc(_lp.lpShareId(p.poolId));
+        for (let i = 0, top = Math.max(64, _wrapIndexHint(id.pubHex, asset) + 24); i < top; i++) {
+          const { secret, blinding } = pool.deriveNote(id.priv, asset, i), owner = pool.nkToOwner(secret);
+          const { cx, cy } = pool.commitXY(shares, '0x' + BigInt(blinding).toString(16).padStart(64, '0'));
+          if (lc(pool.depositCommit(cx, cy, owner)) !== commit) continue;
+          found.push({ poolId: p.poolId, shares, index: i, depositId: lc(pool.depositId(asset, shares, cx, cy, owner)), tx: hash });
+          break;
+        }
+      }
+    }
+    if (!found.length) return [];
+    const st = await _multicall(found.map((f) => ({ to: cfg.pool, data: '0x' + _selector('depositStatus(bytes32)') + _word(f.depositId) })));
+    return found.filter((f, i) => st[i] && st[i] !== '0x' && BigInt(st[i].slice(0, 66)) === 1n);
   }
   // Recovery from the key alone walks wrap indexes and stops after 24 in a row with no deposit, so an index reserved for a
   // deposit that was never sent (the wallet prompt was declined) is handed back, or enough cancelled tries would put a later
@@ -3079,7 +3142,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

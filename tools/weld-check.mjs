@@ -183,7 +183,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6376,7 +6376,21 @@ const heldStub = () => `
       if (a.selfSettle) throw new Error('proved a second time');
       return ux.relay.settle({ type: 'farmharvest', op: { stub: 'held' }, memos: [] }, a.waitOpts);
     };`;
-const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, held = false, fees = null, reserves = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+// `zap`: the relay's half of a zap (its share deposit settled into the share note, the note bonded) is recorded in window.__farmCalls and
+// window.__zapWrap and applied to the notes; the zap's own transaction runs on the fork, so its deposit stays pending there.
+const zapStub = () => `
+    ux.submitWrapSettle = async ({ built, depositTx }) => {
+      window.__farmCalls.push('wrap:' + built.note.value);
+      window.__zapWrap = { depositId: built.depositId, shares: String(built.note.value), depositTx };
+      const n = note(built.note.asset, BigInt(built.note.value)); n.owner = built.note.owner; n.leaf = built.leaf; add.push(n);
+      return {};
+    };
+    ux.farmBond = async ({ lpNote }) => {
+      window.__farmCalls.push('bond:' + lpNote.value);
+      add.splice(add.findIndex((x) => x.cx === lpNote.cx), 1);
+      return { txHash: null };
+    };`;
+const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, held = false, fees = null, reserves = null, zap = false }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
   import * as real from '/confidential-pool-ux.js?stub=real';
   export * from '/confidential-pool-ux.js?stub=real';
   export function makeConfidentialPoolUx(o) {
@@ -6403,6 +6417,7 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
     ux.farmUnbond = async ({ position }) => { window.__farmCalls.push('unbond:' + position.receiptLeaf); return {}; };`}` : ''}
     ${refuse ? refuseStub() : ''}
     ${held ? heldStub() : ''}
+    ${zap ? zapStub() : ''}
     return ux;
   }` }));
 const farmPos = (n, shares, units, tac) => ({ pid: 0, pair: 'TAC/cETH', lpAsset: FARM_LP0, shares: String(shares), receiptLeaf: '0x' + String(n).repeat(64), receiptIndex: n, unlockAt: 0, pendingUnits: String(units), pendingTac: tac });
@@ -7227,6 +7242,94 @@ await step('farmzap', async () => {
   } finally { await r.browser.close(); }
 });
 
+// ETH from the paying account into a private farm in one transaction. The Earn tab offers the zap first for ETH not yet private (making it
+// private first stays a link) and opens the farm on ETH with the amount. The quote says what is swapped inside the pool and what is added;
+// the press sends the router's zap, which runs here on the fork: the pool's shares rise by exactly the quoted count, held as a deposit bound
+// to the share note, and the relay's half (that deposit settled into the note, the note bonded) follows. A fresh browser with the same key
+// finds the pending deposit from the chain alone and finishes it.
+await step('farmzapeth', async () => {
+  const hex = '2a9e'.padEnd(64, '6'), POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00', CPOOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
+  const poolsSel = Buffer.from(keccak_256('pools(bytes32)')).toString('hex').slice(0, 8);
+  const total = async () => BigInt('0x' + (await rpc('eth_call', [{ to: CPOOL, data: '0x' + poolsSel + POOL0.slice(2) }, 'latest'])).slice(2 + 6 * 64, 2 + 7 * 64));
+  const status = async (id) => BigInt(await rpc('eth_call', [{ to: CPOOL, data: '0x7da9874f' + id.slice(2) }, 'latest']));
+  const r = await openFarmKey(hex, { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
+  const p = r.page, closeAll = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  let dep = null;
+  try {
+    await closeAll();
+    await p.click('[data-hxm="earn"]');
+    await p.fill('#hx-amt', '0.02');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
+    ok(/one transaction/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Make ETH private first instead: 2 steps, earns points/.test(await text(p, '#hx-alt')), `farmzapeth: the Earn tab offers the zap for ETH not yet private, and making it private first as the other way (${(await text(p, '#hx-routes [data-hxr="0"]')).replace(/\s+/g, ' ')})`);
+    await p.click('#hx-alt button');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 60000);
+    ok(/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Zap in one transaction instead/.test(await text(p, '#hx-alt')), 'farmzapeth: and the link swaps the two');
+    await p.click('#hx-alt button');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 60000);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await until(p, () => document.querySelector('#sz-a-0')?.value === '0.02', null, 60000);
+    ok(await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true') && /swapped to TAC inside this pool/.test(await text(p, '#farm-pid0 .how')), 'farmzapeth: its button opens the farm on ETH with the amount in it');
+    await p.fill('#sz-a-0', '0.05');
+    await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
+    const rc = (await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ');
+    ok(/Swaps\s*0\.0\d+ ETH for about [\d.,]+ TAC/.test(rc) && /Then adds\s*0\.0\d+ ETH \+ [\d.,]+ TAC/.test(rc) && /Share of the farm/.test(rc) && !/about 0 TAC/.test(rc) && /Network fee, from your Tacit account/.test(rc) && /the relay makes your share private and farms it/.test(rc),
+      `farmzapeth: the quote says what is swapped inside the pool, what both sides add, the share and the network fee, with no refund row too small to show (${rc})`);
+    await shot(p, 'farmzapeth');
+    await p.setViewportSize({ width: 390, height: 780 });
+    await p.waitForTimeout(500);
+    ok(await p.evaluate(() => { const d = document.querySelector('#sheet-farm').getBoundingClientRect(), b = document.querySelector('#sz-go-0').getBoundingClientRect(); return b.top >= d.top && b.bottom <= d.bottom + 1 && document.documentElement.scrollWidth <= innerWidth; }), 'farmzapeth: at phone width the button stays in view, with no sideways scroll');
+    await shot(p, 'farmzapeth-phone');
+    await p.setViewportSize({ width: 1280, height: 900 });
+    const t0 = await total();
+    await p.click('#sz-go-0');
+    await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
+    const calls = await p.evaluate(() => window.__farmCalls), w = await p.evaluate(() => window.__zapWrap);
+    if (!w) throw new Error(`no zap: ${await text(p, '#sf-status-0')} ${JSON.stringify(calls)}`);
+    dep = w.depositId;
+    const tx = await rpc('eth_getTransactionReceipt', [w.depositTx]), t1 = await total();
+    ok(tx?.status === '0x1' && tx.to.toLowerCase() === '0x000000005da3e3b73726af3c774deeb9472d4992' && t1 - t0 === BigInt(w.shares) && await status(w.depositId) === 1n,
+      `farmzapeth: the press sends the router's zap: the pool's shares rise by exactly the ${w.shares} the note commits to, held as its pending deposit (${BigInt(tx?.gasUsed || 0)} gas)`);
+    ok(calls.join() === `wrap:${w.shares},bond:${w.shares}`, `farmzapeth: then the relay settles that deposit into the share note and the note is bonded (${calls.join(', ')})`);
+    await until(p, () => /In the farm/.test(document.querySelector('#sf-status-0')?.textContent || ''), null, 60000).catch(() => {});
+    ok(/In the farm/.test(await text(p, '#sf-status-0')) && await p.evaluate(() => (JSON.parse(localStorage.getItem('tacit-zaps-v1') || '[]')).length === 0), `farmzapeth: the sheet says it is in, and keeps no zap to finish (${await text(p, '#sf-status-0')})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmzapeth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  if (!dep) return;
+  // the deposit is still pending on the fork (the settle above was the stub's): a fresh browser has no record of the zap, and finds it from the key
+  const q = await openFarmKey(hex, { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
+  try {
+    await go(q.page, '#farm/private-0');
+    await q.page.waitForSelector('#farm-pid0 [data-zap-kept] #sz-finish-0', { timeout: 300000 });
+    ok(true, 'farmzapeth: a fresh browser with the same key finds the pending zap from the chain and offers to finish it');
+    await q.page.click('#sz-finish-0');
+    await until(q.page, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
+    const w = await q.page.evaluate(() => window.__zapWrap);
+    ok(w?.depositId?.toLowerCase() === dep.toLowerCase() && (await q.page.evaluate(() => window.__farmCalls)).join().startsWith('wrap:'), `farmzapeth: and Finish it settles that same deposit into its note and farms it (${await text(q.page, '#sf-status-0')})`);
+    if (q.errors.length) { fails++; console.log('FAIL farmzapeth page errors: ' + q.errors.slice(0, 3).join(' | ')); }
+  } finally { await q.browser.close(); }
+});
+
+// A share note not in the farm (a zap's made private but not yet bonded, or an unbond's): Farm it, beside Take it out, bonds it.
+await step('farmbondnote', async () => {
+  const r = await openFarmKey('b0b0'.padEnd(64, '6'), { notes: [[FARM_LP0, 50000000n]], positions: [], zap: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('#farm-notes [data-lpbond="0"]', { timeout: 300000 });
+    ok(/not bonded/.test(await text(p, '#farm-notes')) && !!(await p.$('#farm-notes [data-lprm="0"]')), 'farmbondnote: liquidity not bonded offers Farm it beside Take it out');
+    await p.click('#farm-notes [data-lpbond="0"]');
+    await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /err/.test(document.querySelector('#fn-status')?.innerHTML || ''), null, 240000);
+    ok((await p.evaluate(() => window.__farmCalls)).join() === 'bond:50000000', `farmbondnote: it bonds that note whole (${(await p.evaluate(() => window.__farmCalls)).join()} ${await text(p, '#fn-status')})`);
+    await until(p, () => /In the farm/.test(document.querySelector('#fn-status')?.textContent || ''), null, 60000).catch(() => {});
+    ok(/In the farm/.test(await text(p, '#fn-status')), `farmbondnote: and says it is in (${await text(p, '#fn-status')})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmbondnote page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // A private farm opened to join (the Farm tile, a Rewards row, a Borrow link) arrives ready: with private tETH held the form fills itself with the
 // most it can take and quotes it, so the farm button is the one press left; a farm the key is already in, or an amount the key typed, is left alone.
 await step('farmready', async () => {
@@ -7254,14 +7357,14 @@ await step('farmready', async () => {
   } finally { await r.browser.close(); }
 });
 
-// A key holding nothing private is sent to Make ETH private from a farm with the most it can take already in the form, and the way back to the farm.
+// A key holding nothing private opens on the zap, and its link to Make ETH private first fills that form with the most it can take, and the way back.
 await step('farmgetprivate', async () => {
   const r = await openFarmKey('d5e2'.padEnd(64, '6'), { notes: [], positions: [] });
   const p = r.page;
   try {
     await go(p, '#farm/private-0');
     await p.waitForSelector('#farm-pid0 [data-join-get="private"]', { timeout: 300000 });
-    ok(await p.$eval('#farm-pid0 [data-join-get="private"]', (b) => b.classList.contains('btn') && !b.classList.contains('ghost')), 'farmgetprivate: with nothing private held, Make ETH private is the farm\'s main button');
+    ok(/Make ETH private first instead/.test(await text(p, '#farm-pid0 [data-join-get="private"]')) && (await text(p, '#sz-go-0')) === 'Zap into the farm', 'farmgetprivate: with nothing private held, the farm opens on the zap, with making ETH private first a link beside it');
     await p.click('#farm-pid0 [data-join-get="private"]');
     await p.waitForSelector('#sheet-eth[open] #w-amt', { timeout: 60000 });
     await until(p, () => /^\d*\.?\d+$/.test(document.querySelector('#w-amt')?.value || '') && Number(document.querySelector('#w-amt').value) > 0, null, 300000);

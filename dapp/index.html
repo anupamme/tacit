@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6QQKsI/wnacGHBM6CFnEA9owEqFkvfdtwAxfunBy690=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Zro0pBppvnK3EIjm4kPSJZMm7KCbTdlAXEqsSFbU0z4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1621,7 +1621,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=cde4acfe","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=ae39b172","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -1639,6 +1639,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
+import { zapPlan, zapCalldata } from '/lp-zap.js?cb=c486ab72';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
@@ -1660,6 +1661,8 @@ const MEMPOOL = 'https://mempool.space';
 const ESPLORA = ['https://mempool.space/api', 'https://blockstream.info/api', 'https://mempool.emzy.de/api'];
 const ADDR = {
   pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC',
+  confRouter: '0x000000005dA3E3B73726af3c774Deeb9472D4992',
+  publicAmm: '0x00000000E36C7EC997CC59DCda9E03673B448119',
   wrapTip: '0x000000D218B03db5837943b0b05DeA2965AE956e',
   tipOps: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2',
   tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9',
@@ -4152,7 +4155,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=cde4acfe'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=ae39b172'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -9020,8 +9023,9 @@ function renderFarmNotes(el) {
         ${owed ? html`<p class="note">Claim rewards harvests every position whose reward is worth turning into TAC (the relay charges at least 2 TAC to unwrap each note), then turns all of it into TAC in ${your()}. What is earned but not yet worth it keeps growing. Each step takes a few minutes; if you close the page, press it again to carry on.</p>` : ''}` : ''}
       ${FARM.left && Date.now() - FARM.left.at < 10 * 60e3 ? html`<p class="note" id="fn-left">${FARM.left.n} earned reward${FARM.left.n === 1 ? ' is' : 's are'} not yet worth turning into TAC (the unwrap costs more than ${FARM.left.n === 1 ? 'it returns' : 'they return'}): ${FARM.left.n === 1 ? 'it keeps' : 'they keep'} growing, and Claim rewards takes ${FARM.left.n === 1 ? 'it' : 'them'} once worth it.</p>` : ''}
       ${lps.map(({ p, notes: ns }) => { const n = ns.reduce((a, x) => a + BigInt(x.value), 0n); return html`<div class="kv"><span>${pairName(p.pair)} liquidity, not bonded</span><b>${lpWorth(p, n) || `${n.toLocaleString('en-US')} shares`}</b></div>
+        <button class="btn ghost" type="button" data-lpbond="${p.pid}">Farm it</button>
         <button class="btn ghost" type="button" data-lprm="${p.pid}">Take it out as ${pairName(p.pair)}</button>`; })}
-      ${inNotes || inAccount || lps.length ? html`<p class="note">wTAC is the farms’ reward token, one for one with TAC: it becomes TAC in ${your()}. Liquidity that is not bonded earns nothing; taking it out returns both assets as private notes.</p>` : ''}
+      ${inNotes || inAccount || lps.length ? html`<p class="note">wTAC is the farms’ reward token, one for one with TAC: it becomes TAC in ${your()}. Liquidity that is not bonded earns nothing: farm it, or take it out as both assets in private notes.</p>` : ''}
       <div class="status" role="status" id="fn-status"></div>
     </div>`);
   const status = $('#fn-status', el), done = async (msg) => { say(status, html`<span class="ok">${msg}</span>`); await Promise.allSettled([scanPrivate(true), loadFarms(true, { private: true })]); rerender('farm'); };
@@ -9042,6 +9046,15 @@ function renderFarmNotes(el) {
       }
     });
   }
+  $$('[data-lpbond]', el).forEach((b) => b.onclick = () => busy(b, async (run) => {
+    const x = lps.find((l) => String(l.p.pid) === b.dataset.lpbond);
+    try {
+      await stepBond(run, x.p, x.notes, (m) => say(status, m), status);
+      toast('In the farm');
+      await Promise.allSettled([loadPositions()]);
+      await done('In the farm: TAC streams to your private position.');
+    } catch (e) { sayErr(status, e); await Promise.allSettled([scanPrivate(true), loadFarms()]); rerender('farm'); }
+  }));
   $$('[data-lprm]', el).forEach((b) => b.onclick = () => busy(b, async (run) => {
     const x = lps.find((l) => String(l.p.pid) === b.dataset.lprm);
     try {
@@ -9433,6 +9446,200 @@ function renderShielded(el, p) {
 const JOIN_K = ['eth', 'tac', 'cusd', 'cbtc'], JOIN_GAS = 800000n;
 const kOfAsset = (id) => JOIN_K.find((k) => P.scan?.[k]?.id && P.scan[k].id === String(id).toLowerCase());
 const JOIN = {};
+// What a deposit of `shares` (from `a` tETH units on its A side) earns in pool `p`'s farm: its share, TAC a day and APR, as the join and the zap show it
+function joinYield(p, shares, a) {
+  const bonded = BigInt(p.totalShares || 0), day = FARM.program?.epoch?.active ? Number(p.tacPerDayForPool) * Number(shares) / Number(bonded + shares) : 0;
+  const dayWei = BigInt(Math.round(day * 1e18)), apr = day ? aprOf(day, 2 * Number(a) / 1e8) : null;
+  return html`
+    <div class="kv"><span>Share of the farm</span><b>${sharePct(Number(shares) / Number(bonded + shares))}</b></div>
+    ${day ? html`<div class="kv"><span>Earns about</span><b>${day >= 10 ? Math.round(day).toLocaleString('en-US') : day.toFixed(2)} TAC a day${ethOfTac(dayWei, FARM.precision) > 0n ? ` (${aboutEth(ethOfTac(dayWei, FARM.precision))})` : ''}</b></div>` : ''}
+    ${apr != null ? html`<div class="kv"><span>APR on this deposit</span><b>${aprLong(apr)}</b></div>
+      <p class="note">At today’s TAC price${FARM.program?.epoch?.periodFinish ? `, while the stream runs to ${dayFmt(FARM.program.epoch.periodFinish)}` : ''}. Swap fees come on top.</p>` : ''}`;
+}
+// ── ETH into a private farm in one transaction (dapp/lp-zap.js): about half swapped to the pair's other coin inside the same pool, both
+// added, and the shares shielded into a private note's deposit, which the relay then proves into the note and bonds to the farm. The
+// entry (the swap and what is added, from the paying account) is public; the position, its rewards and its exit are private from there. ──
+const ZAP_TOKEN = { TAC: ADDR.tac, cUSD: ADDR.tacusd, cBTC: ADDR.tacbtc };
+const ZAP_GAS = 320000n;                        // the zap's own transaction: the swap, the add and the shielding (about 240k on a fork)
+const ZAPS_KEY = 'tacit-zaps-v1';               // zaps sent whose share is not yet in the farm, finished from the sheet after a reload
+const zapsKept = () => { try { return (JSON.parse(localStorage.getItem(ZAPS_KEY) || '[]') || []).filter((z) => z?.depositId && z.pub && z.tx); } catch { return []; } };
+const zapKeep = (z) => { try { localStorage.setItem(ZAPS_KEY, JSON.stringify([...zapsKept().filter((x) => x.depositId !== z.depositId), z].slice(-12))); } catch { } };
+const zapDone = (id) => { try { localStorage.setItem(ZAPS_KEY, JSON.stringify(zapsKept().filter((x) => x.depositId !== id))); } catch { } };
+const zapUnit = 10n ** 10n, ZAP_FROM = 26269000;          // no zap into a private farm is older than this block
+const zapsMine = (pid) => zapsKept().filter((z) => z.pub === S.key?.pubHex && z.pid === pid);
+// The record above is this browser's; the chain has them all. Once a session per key, zaps still waiting for their note are read back from
+// the key's accounts (the Tacit account and a connected wallet), so another device, or a cleared one, can finish them too.
+const ZAPS_READ = new Map();
+function zapsRead() {
+  const pub = S.key?.pubHex, at = `${pub}:${S.wallet || ''}`, pools = (FARM.program?.pools || []).map((p) => ({ pid: p.pid, poolId: p.poolId, token: ZAP_TOKEN[String(p.pair).split('/').find((x) => x !== 'cETH')] })).filter((p) => p.token);
+  if (!pub || !pools.length || ZAPS_READ.has(at)) return;
+  ZAPS_READ.set(at, getUx().then((t) => t.shareDeposits(walletPriv(), { router: ADDR.confRouter, pools, accounts: [S.wallet], fromBlock: ZAP_FROM })).then((found) => {
+    const had = new Set(zapsKept().map((z) => z.depositId)), fresh = found.filter((f) => !had.has(f.depositId));
+    for (const f of fresh) zapKeep({ pub, pid: pools.find((p) => p.poolId === f.poolId)?.pid, poolId: f.poolId, shares: String(f.shares), index: f.index, depositId: f.depositId, tx: f.tx, at: Date.now() });
+    if (fresh.length && S.key?.pubHex === pub && !running('farm')) rerender('farm');
+  }).catch(() => ZAPS_READ.delete(at)));
+}
+const zapCallout = (pid) => (zapsMine(pid).length ? html`<div class="callout" data-zap-kept><span>A zap of yours waits for its share to be made private and farmed.</span> <button class="link" type="button" id="sz-finish-${pid}">Finish it</button></div>` : '');
+// Finish it takes each of this pool's zaps in turn: one still landing is left for a later press, one that never went in is dropped
+function wireZapFinish(p, status) {
+  $(`#sz-finish-${p.pid}`)?.addEventListener('click', (e) => busy(e.currentTarget, async (run) => {
+    const zs = zapsMine(p.pid);
+    if (!zs.length) return;
+    try {
+      run.go({ label: `Farm your ${pairName(p.pair)} share`, status: () => status });
+      let landing = 0;
+      for (const z of zs) if ((await zapFinish(run, p, z, null, (m) => say(status, m), status)) === 'landing') landing++;
+      if (landing) throw Object.assign(new Error('Your zap has not landed yet. Press Finish it again in a minute.'), { said: true });
+    } catch (err) { run.fail(status, err); }
+  }));
+}
+function farmZap(el, p, status, has, top) {
+  const pid = p.pid, other = top.other, dpB = top.dpB, tokenB = ZAP_TOKEN[top.tkB], label = pairName(p.pair);
+  mount(el, html`${top.coming}
+    <div class="lbl"><span>${has ? 'Add more' : 'Add and farm'}</span><button type="button" id="sz-max-${pid}">Max</button></div>
+    ${top.seg}
+    <p class="note how">One transaction from ${your()}: about half is swapped to ${other} inside this pool, both go in, and your share is farmed privately. <button class="link" type="button" data-join-get="private">Make ETH private first instead</button></p>
+    <div class="lbl"><span>ETH</span><span id="sz-bal-${pid}"></span></div>
+    <div class="amt"><input id="sz-a-${pid}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="ETH to zap into the farm"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
+    <div class="rcpt" id="sz-rcpt-${pid}" hidden></div>
+    <div id="sz-ack-${pid}"></div>
+    <div class="stick"><button class="btn" type="button" id="sz-go-${pid}" disabled>Zap into the farm</button></div>
+    <p class="note">The chain sees your ETH go into ${label}: the swap and what is added. From there it is private: the farm, its rewards and your exit.</p>`);
+  const aIn = $(`#sz-a-${pid}`), go = $(`#sz-go-${pid}`), rc = $(`#sz-rcpt-${pid}`), ackBox = $(`#sz-ack-${pid}`), balEl = $(`#sz-bal-${pid}`);
+  let q = null, seq = 0, bal = null;
+  const gateOk = () => { go.disabled = !q || q.over || !lossOk(ackBox, q.impact || 0); };
+  ethBalance().then((b) => { bal = b; if (balEl.isConnected) balEl.textContent = b == null ? '' : `${payName()} ${fmt(b, 18, 4)}`; });
+  const requote = debounce(async () => {
+    const my = ++seq, wei = (parseUnits(aIn.value, 18) || 0n) / zapUnit * zapUnit;
+    q = null; gateOk();
+    if (!wei) { if (!tooFine(rc, aIn.value, null, 18)) rc.hidden = true; return; }
+    mount(rc, html`<p class="note">Reading the pool…</p>`); rc.hidden = false;
+    try {
+      const t = await getUx(), [res, gp, have] = await Promise.all([t.poolReserves(p.poolId), rpc('eth_gasPrice', []).then(BigInt).catch(() => 0n), ethBalance()]);
+      if (my !== seq || !go.isConnected) return;
+      if (!res || !(res.totalShares > 0n)) throw new Error('This pool is not open for liquidity yet.');
+      const plan = zapPlan({ eth: wei, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) });
+      if (!plan) { mount(rc, html``); warn(rc, 'Enter a larger amount: this one is too small to make a share of the pool.'); return; }
+      const gas = ZAP_GAS * gp * 3n / 2n, impact = Math.abs(plan.impact) * 100;
+      const pm = poolVsMarket({ pair: p.pair, reserves: { assetA: res.assetA, reserveA: res.reserveA, reserveB: res.reserveB } });
+      // what the swap leg gives up against the market's price, as a share of the deposit
+      const y = Number(plan.swapIn) / 1e18, o = Number(plan.out) / 1e18, mkt = pm && y > 0 ? Math.max(0, (y - o * pm.market) / (Number(wei) / 1e18) * 100) : 0;
+      q = { wei, plan, gas, impact: Math.max(impact, mkt), over: have != null && plan.value + gas > have, at: Date.now() };
+      mount(rc, html`
+        <div class="kv"><span>Swaps</span><b>${fmt(plan.swapIn, 18, 6)} ETH for about ${fmt(plan.out, 18, dpB)} ${other}</b></div>
+        <div class="kv"><span>Then adds</span><b>${fmt(plan.ethLeg, 18, 6)} ETH + ${fmt(plan.bLeg, 18, dpB)} ${other}</b></div>
+        ${lossLine(impact)}
+        ${mkt >= 1 ? html`<div class="kv"><span>Against the market</span><b class="${mkt >= 5 ? 'err' : ''}">${pctFmt(mkt)} of this deposit</b></div>` : ''}
+        ${joinYield(p, plan.shares, plan.ethLeg / zapUnit)}
+        ${plan.spare >= 10n ** BigInt(18 - dpB) ? html`<div class="kv"><span>Back to ${your()}</span><b>about ${fmt(plan.spare, 18, dpB)} ${other}</b></div>` : ''}
+        <div class="kv"><span>Network fee, from ${your()}</span><b>about ${fmt(gas, 18, 5)} ETH</b></div>
+        <div class="kv"><span>Then</span><b>the relay makes your share private and farms it, a few minutes</b></div>`);
+      mount(ackBox, lossGate(`sz-ackv-${pid}`, q.impact, 'deposit'));
+      wireAck(ackBox, `sz-ackv-${pid}`, q.impact, gateOk);
+      if (q.over) warn(rc, have != null && plan.value <= have ? lowEth() : 'More ETH than you hold, with the network fee. Try Max.');
+    } catch (e) { if (my === seq) quoteErr(rc, e); }
+    gateOk();
+  }, 250);
+  aIn.oninput = () => { q = null; gateOk(); requote(); };
+  $(`#sz-max-${pid}`).onclick = async () => {
+    const b = bal ?? await ethBalance(), keep = await ethKeep().catch(() => 3n * 10n ** 15n);
+    aIn.value = b != null && b > keep ? plain((b - keep) / zapUnit * zapUnit, 18) : '';
+    aIn.dispatchEvent(new Event('input'));
+  };
+  takeDraft('zap', aIn, (x) => x.pid === pid);
+  go.onclick = () => busy(go, async (run) => {
+    const z = q;
+    if (!z || z.over || !lossOk(ackBox, z.impact || 0)) return;
+    const tell = (m) => say(status, m);
+    let t = null, priv = null, built = null, hash = null, landed = false;
+    const pub = S.key?.pubHex;
+    try {
+      t = await getUx(); priv = walletPriv();
+      const from = await payingAccount(), res = await t.poolReserves(p.poolId);
+      const plan = res && zapPlan({ eth: z.wei, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) });
+      if (!plan || plan.shares !== z.plan.shares || plan.value !== z.plan.value) { requote(); throw Object.assign(new Error('The pool moved since this was quoted. Check the new amounts and press again.'), { said: true }); }
+      // an index no note of this key has used: not one it holds, has spent (bonded) or has a zap waiting on
+      const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used: zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId).map((x) => x.index) });
+      built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
+      const deadline = Math.floor(Date.now() / 1000) + 1200;
+      const data = zapCalldata({ plan, router: ADDR.confRouter, amm: ADDR.publicAmm, tokenB, assetA: res.assetA, assetB: res.assetB, feeBps: Number(res.feeBps ?? 30), deadline: BigInt(deadline), commit: built.commit });
+      // run as it will be sent: it must mint exactly the shares the note commits to, or nothing is sent
+      const sim = strip(await rpc('eth_call', [{ from, to: ADDR.confRouter, data, value: '0x' + plan.value.toString(16) }, 'latest']));
+      if (wordAt(sim, 1) !== plan.shares || '0x' + sim.slice(0, 64) !== String(built.depositId).toLowerCase()) throw new Error('The zap would not mint exactly the share quoted, so nothing was sent. Press again for a fresh quote.');
+      run.go({ label: `Zap ${fmt(plan.value, 18, 6)} ETH into ${label}`, status: () => status, clear: () => clearField(aIn) });
+      run.take(kDep(built));
+      run.check();
+      hash = runTx(run, await sendTx({ to: ADDR.confRouter, data, value: plan.value, label: run.to.label }));
+      const rec = { pub, pid, poolId: p.poolId, shares: String(plan.shares), index, depositId: built.depositId, tx: hash, deadline, at: Date.now() };
+      zapKeep(rec);
+      tell(html`Zap sent ${txLink(hash)}. Waiting for it to land…`);
+      await waitTx(hash); landed = true;
+      if ((await zapFinish(run, p, rec, built, tell, status)) === 'landing') throw Object.assign(new Error('Your zap landed, but the pool does not show it yet. Press Finish it in a minute to make its share private and farm it.'), { said: true });
+      clearField(aIn);
+    } catch (e) {
+      if (built && !hash && t && (payer() === 'tacit' || walletDeclined(e))) t.releaseShareIndex({ walletPriv: priv, poolId: p.poolId, index: built.index });
+      if (hash && !landed && /reverted/.test(e?.message || '')) zapDone(built.depositId);          // nothing went in: nothing to finish
+      if (landed && !e?.offered) e = Object.assign(new Error(`Your zap landed and its share is safe: ${errText(e)} Press Finish it to make it private and farm it.`), { said: true });
+      run.fail(status, e);
+      await Promise.allSettled([scanPrivate(true)]); rerender('farm');
+    }
+  });
+}
+// A zap's share, from its deposit to the farm: the relay settles the deposit into the private share note (the same OP_WRAP a wrap's deposit
+// takes), then the note is bonded. The record is kept only until the deposit is settled: from there the note is the key's (its memo finds
+// it on any device), and a share note not yet bonded shows under Your private farming with Farm it.
+// → 'landing' (the zap has not landed yet), 'gone' (it never will: reverted, or replaced and past its deadline) or 'done'.
+async function zapFinish(run, p, rec, built, tell, status) {
+  const t = await getUx(), priv = walletPriv();
+  built ||= t.buildShareWrap({ walletPriv: priv, poolId: rec.poolId, shares: BigInt(rec.shares), index: rec.index });
+  const leaf = String(built.leaf).toLowerCase(), held = () => (P.scan?.notes || []).find((n) => String(n.leaf).toLowerCase() === leaf);
+  await scanIfNew().catch(() => {});
+  // 0: not in the pool (still landing, or never will be); 1: waiting for its note; 2: the note is made
+  const st = held() ? 2n : await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(built.depositId).padStart(64, '0') }, 'latest']).then((r) => wordAt(r, 0)).catch(() => 1n);
+  if (st === 0n) {
+    const r = await rpc('eth_getTransactionReceipt', [rec.tx]).catch(() => null);
+    if (r?.status !== '0x0' && !(r == null && rec.deadline && Date.now() / 1000 > rec.deadline + 120)) return 'landing';
+    zapDone(rec.depositId);
+    tell('A zap did not go into the pool (it reverted, or was replaced), so only its network fee was spent.');
+    return 'gone';
+  }
+  if (st === 1n) {
+    tell('The relay is making your share a private note, about a minute…');
+    const what = `Make your ${pairName(p.pair)} share private`;
+    await proveOr({ run, types: ['wrap'], label: what, sheet: 'farm', status: () => status, tell, wait: () => run.wait(what, 15 * 60e3, { deps: [kDep(built)] }),
+      then: 'Your share is a private note. Press Finish it to put it in the farm.', after: () => rerender('farm'),
+      go: (y) => y.t.submitWrapSettle({ built, waitOpts: y.waitOpts, selfSettle: y.selfSettle, depositTx: rec.tx }),
+      relayed: () => t.submitWrapSettle({ built, waitOpts: run.wait(what, 15 * 60e3, { deps: [kDep(built)] }), depositTx: rec.tx }) });
+  }
+  zapDone(rec.depositId);
+  let note = held();
+  for (let i = 0, n = st === 1n ? 8 : 1; i < n && !note; i++) { await scanPrivate(true).catch(() => {}); note = held(); if (!note && i < n - 1) await sleep(4000); }
+  if (!note || !freeNotes([note]).length) {
+    tell(html`<span class="ok">Your share is a private note.</span> If it is not in the farm yet, it shows under Your private farming, with Farm it.`);
+    await Promise.allSettled([loadPositions()]); rerender('farm');
+    return 'done';
+  }
+  const r = await stepBond(run, p, [note], tell, status);
+  tell(html`<span class="ok">${FARM.program?.epoch?.active ? 'In the farm: TAC is streaming to your private position.' : 'In the farm. It earns once the next reward period starts.'}</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
+  toast('In the farm');
+  await Promise.allSettled([scanPrivate(true), loadPositions(), loadFarms(true, { private: true })]); rerender('farm');
+  return 'done';
+}
+// Share notes of pool p into its farm, a bond each: the relay proves it, or the paying account sends it
+async function stepBond(run, p, notes, tell, status) {
+  const t = await getUx(), priv = walletPriv(), label = `Farm your ${pairName(p.pair)} share`, mine = freeNotes(notes);
+  if (!mine.length) throw new Error('This share is already in a step that is running. Follow it in Activity.');
+  run.take(...mine.map(kNote));
+  let r = null;
+  for (const [i, n] of mine.entries()) {
+    tell(`The relay is putting your share in the farm${mine.length > 1 ? ` (${i + 1} of ${mine.length})` : ''}…`);
+    r = await proveOr({ run, types: ['farmbond'], label, sheet: 'farm', status: () => status, tell, wait: () => run.wait(label, 20 * 60e3),
+      then: 'In the farm: TAC streams to your private position.', after: () => Promise.allSettled([loadPositions(), loadFarms(true, { private: true })]).then(() => rerender('farm')),
+      go: (y) => y.t.farmBond({ walletPriv: y.priv, lpNote: n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }),
+      relayed: () => t.farmBond({ walletPriv: priv, lpNote: n, waitOpts: run.wait(label, 20 * 60e3) }) });
+  }
+  return r;
+}
 async function joinTerms(t, p, fresh = false) {
   const j = JOIN[p.pid];
   if (!fresh && j && Date.now() - j.at < 30e3) return j;
@@ -9474,22 +9681,17 @@ function farmJoin(el, p, status, has) {
   if (!kA || !kB) { mount(el, html``); return; }
   const bA = spendable(kA), bB = spendable(kB);
   if (!bA && tethComing()) comingPoll('farm');
-  const comingNote = html`${!bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : ''}${P.scan.partial ? html`<p class="note err">Part of your private balance could not be read, so a side may show as none. <button class="link" type="button" data-retry="farm">Read it again</button></p>` : ''}`;
+  zapsRead();
+  const comingNote = html`${zapCallout(pid)}${!bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : ''}${P.scan.partial ? html`<p class="note err">Part of your private balance could not be read, so a side may show as none. <button class="link" type="button" data-retry="farm">Read it again</button></p>` : ''}`;
   const getB = { tac: ['tac', 'Make TAC private'], cusd: ['borrow', 'Borrow cUSD'], cbtc: ['borrow', 'Mint cBTC'] }[kB] || ['tac', `Get private ${other}`];
   const goGet = (b) => { if (running('farm')) return; const wrap = b.dataset.joinGet === 'private', label = pairName(p.pair); FARM.back = wrap ? { link: `farm/private-${pid}`, label: `farm it in ${label}`, at: Date.now() } : { pid, label, at: Date.now() }; if (wrap) hxDraft({ mode: 'wrap', all: true }); $('#sheet-farm').close(); openLink(b.dataset.joinGet); };
-  if (!bA && !bB) {
-    mount(el, html`${comingNote}
-      <div class="lbl"><span>${has ? 'Add more' : 'Add and farm'}</span></div>
-      <ol class="steps">
-        <li class="step now"><span class="n">1</span><div><h3>Private tETH or private ${other}</h3><div class="d">Either one farms on its own: about half is swapped to the other inside the pool. Both together go in with nothing swapped.</div>
-          <div class="act"><button class="btn" type="button" data-join-get="private">Make ETH private</button><button class="link" type="button" data-join-get="${getB[0]}">${getB[1]}</button></div></div></li>
-        <li class="step"><span class="n">2</span><div><h3>${has ? 'Add to the farm' : 'Add and farm'}</h3><div class="d">It opens here once you hold either one.</div></div></li>
-      </ol>`);
-    $$('[data-join-get]', el).forEach((b) => b.onclick = () => goGet(b));
-    return;
-  }
   FARM.jm ||= {};
-  const mode = (FARM.jm[pid] ||= bA && bB ? 'pair' : bA ? 'a' : 'b');
+  // with nothing private yet, ETH from the wallet is the way in: one transaction, then private (not kept, so tETH that lands opens on tETH)
+  const mode = FARM.jm[pid] || (bA && bB ? 'pair' : bA ? 'a' : bB ? 'b' : 'eth');
+  if (mode !== 'eth') FARM.jm[pid] = mode;
+  const seg = segSub('sjm', mode, [['eth', 'ETH'], ['a', 'tETH'], ['b', other], ['pair', `tETH + ${other}`]]);
+  const wireSeg = () => { wireSub(el, 'sjm', (m) => { FARM.jm[pid] = m; [`sj-a-${pid}`, `sj-b-${pid}`, `sz-a-${pid}`].forEach((id) => delete KEPT[id]); keep($('#sheet-farm'), render.farm); }); $$('[data-join-get]', el).forEach((b) => b.onclick = () => goGet(b)); wireZapFinish(p, status); };
+  if (mode === 'eth') { farmZap(el, p, status, has, { seg, coming: comingNote, other, dpB, tkB }); wireSeg(); return; }
   const kS = mode === 'b' ? kB : kA, kO = mode === 'b' ? kA : kB;
   const unit = { [kA]: 'tETH', [kB]: other }, dp = { [kA]: 6, [kB]: dpB }, icon = { [kA]: 'tk-teth', [kB]: LOGO[tkB] || 'tk-tac' };
   const single = mode !== 'pair', both = mode === 'pair' && bA > 0n && bB > 0n;
@@ -9503,7 +9705,7 @@ function farmJoin(el, p, status, has) {
     <div class="amt"><input id="${id}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit[k]} to add"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#${icon[k]}"/></svg>${unit[k]}</span></div>`;
   mount(el, html`${comingNote}
     <div class="lbl"><span>${has ? 'Add more' : 'Add and farm'}</span>${single || both ? html`<button type="button" id="sj-max-${pid}">Max</button>` : ''}</div>
-    ${segSub('sjm', mode, [['a', 'tETH'], ['b', other], ['pair', `tETH + ${other}`]])}
+    ${seg}
     <p class="note how">${how}</p>
     ${single || both ? html`
       ${mode !== 'b' ? field(kA, `sj-a-${pid}`) : ''}
@@ -9512,8 +9714,7 @@ function farmJoin(el, p, status, has) {
       <div id="sj-ack-${pid}"></div>
       <div class="stick"><button class="btn" type="button" id="sj-go-${pid}" disabled>${single ? `Farm with ${unit[kS]}` : has ? 'Add to the farm' : 'Add and farm'}</button></div>
       <p class="note">The relay proves the bond and ${your()} sends it, paying its network fee, so that account is seen joining this farm. What you add shows in the pool’s public reserves, as all liquidity does; your private balances do not.</p>` : ''}`);
-  wireSub(el, 'sjm', (m) => { FARM.jm[pid] = m; [`sj-a-${pid}`, `sj-b-${pid}`].forEach((id) => delete KEPT[id]); keep($('#sheet-farm'), render.farm); });
-  $$('[data-join-get]', el).forEach((b) => b.onclick = () => goGet(b));
+  wireSeg();
   $$('[data-join-one]', el).forEach((b) => b.onclick = () => { if (running('farm')) return; FARM.jm[pid] = b.dataset.joinOne; keep($('#sheet-farm'), render.farm); });
   if (!(single || both)) return;
   const aIn = $(`#sj-a-${pid}`), bIn = $(`#sj-b-${pid}`), sIn = mode === 'b' ? bIn : aIn, go = $(`#sj-go-${pid}`), rc = $(`#sj-rcpt-${pid}`), ackBox = $(`#sj-ack-${pid}`);
@@ -9541,15 +9742,7 @@ function farmJoin(el, p, status, has) {
   let q = null, seq = 0;
   const reading = () => { mount(rc, html`<p class="note">Reading the pool and the relay’s fees…</p>`); rc.hidden = false; };
   const gateOk = () => { go.disabled = !q || q.over || q.gasShort || !lossOk(ackBox, q.impact || 0); };
-  const yieldRows = (shares, a) => {
-    const bonded = BigInt(p.totalShares || 0), day = FARM.program?.epoch?.active ? Number(p.tacPerDayForPool) * Number(shares) / Number(bonded + shares) : 0;
-    const dayWei = BigInt(Math.round(day * 1e18)), apr = day ? aprOf(day, 2 * Number(a) / 1e8) : null;
-    return html`
-      <div class="kv"><span>Share of the farm</span><b>${sharePct(Number(shares) / Number(bonded + shares))}</b></div>
-      ${day ? html`<div class="kv"><span>Earns about</span><b>${day >= 10 ? Math.round(day).toLocaleString('en-US') : day.toFixed(2)} TAC a day${ethOfTac(dayWei, FARM.precision) > 0n ? ` (${aboutEth(ethOfTac(dayWei, FARM.precision))})` : ''}</b></div>` : ''}
-      ${apr != null ? html`<div class="kv"><span>APR on this deposit</span><b>${aprLong(apr)}</b></div>
-        <p class="note">At today’s TAC price${FARM.program?.epoch?.periodFinish ? `, while the stream runs to ${dayFmt(FARM.program.epoch.periodFinish)}` : ''}. Swap fees come on top.</p>` : ''}`;
-  };
+  const yieldRows = (shares, a) => joinYield(p, shares, a);
   const gasRow = (j) => html`<div class="kv"><span>Network fee, from ${your()}</span><b>about ${fmt(j.gas, 18, 5)} ETH</b></div>`;
   const quotePair = async (e, my, t, j) => {
     const res = j.res;
@@ -11801,14 +11994,17 @@ async function hxQuote() {
       const rows = await hxFarms(units ? Number(units) / 1e8 : 0);
       if (my !== HX.seq) return;
       if (!rows.length) return done({ out: '—', go: 'Farm', warn: true, line: 'The farms could not be read.' });
-      const pick = rows.find((r) => r.k === HX.pool) || rows[0], two = pick.k !== 'precision' && hxTwo(units);
+      const pick = rows.find((r) => r.k === HX.pool) || rows[0], two = pick.k !== 'precision' && hxTwo(units), zap = two && HX.earnWay !== 'wrap';
       HX.pool = pick.k;
-      for (const r of rows) { r.show = r.apr == null ? '—' : `${r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr)} APR`; if (r.k !== 'precision') r.note = `private${r.dry ? ' · between reward periods' : ''}${hxTwo(units) ? ' · 2 steps' : ''}`; }
+      for (const r of rows) { r.show = r.apr == null ? '—' : `${r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr)} APR`; if (r.k !== 'precision') r.note = `private${r.dry ? ' · between reward periods' : ''}${hxTwo(units) && HX.earnWay !== 'wrap' ? ' · one transaction' : hxTwo(units) ? ' · 2 steps' : ''}`; }
       const tacSrc = HX.from === 'wtac' || HX.from === 'tac', pub = pick.k === 'precision';
-      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two ? 'wrap' : null,
-        go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : two ? 'Make ETH private' : 'Farm privately',
-        rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : 'half swapped inside the pool'],
-          pub ? null : ['Chain sees', 'a deposit, not whose'], two ? ['Steps', 'make the ETH private, then farm it'] : null],
+      const way = (w) => () => { HX.earnWay = w; HX.q = null; hxQuote(); };
+      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two && !zap ? 'wrap' : null,
+        go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? 'Zap into the farm' : two ? 'Make ETH private' : 'Farm privately',
+        rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction: half swapped inside the pool, both added' : 'half swapped inside the pool'],
+          pub ? null : ['Chain sees', zap ? 'your ETH going into the pool; private from there' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null],
+        // the two ways in from the wallet's ETH: the zap, or making it private first (more private, and a wrap earns points)
+        alt: !two ? null : zap ? { label: 'Make ETH private first instead: 2 steps, earns points', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
         warn: !!pick.dry, line: pick.dry ? 'Between reward periods: nothing streams until the next one starts.' : '' });
     }
     if (m === 'btc' && HX.from === 'tac') {
@@ -12147,7 +12343,7 @@ function paintHxQ() {
   const alt = $('#hx-alt');
   if (alt && !q.busy) {
     alt.hidden = !q.alt;
-    if (q.alt) { mount(alt, html`<button class="link" type="button" id="hx-alt-go">${q.alt.label} →</button>`); $('#hx-alt-go').onclick = () => openLink(q.alt.link); }
+    if (q.alt) { mount(alt, html`<button class="link" type="button" id="hx-alt-go">${q.alt.label} →</button>`); $('#hx-alt-go').onclick = () => (q.alt.go ? q.alt.go() : openLink(q.alt.link)); }
   }
 }
 OUT.paint = () => paintHxQ();
@@ -12202,6 +12398,8 @@ function hxGo() {
     const pid = Number(HX.pool), p = FARM.program?.pools?.find((x) => x.pid === pid);
     if (!Number.isInteger(pid)) return openLink('farm');
     const side = HX.from === 'tac' ? 'b' : 'a', join = () => { (FARM.jm ||= {})[pid] = side; hxDraft({ mode: 'join', pid, amt, side }); };
+    // the wallet's ETH zaps into the farm in one transaction (the farm sheet's ETH form, with the amount), unless making it private first was chosen
+    if (hxTwo(units) && HX.earnWay !== 'wrap') { (FARM.jm ||= {})[pid] = 'eth'; hxDraft({ mode: 'zap', pid, amt }); return openLink(`farm/private-${pid}`); }
     if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
     join(); return openLink(`farm/private-${pid}`);
   }
@@ -12278,7 +12476,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=28ae46f7').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=bc2bc924').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
