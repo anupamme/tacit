@@ -179,6 +179,7 @@ import * as secp from '@noble/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { hmac } from '@noble/hashes/hmac';
 import { depositIdOf } from '../worker-relay/src/lib/spent-precheck.js';
+import { makeConfidentialPool as makePoolForStubs } from '../dapp/confidential-pool.js';
 import { sha256 } from '@noble/hashes/sha256';
 
 secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, secp.etc.concatBytes(...m));
@@ -187,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -206,6 +207,25 @@ function typedDigest(d) {
   return k(Buffer.concat([Buffer.from([0x19, 0x01]), hash('EIP712Domain', d.domain), hash(d.primaryType, d.message)]));
 }
 
+// A stand-in proof's public values for a wrap op: the layout of ConfidentialPool's PublicValues as far as a page reads it, consuming the
+// op's own deposit and inserting its own leaf (the pages check a wrap proof is for their note before they use it).
+const STUB_POOL = makePoolForStubs({ secp, keccak256: keccak_256, sha256 }), STUB_CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+// A wrap op read back from its program input (sp1-stdin.js): the asset, then the value (an 8-byte entry), then cx, cy and owner, each a
+// 32-byte entry under its own length.
+function wrapOpFromStdin(stdin, asset) {
+  const h = String(stdin).replace(/^0x/, '').toLowerCase(), a = String(asset).replace(/^0x/, '').toLowerCase(), at = h.indexOf(a);
+  if (at < 0) return null;
+  let p = at + 64 + 16;
+  const value = BigInt('0x' + (h.slice(p, p + 16).match(/../g) || []).reverse().join('')); p += 16;
+  const f = () => { p += 32; const x = '0x' + h.slice(p, p + 64); p += 64; return x; };
+  return { asset: '0x' + a, value: value.toString(), cx: f(), cy: f(), owner: f() };
+}
+function wrapPv(op) {
+  const w = (v) => BigInt(v).toString(16).padStart(64, '0'), head = Array(40).fill(w(0));
+  const leaf = STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner), dep = depositIdOf(op);
+  head[4] = w(40 * 32); head[5] = w(42 * 32); head[3] = w(44 * 32); head[7] = w(45 * 32);
+  return '0x' + w(32) + head.join('') + w(1) + leaf.replace(/^0x/, '') + w(1) + dep.replace(/^0x/, '') + w(0) + w(0);
+}
 const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
 process.on('exit', () => anvil.kill('SIGKILL'));
 const rpc = async (method, params = []) => {
@@ -244,6 +264,8 @@ const provenJobs = {};
 // are proved and held as an open job (status `open`, its proof and the memos it was sent with), as the relay holds what it cannot
 // send. `landedPosts`: the page's reports of a settle it sent itself (POST /confidential/landed), which settle an open job here.
 let refuseWith = null, refuseTypes = null, openNext = 0, pendingNext = 0;
+const poolReqs = [];                                                                    // proof pool requests the pages posted
+let poolDone = false;                                                                   // the pool's miners have proved them
 // What GET /confidential/relay says of the relay: 'ok' unless a scenario sets 'held', 'paused', 'down' or 'busy' (null: the route is missing).
 let relayStateNow = 'ok';
 const openJobs = {}, pendingJobs = {}, landedPosts = [];
@@ -299,9 +321,21 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
         body: JSON.stringify({ ok: false, ...(why || { error: 'free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself', code: 'free_budget' }) }) });
     }
+    if (u.pathname === '/prover/pool/request') {
+      const b = JSON.parse(route.request().postData() || '{}');
+      return json(route, { ok: true, id: 'pool-' + poolReqs.push(b) });
+    }
+    if (u.pathname === '/prover/pool/result') {
+      const results = {};
+      for (const id of String(u.searchParams.get('ids') || '').split(',').filter(Boolean)) {
+        const b = poolReqs[Number(id.slice(5)) - 1], op = b && wrapOpFromStdin(b.stdin, STUB_CETH);
+        results[id] = !b ? { status: 'gone' } : poolDone && op ? { status: 'done', publicValues: wrapPv(op), proof: '0x' + '0b'.repeat(32) } : { status: 'queued' };
+      }
+      return json(route, { results });
+    }
     if (sub) {
       const jobId = 'stub-' + (submits.push(sub));
-      if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [] };
+      if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [], ...(sub.type === 'wrap' && sub.op ? { pv: wrapPv(sub.op) } : {}) };
       if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
       if (pendingNext > 0 && (sub.mode || 'settle') === 'settle') { pendingNext--; pendingJobs[jobId] = sub.type; }          // a job that stays in the relay's line
       return json(route, { jobId });
@@ -319,7 +353,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     if (u.pathname === '/confidential/status') {
       const id = u.searchParams.get('id'), pj = provenJobs[id], oj = openJobs[id];
       if (pendingJobs[id]) return json(route, { jobId: id, type: pendingJobs[id], mode: 'settle', status: 'pending', txHash: null, error: null, createdAt: Date.now() });
-      if (pj) return json(route, { jobId: id, mode: 'prove', status: 'proven', publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: pj.memos });
+      if (pj) return json(route, { jobId: id, mode: 'prove', status: 'proven', publicValues: pj.pv || '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: pj.memos });
       if (oj) return json(route, { jobId: id, type: oj.type, mode: 'settle', status: oj.status, txHash: oj.txHash || null, ...(oj.status === 'settled' ? {} : { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: oj.memos }) });
       return json(route, { status: 'failed', error: statusError });
     }
@@ -331,7 +365,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return route.fulfill({ status: 502, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: `the live API did not answer: ${e.message}` }) });
     }
   };
-  await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/(submit|status|landed|relay)/, relay);
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/(confidential\/(submit|status|landed|relay)|prover\/pool\/)/, relay);
   await ctx.route(new RegExp(`^http://(127\\.0\\.0\\.1|localhost):${WEB}/(confidential|farm|reflection)/`), relay);
   // Keepers: quotes are canned and the queue is absent (wallets prove against their own tree). A move into V1 is
   // relayed for real, router.withdrawToV1 sent as a keeper would; any other relay is recorded and refused.
@@ -10568,6 +10602,104 @@ await step('selfprove', async () => {
   } finally { proveStub = false; if (restore) await restore(); await r.browser.close(); }
 });
 
+// The relay's sponsored proof first: with no prover of your own, a wrap is proved by the relay before anything is deposited (a prove-only
+// job, asked for once the amount has settled in the form), then one router transaction from the wallet deposits and settles it with the
+// relay's tip in it; while the relay has no sponsored proofs left the deposit goes first, as before.
+await step('wrapfirst', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'f1a5'.padEnd(64, '3');
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+  try {
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);                     // the router on the fork would check the stand-in proof
+    proveStub = true;
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await toWallet(r.page);
+    await r.page.waitForSelector('[data-pay="wallet"]');
+    await r.page.click('[data-pay="wallet"]');
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="wrap"]', { timeout: 600000 });
+    await r.page.click('[data-v1="wrap"]').catch(() => {});
+    await r.page.waitForSelector('#w-amt', { timeout: 120000 });
+    const s0 = submits.length, w0 = walletTxs.length;
+    await r.page.fill('#w-amt', '0.05');
+    await until(r.page, () => !document.querySelector('#w-go').disabled, null, QUOTE_WAIT);
+    // asked for once the amount has stood a moment
+    await chainUntil(async () => submits.slice(s0).some((x) => x.type === 'wrap' && x.mode === 'prove'), 60000);
+    ok(submits.slice(s0).filter((x) => x.type === 'wrap' && x.mode === 'prove').length === 1, `wrapfirst: the relay's proof is asked for once the amount settles (${submits.slice(s0).map((x) => `${x.type}/${x.mode}`)})`);
+    await until(r.page, () => /ready now/.test(document.querySelector('#w-rcpt')?.textContent || ''), null, 60000).catch(() => {});
+    ok(/ready now/.test(await text(r.page, '#w-rcpt')), `wrapfirst: the receipt says the proof is ready (${(await text(r.page, '#w-rcpt')).replace(/\s+/g, ' ').slice(0, 140)})`);
+    const tip = await r.page.evaluate(() => /Relay tip\s*([\d.]+) ETH/.exec(document.querySelector('#w-rcpt')?.textContent || '')?.[1] || null);
+    await r.page.click('#w-go');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const sent = walletTxs.slice(w0), call = sent.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR);
+    const fee = call ? BigInt(call.value || 0) - 5n * 10n ** 16n : -1n;
+    ok(/Done\./.test(await text(r.page, '#v1-status')) && sent.length === 1 && call && call.data.startsWith('0x50de88e1') && fee > 0n && (!tip || fee === BigInt(Math.round(Number(tip) * 1e6)) * 10n ** 12n || fee > 0n)
+      && !submits.slice(s0).some((x) => x.type === 'wrap' && (x.mode || 'settle') === 'settle'),
+      `wrapfirst: one router transaction deposits and settles it, the tip in it, nothing deposited first (${await text(r.page, '#v1-status')}; ${sent.map((x) => `${x.to.slice(0, 10)}/${x.data.slice(0, 10)}/${x.value}`)})`);
+    // the relay has no sponsored proofs left: the deposit goes first, to the wrap forwarder with its tip
+    proveStub = false; refuseSubmits = 99; refuseTypes = ['wrap']; refuseWith = { error: 'prove capacity for today is used up (150/150)', code: 'prove_budget' };
+    await r.page.fill('#w-amt', '0.03');
+    await until(r.page, () => !document.querySelector('#w-go').disabled, null, QUOTE_WAIT);
+    const w1 = walletTxs.length;
+    await r.page.click('#w-go');
+    await chainUntil(async () => walletTxs.length > w1, 120000);
+    ok(walletTxs.length > w1 && String(walletTxs[w1].to).toLowerCase() !== ROUTER_ADDR && walletTxs[w1].data.startsWith('0xfc24c435'),
+      `wrapfirst: with no sponsored proofs left the deposit goes first, with its tip (${walletTxs.slice(w1).map((x) => `${x.to.slice(0, 10)}/${x.data.slice(0, 10)}`)})`);
+    if (r.errors.length) { fails++; console.log('FAIL wrapfirst page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; refuseSubmits = 0; refuseTypes = null; refuseWith = null; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
+// Wraps kept ready by the community proof pool: with no prover of your own, a size picked in the prove sheet is asked of the pool
+// (only the wrap's program input and the deposit and leaf its proof must show), the proof the pool's miners return is collected into
+// a voucher once it shows exactly that, and a wrap of that size then goes out at once in one router transaction.
+await step('poolkeep', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'b001'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+  const kept = () => r.page.evaluate((p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]'), pub);
+  try {
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
+    poolDone = false;
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await toWallet(r.page);
+    await r.page.waitForSelector('[data-pay="wallet"]');
+    await r.page.click('[data-pay="wallet"]');
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] [data-keep="10000000000000000"]', { timeout: 60000 });
+    ok(/proved free by the community/.test(await text(r.page, '#sp-keep')), `poolkeep: with no prover of your own the sizes are kept by the community pool (${await text(r.page, '#sp-keep')})`);
+    const q0 = poolReqs.length;
+    await r.page.click('[data-keep="10000000000000000"]');
+    await chainUntil(async () => poolReqs.length > q0, 60000);
+    const req = poolReqs[q0], op = req && wrapOpFromStdin(req.stdin, STUB_CETH);
+    ok(req && req.type === 'wrap' && /^0x[0-9a-f]+$/.test(req.stdin) && op && op.value === String(10n ** 16n / 10n ** 10n) && STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner) === req.expect.leaf && depositIdOf(op) === req.expect.depositId,
+      `poolkeep: the pool is asked for a 0.01 ETH wrap: its program input and the deposit and leaf its proof must show (${req ? req.type : 'none'})`);
+    poolDone = true;
+    await until(r.page, (p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]').some((v) => v.by === 'pool' && v.status === 'ready'), pub, 150000).catch(() => {});
+    ok((await kept()).some((v) => v.by === 'pool' && v.status === 'ready' && v.amount === '10000000000000000'), `poolkeep: the pool's proof is collected into a ready voucher (${(await kept()).map((v) => `${v.by}/${v.status}`)})`);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="wrap"]', { timeout: 600000 });
+    await r.page.click('[data-v1="wrap"]').catch(() => {});
+    await r.page.waitForSelector('#w-amt', { timeout: 120000 });
+    await r.page.fill('#w-amt', '0.01');
+    await until(r.page, () => !document.querySelector('#w-go').disabled && /ready now/.test(document.querySelector('#w-rcpt')?.textContent || ''), null, QUOTE_WAIT).catch(() => {});
+    const s0 = submits.length, w0 = walletTxs.length;
+    await r.page.click('#w-go');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const sent = walletTxs.slice(w0);
+    ok(/Done\./.test(await text(r.page, '#v1-status')) && sent.length === 1 && String(sent[0].to).toLowerCase() === ROUTER_ADDR && sent[0].data.includes('0b'.repeat(32))
+      && !submits.slice(s0).some((x) => x.type === 'wrap'),
+      `poolkeep: a wrap of that size goes out at once from the pool's proof, nothing asked of the relay (${await text(r.page, '#v1-status')})`);
+    if (r.errors.length) { fails++; console.log('FAIL poolkeep page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { poolDone = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
 await step('selfdevice', async () => {
   const hex = '5e1f2'.padEnd(64, '9'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
   const r = await openPage({ account: A0, key: K0 });
@@ -10581,7 +10713,10 @@ await step('selfdevice', async () => {
     const json = (b) => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(b) });
     if (u.pathname === '/health') return json({ ok: true, vkey: '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3', busy: false, queued: 0, gpu: 'Apple M2' });
     if (u.pathname === '/prove') { dev.asked.push(JSON.parse(q.postData() || '{}')); return json({ id: 'w' + dev.asked.length }); }
-    if (u.pathname === '/job') return json(dev.fail ? { status: 'failed', error: 'the guest rejects this input' } : { status: 'done', secs: 240, publicValues: '0x' + '01'.repeat(32), proof: '0x' + '07'.repeat(32) });
+    if (u.pathname === '/job') {
+      const job = dev.asked[Number(String(u.searchParams.get('id')).slice(1)) - 1], op = job?.type === 'wrap' ? wrapOpFromStdin(job.stdin, STUB_CETH) : null;
+      return json(dev.fail ? { status: 'failed', error: 'the guest rejects this input' } : { status: 'done', secs: 240, publicValues: op ? wrapPv(op) : '0x' + '01'.repeat(32), proof: '0x' + '07'.repeat(32) });
+    }
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
   });
   await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `

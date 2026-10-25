@@ -1481,7 +1481,21 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     onBuilt?.(built);
     const proven = await relay.prove({ type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand }, waitOpts);
     if (!proven.publicValues || !proven.proof) throw new Error(`the prover returned no proof for this wrap (${proven.status || 'no status'})`);
+    if (!wrapProofFits(built, proven)) throw Object.assign(new Error('the proof returned is not for this wrap, so it is not used and nothing was sent'), { code: 'wrong_proof' });
     return { built, proven: { ...proven, memos: proven.memos || built.memos } };
+  }
+
+  // Whether a wrap's proof is for this note: it consumes exactly this deposit and inserts exactly this leaf (PublicValues' depositsConsumed
+  // and leaves, contracts/src/ConfidentialPool.sol). A prover elsewhere could otherwise hand back a valid proof of another pending deposit,
+  // which the router would settle in place of this one, leaving this deposit waiting for its own proof.
+  function wrapProofFits(built, proven) {
+    try {
+      const h = String(proven.publicValues).replace(/^0x/, '').toLowerCase(), w = (i) => BigInt('0x' + h.slice(i * 64, i * 64 + 64));
+      if (w(0) !== 32n) return false;
+      const list = (head) => { const at = 1 + Number(w(head) / 32n), len = Number(w(at)); return Array.from({ length: len }, (_, k) => '0x' + h.slice((at + 1 + k) * 64, (at + 2 + k) * 64)); };
+      const deposits = list(6), leaves = list(5), lc = (x) => String(x).toLowerCase();
+      return deposits.length === 1 && deposits[0] === lc(built.depositId) && leaves.length === 1 && leaves[0] === lc(built.leaf);
+    } catch { return false; }
   }
 
   // The router call that deposits a wrap and settles its proof in one transaction, for any wallet to send: native ETH as the call's
@@ -3189,7 +3203,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

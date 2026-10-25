@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Fp7tc2Wbg83F3eAW8gWjS2yKeNcqN/BSMOhmJjLaKuE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rvEzB59gsnbdBAji0f49tZIzXsO3RVj11EklQFxCgaw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1657,7 +1657,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { zapPlan, zapPlanFor, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=30ac5028';
+import { zapPlan, zapPlanFor, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=9a39fc40';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
@@ -2938,15 +2938,17 @@ async function spProver() {
 function spApply() {
   const r = SP.ux?.relay;
   if (!r?.useProver) return;
+  // Once a key is open: vouchers left proving are picked up, and the sizes kept ready are kept so, on whichever lane.
+  if (S.key && VOUCH.keep !== S.key.pubHex) {
+    VOUCH.keep = S.key.pubHex;
+    resumeVouchers().catch(() => {});
+    if (!VOUCH.timer) VOUCH.timer = setInterval(() => { poolCollect().catch(() => {}); keepReady().catch(() => {}); }, 60e3);
+  }
   if (devOn()) {
     r.useProver(LOCAL.found && LOCAL.prover ? LOCAL.prover.prove : null);
     if (r.useSealer) r.useSealer(null);
     if (!LOCAL.found) devProver().then((x) => { if (!devOn()) return; if (x) r.useProver(x.prove); if ($('#sheet-prove')?.open) reProve(); }, () => {});
-    if (S.key && VOUCH.keep !== S.key.pubHex) {
-      VOUCH.keep = S.key.pubHex;
-      resumeVouchers().catch(() => {});
-      setInterval(() => { if (devOn()) keepReady().catch(() => {}); }, 60e3);
-    }
+
     return;
   }
   const p = spOn() && SP.prover && SP.who === S.acct?.address ? SP.prover : null;
@@ -3815,7 +3817,7 @@ function renderProve() {
           : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
         <label class="pick"><input type="checkbox" id="sp-dev" ${dev ? 'checked' : ''}><span>Prove on this computer</span></label>
         <p class="note" id="sp-dev-note">${devNote(dev)}</p>
-        ${dev ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once: ${KEEP_SIZES.map((w) => html` <button class="link" type="button" data-keep="${w}" aria-pressed="${String(keepSizes().includes(w))}">${keepSizes().includes(w) ? '✓ ' : ''}${fmt(w, 18, 2)} ETH</button>`)}</p>` : ''}
+        ${S.key ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once${dev ? '' : ' (proved free by the community)'}: ${KEEP_SIZES.map((w) => html` <button class="link" type="button" data-keep="${w}" aria-pressed="${String(keepSizes().includes(w))}">${keepSizes().includes(w) ? '✓ ' : ''}${fmt(w, 18, 2)} ETH</button>`)}</p>` : ''}
         <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on || dev ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
         <p class="note">${on || dev ? `Not needed while ${dev ? 'this computer' : 'your own credit'} proves: nothing of yours reaches the relay.`
           : seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
@@ -3897,7 +3899,7 @@ function renderProve() {
     const w = BigInt(b.dataset.keep), now = keepSizes(), next = now.includes(w) ? now.filter((x) => x !== w) : [...now, w];
     store.set(KEEP_PREF + S.key.pubHex, next.length ? next.map(String) : null);
     reProve();
-    if (next.includes(w)) { toast(`A ${fmt(w, 18, 2)} ETH wrap is proved on this computer while it is idle, ready to send at once.`); keepReady().catch(() => {}); }
+    if (next.includes(w)) { toast(`A ${fmt(w, 18, 2)} ETH wrap is ${devOn() ? 'proved on this computer while it is idle' : 'asked of the community proof pool'}, ready to send at once.`); keepReady().catch(() => {}); }
   });
   $('#sp-seal').onchange = (e) => {
     if (midAction()) { e.target.checked = !e.target.checked; return; }
@@ -4636,12 +4638,15 @@ function v1Wrap(el, status) {
       const { j, own, tip, to } = await readTip(wei);
       if (my !== seq || !input.isConnected) return;
       q = { wei, tip, to, at: Date.now() };
-      const ready = own && S.key ? (await vouchers()).pick(S.key.pubHex, 'cETH', wei) : null;
+      const ready = S.key ? (await vouchers()).pick(S.key.pubHex, 'cETH', wei) : null;
       if (my !== seq || !input.isConnected) return;
+      // the relay's sponsored proof of this amount, asked for once it has stood a moment (one at a time, a few a page)
+      clearTimeout(VOUCH.typing);
+      if (!own && !ready && S.key) VOUCH.typing = setTimeout(() => { if (input.isConnected && parseUnits(input.value) === wei) proveAhead('cETH', wei, { relay: true }); }, 1500);
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} tETH</b></div>
         <div class="kv"><span>Relay tip</span><b>${own ? `none: ${devOn() ? 'proved on this computer' : 'you prove it with your own credit'}` : `${fmt(tip, 18, 6)} ETH`}</b></div>
-        ${ready ? html`<div class="kv"><span>Proof</span><b>ready now, made here earlier${ready.length > 1 ? ` (${ready.length} wraps, one confirmation where your wallet batches)` : ''}</b></div>` : ''}
+        ${ready ? html`<div class="kv"><span>Proof</span><b>ready now${own ? ', made here earlier' : ''}${ready.length > 1 ? ` (${ready.length} wraps, one confirmation where your wallet batches)` : ''}</b></div>` : ''}
         <div class="kv"><span>${payName()} sends</span><b>${fmt(wei + tip, 18, 6)} ETH</b></div>
         ${pointsRow(wei, 'v1')}`);
       rc.hidden = false;
@@ -4662,7 +4667,7 @@ function v1Wrap(el, status) {
       const fresh = await readTip(x.wei).catch(() => null);
       if (fresh && fresh.tip * 2n > x.tip * 3n) { say(status, 'The relay’s tip moved while this was open. It is shown again: check it and press once more.'); q = null; input.dispatchEvent(new Event('input')); return; }
     }
-    run.go({ label: `Wrap ${fmt(x.wei, 18, 6)} ETH into tETH`, status: () => $('#v1-status'), clear: () => { clearField(input); } });
+    run.go({ label: `Wrap ${fmt(x.wei, 18, 6)} ETH into tETH`, status: () => $('#v1-status'), clear: () => { clearField(input); input.dispatchEvent(new Event('input')); } });
     let hash = null, landed = false, t = null, priv = null, w = null;
     try {
       t = await getUx(); priv = walletPriv();
@@ -4673,8 +4678,24 @@ function v1Wrap(el, status) {
         const ready = (await vouchers()).pick(S.key.pubHex, 'cETH', x.wei);
         if (ready) await sendVouchers({ run, t, via, list: ready, status, sheet: 'eth', pop });
         else await proveFirstWrap({ run, t, priv, via, wei: x.wei, status, sheet: 'eth', pop });
-        run.to.clear(); input.dispatchEvent(new Event('input'));
         return;
+      }
+      // The relay's sponsored proof, made before anything is deposited: one transaction then deposits and settles it, with the tip in it,
+      // and the private balance shows as soon as it lands. Only while the relay has no sponsored proofs left today does the deposit go
+      // first, as before.
+      if (S.key) {
+        const pop = () => rewardPop(go, { pts: hxPts('wrap', Number(x.wei) / 1e18)?.pts }), pub = S.key.pubHex;
+        let ready = (await vouchers()).pick(pub, 'cETH', x.wei);
+        if (!ready) {
+          say(status, 'Tacit’s relay is proving your wrap first, about a minute. Nothing has left your wallet yet…');
+          if (VOUCH.ahead?.relay && VOUCH.ahead.wei !== String(x.wei)) await VOUCH.ahead.p.catch(() => {});
+          await (proveAhead('cETH', x.wei, { relay: true, now: true }) || Promise.resolve()).catch(() => {});
+          ready = (await vouchers()).pick(pub, 'cETH', x.wei);
+        }
+        if (ready) {
+          await sendVouchers({ run, t, via, list: ready, status, sheet: 'eth', pop, tip: { wei: x.tip, to: x.to } });
+          return;
+        }
       }
       say(status, 'Preparing your note…');
       const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'cETH' });
@@ -8170,53 +8191,107 @@ function renderTacBal(el) {
 // exactly goes out with no proving wait; the rest prove first as below. Nothing is proved on a guess while an amount is typed: a
 // proof here takes minutes and cannot be stopped, so one for an amount then changed would hold up the one wanted.
 const VOUCH = { mod: null, ahead: null, keep: 0 };
-const vouchers = async () => (VOUCH.mod ||= (await import('/wrap-vouchers.js?cb=c0733027')).makeVouchers());
+const vouchers = async () => (VOUCH.mod ||= (await import('/wrap-vouchers.js?cb=1b01bab7')).makeVouchers());
 const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
 const KEEP_SIZES = [10n ** 16n, 10n ** 17n, 10n ** 18n];
 const keepSizes = () => (S.key ? (store.get(KEEP_PREF + S.key.pubHex) || []).map(BigInt) : []);
 // One wrap of `wei` proved on this computer and kept as a voucher; its job is kept with it, so a reload picks it up.
-function proveAhead(ticker, wei) {
-  if (!devOn() || !LOCAL.found || !S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
-  const pub = S.key.pubHex, me = { ticker, wei: String(wei) };
+// `relay`: asked of Tacit's relay as its sponsored proof (the relay proves wraps from its own budget; a wrap's proof pins nothing, so
+// asking before the deposit costs it nothing more), when your own prover is not on. It answers in about a minute, so asking once an
+// amount has settled in the form is cheap: Send then finds the proof made, or nearly. At most RELAY_AHEAD a page, one at a time.
+const RELAY_AHEAD = 4;
+function proveAhead(ticker, wei, { relay = false, now = false } = {}) {
+  if (!S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
+  if (relay ? ownOn() || (!now && (VOUCH.relayAsked || 0) >= RELAY_AHEAD) : !devOn() || !LOCAL.found) return null;
+  if (relay) VOUCH.relayAsked = (VOUCH.relayAsked || 0) + 1;
+  const pub = S.key.pubHex, me = { ticker, wei: String(wei), relay };
   me.p = (async () => {
     const v = await vouchers(), t = await getUx(), priv = walletPriv();
     if (v.list(pub, ticker).some((x) => x.amount === String(wei))) return;
-    let rec = null;
+    let rec = null, index = null;
     try {
-      spApply();
-      const index = await t.nextWrapIndex({ walletPriv: priv, ticker });
+      if (!relay) spApply();
+      index = await t.nextWrapIndex({ walletPriv: priv, ticker });
       const r = await t.proveWrap({ walletPriv: priv, amountWei: wei, ticker, index,
-        onBuilt: (b) => { rec = { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, assetId: b.wrapArgs.assetId, memos: b.memos, at: Date.now(), status: 'proving' }; v.put(pub, rec); },
-        waitOpts: { onUpdate: (st) => { if (rec && st?.jobId && !rec.job) { rec.job = st.jobId; v.put(pub, rec); } } } });
+        onBuilt: (b) => { rec = { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, leaf: b.leaf, assetId: b.wrapArgs.assetId, memos: b.memos, at: Date.now(), status: 'proving', by: relay ? 'relay' : 'device' }; v.put(pub, rec); },
+        waitOpts: { ...(relay ? { viaRelay: true, timeoutMs: 10 * 60e3 } : {}), onJob: (jobId) => { if (rec && !rec.job) { rec.job = jobId; v.put(pub, rec); } },
+          onUpdate: (st) => { if (rec && st?.jobId && !rec.job) { rec.job = st.jobId; v.put(pub, rec); } } } });
       v.put(pub, { ...rec, status: 'ready', publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos });
-    } catch { if (rec) v.drop(pub, rec.depositId); }
+    } catch {
+      // not proved (a relay with no sponsored proofs left, say): its index goes back, so the wrap made instead takes it
+      if (rec) v.drop(pub, rec.depositId);
+      if (index != null) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
+    }
   })().finally(() => { if (VOUCH.ahead === me) VOUCH.ahead = null; });
   VOUCH.ahead = me;
   return me.p;
 }
 // Vouchers still proving when the page last closed: their jobs, followed to the end where the prover still has them.
 async function resumeVouchers() {
-  if (!devOn() || !S.key || !(await devProver())) return;
-  const pub = S.key.pubHex, v = await vouchers();
+  if (!S.key) return;
+  const pub = S.key.pubHex, v = await vouchers(), t = await getUx(), device = devOn() && (await devProver());
   for (const x of v.list(pub, null, 'proving')) {
+    if (x.by === 'pool') continue;
     if (!x.job) { v.drop(pub, x.depositId); continue; }
+    if (x.by === 'relay') {
+      t.relay.waitForProof(String(x.job).replace(/^job:/, ''), { timeoutMs: 10 * 60e3 }).then(
+        (r) => (r?.publicValues && t.wrapProofFits(x, r) ? v.put(pub, { ...x, status: 'ready', publicValues: r.publicValues, proof: r.proof, memos: r.memos || x.memos }) : v.drop(pub, x.depositId)),
+        () => v.drop(pub, x.depositId));
+      continue;
+    }
+    if (!device) continue;
     LOCAL.prover.resume(String(x.job).replace(/^(job:)?spn:/, '')).then(
       (r) => v.put(pub, { ...x, status: 'ready', publicValues: r.publicValues, proof: r.proof, memos: x.memos || null }),
       () => v.drop(pub, x.depositId));
   }
 }
 // The sizes picked in the prove sheet, kept ready: one missing at a time, while the prover has nothing else to do.
+// Without a prover of your own, the sizes are asked of the community proof pool instead (/prover/pool/*): anyone running
+// tacit-prover, and Tacit's own prover when it is idle, proves them for TAC points, free to you.
 async function keepReady() {
-  if (VOUCH.ahead || !devOn() || !S.key || !keepSizes().length) return;
-  const h = await LOCAL.prover?.health?.().catch(() => null);
-  if (!h || h.busy || h.queued) return;
+  if (VOUCH.ahead || !S.key || !keepSizes().length) return;
   const have = (await vouchers()).list(S.key.pubHex, 'cETH').map((x) => x.amount);
   const want = keepSizes().find((w) => !have.includes(String(w)));
-  if (want) proveAhead('cETH', want);
+  if (!want) return;
+  if (!devOn()) return poolRequest('cETH', want);
+  const h = await LOCAL.prover?.health?.().catch(() => null);
+  if (!h || h.busy || h.queued) return;
+  proveAhead('cETH', want);
+}
+// A wrap asked of the proof pool: the note is made here from the key, and only its program input (no secret in it: the asset,
+// the amount and the note's commitment) and what its proof must show (this deposit, this leaf) are posted. The proof is
+// collected below and checked to be for this note before it is kept.
+async function poolRequest(ticker, wei) {
+  const pub = S.key.pubHex, v = await vouchers(), t = await getUx(), priv = walletPriv();
+  const index = await t.nextWrapIndex({ walletPriv: priv, ticker });
+  try {
+    const b = t.buildWrap({ walletPriv: priv, amountWei: wei, ticker, index });
+    const [sp] = await sealMods();
+    const memoHashes = b.memos.map((m) => '0x' + bytesToHex(keccak_256(hexToBytes(strip(m)))));
+    const stdin = '0x' + bytesToHex(sp.stdinFor('wrap', { ...b.wrapOp, memoHashes }));
+    const r = await fetch(`${API}/prover/pool/request`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'wrap', stdin, expect: { depositId: b.depositId, leaf: b.leaf } }) }).then((x) => x.json());
+    if (!r?.ok || !r.id) throw new Error(r?.error || 'not taken');
+    v.put(pub, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, leaf: b.leaf, assetId: b.wrapArgs.assetId,
+      memos: b.memos, at: Date.now(), status: 'proving', by: 'pool', job: r.id });
+  } catch { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
+}
+// The pool's finished proofs, collected into ready vouchers; one the pool gave up on is dropped (its size is asked again).
+async function poolCollect() {
+  if (!S.key) return;
+  const pub = S.key.pubHex, v = await vouchers(), mine = v.list(pub, null, 'proving').filter((x) => x.by === 'pool' && x.job);
+  if (!mine.length) return;
+  const t = await getUx();
+  const r = await fetch(`${API}/prover/pool/result?ids=${mine.slice(0, 32).map((x) => x.job).join(',')}`, { cache: 'no-store' }).then((x) => x.json()).catch(() => null);
+  for (const x of mine) {
+    const res = r?.results?.[x.job];
+    if (res?.status === 'done' && res.publicValues && res.proof && t.wrapProofFits(x, res)) v.put(pub, { ...x, status: 'ready', publicValues: res.publicValues, proof: res.proof });
+    else if (res?.status === 'gone' || (res?.status === 'done' && !t.wrapProofFits(x, res))) v.drop(pub, x.depositId);
+  }
 }
 // Ready vouchers sent: each deposits and settles through the router, together in one wallet confirmation where the wallet
 // batches calls. One whose deposit is in the pool already was sent elsewhere: it is dropped and nothing is sent.
-async function sendVouchers({ run, t, via, list, status, sheet, pop = null }) {
+async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip = null }) {
   const pub = S.key.pubHex, v = await vouchers(), tell = (m) => run.say(status, m), from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
   for (const x of list) {
     if (wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) {
@@ -8224,20 +8299,22 @@ async function sendVouchers({ run, t, via, list, status, sheet, pop = null }) {
       throw Object.assign(new Error('A wrap kept ready here had been sent already, so nothing was sent. Press again.'), { said: true });
     }
   }
-  const calls = list.map((x) => t.wrapSettleCall(v.call(x)));
+  // The relay's quoted tip rides on the first call, paid through the router to the same splitter the deposit's tip goes to.
+  const calls = list.map((x, i) => t.wrapSettleCall({ ...v.call(x), ...(i === 0 && tip?.wei ? { ethFeeWei: tip.wei, feeRecipient: tip.to } : {}) }));
   for (const c of calls) {
     try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: c.to, data: c.data, value: '0x' + c.value.toString(16) }, 'latest']); }
     catch (e) { throw Object.assign(new Error(`Nothing was sent: the router refuses a wrap kept ready here. ${revertText(e) || ''}`.trim()), { said: true }); }
   }
   run.take(...list.map((x) => kDep({ depositId: x.depositId })));
-  tell(`Proved already on this computer. Sending it from ${your()}…`);
+  tell(`Proved already. Sending it from ${your()}…`);
   let hash = null;
   if (calls.length > 1 && via !== 'tacit' && (await canBatch())) {
     try { hash = runTx(run, await sendBatch(calls, run.to.label), 'Wrap', 'Wrapping'); } catch (e) { if (!e?.noBatch) throw e; }
   }
   if (!hash) {
-    for (const c of calls) { hash = runTx(run, await sendTx({ to: c.to, data: c.data, value: c.value, via, label: run.to.label }), 'Wrap', 'Wrapping'); await waitTx(hash); }
+    for (const c of calls) { hash = runTx(run, await sendTx({ to: c.to, data: c.data, value: c.value, via, label: run.to.label }), 'Wrap', 'Wrapping'); try { run.to?.clear?.(); } catch { } await waitTx(hash); }
   }
+  try { run.to?.clear?.(); } catch { }
   pop?.();
   await waitTx(hash);
   for (const x of list) v.drop(pub, x.depositId);
@@ -8270,6 +8347,8 @@ async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 
     tell(`Sending it from ${your()}…`);
     const hash = runTx(run, await sendTx({ to: call.to, data: call.data, value: call.value, via, label: run.to.label }), 'Wrap', 'Wrapping');
     sent = true;
+    // the form is cleared as the transaction goes, so an amount typed while it lands is not wiped after
+    try { run.to?.clear?.(); } catch { }
     pop?.();
     tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
     await waitTx(hash);
@@ -8284,7 +8363,7 @@ async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 
     // A proof made and then not sent is kept as a voucher (an ETH wrap needs nothing more to send it), so pressing again sends it at once.
     if (!sent && r && !token && S.key) {
       const b = r.built;
-      (await vouchers()).put(S.key.pubHex, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, assetId: b.wrapArgs.assetId,
+      (await vouchers()).put(S.key.pubHex, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, leaf: b.leaf, assetId: b.wrapArgs.assetId,
         at: Date.now(), status: 'ready', publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos });
     } else if (!sent) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
   }
@@ -8333,7 +8412,7 @@ function tacShield(el, status, acctBal, walletBal) {
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x) return;
-    run.go({ label: `Make ${fmt(x.wei, 18, 6)} TAC private`, status: () => $('#tac-bal-status'), clear: () => { clearField(amt); } });
+    run.go({ label: `Make ${fmt(x.wei, 18, 6)} TAC private`, status: () => $('#tac-bal-status'), clear: () => { clearField(amt); amt.dispatchEvent(new Event('input')); } });
     let sent = false, landed = false;
     try {
       const t = await getUx(), priv = walletPriv();
@@ -8341,7 +8420,6 @@ function tacShield(el, status, acctBal, walletBal) {
       if (ownNow(['wrap']) && (await proveOwn(['wrap']))) {
         await ownReady('wrap');
         await proveFirstWrap({ run, t, priv, via: src, wei: x.wei, status, sheet: 'tac', ticker: 'TAC', token: { address: ADDR.tac, permit: 'Tacit Token', sym: 'TAC' } });
-        run.to.clear(); amt.dispatchEvent(new Event('input'));
         await loadTacHoldings(true).catch(() => {}); rerender('tac');
         return;
       }
@@ -9892,6 +9970,7 @@ async function zapShareFirst({ run, t, p, built, index, shares, maxEth, tokenB, 
   const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
   tell(spSaid('uploading', null));
   const proven = await t.relay.prove(spec, spTell(run.wait(null, 60 * 60e3, { deps: [kDep(built)] }), tell));
+  if (!t.wrapProofFits(built, proven)) throw Object.assign(new Error('The proof that came back is not for this share, so nothing was sent. Press again.'), { said: true });
   run.check();
   const res = await t.poolReserves(p.poolId);
   const plan = res && zapPlanFor({ shares, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30), maxEth });

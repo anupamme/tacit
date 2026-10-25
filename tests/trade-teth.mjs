@@ -211,6 +211,9 @@ export function makeConfidentialPoolUx() {
         const r = await ux.own({ type: 'wrap', op: built.wrapOp, memos: built.memos, onUpdate: (u) => a.waitOpts?.onUpdate?.({ jobId: u.requestId ? 'spn:' + u.requestId : null, status: u.status, stage: u.stage, ...(u.public ? { inputPublic: true } : {}) }) });
         return { built, proven: { jobId: 'spn:' + r.requestId, publicValues: r.publicValues, proof: r.proof, memos: built.memos } };
       }
+      // The relay refuses a prove-only job (no sponsored proofs left today, as the API answers then) unless relayFirst is set: the
+      // scenarios after the first wrap test the deposit-first way that then follows, and the first wrap tests the relay proving first.
+      if (ux.cfg.proveRefused ?? !ux.cfg.relayFirst) throw Object.assign(new Error('prove capacity for today is used up (150/150)'), { code: 'prove_budget', httpStatus: 429 });
       await toRelay('prove');
       return { built, proven: { jobId: 'job-p', publicValues: PV, proof: PROOF, memos: built.memos } };
     },
@@ -528,7 +531,7 @@ try {
   r = await openPage({ width: 1280, height: 1000 }, { wallet: true });
   p = r.page;
   await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$'));
-  await cfg(p, { held: 0 });
+  await cfg(p, { held: 0, relayFirst: true });
   await p.click('#go');                                                                  // connects the wallet
   await until(p, () => document.querySelector('#wallet-dot').classList.contains('on') && document.querySelector('#in-bal') && !document.querySelector('#in-bal').hidden);
   ok((await text(p, '#in-bal')) === 'Balance 5 ETH · Max' && (await text(p, '#go')) === 'Enter an amount', 'connected: the balance shows and the button asks for an amount');
@@ -558,26 +561,26 @@ try {
   ok(/Ethereum wallet/.test(ways) && /Open your Tacit wallet/.test(ways) && !/Bitcoin wallet/.test(ways), 'the key is offered from an Ethereum wallet or a passkey (no Bitcoin wallet: that is tacit.finance\'s)');
   await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => !document.querySelector('.bsheet'), null, 15000);
-  await until(p, () => /Preparing the deposit|Confirm the deposit/.test(document.querySelector('#status').textContent) || document.querySelector('#steps li[data-s="now"]'));
+  await until(p, () => /Preparing your note|relay is proving|Confirm in your wallet/.test(document.querySelector('#status').textContent) || document.querySelector('#steps li[data-s="now"]'));
   await shot(p, 'steps');
   const steps = await p.$$eval('#steps li', (ls) => ls.map((l) => `${l.dataset.s}:${l.textContent}`));
-  ok(steps.length === 5 && /^done:Open your Tacit wallet/.test(steps[0]), `the steps show, the key's already done (${steps.map((x) => x.split(':')[0]).join(' ')})`);
+  ok(steps.length === 5 && /^done:Open your Tacit wallet/.test(steps[0]) && steps.some((x) => /Tacit’s relay proves it/.test(x)), `the steps show, the key's already done, and the relay proves it first (${steps.map((x) => x.split(':')[0]).join(' ')})`);
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
   ok(r.log.signs === 2, 'the wallet signed the identity message twice, as a first derivation does');
   ok(r.log.sends.length === 1, 'one transaction was sent');
   const tx = r.log.sends[0].tx;
-  ok(tx.to.toLowerCase() === WRAP_TIP.toLowerCase(), 'it goes to the wrap forwarder');
+  // The relay's sponsored proof comes first, then one transaction deposits and settles it, the tip riding on it to the relay's address.
+  ok(tx.to.toLowerCase() === ROUTER.toLowerCase() && tx.data.startsWith('0x50de88e1'), 'it goes to the router as one wrapAndSettleETH');
   ok(BigInt(tx.value) === total, `it carries the deposit and the tip together (${BigInt(tx.value)} = ${total})`);
-  ok(tx.data === '0xfc24c435' + 'ab'.repeat(32) + (10n ** 17n).toString(16).padStart(64, '0') + RELAY.slice(2).toLowerCase().padStart(64, '0'), 'its calldata is wrapWithTip(commit, amount, the relay\'s tip address)');
   ok(tx.from.toLowerCase() === r.log.account.toLowerCase(), 'it comes from the connected account');
   let u = await ux(p);
   const wc = u.calls.filter((c) => c[0] !== 'balance'), called = wc.map((c) => c[0]);
-  ok(called.slice(0, 3).join() === 'nextWrapIndex,buildWrap,submitWrapSettle', `the module is asked for the next index, then the note, then the relay's settle (${called.join()})`);
+  ok(called.slice(0, 4).join() === 'nextWrapIndex,proveWrap,buildWrap,wrapSettleCall', `the module is asked for the next index, then the relay's proof, then the call (${called.join()})`);
   ok(u.calls.some((c) => c[0] === 'balance') && u.calls.findIndex((c) => c[0] === 'balance') < u.calls.findIndex((c) => c[0] === 'nextWrapIndex'), 'a key just opened is read before it is given a note');
   ok(wc[0][1] === 'cETH' && wc[0][2] === 32, 'the index is asked for tETH with the key as 32 bytes');
-  ok(wc[1][1] === String(10n ** 17n) && wc[1][3] === 7, 'the note is built for the amount at that index');
-  ok(wc[2][1] === 7 && wc[2][2] === r.log.sends[0].hash && wc[2][3] === 15 * 60e3, 'the relay is given the deposit\'s hash and fifteen minutes');
-  ok(r.seen.includes('/confidential/relay') && wc[2][4] === 'relay' && !/then the settle/.test(m.route), 'the relay\'s state is asked for, and with no answer (404) the quote and the deposit go to the relay as before');
+  ok(wc[1][1] === String(10n ** 17n) && wc[1][3] === 7 && wc[1][4] === 'relay', 'the relay proves the note for the amount at that index');
+  ok(wc[3][2] === String(TIP) && String(wc[3][3]).toLowerCase() === RELAY.toLowerCase(), `the call pays the relay's tip to its address (${wc[3].slice(2).join(' ')})`);
+  ok(r.seen.includes('/confidential/relay') && !/then the settle/.test(m.route), 'the relay\'s state is asked for, and with no answer (404) the relay proves it as before');
   ok(/tETH is private now/.test(await text(p, '#status')) && (await p.inputValue('#amt')) === '' , 'it says it is done and clears the amount');
   ok((await p.$$eval('#steps li', (ls) => ls.every((l) => l.dataset.s === 'done'))), 'every step shows done');
   // what the key holds shows in Use tETH
@@ -614,7 +617,8 @@ try {
   await p.click('#mode-seg [data-mode="get"]');
 
   // ── a rejected transaction, the relay failing after the deposit, and its retry ──
-  await cfg(p, { settleMs: 0, indexMs: 0, settleFails: 0 });
+  // From here the relay has no sponsored proofs left today, so a wrap's deposit goes first and the relay proves and settles it after.
+  await cfg(p, { settleMs: 0, indexMs: 0, settleFails: 0, proveRefused: true });
   r.log.reject = true;
   await p.fill('#amt', '0.02');
   await until(p, () => document.querySelector('#go').textContent === 'Make ETH private' && !document.querySelector('#go').disabled);
@@ -629,18 +633,22 @@ try {
   const st = await text(p, '#status');
   ok(/still working on it/.test(st) && /0\.02 ETH is in the Tacit pool, but it is not private yet/.test(st) && /no need to send it again/.test(st) && /Private ETH tab/.test(st), `a relay that fails after the deposit says where it is and that it is not asked for again (${st.slice(0, 140)})`);
   ok(r.log.sends.length === 2, 'one deposit went out, not two');
+  const dep = r.log.sends[1].tx;
+  ok(dep.to.toLowerCase() === WRAP_TIP.toLowerCase() && dep.data.startsWith('0xfc24c435') && dep.data.endsWith(RELAY.slice(2).toLowerCase().padStart(64, '0')),
+    'with no sponsored proofs left, the deposit goes first: to the wrap forwarder, with the relay\'s tip');
   ok((await p.inputValue('#amt')) === '' && (await text(p, '#go')) === 'Finish the earlier deposit first' && (await money(p)).disabled, 'the form is cleared and cannot make the deposit again while it is unfinished');
   await p.fill('#amt', '0.02');
   await p.keyboard.press('Enter');
   await p.waitForTimeout(600);
   ok(r.log.sends.length === 2, 'Enter on a refilled form sends nothing either');
   await p.fill('#amt', '');
+  const built0 = (await ux(p)).calls.filter((c) => c[0] === 'nextWrapIndex' || c[0] === 'buildWrap').length;
   await p.click('#retry');
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
   u = await ux(p);
   const subs = u.calls.filter((c) => c[0] === 'submitWrapSettle');
-  ok(subs.length === 3 && subs[2][1] === subs[1][1] && subs[2][2] === r.log.sends[1].hash, 'finishing asks the relay for the same note from the same deposit');
-  ok(u.calls.filter((c) => c[0] === 'nextWrapIndex').length === 3 && u.calls.filter((c) => c[0] === 'buildWrap').length === 3, 'and builds nothing new');
+  ok(subs.length === 2 && subs[1][1] === subs[0][1] && subs[1][2] === r.log.sends[1].hash, 'finishing asks the relay for the same note from the same deposit');
+  ok(u.calls.filter((c) => c[0] === 'nextWrapIndex' || c[0] === 'buildWrap').length === built0, 'and builds nothing new');
   ok((await text(p, '#go')) === 'Enter an amount', 'the ticket is free again');
   // Lock forgets what a retry holds
   await cfg(p, { settleFails: 1 });

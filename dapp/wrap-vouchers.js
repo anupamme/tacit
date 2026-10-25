@@ -4,8 +4,9 @@
 // (its note is the key's, at an index the wrap index hint already moved past, and its memo opens it), so losing one loses only
 // the proving time; sent by anyone, it can only fund the key's own note.
 //
-// A voucher: { ticker, amount (base units, decimal string), index, commit, depositId, assetId, at, status: 'proving' | 'ready',
-// job? (the proving job, to pick up after a reload), publicValues?, proof?, memos? }.
+// A voucher: { ticker, amount (base units, decimal string), index, commit, depositId, leaf, assetId, at, status: 'proving' | 'ready',
+// by ('device' | 'relay'), job? (the proving job, to pick up after a reload), publicValues?, proof?, memos? }. Every proof is checked to
+// be for its own note (confidential-pool-ux.js wrapProofFits) before it is kept.
 
 const KEY = 'tacit-wrap-vouchers-v1:';
 
@@ -35,7 +36,7 @@ export function makeVouchers({ storage = globalThis.localStorage } = {}) {
     put(pub, v) { write(pub, [...read(pub).filter((x) => x.depositId !== v.depositId), v]); },
     // A wrap proved and then not sent, kept as a ready voucher: { built, proven } as the pool module's proveWrap returns them.
     keep(pub, ticker, { built, proven }) {
-      this.put(pub, { ticker, amount: String(built.amount), index: built.index, commit: built.commit, depositId: built.depositId,
+      this.put(pub, { ticker, amount: String(built.amount), index: built.index, commit: built.commit, depositId: built.depositId, leaf: built.leaf,
         assetId: built.wrapArgs.assetId, at: Date.now(), status: 'ready', publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos });
     },
     drop(pub, depositId) { write(pub, read(pub).filter((x) => x.depositId !== depositId)); },
