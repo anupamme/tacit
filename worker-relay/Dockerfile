@@ -30,15 +30,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ARG PROVER_RELEASE=prover-bins-v8
+# bitcoin_prove from v12: v8's with REFLECT_MAX_PRICE_PER_PGU read (the lane's price cap), built by build-reflection-prover from the
+# same pinned guests and checked to execute the reflection fixture exactly as v8's does. eth_prove stays on v8.
+ARG PROVER_REFLECT_RELEASE=prover-bins-v12
 # Every exec-* comes from v11: the same pinned guest, built so a network request carries its input as a private artifact
 # when PRIVATE_STDIN=1 is set and goes only to the provers PROVER_WHITELIST names (with neither set it behaves as v8/v9).
-# The two reflection provers (public chain data) stay on v8.
+# The reflection provers (public chain data) come from the two releases above.
 ARG PROVER_EXEC_RELEASE=prover-bins-v11
 ARG PROVER_REPO=z0r0z/tacit
 COPY prover/bin/SHA256SUMS /app/prover/bin/SHA256SUMS
 RUN cd /app/prover/bin \
  && for b in exec-wrap exec-prove exec-batchtransfer exec-wraplp exec-wrapswap exec-swap exec-unwrap exec-lp exec-lpremove exec-wraptransfer exec-sendunwrap exec-otc exec-route exec-bid exec-bridgeburn exec-bridgemint exec-cbtcmint exec-cdpmint exec-cdpclose exec-stealthlock exec-stealthclaim exec-stealthrefund exec-stealthlockbatch exec-bridgestealthmint exec-farmbond exec-farmharvest exec-farmunbond exec-adaptorlock exec-adaptorclaim exec-adaptorrefund exec-cdpliquidate exec-cdptopup exec-lpbond exec-wrapcdpmint exec-fastlane exec-crosslane exec-balance; do curl -fsSL -o "$b" "https://github.com/${PROVER_REPO}/releases/download/${PROVER_EXEC_RELEASE}/$b"; done \
- && for b in bitcoin_prove eth_prove; do curl -fsSL -o "$b" "https://github.com/${PROVER_REPO}/releases/download/${PROVER_RELEASE}/$b"; done \
+ && curl -fsSL -o eth_prove "https://github.com/${PROVER_REPO}/releases/download/${PROVER_RELEASE}/eth_prove" \
+ && curl -fsSL -o bitcoin_prove "https://github.com/${PROVER_REPO}/releases/download/${PROVER_REFLECT_RELEASE}/bitcoin_prove" \
  && sha256sum -c SHA256SUMS \
  && chmod +x exec-* bitcoin_prove eth_prove
 
