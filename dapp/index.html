@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-//MJb8QiOpfxtBTHDbKfsRwtY1R38sCAS87NX+Hiy7M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-X781eWiG4joo5D+1B+mXgxzqdfncZwhA9k4vZqUQ8og=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -326,6 +326,7 @@ a.di { color: inherit; text-decoration: none; }
 .hx-pl { display: flex; align-items: center; gap: 7px; color: var(--ink); }
 .hx-pl .tk { width: 16px; height: 16px; margin-right: 1px; }
 .hx-pl b { font: 500 13px var(--mono); }
+.hx-pl .hx-earn { color: var(--mute); margin-left: -4px; }
 .hx-pl .link { margin-left: auto; padding: 0; font-size: 12px; }
 .hx-pl .link, .hx-q .link { position: relative; }
 .hx-pl .link::after, .hx-q .link::after { content: ''; position: absolute; inset: -8px -6px; }
@@ -11439,10 +11440,21 @@ function hxSendGo() {
   openLink(k === 'tac' ? 'tac' : 'borrow');
 }
 const HX_GET = { eth: ['shield:ether:defi', 'Make ETH private first'], pp: ['shield:ether:pay', 'Add ETH for payments'], tac: ['swap:ether:tac:private', 'Buy TAC'], wtac: ['swap:ether:tac', 'Buy TAC'], cusd: ['borrow:cusd', 'Borrow some'], cbtc: ['borrow:cbtc', 'Mint some'], tacb: ['shield:btc:pool', 'Shield TAC on Bitcoin'] };
+// What depositing into a payments pool earns (the points service's token pools' campaign), read now and then: a few words beside its Deposit
+// link while the campaign runs or is coming, nothing otherwise.
+const HXTP = { v: null, at: 0, p: null };
+function hxEarns(pool) {
+  if (!HXTP.p && Date.now() - HXTP.at > 10 * 60e3) {
+    HXTP.p = fetch(`${POINTS_DIRECT}/tokpool`, { signal: AbortSignal.timeout?.(20e3) }).then((r) => r.json()).then((v) => { HXTP.v = v; }, () => {}).finally(() => { HXTP.p = null; HXTP.at = Date.now(); hxHave(); });
+  }
+  const v = HXTP.v, e = v?.enabled && v.pools?.some((x) => x.pool === String(pool).toLowerCase()) ? v.terms || (v.next && !v.next.off ? v.next : null) : null;
+  if (!e) return '';
+  return v.terms ? 'earns TAC' : `earns TAC from ${new Date(e.fromDay * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`;
+}
 function hxHaveSend(el, pub) {
   const k = HX.send, [, unit, ic] = hxSendOf(k), dp = hxDev(k), h = pub || hxSendWallet(k) ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = dp ? [`device/${dp.slug}/deposit`, `Deposit ${dp.sym}`] : k === 'tac' && hxWalletTac() > 0n ? ['shield:wtac:defi', 'Make your TAC private'] : HX_GET[k], go = $('#hx-go');
   if (go) { go.disabled = (none && !hxSendBtc()) || !!hxSendFit(); go.textContent = hxSendLabel(); }
-  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : k === 'wtac' ? `TAC in ${your()}` : dp || k === 'pp' ? `${unit} held privately for payments` : `private ${unit}`} yet.</span>${dp ? html`<a class="link" href="#${get[0]}" data-link="${get[0]}">${get[1]}</a>` : html`<button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button>`}</span>` : null;
+  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : k === 'wtac' ? `TAC in ${your()}` : dp || k === 'pp' ? `${unit} held privately for payments` : `private ${unit}`} yet.</span>${dp ? html`<a class="link" href="#${get[0]}" data-link="${get[0]}">${get[1]}</a>${hxEarns(dp.pool) ? html`<span class="hx-earn"> · ${hxEarns(dp.pool)}</span>` : ''}` : html`<button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button>`}</span>` : null;
   el.hidden = !view;
   if (view && el.__h !== view.s) { el.__h = view.s; mount(el, view); }
   if (!view) el.__h = '';

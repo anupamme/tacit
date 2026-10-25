@@ -6903,9 +6903,13 @@ await step('hxsendpool', async () => {
     await p.click('[data-hxm="send"]');
     // USDT's pool read from the chain's logs is slow on a fork: its balance is seeded as the page keeps it (a zero), as an earlier visit leaves it
     await p.evaluate(() => { const k = Object.keys(localStorage).find((x) => /^tacit-lite-device-bal-v1:xa0b86991c6:[0-9a-f]+$/.test(x)); if (k) localStorage.setItem(k.replace(':xa0b86991c6:', ':xdac17f958d:'), JSON.stringify({ v: '0', at: Date.now() })); });
+    // the points service's token pools' campaign, as it stands before it starts: answered here, so the words are fixed
+    await p.route('**/tokpool', (rt) => rt.fulfill({ contentType: 'application/json', body: JSON.stringify({ enabled: true, terms: null, next: { fromDay: 20754, dailyWei: '60000000000000000000', capWeiPerUsd: '6000000000000000' }, pools: [{ pool: '0x73872ceeaadd2c603bd057073d403f08dcb31eb9', kind: 'usd' }] }) }));
     await p.selectOption('#hx-sa', 'usdt');
     await until(p, () => /No USDT held privately for payments yet\./.test(document.querySelector('#hx-have')?.textContent || ''), null, 120000);
     ok(await p.$eval('#hx-go', (b) => b.disabled) && !!(await p.$('#hx-have [data-link$="/deposit"]')), 'hxsendpool: USDT, held nowhere, says so and offers its Deposit; the button waits');
+    await until(p, () => /earns TAC from 28 Oct/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
+    ok(true, `hxsendpool: and says depositing earns TAC, from the day the campaign starts (${await text(p, '#hx-have')})`);
     if (r.errors.length) { fails++; console.log('FAIL hxsendpool page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
