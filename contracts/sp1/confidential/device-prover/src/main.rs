@@ -7,9 +7,11 @@
 //   tacit-prover check            every faster path against the code it replaces, then exit
 //   tacit-prover install          start at login and stay ready (launchd on macOS, a systemd user unit on Linux)
 //   tacit-prover uninstall        stop that
+//   tacit-prover mine 0xADDR      prove wraps people asked to have ready (the API's proof pool) for TAC points to 0xADDR
 //
 // Env: TACIT_PROVER_PORT (47815), TACIT_PROVER_ORIGINS (comma list, default tacit.finance + localhost:8080),
-// TACIT_PROVER_DIR (~/.tacit-prover: finished proofs), TACIT_METAL=0 (CPU leaf hashing), and the SDK's
+// TACIT_PROVER_DIR (~/.tacit-prover: finished proofs), TACIT_METAL=0 (CPU leaf hashing), TACIT_MINE=0xADDR (serve mines the
+// proof pool while it has nothing of its own to prove), TACIT_POOL_API (https://api.tacit.finance), and the SDK's
 // SP1_WORKER_NUM_*_WORKERS (one per stage by default below 16 GB of RAM).
 use sha2::{Digest, Sha256};
 use sp1_sdk::{blocking::{ProveRequest, Prover, ProverClient}, Elf, HashableKey, ProvingKey, SP1Stdin};
@@ -71,6 +73,19 @@ fn main() {
             std::process::exit(if job.status == "done" { 0 } else { 1 });
         }
         "serve" => serve(client, pk, vkey),
+        "mine" => {
+            let miner = args.get(2).cloned().unwrap_or_default();
+            if !pool::is_address(&miner) {
+                eprintln!("usage: tacit-prover mine 0x<your address, 40 hex digits>: the address the TAC points go to");
+                std::process::exit(2);
+            }
+            eprintln!("tacit-prover: mining the proof pool for {miner}");
+            loop {
+                if !pool::mine_one(&client, &pk, &miner) {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
+            }
+        }
         other => {
             eprintln!("unknown command {other}; use serve, prove <stdin> or check");
             std::process::exit(2);
@@ -168,6 +183,97 @@ fn job_json(j: &Job) -> serde_json::Value {
     o
 }
 
+// Proof mining: wraps people asked to have ready (the API's proof pool, /prover/pool/*), leased one at a time, proved here and handed
+// back for TAC points to the miner's address. A wrap's input carries no secret (the asset, the amount and a note's commitment, made
+// public by the deposit anyway), and the API checks each proof against the pool's verifier and the note it was asked for before it
+// credits anything.
+mod pool {
+    use super::{run, store_dir, Job};
+    use serde_json::{json, Value};
+    use std::time::Duration;
+
+    pub fn is_address(a: &str) -> bool {
+        a.len() == 42 && a.starts_with("0x") && a[2..].chars().all(|c| c.is_ascii_hexdigit())
+    }
+    pub fn miner() -> Option<String> {
+        std::env::var("TACIT_MINE").ok().filter(|a| is_address(a))
+    }
+    fn api() -> String {
+        std::env::var("TACIT_POOL_API").unwrap_or_else(|_| "https://api.tacit.finance".into()).trim_end_matches('/').to_string()
+    }
+    fn http() -> Option<reqwest::blocking::Client> {
+        reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().ok()
+    }
+    // → the status and the JSON answer (Null for none), or None when the API did not answer.
+    fn post(http: &reqwest::blocking::Client, path: &str, body: &Value) -> Option<(u16, Value)> {
+        let r = http.post(format!("{}/prover/pool/{path}", api())).json(body).send().ok()?;
+        let code = r.status().as_u16();
+        Some((code, r.json().unwrap_or(Value::Null)))
+    }
+    // The lease held, kept on disk until its proof is sent or it is handed back: the API gives a lease's token only once, so
+    // after a restart the job is handed back at once rather than the next lease waiting out the old one.
+    fn held() -> std::path::PathBuf {
+        store_dir().join("pool-lease.json")
+    }
+    fn hand_back(http: &reqwest::blocking::Client, id: &str, token: &str, why: &str) {
+        let why = if why.is_empty() { "could not prove it" } else { why };
+        let _ = post(http, "submit", &json!({ "id": id, "lease": token, "error": why }));
+        let _ = std::fs::remove_file(held());
+    }
+
+    // One job leased, proved and handed back. → whether there was a job (false: the pool was empty or unreachable).
+    pub fn mine_one(client: &sp1_sdk::blocking::CpuProver, pk: &sp1_sdk::SP1ProvingKey, miner: &str) -> bool {
+        let Some(http) = http() else { return false };
+        if let Some(l) = std::fs::read(held()).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
+            if let (Some(id), Some(token)) = (l["id"].as_str(), l["lease"].as_str()) {
+                hand_back(&http, id, token, "the prover restarted");
+            }
+            let _ = std::fs::remove_file(held());
+        }
+        let Some((code, lease)) = post(&http, "lease", &json!({ "miner": miner })) else { return false };
+        if code != 200 {
+            if code != 204 {
+                eprintln!("tacit-prover: the pool leases nothing just now: {}", lease["error"].as_str().unwrap_or("no reason given"));
+            }
+            return false;
+        }
+        let (Some(id), Some(token), Some(stdin)) = (lease["id"].as_str(), lease["lease"].as_str(), lease["stdin"].as_str()) else { return false };
+        let _ = std::fs::create_dir_all(store_dir());
+        let _ = std::fs::write(held(), json!({ "id": id, "lease": token }).to_string());
+        let Some(input) = hex::decode(stdin.trim_start_matches("0x")).ok().and_then(|b| super::read_stdin(&b)) else {
+            eprintln!("tacit-prover: pool job {id} has an input this prover cannot read; handed back");
+            hand_back(&http, id, token, "an input this prover cannot read");
+            return true;
+        };
+        eprintln!("tacit-prover: proving pool job {id} for {miner}");
+        let mut job = Job::default();
+        run(client, pk, input, &mut job);
+        if job.status != "done" {
+            eprintln!("tacit-prover: pool job {id} {}: {}; handed back", job.status, job.error);
+            hand_back(&http, id, token, &job.error);
+            return true;
+        }
+        // The API asks Ethereum's verifier before it takes a proof: while no node answers it keeps the lease, so the proof is sent
+        // again a few times before it is left to run out.
+        let body = json!({ "id": id, "lease": token, "publicValues": job.public_values, "proof": job.proof });
+        for _ in 0..6 {
+            match post(&http, "submit", &body) {
+                Some((200, v)) => {
+                    eprintln!("tacit-prover: pool job {id} proved in {:.0} s, {} points to {miner}", job.secs, v["points"]);
+                    break;
+                }
+                Some((503, _)) | None => std::thread::sleep(Duration::from_secs(30)),
+                Some((_, v)) => {
+                    eprintln!("tacit-prover: pool job {id} not taken: {}", v["error"].as_str().or(v["code"].as_str()).unwrap_or("no reason given"));
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(held());
+        true
+    }
+}
+
 // Where the running proof is (core, shrink, wrap, groth16), from the SDK's own tracing spans, and how long the rest took on
 // this machine the last time: each finished proof's stage times are kept beside its proofs.
 mod progress {
@@ -236,7 +342,8 @@ fn logger() {
     tracing_subscriber::registry().with(fmt).with(progress::Stages.with_filter(LevelFilter::INFO)).init();
 }
 
-// Starts the prover at login and keeps it running, so its keys stay loaded and a page finds it ready.
+// Starts the prover at login and keeps it running, so its keys stay loaded and a page finds it ready. TACIT_MINE set when installing
+// is kept, so the installed prover mines the proof pool while idle.
 fn service(on: bool) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("no HOME")?);
@@ -257,9 +364,10 @@ fn service(on: bool) -> Result<String, String> {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\"><dict><key>Label</key><string>finance.tacit.prover</string>\
              <key>ProgramArguments</key><array><string>{}</string><string>serve</string></array>\
-             <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>\
+             <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>{}\
              <key>StandardOutPath</key><string>{}</string><key>StandardErrorPath</key><string>{}</string></dict></plist>\n",
-            exe.display(), log.display(), log.display())).map_err(|e| e.to_string())?;
+            exe.display(), pool::miner().map(|m| format!("<key>EnvironmentVariables</key><dict><key>TACIT_MINE</key><string>{m}</string></dict>")).unwrap_or_default(),
+            log.display(), log.display())).map_err(|e| e.to_string())?;
         if !sh("launchctl", &["bootstrap", &domain, &plist.to_string_lossy()]) {
             return Err(format!("launchctl could not load {}", plist.display()));
         }
@@ -272,7 +380,8 @@ fn service(on: bool) -> Result<String, String> {
             return Ok("tacit-prover no longer starts at login".into());
         }
         let _ = std::fs::create_dir_all(unit.parent().unwrap());
-        std::fs::write(&unit, format!("[Unit]\nDescription=tacit-prover\n\n[Service]\nExecStart={} serve\nRestart=always\n\n[Install]\nWantedBy=default.target\n", exe.display()))
+        let mine = pool::miner().map(|m| format!("Environment=TACIT_MINE={m}\n")).unwrap_or_default();
+        std::fs::write(&unit, format!("[Unit]\nDescription=tacit-prover\n\n[Service]\nExecStart={} serve\n{mine}Restart=always\n\n[Install]\nWantedBy=default.target\n", exe.display()))
             .map_err(|e| e.to_string())?;
         if !(sh("systemctl", &["--user", "daemon-reload"]) && sh("systemctl", &["--user", "enable", "--now", "tacit-prover"])) {
             return Err(format!("systemctl could not start {}", unit.display()));
@@ -321,8 +430,20 @@ fn serve(client: sp1_sdk::blocking::CpuProver, pk: sp1_sdk::SP1ProvingKey, vkey:
             let (id, stdin) = {
                 let (m, cv) = &*state;
                 let mut s = m.lock().unwrap();
+                // With TACIT_MINE set, a minute with nothing of its own to prove is spent on the proof pool, one job at a time; a
+                // proof asked for meanwhile waits for that one to finish.
+                let mut idle = 0;
                 while s.queue.is_empty() {
-                    s = cv.wait(s).unwrap();
+                    let (g, t) = cv.wait_timeout(s, std::time::Duration::from_secs(60)).unwrap();
+                    s = g;
+                    idle = if t.timed_out() { idle + 1 } else { 0 };
+                    if idle > 0 && s.queue.is_empty() {
+                        if let Some(miner) = pool::miner() {
+                            drop(s);
+                            pool::mine_one(&client, &pk, &miner);
+                            s = m.lock().unwrap();
+                        }
+                    }
                 }
                 let (id, stdin) = s.queue.pop_front().unwrap();
                 if let Some(j) = s.jobs.get_mut(&id) {

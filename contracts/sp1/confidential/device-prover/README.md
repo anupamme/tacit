@@ -34,6 +34,7 @@ guest's verifying key is not the pool's `PROGRAM_VKEY` (`0x006cd47f…d6e3`).
 ./target/release/tacit-prover install    # start at login and stay ready (launchd, or a systemd user unit on Linux)
 ./target/release/tacit-prover uninstall  # stop that
 ./target/release/tacit-prover            # serve on 127.0.0.1:47815, in this terminal
+./target/release/tacit-prover mine 0xYourAddress   # prove the community pool's wraps for TAC points
 ./target/release/tacit-prover check      # every faster path against the reference code, then exit
 ./target/release/tacit-prover prove f    # one proof of the bincode SP1Stdin in f, to f.proof.json
 ```
@@ -53,6 +54,8 @@ start loads in seconds.
 | `TACIT_PROVER_ORIGINS` | tacit.finance, www.tacit.finance, and localhost:8080 / 127.0.0.1:8080 for a local dapp | pages allowed to ask for a proof |
 | `TACIT_PROVER_DIR` | `~/.tacit-prover` | finished proofs, kept by input hash |
 | `TACIT_METAL` | on, on macOS | `0` keeps all hashing and proof-of-work on the CPU |
+| `TACIT_MINE` | unset | an address: mine the proof pool while idle, for TAC points to it |
+| `TACIT_POOL_API` | `https://api.tacit.finance` | where the proof pool is |
 | `SP1_WORKER_NUM_*_WORKERS` | 1 per stage under 16 GB of RAM | the SDK's own concurrency settings |
 | `SP1_WORKER_VERIFY_INTERMEDIATES` | `false` | the final proof is verified before it is returned, which no wrong step survives |
 
@@ -60,6 +63,16 @@ While it proves, `GET /job` says the stage (core, shrink, wrap, groth16) and an 
 The server listens on 127.0.0.1 only and answers a browser only from an allowed origin. It makes one proof at a time, and
 the rest wait in a queue. A job's id is the hash of its input, so a page reloaded mid-proof picks up the same job. Finished
 proofs are kept on disk, without their inputs.
+
+## Mining the proof pool
+
+People keep wraps ready to send at once (a wrap's proof binds only the asset, the amount and the note's commitment, so it can be
+made ahead), and the API holds those requests in a proof pool. `tacit-prover mine 0xYourAddress` leases one at a time, proves it
+and hands it back; the API checks each proof against the pool's verifier and the note it was asked for, then credits TAC points
+to the address. A wrap's input holds nothing secret, so proving it here learns nothing that its deposit will not show.
+
+Installed with `TACIT_MINE=0xYourAddress tacit-prover install`, the prover mines whenever it has had nothing of its own to prove
+for a minute. A proof you ask for while it mines waits for that one job to finish, up to the time one proof takes here.
 
 ## How long a proof takes
 
