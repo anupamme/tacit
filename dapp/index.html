@@ -1657,7 +1657,7 @@ import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { zapPlan, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=30ac5028';
+import { zapPlan, zapPlanFor, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=30ac5028';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
@@ -9627,6 +9627,18 @@ function farmZap(el, p, status, has, top) {
       // an index no note of this key has used: not one it holds, has spent (bonded) or has a zap waiting on
       const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used: zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId).map((x) => x.index) });
       built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
+      // Proved here or with your own credit (a single-pool zap): the share note first, then the zap and its settle together.
+      if (!sp && ownNow(['wrap']) && (await proveOwn(['wrap']))) {
+        await ownReady('wrap');
+        run.go({ label: `Zap ${fmt(plan.value, 18, 6)} ETH into ${label}`, status: () => status, clear: () => clearField(aIn) });
+        run.take(kDep(built));
+        ZAP_LIVE++; guarded = true;
+        const r = await zapShareFirst({ run, t, p, built, index, shares: plan.shares, maxEth: z.wei + z.wei / 50n, tokenB, from, tell, status });
+        hash = r.hash; landed = true;
+        if ((await zapFinish(run, p, r.rec, built, tell, status)) === 'landing') throw Object.assign(new Error('Your zap landed, but the pool does not show it yet. Press Finish it in a minute to put its share in the farm.'), { said: true });
+        clearField(aIn);
+        return;
+      }
       const deadline = Math.floor(Date.now() / 1000) + 1200;
       // a split's swap is the trade venues' own (one zRouter call, the Precision route and this pool's swapPublic), and it must pay the router
       // the least the plan counts on (this pool's part, and the Precision part at its slippage under the quote): so what comes back has that
@@ -9657,6 +9669,40 @@ function farmZap(el, p, status, has, top) {
       await Promise.allSettled([scanPrivate(true)]); rerender('farm');
     } finally { if (guarded) ZAP_LIVE--; }
   });
+}
+// A zap whose share note is proved before anything is sent (its OP_WRAP binds only the LP share asset, the share count and the commitment):
+// once the proof exists the ETH legs are sized again, at the reserves then, to mint exactly that share count (lp-zap.js zapPlanFor), so
+// the pool moving meanwhile costs a little more or less ETH (never over `maxEth`) instead of the proof. The zap and the settle that makes
+// the note then go together: one wallet confirmation where the wallet batches calls (both land or neither), else back to back, so no
+// relay step and no deposit is left waiting. → { hash, rec }
+async function zapShareFirst({ run, t, p, built, index, shares, maxEth, tokenB, from, tell, status }) {
+  const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
+  tell(spSaid('uploading', null));
+  const proven = await t.relay.prove(spec, spTell(run.wait(null, 60 * 60e3, { deps: [kDep(built)] }), tell));
+  run.check();
+  const res = await t.poolReserves(p.poolId);
+  const plan = res && zapPlanFor({ shares, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30), maxEth });
+  if (!plan) throw Object.assign(new Error('The pool moved too far while your share was proved: this many shares now costs more than you entered. Nothing was sent; press again for a fresh quote.'), { said: true });
+  const deadline = Math.floor(Date.now() / 1000) + 1200;
+  const data = zapCalldata({ plan, router: ADDR.confRouter, amm: ADDR.publicAmm, tokenB, assetA: res.assetA, assetB: res.assetB, feeBps: Number(res.feeBps ?? 30), deadline: BigInt(deadline), commit: built.commit });
+  const sim = strip(await rpc('eth_call', [{ from, to: ADDR.confRouter, data, value: '0x' + plan.value.toString(16) }, 'latest']));
+  if (wordAt(sim, 1) !== shares || '0x' + sim.slice(0, 64) !== String(built.depositId).toLowerCase()) throw new Error('The zap would not mint exactly the share proved, so nothing was sent. Press again for a fresh quote.');
+  const settle = { to: t.cfg.pool, data: t.settleCalldata({ publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || built.memos }), value: 0n };
+  const rec = { pub: S.key?.pubHex, pid: p.pid, poolId: p.poolId, shares: String(shares), index, depositId: built.depositId, tx: null, deadline, at: Date.now() };
+  tell(`Proved. Sending the zap and its settle from ${your()}…`);
+  let hash = null;
+  if (await canBatch()) {
+    try { hash = runTx(run, await sendBatch([{ to: ADDR.confRouter, data, value: plan.value }, settle], run.to.label), 'Zap', 'Zapping'); } catch (e) { if (!e?.noBatch) throw e; }
+  }
+  if (!hash) {
+    hash = runTx(run, await sendTx({ to: ADDR.confRouter, data, value: plan.value, label: run.to.label, protect: true }), 'Zap', 'Zapping');
+    rec.tx = hash; zapKeep(rec);
+    tell(html`Zap sent ${txLink(hash)}. Waiting for it to land, then its settle…`);
+    await waitTx(hash);
+    await settleFrom(t, { label: run.to.label, say: tell })({ publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || built.memos });
+  } else { rec.tx = hash; zapKeep(rec); await waitTx(hash); }
+  await scanPrivate(true).catch(() => {});
+  return { hash, rec };
 }
 // A zap's share, from its deposit to the farm: the relay settles the deposit into the private share note (the same OP_WRAP a wrap's deposit
 // takes), then the note is bonded. The record is kept only until the deposit is settled: from there the note is the key's (its memo finds
