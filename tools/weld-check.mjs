@@ -6596,7 +6596,7 @@ await step('hxteth', async () => {
     const turned = await p.evaluate(() => [document.querySelector('#hx-swap #pay-coin')?.textContent.trim(), document.querySelector('#hx-swap #get-coin')?.textContent.trim(), document.activeElement?.id || document.activeElement?.tagName]);
     ok(/^tETH/.test(turned[0]) && /^ETH/.test(turned[1]) && turned[2] === 'amt', `hxteth: Back to ETH turns the Swap card to taking tETH out, with the keyboard in the amount (${turned.join(' → ')})`);
     await p.fill('#hx-swap #amt', '0.1');
-    await until(p, () => /Relay fee: [\d.]+ ETH, out of it \| To: your wallet, or an address you name next$/.test(window.__said()), null, 240000)
+    await until(p, () => /Arrives: in your wallet or at any address \| Relay fee: [\d.]+ ETH, out of it$/.test(window.__said()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     const fee = Number((await line()).match(/Relay fee: ([\d.]+) ETH/)[1]), out = Number(await text(p, '#hx-swap #out'));
     ok(fee > 0 && Math.abs(out - (0.1 - fee)) < 1e-9, `hxteth: 0.1 tETH back to ETH pays out 0.1 less the relay fee (${out} = 0.1 - ${fee})`);
@@ -6809,7 +6809,7 @@ await step('hxsend', async () => {
     await q.evaluate(() => { window.__clip = []; navigator.clipboard.writeText = async (t) => { window.__clip.push(t); }; });
     await q.click('#hx-ask');
     await q.fill('#hx-amt', '5');
-    ok(/Copy payment link/.test(await text(q, '#hx-go')) && !(await q.$('#hx-rcpt')) && /You ask for/.test(await text(q, '#hx-panel')) && /^The link: opens this payment filled in, ready to send$/.test(await q.evaluate(() => window.__said())), 'hxsend: Request a payment asks for an asset and an amount and offers the link, its receipt saying what the link opens');
+    ok(/Copy payment link/.test(await text(q, '#hx-go')) && !(await q.$('#hx-rcpt')) && /You ask for/.test(await text(q, '#hx-panel')) && /^The link: opens this payment, filled in$/.test(await q.evaluate(() => window.__said())), 'hxsend: Request a payment asks for an asset and an amount and offers the link, its receipt saying what the link opens');
     await q.click('#hx-go');
     const link = await q.evaluate(() => window.__clip[0] || '');
     ok(link === `${new URL(q.url()).origin}/#card=send:cusd&to=${encodeURIComponent(long)}&amt=5`, `hxsend: the link is this key's tacit1 address with cUSD and 5 (${link.slice(0, 60)}…)`);
@@ -7323,7 +7323,7 @@ await step('farmzapeth', async () => {
     await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
     await p.click('#hx-routes [data-hxr="0"]');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
-    ok(!/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /one transaction/.test(await text(p, '#hx-receipt')) && /Make ETH private first instead: 2 steps, earns points/.test(await text(p, '#hx-alt')), `farmzapeth: the Earn tab offers the zap for ETH not yet private, and making it private first as the other way (${(await text(p, '#hx-routes [data-hxr="0"]')).replace(/\s+/g, ' ')})`);
+    ok(!/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /one transaction/.test(await text(p, '#hx-receipt')) && /Earn points too: make ETH private first/.test(await text(p, '#hx-alt')), `farmzapeth: the Earn tab offers the zap for ETH not yet private, and making it private first as the other way (${(await text(p, '#hx-routes [data-hxr="0"]')).replace(/\s+/g, ' ')})`);
     await p.click('#hx-alt button');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 60000);
     ok(/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Zap in one transaction instead/.test(await text(p, '#hx-alt')), 'farmzapeth: and the link swaps the two');
@@ -7999,7 +7999,7 @@ await step('hxdry', async () => {
     await p.click('[data-hxm="earn"]'); await p.fill('#hx-amt', '0.5');
     await until(p, () => /between reward periods/.test(document.querySelector('#hx-routes')?.textContent || ''), null, 240000);
     const rows = await p.$$eval('#hx-routes [data-hxr]', (b) => b.map((x) => `${x.dataset.hxr}:${x.textContent.replace(/\s+/g, ' ')}`));
-    ok(rows.length > 1 && /^precision:.*APR/.test(rows[0]) && rows.slice(1).every((x) => /between reward periods/.test(x) && !/APR/.test(x)), `hxdry: the private farms say they are between reward periods and quote no APR (${rows.join(' | ').slice(0, 200)})`);
+    ok(rows.length > 1 && /^precision:.*\d%/.test(rows[0]) && rows.slice(1).every((x) => /between reward periods/.test(x) && /—/.test(x)), `hxdry: the private farms say they are between reward periods and quote no APR (${rows.join(' | ').slice(0, 200)})`);
     await p.click('#hx-routes [data-hxr]:not([data-hxr="precision"])');
     await until(p, () => /Between reward periods: nothing streams/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
     ok(/^0\b|—/.test(await text(p, '#hx-out')) || (await text(p, '#hx-out')) === '0', `hxdry: and earn no TAC a day (${await text(p, '#hx-out')})`);
@@ -8275,7 +8275,7 @@ await step('fmchips', async () => {
         await p.click(`#fms a[data-hx="${c.hx}"]`);
         await until(p, (k) => document.querySelector(`#hx-routes [data-hxr="${k}"]`)?.getAttribute('aria-checked') === 'true', key, 120000);
         const row = await p.$eval(`#hx-routes [data-hxr="${key}"]`, (e) => e.textContent.replace(/\s+/g, ' '));
-        ok(c.apr >= 10000 || row.includes(`${c.apr.toLocaleString('en-US')}% APR`),`fmchips (${name}): ${c.hx} opens the Earn tab on that pool, with its APR in the row (${row.slice(0, 60)})`);
+        ok(c.apr >= 10000 || row.includes(`${c.apr.toLocaleString('en-US')}%`),`fmchips (${name}): ${c.hx} opens the Earn tab on that pool, with its APR in the row (${row.slice(0, 60)})`);
       }
       if (r.errors.length) { fails++; console.log('FAIL fmchips page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }
@@ -8339,7 +8339,7 @@ await step('hxways', async () => {
     // With the key open, Borrow does the lock in the card: the BTC goes to the key's own Bitcoin address first, then is locked there.
     await p.click('[data-hxm="borrow"]'); await p.fill('#hx-amt', '0.002');
     await until(p, () => /^≈ /.test(document.querySelector('#hx-out')?.textContent || '') && /This lock needs: about/.test(window.__said()), null, 120000);
-    ok((await text(p, '#hx-go')) === 'Send BTC to lock' && /Bond: wstETH, at least 1\.5× the lock/.test(await said(p)) && /Your Bitcoin address bc1q/.test(await text(p, '#hx-have')),
+    ok((await text(p, '#hx-go')) === 'Send BTC to lock' && /Bond: \$[\d,]+\+ in wstETH/.test(await said(p)) && /Your Bitcoin address bc1q/.test(await text(p, '#hx-have')),
       `hxways: Borrow quotes what the lock can borrow, names the key's Bitcoin address and says what the lock needs (${(await said(p)).slice(0, 140)})`);
     await p.click('#hx-go');
     await until(p, () => /Bitcoin wallet|Send from any wallet|on its way/i.test(document.querySelector('#hx-bw-s')?.textContent || ''), null, 120000);

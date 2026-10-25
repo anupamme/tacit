@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-D7KVYUp5XF8cNUR5/gEk14OXScp5fg8AJ2geJyz386w=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+EwcU1cB8AXyuIgl9P7ZCvsxReJsXnKhS4ihQjUd/eo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -11486,10 +11486,9 @@ function hxWrapTip(units) {
 }
 const hxTipFresh = (units = hxUnits()) => { const hit = units ? HXT.m.get(String(units)) : null; return !!hit && Date.now() - hit.at < 15e3; };
 const hxWrapMode = () => HX.mode === 'private';
-// What a wrap's receipt says: what arrives, the relay's tip for settling it, and what the chain sees
+// What a wrap's receipt says: the relay's tip for settling it, and what the chain sees (what arrives is in the field above, one for one)
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap',
-  rc: units ? [['Arrives', `${fmt(units, 8, 6)} tETH`],
-    ownNow(['wrap']) ? ['Relay tip', 'none: your own proof'] : ['Relay tip', tip ? `${fmt(tip, 18, 6)} ETH` : tip === undefined ? 'shown next' : tip == null ? '…' : 'none', '', 'Paid on top, to the relay that settles the deposit'],
+  rc: units ? [ownNow(['wrap']) ? ['Relay tip', 'none: your own proof'] : ['Relay tip', tip ? `${fmt(tip, 18, 6)} ETH` : tip === undefined ? 'shown next' : tip == null ? '…' : 'none', '', 'Paid on top, to the relay that settles the deposit'],
     ['Chain sees', `your ${fmt(units, 8, 6)} ETH going in`]] : [] });
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
 const hxWarmWrap = () => { if (!S.key || Date.now() - (HX.warmWrap || 0) < 60e3) return; HX.warmWrap = Date.now(); getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); };
@@ -11561,8 +11560,8 @@ async function hxOutQuote(units) {
   return { out: over || small ? '—' : fmt(units - fee, 8, 6), go: 'Turn tETH into ETH', warn: over || small,
     line: over ? feeRoom(units, size, held, P.scan?.eth.notes, (v) => `${fmt(v, 8, 6)} tETH`) || `You hold ${fmt(held, 8, 6)} tETH.`
       : small ? `Take out more than ${fmt(fee, 8, 6)} tETH: the relay fee comes out of it.` : '',
-    rc: over || small ? [] : [['Arrives', `${fmt(units - fee, 8, 6)} ETH`], own ? ['Relay fee', 'none: your own proof'] : ['Relay fee', `${fmt(fee, 8, 6)} ETH, out of it`],
-      size ? ['Combines notes', `${fmt(size, 8, 6)} tETH first`] : null, ['To', 'your wallet, or an address you name next']] };
+    rc: over || small ? [] : [['Arrives', 'in your wallet or at any address'], own ? ['Relay fee', 'none: your own proof'] : ['Relay fee', `${fmt(fee, 8, 6)} ETH, out of it`],
+      size ? ['Combines notes', `${fmt(size, 8, 6)} tETH first`] : null] };
 }
 function hxSendWalletQuote(units) {
   const held = hxWalletTac(), over = held != null && units * E10 > held;
@@ -11617,7 +11616,7 @@ function hxSendSees(k = HX.send) {
   return [['Chain sees', k === 'wtac' ? `${your()}, the address and the amount` : r === 'eth' ? 'the address and the amount, not from whom'
     : btcPlain ? 'the address and the amount' : k === 'btc' ? 'a payment to a fresh address only they find' : 'nothing: not how much, not to whom']];
 }
-const hxAskSays = () => [['The link', 'opens this payment filled in, ready to send']];
+const hxAskSays = () => [['The link', 'opens this payment, filled in']];
 const hxCanShare = () => typeof navigator.share === 'function' && matchMedia('(pointer: coarse)').matches;
 async function hxAskGo() {
   const a = S.key?.tacit, u = hxUnits();
@@ -11754,12 +11753,13 @@ const HXP = { at: 0, v: null, p: null };
 const hxPad = () => (HXP.v && Date.now() - HXP.at < 60e3 ? Promise.resolve(HXP.v) : (HXP.p ||= lockPad().then((v) => { Object.assign(HXP, { at: Date.now(), v }); return v; }).finally(() => { HXP.p = null; })));
 async function hxBorrowTerms(units) {
   const btc = units ? Number(units) / 1e8 : 0, usd = TPX.v?.usdBtc, floor = HXR.ratio, liq = HXR.liq;
-  const bond = ['Bond', 'wstETH, at least 1.5× the lock', '', 'Refundable: staked from your ETH, back once you redeem'];
-  if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC',
-    rc: [['Mint', btc ? `${fmt(units, 8, 8)} cBTC, free` : 'cBTC, one for one, free'], bond, ['Lock', 'at an address only your key spends']] };
+  const usd0 = (v) => `$${Math.round(v).toLocaleString('en-US')}`;
+  const bond = ['Bond', btc && usd ? `${usd0(btc * usd * 1.5)}+ in wstETH` : 'wstETH, at least 1.5× the lock', '', 'Worth at least 1.5× the lock. Refundable: staked from your ETH, back once you redeem'];
+  if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC', rc: [bond, ['Lock', 'at an address only your key spends']] };
+  // the row above says the most it borrows (at the floor); the receipt, the BTC price that liquidates that loan
   const max = btc && usd && floor ? btc * usd / (floor / 100) : null;
   return { out: max ? `≈ ${max >= 100 ? Math.round(max).toLocaleString('en-US') : max.toFixed(2)}` : btc ? '—' : null, go: 'Lock BTC and borrow',
-    rc: [['Borrow up to', max ? `about ${Math.round(max).toLocaleString('en-US')} cUSD` : 'what the lock allows', '', floor ? `At the ${floor}% floor` : ''], liq ? ['Liquidation', `from ${liq}%`] : null, bond, ['Repay', 'any time']] };
+    rc: [liq ? ['Liquidation', max ? `if BTC falls under ${usd0(usd * liq / floor)}` : `from ${liq}%`, '', floor ? `Borrowing the most, at the ${floor}% floor; liquidation starts at ${liq}%` : ''] : null, bond, ['Repay', 'any time']] };
 }
 // The TAC vaults (TACD, TACE) as the tile sees them: their terms read as the vault page reads them (dapp/vault/), and what a deposit of TAC
 // borrows at the page's safe line (twice the liquidation ratio, and never over its mint ratio) after the fee. Their prices are recorded on
@@ -12139,7 +12139,7 @@ async function hxQuote() {
       if (top && priv.length > 1) top.best = true;
       const pick = rows.find((r) => r.k === HX.earnPick) || top || rows[0], two = pick.k !== 'precision' && hxTwo(units), zap = two && HX.earnWay !== 'wrap';
       HX.pool = pick.k;
-      for (const r of rows) { r.show = r.apr == null ? '—' : `${r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr)} APR`; if (r.k !== 'precision') r.note = `private${r.dry ? ' · between reward periods' : ''}${hxTwo(units) && HX.earnWay === 'wrap' ? ' · 2 steps' : ''}${r.impact >= 0.01 ? ` · ${pctFmt(r.impact * 100)} impact` : ''}`; }
+      for (const r of rows) { r.show = r.apr == null ? '—' : r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr); if (r.k !== 'precision') r.note = `private${r.dry ? ' · between reward periods' : ''}${hxTwo(units) && HX.earnWay === 'wrap' ? ' · 2 steps' : ''}${r.impact >= 0.01 ? ` · ${pctFmt(r.impact * 100)} impact` : ''}`; }
       const pub = pick.k === 'precision';
       // a zap of this key's that is not in the farm yet comes first: the one link is to finish it (found again from the chain on any device)
       zapsRead();
@@ -12149,9 +12149,9 @@ async function hxQuote() {
         go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? 'Zap into the farm' : two ? 'Make ETH private' : 'Farm privately',
         rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction' : 'half swapped inside the pool'],
           pub ? null : ['Chain sees', zap ? 'ETH in, private after' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null,
-          !pub && pick.impact >= 0.01 ? ['Price impact', pctFmt(pick.impact * 100), pick.impact >= 0.05 ? 'err' : null] : null],
+          !pub && pick.impact >= 0.05 ? ['Price impact', pctFmt(pick.impact * 100), 'err'] : null],
         // the two ways in from the wallet's ETH: the zap, or making it private first (more private, and a wrap earns points)
-        alt: wp ? { label: `Finish your zap into ${pairName(wp.pair)}`, link: `farm/private-${wp.pid}` } : !two ? null : zap ? { label: 'Make ETH private first instead: 2 steps, earns points', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
+        alt: wp ? { label: `Finish your zap into ${pairName(wp.pair)}`, link: `farm/private-${wp.pid}` } : !two ? null : zap ? { label: 'Earn points too: make ETH private first', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
         warn: !!pick.dry || !!wp, line: wp ? 'A zap of yours is waiting to be farmed.' : pick.dry ? 'Between reward periods: nothing streams until the next one starts.' : '' });
     }
     if (m === 'btc' && HX.from === 'tac') {
@@ -12470,7 +12470,7 @@ function paintHxQ() {
     rows.hidden = !q.rows;
     const name = HX.mode === 'earn' ? 'Where it farms' : 'Route', had = rows.contains(document.activeElement);
     rows.setAttribute('aria-label', name);
-    mount(rows, html`<div class="rows-h"><span>${name}</span></div>${(q.rows || []).map((r) => html`<button type="button" role="radio" class="${r.icons ? 'c' : ''}" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}>${r.icons ? html`<span class="pair" aria-hidden="true">${r.icons.map((i) => html`<svg class="tk"><use href="#${i}"/></svg>`)}</span>` : ''}<span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
+    mount(rows, html`<div class="rows-h"><span>${name}</span>${HX.mode === 'earn' ? html`<span>APR</span>` : ''}</div>${(q.rows || []).map((r) => html`<button type="button" role="radio" class="${r.icons ? 'c' : ''}" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}>${r.icons ? html`<span class="pair" aria-hidden="true">${r.icons.map((i) => html`<svg class="tk"><use href="#${i}"/></svg>`)}</span>` : ''}<span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
     const live = $$('[data-hxr]', rows);
     const choose = (b) => {
       for (const x of live) { x.setAttribute('aria-checked', x === b); x.tabIndex = x === b ? 0 : -1; }
@@ -12736,7 +12736,7 @@ function paintHx() {
     HX.askFor = S.key?.tacit || '';
     body = HX.ask ? html`${what('You ask for', 'Asset to ask for')}
       ${mid()}
-      ${field('Paid to', html`<span class="where">your tacit1 address</span>`, html`<span class="say">${HX.askFor ? short(HX.askFor, 12) : 'Open your wallet to get the link'}</span>`, '', false)}
+      ${field('Paid to', html`<span class="where">your tacit1 address</span>`, html`<span class="say">${HX.askFor ? short(HX.askFor, 12) : 'tacit1…'}</span>`, '', false)}
       ${chainRow}<dl class="rcpt" id="hx-receipt">${hxAskSays().map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
       <div class="hx-have" id="hx-have" hidden></div>
       ${button(HX.askFor ? (hxCanShare() ? 'Share payment link' : 'Copy payment link') : 'Open your wallet')}
