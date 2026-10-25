@@ -183,7 +183,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -7271,7 +7271,7 @@ await step('farmzapeth', async () => {
     await p.click('#hx-go');
     await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
     await until(p, () => document.querySelector('#sz-a-0')?.value === '0.02', null, 60000);
-    ok(await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true') && /swapped to TAC inside this pool/.test(await text(p, '#farm-pid0 .how')), 'farmzapeth: its button opens the farm on ETH with the amount in it');
+    ok(await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true') && /about half is swapped to TAC/.test(await text(p, '#farm-pid0 .how')), 'farmzapeth: its button opens the farm on ETH with the amount in it');
     await p.fill('#sz-a-0', '0.05');
     await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
@@ -7311,6 +7311,36 @@ await step('farmzapeth', async () => {
     ok(w?.depositId?.toLowerCase() === dep.toLowerCase() && (await q.page.evaluate(() => window.__farmCalls)).join().startsWith('wrap:'), `farmzapeth: and Finish it settles that same deposit into its note and farms it (${await text(q.page, '#sf-status-0')})`);
     if (q.errors.length) { fails++; console.log('FAIL farmzapeth page errors: ' + q.errors.slice(0, 3).join(' | ')); }
   } finally { await q.browser.close(); }
+});
+
+// A zap into tETH/TAC large enough to move the pool: its swap is split with the Precision pool when that keeps more of the deposit, the
+// quote says where, and the zap sent (on the fork) runs the trade venues' split through zRouter and still mints exactly the shares quoted.
+await step('farmzapsplit', async () => {
+  const POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00', CPOOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
+  const poolsSel = Buffer.from(keccak_256('pools(bytes32)')).toString('hex').slice(0, 8);
+  const total = async () => BigInt('0x' + (await rpc('eth_call', [{ to: CPOOL, data: '0x' + poolsSel + POOL0.slice(2) }, 'latest'])).slice(2 + 6 * 64, 2 + 7 * 64));
+  const r = await openFarmKey('5b17'.padEnd(64, '6'), { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
+  const p = r.page;
+  try {
+    await go(p, '#farm/private-0');
+    await p.waitForSelector('#sz-go-0', { timeout: 300000 });
+    await p.fill('#sz-a-0', '0.6');
+    await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
+    const rc = (await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ');
+    ok(/Where\s*\d+% in this pool, the rest in the Precision pool/.test(rc) && /Back to your Tacit account\s*about [\d.,]+ TAC/.test(rc), `farmzapsplit: a 0.6 ETH zap splits its swap with the Precision pool and says so (${rc.slice(0, 260)})`);
+    await shot(p, 'farmzapsplit');
+    const t0 = await total();
+    await p.click('#sz-go-0');
+    await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
+    const w = await p.evaluate(() => window.__zapWrap);
+    if (!w) throw new Error(`no zap: ${await text(p, '#sf-status-0')}`);
+    const tx = await rpc('eth_getTransactionByHash', [w.depositTx]), rcpt = await rpc('eth_getTransactionReceipt', [w.depositTx]), t1 = await total();
+    const input = String(tx.input).toLowerCase(), has = (a) => input.includes(a.slice(2).toLowerCase());
+    ok(rcpt.status === '0x1' && has('0x0000007Be74558A1F8c9045301c6F44C8eD0c9eB') && has('0x00000000E36C7EC997CC59DCda9E03673B448119') && t1 - t0 === BigInt(w.shares),
+      `farmzapsplit: the zap sent runs the split (the Precision route and this pool's swap in one zRouter call) and the pool's shares rise by exactly the ${w.shares} committed to (${BigInt(rcpt.gasUsed)} gas)`);
+    if (r.errors.length) { fails++; console.log('FAIL farmzapsplit page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // A share note not in the farm (a zap's made private but not yet bonded, or an unbond's): Farm it, beside Take it out, bonds it.

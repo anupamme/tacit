@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8lsoxKS/FVAumZGGhN2xVEEsUghbtcNP1DczbCAkuxg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MVoWDxpOg4KgjKbuowL6wahwfKoA4ep5nltBLdYfagw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1633,13 +1633,13 @@ import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/wal
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
-import { encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=5a940508';
+import { encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM, makeEvmTradeVenues } from '/evm-trade-venues.js?cb=5a940508';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
 import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
-import { zapPlan, zapCalldata } from '/lp-zap.js?cb=edb5bd4a';
+import { zapPlan, zapCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=d4096cc9';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
@@ -9466,6 +9466,22 @@ const zapsKept = () => { try { return (JSON.parse(localStorage.getItem(ZAPS_KEY)
 const zapKeep = (z) => { try { localStorage.setItem(ZAPS_KEY, JSON.stringify([...zapsKept().filter((x) => x.depositId !== z.depositId), z].slice(-12))); } catch { } };
 const zapDone = (id) => { try { localStorage.setItem(ZAPS_KEY, JSON.stringify(zapsKept().filter((x) => x.depositId !== id))); } catch { } };
 const zapUnit = 10n ** 10n, ZAP_FROM = 26269000;          // no zap into a private farm is older than this block
+// The zap's swap: all in the pool, or, where a venue outside it trades the other coin (TAC's Precision pool), split with that venue when
+// that keeps more of the deposit than the split's own gas costs (dapp/lp-zap.js zapSplitSearch; tests/lp-zap-split-fork.mjs). The other
+// venue's part counts at ZAP_SLIP under its quote, and what it pays over that comes back. → { plan, sp } (sp the venues' split, or null)
+const ZAP_SPLIT_GAS = 140000n, ZAP_SLIP = 50n;
+const zapVenues = () => (zapVenues.v ||= makeEvmTradeVenues({ keccak256: keccak_256,
+  ethCall: (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: o.value } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]) }));
+async function zapRoute({ tkB, res, wei, gp, account }) {
+  const st = { ra: res.reserveA, rb: res.reserveB, total: res.totalShares }, feeBps = BigInt(res.feeBps ?? 30), plan = zapPlan({ eth: wei, ...st, feeBps });
+  if (!plan || tkB !== 'TAC' || plan.impact < 0.01) return { plan, sp: null };
+  const best = await zapSplitSearch({ eth: wei, ...st, feeBps, x0: plan.swapIn, slipBps: ZAP_SLIP, quote: async (X) => {
+    const sp = await zapVenues().quoteSplit({ dir: 'ETH_TO_TAC', amountIn: X, account }).catch(() => null);
+    return sp && Number(sp.legs[1].feeBps) === Number(feeBps) ? { ammIn: sp.legs[1].amountIn, extIn: sp.legs[0].amountIn, extOut: sp.legs[0].amountOut, sp } : null;
+  } }).catch(() => null);
+  const gain = best ? (best.worth.perSent - zapWorth(st, plan).perSent) * Number(wei) : 0;
+  return gain > Number(ZAP_SPLIT_GAS * gp) * 1.5 ? { plan: best.plan, sp: best.plan.q.sp } : { plan, sp: null };
+}
 const zapsMine = (pid) => zapsKept().filter((z) => z.pub === S.key?.pubHex && z.pid === pid);
 // The record above is this browser's; the chain has them all. Once a session per key, zaps still waiting for their note are read back from
 // the key's accounts (the Tacit account and a connected wallet), so another device, or a cleared one, can finish them too.
@@ -9498,7 +9514,7 @@ function farmZap(el, p, status, has, top) {
   mount(el, html`${top.coming}
     <div class="lbl"><span>${has ? 'Add more' : 'Add and farm'}</span><button type="button" id="sz-max-${pid}">Max</button></div>
     ${top.seg}
-    <p class="note how">One transaction from ${your()}: about half is swapped to ${other} inside this pool, both go in, and your share is farmed privately. <button class="link" type="button" data-join-get="private">Make ETH private first instead</button></p>
+    <p class="note how">One transaction from ${your()}: about half is swapped to ${other}, both go in, and your share is farmed privately. <button class="link" type="button" data-join-get="private">Make ETH private first instead</button></p>
     <div id="sz-fund-${pid}"></div>
     <div class="lbl"><span>ETH</span><span id="sz-bal-${pid}"></span></div>
     <div class="amt"><input id="sz-a-${pid}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="ETH to zap into the farm"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
@@ -9519,20 +9535,24 @@ function farmZap(el, p, status, has, top) {
       const t = await getUx(), [res, gp, have] = await Promise.all([t.poolReserves(p.poolId), rpc('eth_gasPrice', []).then(BigInt).catch(() => 0n), ethBalance()]);
       if (my !== seq || !go.isConnected) return;
       if (!res || !(res.totalShares > 0n)) throw new Error('This pool is not open for liquidity yet.');
-      const plan = zapPlan({ eth: wei, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) });
+      const p0 = top.tkB === 'TAC' && zapPlan({ eth: wei, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) });
+      if (p0 && p0.impact >= 0.01) mount(rc, html`<p class="note">Pricing the swap in this pool and the Precision pool…</p>`);
+      const { plan, sp } = await zapRoute({ tkB: top.tkB, res, wei, gp, account: S.address || '0x0000000000000000000000000000000000000000' });
+      if (my !== seq || !go.isConnected) return;
       if (!plan) { mount(rc, html``); warn(rc, 'Enter a larger amount: this one is too small to make a share of the pool.'); return; }
-      const gas = ZAP_GAS * gp * 3n / 2n, impact = Math.abs(plan.impact) * 100;
+      const gas = (ZAP_GAS + (sp ? ZAP_SPLIT_GAS : 0n)) * gp * 3n / 2n, impact = Math.abs(plan.impact) * 100, paid = plan.paid ?? plan.out, back = paid - plan.bLeg;
       const pm = poolVsMarket({ pair: p.pair, reserves: { assetA: res.assetA, reserveA: res.reserveA, reserveB: res.reserveB } });
       // what the swap leg gives up against the market's price, as a share of the deposit
-      const y = Number(plan.swapIn) / 1e18, o = Number(plan.out) / 1e18, mkt = pm && y > 0 ? Math.max(0, (y - o * pm.market) / (Number(wei) / 1e18) * 100) : 0;
-      q = { wei, plan, gas, impact: Math.max(impact, mkt), over: have != null && plan.value + gas > have, at: Date.now() };
+      const y = Number(plan.swapIn) / 1e18, o = Number(paid) / 1e18, mkt = pm && y > 0 ? Math.max(0, (y - o * pm.market) / (Number(wei) / 1e18) * 100) : 0;
+      q = { wei, plan, sp, gas, impact: Math.max(impact, mkt), over: have != null && plan.value + gas > have, at: Date.now() };
       mount(rc, html`
-        <div class="kv"><span>Swaps</span><b>${fmt(plan.swapIn, 18, 6)} ETH for about ${fmt(plan.out, 18, dpB)} ${other}</b></div>
+        <div class="kv"><span>Swaps</span><b>${fmt(plan.swapIn, 18, 6)} ETH for about ${fmt(paid, 18, dpB)} ${other}</b></div>
+        ${sp ? html`<div class="kv"><span>Where</span><b>${Math.round(Number(plan.ammIn) * 100 / Number(plan.swapIn))}% in this pool, the rest in the Precision pool</b></div>` : ''}
         <div class="kv"><span>Then adds</span><b>${fmt(plan.ethLeg, 18, 6)} ETH + ${fmt(plan.bLeg, 18, dpB)} ${other}</b></div>
         ${lossLine(impact)}
         ${mkt >= 1 ? html`<div class="kv"><span>Against the market</span><b class="${mkt >= 5 ? 'err' : ''}">${pctFmt(mkt)} of this deposit</b></div>` : ''}
         ${joinYield(p, plan.shares, plan.ethLeg / zapUnit)}
-        ${plan.spare >= 10n ** BigInt(18 - dpB) ? html`<div class="kv"><span>Back to ${your()}</span><b>about ${fmt(plan.spare, 18, dpB)} ${other}</b></div>` : ''}
+        ${back >= 10n ** BigInt(18 - dpB) ? html`<div class="kv"><span>Back to ${your()}</span><b>about ${fmt(back, 18, dpB)} ${other}</b></div>` : ''}
         <div class="kv"><span>Network fee, from ${your()}</span><b>about ${fmt(gas, 18, 5)} ETH</b></div>
         <div class="kv"><span>Then</span><b>the relay makes your share private and farms it, a few minutes</b></div>`);
       mount(ackBox, lossGate(`sz-ackv-${pid}`, q.impact, 'deposit'));
@@ -9557,13 +9577,17 @@ function farmZap(el, p, status, has, top) {
     try {
       t = await getUx(); priv = walletPriv();
       const from = await payingAccount(), res = await t.poolReserves(p.poolId);
-      const plan = res && zapPlan({ eth: z.wei, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) });
-      if (!plan || plan.shares !== z.plan.shares || plan.value !== z.plan.value) { requote(); throw Object.assign(new Error('The pool moved since this was quoted. Check the new amounts and press again.'), { said: true }); }
+      const gp = await rpc('eth_gasPrice', []).then(BigInt).catch(() => 0n), { plan, sp } = res ? await zapRoute({ tkB: top.tkB, res, wei: z.wei, gp, account: from }) : {};
+      // priced again as it is sent: the same shares (a split's other venue may give a little less, within half a percent), or quoted afresh
+      if (!plan || !!sp !== !!z.sp || (sp ? plan.shares * 1000n < z.plan.shares * 995n : plan.shares !== z.plan.shares || plan.value !== z.plan.value)) { requote(); throw Object.assign(new Error('The pool moved since this was quoted. Check the new amounts and press again.'), { said: true }); }
       // an index no note of this key has used: not one it holds, has spent (bonded) or has a zap waiting on
       const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used: zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId).map((x) => x.index) });
       built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
       const deadline = Math.floor(Date.now() / 1000) + 1200;
-      const data = zapCalldata({ plan, router: ADDR.confRouter, amm: ADDR.publicAmm, tokenB, assetA: res.assetA, assetB: res.assetB, feeBps: Number(res.feeBps ?? 30), deadline: BigInt(deadline), commit: built.commit });
+      // a split's swap is the trade venues' own (one zRouter call, the Precision route and this pool's swapPublic), paying the router at least the floor
+      const swap = sp && zapVenues().buildSplit({ split: { ...sp, legs: [sp.legs[0], { ...sp.legs[1], feeBps: Number(res.feeBps ?? 30) }] }, account: from, to: ADDR.confRouter, minOut: plan.floor, deadline: BigInt(deadline) });
+      if (swap && swap.value !== plan.swapIn) throw new Error('The split swap does not match its plan, so nothing was sent. Press again for a fresh quote.');
+      const data = zapCalldata({ plan, router: ADDR.confRouter, amm: ADDR.publicAmm, tokenB, assetA: res.assetA, assetB: res.assetB, feeBps: Number(res.feeBps ?? 30), deadline: BigInt(deadline), commit: built.commit, swapData: swap?.data });
       // run as it will be sent: it must mint exactly the shares the note commits to, or nothing is sent
       const sim = strip(await rpc('eth_call', [{ from, to: ADDR.confRouter, data, value: '0x' + plan.value.toString(16) }, 'latest']));
       if (wordAt(sim, 1) !== plan.shares || '0x' + sim.slice(0, 64) !== String(built.depositId).toLowerCase()) throw new Error('The zap would not mint exactly the share quoted, so nothing was sent. Press again for a fresh quote.');
@@ -11436,8 +11460,10 @@ async function hxFarms(amt) {
     if (p.idle || String(r.assetA).toLowerCase() !== CETH_ID || !Number(r.lpTotalShares)) continue;
     if (src === 'wtac' || (src === 'tac' && !String(p.pair).split('/').includes('TAC'))) continue;
     const staked = (poolWorth(p) ?? 0) * Number(p.totalShares) / Number(r.lpTotalShares);
-    // about half goes through the pool's swap: what that moves its price by, against the side it is sold into
-    const half = amt / 2, side = Number((tacSrc ? r.reserveB : r.reserveA) || 0) / 1e8, impact = half > 0 && side > 0 ? half / (side + half) : 0;
+    // about half goes through the pool's swap: what that moves its price by, against the side it is sold into (with the Precision pool's
+    // ETH side too where the zap splits TAC's swap with it)
+    const split = !tacSrc && HX.earnWay !== 'wrap' && String(p.pair).split('/').includes('TAC') && x?.value ? Number(x.value) / 2e18 : 0;
+    const half = amt / 2, side = Number((tacSrc ? r.reserveB : r.reserveA) || 0) / 1e8 + split, impact = half > 0 && side > 0 ? half / (side + half) : 0;
     out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', dry: !live, apr: live ? shieldedApr(p) : null, day: live && eth ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0, impact });
   }
   return out;

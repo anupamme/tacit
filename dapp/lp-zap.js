@@ -34,7 +34,10 @@ export function addShares(a, b, ra, rb, t) {
 // more shares a unit; at most one leg can be worth more than one), and the finer leg is the least that floors to it. → { a, b, s } or null.
 export function exactLegs(aMax, bMax, ra, rb, t) {
   const coarseA = ra < rb;                                                              // t/ra > t/rb
-  for (let i = 0n, top = coarseA ? aMax : bMax; i < 4096n && top - i > 0n; i++) {
+  // the coarse leg starts no higher than the shares the fine leg's cap allows, so a short fine leg is not walked down a unit at a time
+  const [cMax, fMax, rc, rf] = coarseA ? [aMax, bMax, ra, rb] : [bMax, aMax, rb, ra];
+  const sCap = (fMax * t) / rf, cCap = ((sCap + 1n) * rc - 1n) / t;
+  for (let i = 0n, top = cMax < cCap ? cMax : cCap; i < 4096n && top - i > 0n; i++) {
     const c = top - i, s = coarseA ? (c * t) / ra : (c * t) / rb;
     if (s <= 0n) return null;
     const f = coarseA ? ceil(s * rb, t) : ceil(s * ra, t);
@@ -76,10 +79,74 @@ export function zapPlan({ eth, ra, rb, total, feeBps = 30n, unitA = 10n ** 10n, 
   };
 }
 
+// A zap whose swap is split: `ammIn` wei of it through this pool (whose output, and the reserves it leaves, are known exactly) and `extIn`
+// wei through another venue that pays at least `extMin` wei of B. The legs are sized at the reserves this pool's part leaves, as zapPlan's
+// are, against the least both parts pay together: so the add mints exactly S or reverts as zapPlan's does (the other venue moves nothing
+// the add reads), and what it pays over its least comes back with the rest. → zapPlan's shape (`out` the least the swap pays), or null.
+export function zapSplitPlan({ eth, ra, rb, total, feeBps = 30n, ammIn, extIn, extMin, unitA = 10n ** 10n, unitB = 10n ** 10n }) {
+  ra = BigInt(ra); rb = BigInt(rb); total = BigInt(total); ammIn = BigInt(ammIn); extIn = BigInt(extIn); extMin = BigInt(extMin);
+  const uA = BigInt(unitA), uB = BigInt(unitB), x = ammIn / uA, f = BigInt(feeBps), swapWei = ammIn + extIn;
+  if (ammIn % uA !== 0n || x < 1n || extIn < 0n || extMin < 0n || swapWei >= BigInt(eth) || !(ra > 0n && rb > 0n && total > 0n)) return null;
+  const out = ammOut(ra, rb, x, f), least = out + extMin / uB;
+  if (!out || least < 2n) return null;
+  const ra2 = ra + x, rb2 = rb - out, legs = exactLegs((BigInt(eth) - swapWei) / uA, least - 1n, ra2, rb2, total);
+  if (!legs) return null;
+  const mid = (Number(rb) * (Number(swapWei) / Number(uA)) * Number(10000n - f)) / (Number(ra) * 10000);
+  return {
+    swapIn: swapWei, ammIn, extIn, ethLeg: legs.a * uA, bLeg: legs.b * uB, floor: (legs.b + 1n) * uB, value: swapWei + legs.a * uA, shares: legs.s,
+    out: out * uB + extMin, ammOut: out * uB, spare: out * uB + extMin - legs.b * uB, left: BigInt(eth) - swapWei - legs.a * uA,
+    impact: mid > 0 ? Math.max(0, 1 - Number(least) / mid) : 0, reservesAfter: { ra: ra2, rb: rb2 }, shareOfPool: Number(legs.s) / Number(total + legs.s),
+  };
+}
+
 // The calldata, for ConfidentialRouter.zapETHIntoShieldedLP with zRouter.snwap → TacitPublicAmm.swapPublic as its swap leg; the swap's floor
 // is a unit over the B leg, so it pays what the add takes and some comes back. `to` of the swap is the router, which holds both legs.
-export function zapCalldata({ plan, router, amm, tokenB, assetA, assetB, feeBps = 30, deadline, commit }) {
+// `swapData` is another zRouter call for the swap (a split's), which must pay the router at least the plan's floor.
+export function zapCalldata({ plan, router, amm, tokenB, assetA, assetB, feeBps = 30, deadline, commit, swapData = null }) {
   const swap = 'cfdf9dcc' + b32(assetA) + b32(assetB) + word(feeBps) + word(plan.swapIn) + word(plan.floor) + word(deadline) + addr(router);
-  const snwap = '5f3bd1c8' + addr('0x0') + word(0) + addr(router) + addr(tokenB) + word(plan.floor) + addr(amm) + word(7 * 32) + bytes(swap);
+  const snwap = swapData ? String(swapData).replace(/^0x/, '') : '5f3bd1c8' + addr('0x0') + word(0) + addr(router) + addr(tokenB) + word(plan.floor) + addr(amm) + word(7 * 32) + bytes(swap);
   return '0xf9d1fa01' + addr(tokenB) + word(feeBps) + word(plan.ethLeg) + word(plan.bLeg) + word(plan.shares) + word(deadline) + b32(commit) + word(8 * 32) + bytes(snwap);
+}
+
+// What a zap ends with at the pool's price before it, in A units: the position (its share of the pool after the swap's own part and the add)
+// and what comes back (A not sent or not taken, B over what the add takes), per unit of A sent. Plans that send different amounts compare
+// by this, so one cannot look better by depositing less.
+export function zapWorth({ ra, rb, total }, plan, unitA = 10n ** 10n, unitB = 10n ** 10n) {
+  ra = BigInt(ra); rb = BigInt(rb); total = BigInt(total);
+  const uA = BigInt(unitA), uB = BigInt(unitB), x = (plan.ammIn ?? plan.swapIn) / uA, outU = (plan.ammOut ?? plan.out) / uB;
+  const ra2 = ra + x, rb2 = rb - outU, S = plan.shares, takeA = (S * ra2 + total - 1n) / total, takeB = (S * rb2 + total - 1n) / total;
+  const price = Number(ra) / Number(rb), pos = (Number(S) / Number(total + S)) * (Number(ra2 + takeA) + Number(rb2 + takeB) * price);
+  const back = Number(plan.ethLeg / uA - takeA) + (Number(plan.paid ?? plan.out) / Number(uB) - Number(takeB)) * price;
+  const sent = Number(plan.value) / Number(uA);
+  return { worth: pos + back, sent, perSent: (pos + back) / sent, left: Number(plan.left) / Number(uA) };
+}
+
+// The best split of a zap's swap between this pool and another venue: `quote(X)` divides a swap of X wei (→ { ammIn, extIn, extOut } or
+// null, ammIn a whole number of units). The total is the one at which the add takes about all the ETH and about all the B (the secant of
+// least B against B needed, from the all-in-pool swap and 15% more), and the other venue's part counts at `slipBps` under its quote.
+// → { plan, worth } with plan.paid the B expected, or null when no split is quoted.
+export async function zapSplitSearch({ eth, ra, rb, total, feeBps = 30n, x0, quote, slipBps = 50n, unitA = 10n ** 10n, unitB = 10n ** 10n }) {
+  const st = { ra: BigInt(ra), rb: BigInt(rb), total: BigInt(total) }, uA = BigInt(unitA);
+  const planOf = (q) => {
+    if (!q) return null;
+    const p = zapSplitPlan({ eth, ...st, feeBps, ammIn: q.ammIn, extIn: q.extIn, extMin: (q.extOut * (10000n - BigInt(slipBps))) / 10000n, unitA, unitB });
+    return p && { ...p, paid: p.ammOut + q.extOut, q };
+  };
+  // B short (< 0: ETH left) or over (> 0: B back), in units of A at the pool's price after the swap's own part
+  const gap = (p) => (p ? Number(p.left) / Number(uA) > 0.5 ? -Number(p.left) / Number(uA) : Number(p.spare) / Number(BigInt(unitB)) * Number(p.reservesAfter.ra) / Number(p.reservesAfter.rb) : null);
+  const at = (k) => ((BigInt(x0) * BigInt(k)) / 1000n / uA) * uA;
+  const [p1, p2] = await Promise.all([quote(at(1000)).then(planOf), quote(at(1150)).then(planOf)]);
+  let pick = [p1, p2].filter(Boolean);
+  const g1 = gap(p1), g2 = gap(p2);
+  if (p1 && p2 && g1 < 0 && g2 > 0) {
+    const X = at(1000) + ((at(1150) - at(1000)) * BigInt(Math.round((-g1 / (g2 - g1)) * 1e6))) / 1000000n;
+    const p3 = await quote((X / uA) * uA).then(planOf);
+    if (p3) pick.push(p3);
+  }
+  // the plans that send about all of it (within 0.5%, else 2%): one that sends less is not the deposit asked for
+  const within = (f) => pick.filter((p) => Number(p.left) / Number(BigInt(eth)) <= f);
+  pick = within(0.005).length ? within(0.005) : within(0.02);
+  if (!pick.length) return null;
+  const scored = pick.map((p) => ({ plan: p, worth: zapWorth(st, p, unitA, unitB) }));
+  return scored.reduce((a, b) => (b.worth.perSent > a.worth.perSent ? b : a));
 }
