@@ -183,7 +183,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1377,6 +1377,39 @@ await step('borrow', async () => {
   await page.click('[data-bond-take]');
   await chainUntil(async () => (await wst(A0)) > w0, 120000);
   ok((await wst(A0)) > w0, `borrow: a bond on a lock not minted comes back to the account that posted it ${await text(page, '#bw-status')}`);
+});
+
+// Borrow against TAC from the tile: the Borrow tab takes TAC from the wallet into a TAC vault (TACD or TACE), quotes what it borrows at the
+// vault page's safe line after the fee (an estimate at the oracle's spot while the vault's prices wait to be recorded), and its button opens
+// the vault page's ticket with that amount in it, which records what prices are missing, then deposits and borrows.
+await step('hxvault', async () => {
+  const r = await openPage({ account: A0, key: null });
+  const p = r.page;
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h', { timeout: 120000 });
+    await p.click('[data-hxm="borrow"]');
+    await p.click('[data-hxp] [data-place="wallet"]');
+    await p.fill('#hx-amt', '1000');
+    const quoted = (sym) => document.querySelector('#hx-go')?.textContent === `Borrow ${sym}` && /[1-9]/.test(document.querySelector('#hx-out')?.textContent || '') && /Vault ratio/.test(document.querySelector('#hx-receipt')?.textContent || '');
+    await until(p, quoted, 'TACD', 180000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-panel')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    const rc = (await text(p, '#hx-receipt')).replace(/\s+/g, ' '), out = await text(p, '#hx-out');
+    ok(/Vault ratio\s*400%, the safe line/.test(rc) && /Borrow fee\s*1%, once/.test(rc) && /Liquidation\s*if TAC falls under \$/.test(rc) && /Prices/.test(rc), `hxvault: TAC from the wallet borrows TACD at the safe line after the fee, and says when it is liquidated and where its prices stand (${out}; ${rc})`);
+    ok(await p.evaluate(() => document.querySelector('#hx-pts')?.hidden !== false && !document.querySelector('#hx-go').classList.contains('priv')), 'hxvault: with no points said for it, and a plain button (TACD comes to the wallet, not private)');
+    await shot(p, 'hxvault');
+    await p.click('[data-hxd="tace"]');
+    await until(p, quoted, 'TACE', 120000);
+    ok(/falls under [\d.]+ ETH/.test(await text(p, '#hx-receipt')), 'hxvault: and TACE, priced in ETH');
+    await p.click('[data-hxd="tacd"]');
+    await until(p, quoted, 'TACD', 120000);
+    const want = (await text(p, '#hx-out')).replace(/[^\d.]/g, '');
+    await p.click('#hx-go');
+    await p.waitForURL(/\/vault\//, { timeout: 60000 });
+    const got = await until(p, (w) => document.querySelector('#amt')?.value === w, want, 120000).then(() => true, () => false);
+    ok(got, `hxvault: its button opens the vault page's ticket with ${want} TACD in it`);
+    if (r.errors.length) { fails++; console.log('FAIL hxvault page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 await step('hxborrow', async () => {
