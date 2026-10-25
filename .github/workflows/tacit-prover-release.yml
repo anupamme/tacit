@@ -25,8 +25,11 @@ jobs:
       - name: Build deps (protoc for sp1-prover-types)
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y protobuf-compiler; else brew install protobuf; fi
-      # The Groth16 FFI's go.mod asks for Go 1.24: the runner's Go fetches that toolchain itself (GOTOOLCHAIN=auto), checked
-      # against the Go checksum database.
+      # The Groth16 FFI's build script runs `go`, which the runners do not have on their PATH: the version its go.mod asks for.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: contracts/sp1/confidential/device-prover/patches/sp1-recursion-gnark-ffi/go/go.mod
+          cache: false
       - name: Build
         working-directory: contracts/sp1/confidential/device-prover
         run: cargo build --release --locked
