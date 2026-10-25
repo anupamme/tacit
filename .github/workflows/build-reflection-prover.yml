@@ -1,0 +1,82 @@
+# Build the Bitcoin reflection prover (contracts/sp1/eth-reflection/prover-host, bin bitcoin_prove) for Linux x86-64 as the prover
+# box laid it out: the two guest ELFs it embeds are the committed ones, checked against elf-vkey-pin.json, and its path crates are
+# the repo's (vendor/sp1-helios-primitives, reflect-stdin, cxfer-core), copied to the /root paths its sources name. Before the
+# binary is kept as a workflow artifact the run checks that it carries both ELFs byte for byte and that it executes the committed
+# reflection fixture exactly as the baseline release's bitcoin_prove does (execute mode: local, nothing is asked of the network).
+# Nothing is published: the binary goes into a prover-bins release by hand, after those checks.
+# Trigger manually (workflow_dispatch).
+name: build-reflection-prover
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Release whose bitcoin_prove the new build must match on the fixture'
+        default: 'prover-bins-v8'
+jobs:
+  build:
+    runs-on: ubuntu-22.04   # GLIBC 2.35 <= the worker-relay image's Bookworm 2.36
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build deps (protoc for sp1-prover-types)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      # The Groth16 FFI's build script runs `go`: the version its go.mod asks for.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Lay out the box's paths from the pinned ELFs and the repo's crates
+        run: |
+          set -eu
+          S=contracts/sp1
+          python3 - <<'EOF'
+          import hashlib, json
+          pin = json.load(open('contracts/sp1/confidential/elf-vkey-pin.json'))
+          for path, want in [('contracts/sp1/confidential/elf/reflection-prover', pin['reflection_elf_sha256']),
+                             ('contracts/sp1/eth-reflection/elf/eth_reflection', pin['eth_reflection_elf_sha256'])]:
+              got = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+              assert got == want, f'{path}: {got} is not the pinned {want}'
+              print('pinned', path, got)
+          EOF
+          R=riscv64im-succinct-zkvm-elf/release
+          sudo mkdir -p /root/work/confidential/target/elf-compilation/$R /root/sp1-helios/target/elf-compilation/$R
+          sudo cp $S/confidential/elf/reflection-prover /root/work/confidential/target/elf-compilation/$R/reflection-prover
+          sudo cp $S/eth-reflection/elf/eth_reflection /root/sp1-helios/target/elf-compilation/$R/eth_reflection
+          sudo cp -r $S/eth-reflection/vendor/sp1-helios-primitives /root/sp1-helios/primitives
+          sudo cp -r $S/confidential/cxfer-core /root/work/confidential/cxfer-core
+          sudo cp -r $S/reflect-stdin /root/work/reflect-stdin
+          sudo chown -R "$(id -u):$(id -g)" /root/work /root/sp1-helios
+          sudo chmod a+rx /root
+      - name: Build
+        working-directory: contracts/sp1/eth-reflection/prover-host
+        run: cargo build --release --locked --bin bitcoin_prove
+      - name: Check it against the pinned ELFs and the baseline
+        env: { BASELINE: '${{ github.event.inputs.baseline }}' }
+        run: |
+          set -eu
+          B=contracts/sp1/eth-reflection/prover-host/target/release/bitcoin_prove
+          python3 - "$B" <<'EOF'
+          import sys
+          b = open(sys.argv[1], 'rb').read()
+          for path in ['contracts/sp1/confidential/elf/reflection-prover', 'contracts/sp1/eth-reflection/elf/eth_reflection']:
+              assert open(path, 'rb').read() in b, f'{path} is not embedded byte for byte'
+              print('embedded', path)
+          EOF
+          mkdir -p base && curl -fsSL -o base/bitcoin_prove "https://github.com/${{ github.repository }}/releases/download/${BASELINE}/bitcoin_prove"
+          (cd base && grep ' bitcoin_prove$' ../worker-relay/prover/bin/SHA256SUMS | sha256sum -c -) && chmod +x base/bitcoin_prove
+          # execute mode runs the guest here and asks nothing of the network; the client still wants a key, so a throwaway one
+          export NETWORK_PRIVATE_KEY=0x$(openssl rand -hex 32) PROOF_MODE=execute REFLECT_FIXTURE=$PWD/contracts/sp1/confidential/fixtures/reflection_input.json
+          for who in base new; do
+            bin=$([ $who = base ] && echo base/bitcoin_prove || echo "$B")
+            PROVER_OUT=$PWD/out-$who "$bin" > run-$who.log 2>&1 || { tail -40 run-$who.log; exit 1; }
+            grep -E '^(EXECUTED|fixture|forward)' run-$who.log
+          done
+          cmp out-base/bitcoin_pv.hex out-new/bitcoin_pv.hex
+          [ "$(grep '^EXECUTED' run-base.log)" = "$(grep '^EXECUTED' run-new.log)" ]
+          echo "same public values and cycles as $BASELINE's bitcoin_prove"
+          mkdir -p dist && cp "$B" dist/ && (cd dist && sha256sum bitcoin_prove | tee bitcoin_prove.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bitcoin_prove
+          path: dist/
