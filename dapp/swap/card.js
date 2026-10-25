@@ -318,8 +318,12 @@ function homesHtml() {
   if (!pairOk(S.pay, pa, dk, 'defi') || !pairOk(S.pay, pa, pk, 'pay')) return '';
   // the Pay pool row names where it pays (ETH's on each chain it has, TAC's on Ethereum); the chain itself is picked under the rows
   const at = atOf('get'), n = eth ? (H.moves.chains?.() || []).length : 0, where = n > 1 ? `${n} chains` : 'Ethereum';
-  const row = (home, t, sub, icon) => `<button type="button" role="radio" class="c" data-home="${home}" aria-checked="${String(at === home)}" tabindex="${at === home ? 0 : -1}"><svg class="tk" aria-hidden="true"><use href="#tk-${icon}"/></svg><span class="rt"><b>${t}</b><small>${esc(sub)}</small></span><span class="rd" aria-hidden="true"></span></button>`;
-  return `<div class="rows-h"><span>Private in</span></div>${row('defi', 'DeFi pool', 'bridgeable · swap, farm, borrow', eth ? 'teth' : 'tac')}${row('pay', 'Pay pool', `quick · pay on ${where}`, eth ? 'peth' : 'tac')}`;
+  // what each home earns in TAC points for ETH from the wallet (a wrap into the DeFi pool, a deposit into the Pay pool): for the amount typed,
+  // or for one ETH before one is
+  const wei = isEth(S.pay) && pa === 'wallet' ? parseUnits(S.amt, 18) || 0n : null;
+  const cue = (act) => { const p = wei == null ? null : ptsFor(act, wei > 0n ? wei : 10n ** 18n); return `<span class="ra">${p ? `<span>${ptsSaid(p, false)}</span><small>${wei > 0n ? 'points' : 'points/ETH'}</small>` : ''}</span>`; };
+  const row = (home, t, sub, icon, act) => `<button type="button" role="radio" class="c" data-home="${home}" aria-checked="${String(at === home)}" tabindex="${at === home ? 0 : -1}"><svg class="tk" aria-hidden="true"><use href="#tk-${icon}"/></svg><span class="rt"><b>${t}</b><small>${esc(sub)}</small></span>${cue(act)}<span class="rd" aria-hidden="true"></span></button>`;
+  return `<div class="rows-h"><span>Private in</span></div>${row('defi', 'DeFi pool', 'swap, farm, borrow', eth ? 'teth' : 'tac', 'wrap')}${row('pay', 'Pay pool', `pay on ${where}`, eth ? 'peth' : 'tac', 'dev')}`;
 }
 // the Pay pool's chain, while ETH is in it on either side
 function chainHtml() {

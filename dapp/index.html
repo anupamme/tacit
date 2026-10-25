@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-D/m1s5+zSdOYOlxLJhLkFTCEeu9upJXcRXnuHnc98fc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hwNFb9c04egQfz1PrFNXFKzOjTCFDigdG9Jv/cV28/E=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -138,6 +138,10 @@ main:focus { outline: none; }
 .tk.md { width: 40px; height: 40px; }
 .tk.lg { width: 48px; height: 48px; }
 .pair { display: flex; align-items: center; }
+.swc .rows .c:has(> .pair) { grid-template-columns: 46px minmax(0, 1fr) auto 18px; }
+.swc .rows .c > .pair .tk { width: 28px; height: 28px; }
+.swc .rows .c > .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--field); }
+.swc .rows .c[aria-checked="false"] > .pair { opacity: .6; }
 .pair .tk + .tk { margin-left: -16px; box-shadow: 0 0 0 3px var(--card); }
 .pair .tk.sm + .tk.sm { margin-left: -7px; box-shadow: 0 0 0 2px var(--card); }
 .pair .tk.md + .tk.md { margin-left: -12px; }
@@ -11468,7 +11472,7 @@ async function hxFarms(amt) {
   const eth = tacSrc ? amt * (x?.tacEth || 0) : amt;
   if ((src === 'ether' || src === 'wtac') && x?.supply) {
     const staked = x.value / 1e18 * Number(x.totalStaked) / Number(x.supply);
-    out.push({ k: 'precision', name: 'Precision pool', note: 'public', apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
+    out.push({ k: 'precision', name: 'Precision pool', note: 'public', icons: ['tk-tac', 'tk-eth'], apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
   }
   for (const p of FARM.program?.pools || []) {
     const r = p.reserves || {};
@@ -11479,7 +11483,7 @@ async function hxFarms(amt) {
     // ETH side too where the zap splits TAC's swap with it)
     const split = !tacSrc && HX.earnWay !== 'wrap' && String(p.pair).split('/').includes('TAC') && x?.value ? Number(x.value) / 2e18 : 0;
     const half = amt / 2, side = Number((tacSrc ? r.reserveB : r.reserveA) || 0) / 1e8 + split, impact = half > 0 && side > 0 ? half / (side + half) : 0;
-    out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', dry: !live, apr: live ? shieldedApr(p) : null, day: live && eth ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0, impact });
+    out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'], dry: !live, apr: live ? shieldedApr(p) : null, day: live && eth ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0, impact });
   }
   return out;
 }
@@ -11775,7 +11779,7 @@ async function hxVaultQuote(units) {
   return {
     out: borrow > 0n ? `${live ? '' : '≈ '}${fmt(borrow, 18, dp)}` : tacIn ? '—' : null, borrow, borrowText: borrow > 0n ? fmt(borrow, 18, dp).replace(/,/g, '') : '',
     go: `Borrow ${sym}`, rc, warn: short || small,
-    line: short ? `Your wallet holds ${fmt(bal, 18, 2)} TAC.` : small ? `The smallest loan is ${fmt(s.minDebt, 18, dp)} ${sym}: deposit at least ${minTac ? fmt(minTac, 18, 0) : 'more'} TAC.` : live ? '' : 'An estimate at the oracle’s TAC price: the vault page records the prices it needs, then deposits and borrows.',
+    line: short ? `Your wallet holds ${fmt(bal, 18, 2)} TAC.` : small ? `The smallest loan is ${fmt(s.minDebt, 18, dp)} ${sym}: deposit at least ${minTac ? fmt(minTac, 18, 0) : 'more'} TAC.` : '',
   };
 }
 function hxBwLoad(force = false) {
@@ -12112,8 +12116,8 @@ async function hxQuote() {
       const way = (w) => () => { HX.earnWay = w; HX.q = null; hxQuote(); };
       return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two && !zap ? 'wrap' : null,
         go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? 'Zap into the farm' : two ? 'Make ETH private' : 'Farm privately',
-        rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction: half swapped in the pool' : 'half swapped inside the pool'],
-          pub ? null : ['Chain sees', zap ? 'your ETH going in; private after' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null,
+        rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction' : 'half swapped inside the pool'],
+          pub ? null : ['Chain sees', zap ? 'ETH in, private after' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null,
           !pub && pick.impact >= 0.01 ? ['Price impact', pctFmt(pick.impact * 100), pick.impact >= 0.05 ? 'err' : null] : null],
         // the two ways in from the wallet's ETH: the zap, or making it private first (more private, and a wrap earns points)
         alt: wp ? { label: `Finish your zap into ${pairName(wp.pair)}`, link: `farm/private-${wp.pid}` } : !two ? null : zap ? { label: 'Make ETH private first instead: 2 steps, earns points', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
@@ -12420,6 +12424,9 @@ function paintHxQ() {
     out.classList.toggle('ph', !q.busy && (q.out == null || q.out === '—'));
     if (out.classList.contains('big')) { const n = out.textContent.length; out.classList.toggle('long', n > 8); out.classList.toggle('longer', n > 11); }
   }
+  // what the TAC earned a day is worth, under it
+  const ou = $('#hx-out-usd');
+  if (ou && !q.busy) { const d = Number(String(q.out ?? '').replace(/[^\d.]/g, '')), v = d > 0 ? hxUsd('tac', d) : ''; ou.textContent = v ? `≈ ${v} a day` : ''; }
   const u = hxUnits(), typed = u ? fmt(u, 8, 8) : '';
   for (const e of $$('[data-hxa]')) e.textContent = typed;
   const chain = $('#hx-chain');
@@ -12429,7 +12436,7 @@ function paintHxQ() {
     rows.hidden = !q.rows;
     const name = HX.mode === 'earn' ? 'Where it farms' : 'Route', had = rows.contains(document.activeElement);
     rows.setAttribute('aria-label', name);
-    mount(rows, html`<div class="rows-h"><span>${name}</span></div>${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}><span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
+    mount(rows, html`<div class="rows-h"><span>${name}</span></div>${(q.rows || []).map((r) => html`<button type="button" role="radio" class="${r.icons ? 'c' : ''}" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}>${r.icons ? html`<span class="pair" aria-hidden="true">${r.icons.map((i) => html`<svg class="tk"><use href="#${i}"/></svg>`)}</span>` : ''}<span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
     const live = $$('[data-hxr]', rows);
     const choose = (b) => {
       for (const x of live) { x.setAttribute('aria-checked', x === b); x.tabIndex = x === b ? 0 : -1; }
@@ -12596,7 +12603,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=bc2bc924').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=b781a0b8').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -12671,7 +12678,7 @@ function paintHx() {
   } else if (m === 'earn') {
     const groups = hxGroups('earn'), place = hxPlaceOf('earn', HX.from);
     body = html`${field('You put in', held(groups, place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from, place), true, place === 'private')}
-      ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false)}${tail}
+      ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}${tail}
       <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>`;
   } else if (m === 'borrow' && HX.bsrc !== 'tac' && (HX.bwKey = S.key?.pubHex || '', HX.bwFace = (S.key && hxBwLoad(), hxBwMode())) === 'track') {
     body = html`<div class="hx-bw" id="hx-bw"></div>`;
@@ -12679,7 +12686,7 @@ function paintHx() {
     // what is borrowed against: BTC locked on Bitcoin (cUSD, or cBTC alone), or TAC from the wallet in a TAC vault (TACD, TACE)
     const tacSide = HX.bsrc === 'tac', groups = hxGroups('borrow');
     const ways = tacSide ? [['tacd', 'Borrow TACD', 'a dollar', 'tacd', 'TACD', 'to your wallet'], ['tace', 'Borrow TACE', 'worth one ETH', 'tace', 'TACE', 'to your wallet']]
-      : [['cusd', 'Borrow cUSD', 'a private dollar, repay any time', 'cusd', 'cUSD', 'private'], ['cbtc', 'Mint cBTC only', 'private BTC on Ethereum, free', 'cbtc', 'cBTC', 'private']];
+      : [['cusd', 'Borrow cUSD', 'a private dollar', 'cusd', 'cUSD', 'private'], ['cbtc', 'Mint cBTC only', 'private BTC, free', 'cbtc', 'cBTC', 'private']];
     const way = ([k, t, p, ic, u, where]) => { const on = HX.bm === k; return html`<button type="button" role="radio" class="c" aria-checked="${String(on)}" data-hxd="${k}" tabindex="${on ? 0 : -1}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span class="rt"><b>${t}</b><small>${hxNb(p)}</small></span><span class="ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0</output>` : ''} ${u}</span><small>${where}</small></span><span class="rd" aria-hidden="true"></span></button>`; };
     body = tacSide ? html`${field('You deposit', held(groups, 'wallet'), amt('TAC to deposit'), coin('hx-from', 'You deposit', groups, 'wtac', 'wallet'))}
       ${mid()}
