@@ -407,7 +407,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
   });
   await ctx.addInitScript(() => { window.ethereum = { request: ({ method, params }) => window.__wallet(method, params), on() {}, removeListener() {} }; });
   // what the hero's tile says: its line, then its receipt, one "label: value" a row
-  await ctx.addInitScript(() => { window.__said = () => [(document.querySelector('#hx-q')?.textContent || '').trim(), ...[...document.querySelectorAll('#hx-receipt div')].map((d) => `${d.querySelector('dt')?.textContent}: ${d.querySelector('dd')?.textContent}`)].filter(Boolean).join(' | '); });
+  await ctx.addInitScript(() => { window.__said = () => { const mv = !!document.querySelector('#hx-swap #go') && !document.querySelector('#hx-q'); return [((mv ? document.querySelector('#hx-swap #q') : document.querySelector('#hx-q'))?.textContent || '').trim(), ...[...document.querySelectorAll(mv ? '#hx-swap #rcpt div' : '#hx-receipt div')].map((d) => `${d.querySelector('dt')?.textContent}: ${d.querySelector('dd')?.textContent}`)].filter(Boolean).join(' | '); }; });
   if (init) await ctx.addInitScript(init.fn, init.arg);
   const page = await ctx.newPage();
   const errors = [];
@@ -421,6 +421,20 @@ const shot = (page, name) => SHOTS ? page.screenshot({ path: join(SHOTS, `weld-$
 async function step(name, fn) { if (!ONLY.has(name)) return; try { await fn(); } catch (e) { fails++; console.log('FAIL', name, '-', e.message.split('\n')[0]); if (process.env.DEBUG_STEP) console.log(e.stack); } }
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
 const said = (page) => page.evaluate(() => window.__said?.() || '');
+// The Swap card (the swap card with places, the front page's first tab). A link to one of the old Shield ways sets its two sides as the page's own
+// buttons do; its amount, figure, button, line, Max and flip are the card's own elements.
+const MV = { amt: '#hx-swap #amt', out: '#hx-swap #out', go: '#hx-swap #go', q: '#hx-swap #q', max: '#hx-swap #max', flip: '#hx-swap #flip' };
+const move = async (page, spec, amt) => {
+  await page.evaluate(([s, a]) => { location.hash = `card=${s}${a ? `&amt=${a}` : ''}`; }, [spec, amt || '']);
+  await page.waitForSelector(MV.go, { timeout: 120000 });
+  await page.waitForFunction(() => !/^(Reading…|Finding the best price…)$/.test(document.querySelector('#hx-swap #go')?.textContent || ''), null, { timeout: 240000 }).catch(() => {});
+};
+// each old Shield source, with a way it always has, as the Swap card's From side
+const MOVE_FROM = { ether: 'defi', wtac: 'defi', btc: 'eth', eth: 'wallet', tac: 'wallet', pp: 'addr', tb: 'back' };
+const moveFrom = (page, src, amt) => move(page, `shield:${src}:${MOVE_FROM[src]}`, amt);
+// the places the Swap card's To side can be in, from where its From side is
+const toPlaces = (page) => page.$$eval('#hx-swap .sides[data-side="get"] [data-p]', (b) => b.filter((x) => !x.disabled).map((x) => ['wallet', 'private', 'bitcoin'][x.dataset.p]).join());
+const goText = (page) => page.evaluate(() => document.querySelector('#hx-swap #go')?.textContent || '');
 // The picture of the two chains (dapp/weld/flow/viz.js) as a page shows it: drawn or not, its counters, its clock and its words.
 const flowLook = (page, host) => page.evaluate((h) => { const c = document.querySelector(h + ' canvas'); const d = c ? c.getContext('2d').getImageData(0, 0, c.width, c.height).data : []; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; const q = (x) => (document.querySelector(h + ' ' + x) || {}).textContent || ''; return { has: !!c, drawn: n, foot: q('.fl-foot'), clock: q('.fl-clock'), sr: q('.fl-sr') }; }, host);
 const flowFeed = () => { const t = Math.floor(Date.now() / 1000), ago = (x) => t - x; return { asOf: t, windowSec: 86400, now: { btc: 969200, relay: 969180, attested: 969159, burns: 27, minted: 24, crossOuts: 5, burnDeposits: 1, tacSupply: '2499974665590930000000000' },
@@ -1418,7 +1432,7 @@ await step('hxborrowback', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-bw').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
     ok(!(await p.$('#hx-bw [data-hxbw^="bond"], #hx-bw [data-hxbw="topup"]')) && !!(await p.$('#hx-bw [data-act-open]')), 'hxborrowback: a bond still on its way is said in place of its button, with the way to follow it');
     ok(!(await p.$('[data-hxm="borrow"][data-due]')), `hxborrowback: and the tab does not call for it (${await p.$eval('#hx-bw', (e) => e.textContent.replace(/\s+/g, ' ').slice(0, 160))})`);
-    await p.click('[data-hxm="private"]');
+    await p.click('[data-hxm="swap"]');
     await until(p, () => !!document.querySelector('#dash [data-dash-open="borrow"]'), null, 120000);
     await p.click('#dash [data-dash-open="borrow"]');
     await until(p, () => document.querySelector('[data-hxm="borrow"]')?.getAttribute('aria-selected') === 'true' && !!document.querySelector('#hx-bw'), null, 60000);
@@ -2866,11 +2880,11 @@ await step('bridge', async () => {
   ok(toldKeys.length === 1 && toldKeys[0] === `${'d2'.repeat(32)}:0:held:${new Date().toISOString().slice(0, 10)}`, `bridge: the held mint is announced once and remembered (${JSON.stringify(toldKeys)})`);
   // The landing card's Bitcoin tab is a handoff: it says in one line what the one-step bridge costs and how long it takes, and its
   // button opens the Bridge tab.
-  await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'btc');
-  await until(r.page, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC from Bitcoin', null, 120000);
+  await move(r.page, 'shield:btc:eth');
+  await until(r.page, () => document.querySelector('#hx-swap #go')?.textContent === 'Bridge TAC from Bitcoin', null, 120000);
   const hxBtc = (await text(r.page, '#hx-body')).replace(/\s+/g, ' '), btcSaid = await r.page.evaluate(() => window.__said());
   await shot(r.page, 'hx-bitcoin');
-  ok(/Your TAC/.test(hxBtc) && /Limit: 1,000 TAC a bridge/.test(btcSaid) && !/relay fee/i.test(hxBtc) && /Bitcoin fee: in sats/.test(btcSaid) && /Time: a few hours, at most a day/.test(btcSaid), `bridge: the landing card's TAC-from-Bitcoin way says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
+  ok(/Bridge TAC from Bitcoin/.test(hxBtc) && /Limit: 1,000 TAC a bridge/.test(btcSaid) && !/relay fee/i.test(hxBtc) && /Bitcoin fee: in sats/.test(btcSaid) && /Time: a few hours, at most a day/.test(btcSaid), `bridge: the landing card's TAC-from-Bitcoin way says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
   // A signed-in key also sees what the Bridge tab lists, read when the tab opens: the stubbed notes (250, 1,500, 30 and 40 TAC), the
   // three that can be picked (the Bridge tab checks each one's proof when it is picked), the one over the limit, and the bridges under way (four, two of them waiting for a press from the holder).
   await until(r.page, () => /1,820 TAC on Bitcoin, in 4 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
@@ -2878,7 +2892,7 @@ await step('bridge', async () => {
   ok(/3 notes to pick from \(320 TAC\)\. Each bridges whole, and is checked first/.test(have) && /1 note over 1,000 TAC: split it in the Bridge tab first/.test(have) && !/not ready yet/.test(have) && /4 bridges on their way: 2 need you/.test(have),
     `bridge: the card's Bitcoin tab says what the key holds on Bitcoin and what is under way (${have.slice(0, 260)})`);
   await shot(r.page, 'hx-bitcoin-have');
-  await r.page.click('#hx-go');
+  await r.page.click('#hx-swap #go');
   await until(r.page, () => location.hash === '#bridge' && !!document.querySelector('#sheet-tac[open] #bridge-body'), null, 120000);
   ok(true, 'bridge: the landing card\'s Bridge TAC from Bitcoin opens the TAC sheet on its Bridge tab, and the link reads #bridge');
   await shot(r.page, 'hx-bitcoin-bridge-tab');
@@ -3843,7 +3857,7 @@ await step('xbring', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash-g')).replace(/\s+/g, ' ').slice(0, 300)}`); });
   ok(/0\.007/.test(await r.page.$eval('#dash-g a[href="#private/bitcoin/back"]', (a) => a.textContent)), `xbring: the dashboard counts the tETH on Bitcoin, 0.007 in 2 notes, 1 ready (${(await r.page.$eval('#dash-g a[href="#private/bitcoin/back"]', (a) => a.textContent)).replace(/\s+/g, ' ')})`);
   await shot(r.page, 'xbring-dashboard');
-  await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'tb');
+  await moveFrom(r.page, 'tb');
   await until(r.page, () => /0\.007 tETH on Bitcoin, in 2 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
   ok(/1 of them can come back now \(0\.004 tETH\)/.test(await text(r.page, '#hx-have')), `xbring: and the card, with tETH on Bitcoin picked, says the same (${(await text(r.page, '#hx-have')).replace(/\s+/g, ' ')})`);
   await shot(r.page, 'xbring-card');
@@ -4098,27 +4112,27 @@ await step('xtbridge', async () => {
   // The card says what the sheet will: what arrives, the cut of a note of that size when no note is, and nothing promised for a size the sheet refuses.
   const lander = () => r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   await lander();
-  await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'tac');
-  await until(r.page, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC to Bitcoin', null, 60000);
+  await move(r.page, 'shield:tac:btc');
+  await until(r.page, () => document.querySelector('#hx-swap .sides[data-side="get"] [data-p="2"]')?.getAttribute('aria-checked') === 'true' && /^TAC/.test((document.querySelector('#hx-swap #get-coin')?.textContent || '').trim()), null, 60000);
   const cardAt = async (v, out, line) => {
     // from an empty card, so a refused size cannot pass on the last refused size's '—' and line
-    await r.page.fill('#hx-amt', '');
-    await until(r.page, () => document.querySelector('#hx-out')?.textContent === '0' && !document.querySelector('#hx-out.busy'), null, 60000);
-    await r.page.fill('#hx-amt', v);
-    await until(r.page, ([o, l]) => document.querySelector('#hx-out')?.textContent === o && new RegExp(l).test(window.__said()), [out, line], 240000)
+    await r.page.fill('#hx-swap #amt', '');
+    await until(r.page, () => document.querySelector('#hx-swap #out')?.textContent === '0' && !document.querySelector('#hx-swap #out.busy'), null, 60000);
+    await r.page.fill('#hx-swap #amt', v);
+    await until(r.page, ([o, l]) => document.querySelector('#hx-swap #out')?.textContent === o && new RegExp(l).test(window.__said()), [out, line], 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card at ${v}: ${(await text(r.page, '#hx-body')).replace(/\s+/g, ' ').slice(0, 300)}`); });
     return r.page.evaluate(() => window.__said());
   };
   const l50 = await cardAt('50', '46', 'Relay fee: 4 TAC');
   ok(!/Cuts a note/.test(l50), `xtbridge: the card shows 50 TAC as 46 with no cut, a note being exactly 50 (${l50.slice(0, 100)})`);
   const l40 = await cardAt('40', '36', 'Cuts a note');
-  ok(/^Arrives: 36 TAC on Bitcoin \| Relay fee: 4 TAC \| Cuts a note: 2 TAC first \|/.test(l40) && (await r.page.$$eval('#hx-receipt div', (d) => d.map((x) => x.title).join('|'))).includes('8 TAC if its floor has moved'), `xtbridge: and 40 TAC as 36 with the cut named, no note being exactly 40 (${l40.slice(0, 120)})`);
+  ok(/^Arrives: 36 TAC on Bitcoin \| Relay fee: 4 TAC \| Cuts a note: 2 TAC first \|/.test(l40) && (await r.page.$$eval('#hx-swap #rcpt div', (d) => d.map((x) => x.title).join('|'))).includes('8 TAC if its floor has moved'), `xtbridge: and 40 TAC as 36 with the cut named, no note being exactly 40 (${l40.slice(0, 120)})`);
   const l5 = await cardAt('5', '—', '^A bridge takes 20 to 1,000 TAC while this is new\\.$');
   const l5000 = await cardAt('1200', '—', '^A bridge takes 20 to 1,000 TAC while this is new\\.$');
   ok(l5.length > 0 && l5000.length > 0, `xtbridge: and a size the sheet refuses is not quoted, on either side of its limits (1,200 is over the limit but held) (${l5} | ${l5000})`);
-  await r.page.fill('#hx-amt', '40');
-  await until(r.page, () => document.querySelector('#hx-out')?.textContent === '36', null, 120000);
-  await r.page.click('#hx-go');
+  await r.page.fill('#hx-swap #amt', '40');
+  await until(r.page, () => document.querySelector('#hx-swap #out')?.textContent === '36', null, 120000);
+  await r.page.click('#hx-swap #go');
   await until(r.page, () => location.hash === '#bridge/out' && document.querySelector('#xt-amt')?.value === '40' && /Relay fee to split a note/.test(document.querySelector('#xt-rcpt')?.textContent || ''), null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash ${await r.page.evaluate(() => location.hash)} | rcpt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
   const sheet40 = (await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ');
@@ -6526,22 +6540,23 @@ await step('hxteth', async () => {
   const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   try {
     await lander();
-    await p.click('[data-hxm="private"]');
+    await p.click('[data-hxm="swap"]');
     await until(p, () => /You hold 0\.25 tETH privately/.test(document.querySelector('#hx-have')?.textContent || ''), null, 300000);
-    ok(await p.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join()) === 'send:eth,swap:eth:tac,shield:eth:wallet', 'hxteth: Shield says the tETH held, with Send, Swap and Back to ETH a press away');
+    ok(await p.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join()) === 'send:eth,swap:eth:tac,shield:eth:wallet', 'hxteth: the Swap card says the tETH held, with Send, Swap and Back to ETH a press away');
     await p.click('[data-hxin="shield:eth:wallet"]');
-    ok(await p.$eval('#hx-from', (e) => e.value) === 'eth' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt', 'hxteth: Back to ETH sets the card to taking tETH out, with the keyboard in the amount');
-    await p.fill('#hx-amt', '0.1');
+    const turned = await p.evaluate(() => [document.querySelector('#hx-swap #pay-coin')?.textContent.trim(), document.querySelector('#hx-swap #get-coin')?.textContent.trim(), document.activeElement?.id || document.activeElement?.tagName]);
+    ok(/^tETH/.test(turned[0]) && /^ETH/.test(turned[1]) && turned[2] === 'amt', `hxteth: Back to ETH turns the Swap card to taking tETH out, with the keyboard in the amount (${turned.join(' → ')})`);
+    await p.fill('#hx-swap #amt', '0.1');
     await until(p, () => /Relay fee: [\d.]+ ETH, out of it \| To: your wallet, or an address you name next$/.test(window.__said()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
-    const fee = Number((await line()).match(/Relay fee: ([\d.]+) ETH/)[1]), out = Number(await text(p, '#hx-out'));
+    const fee = Number((await line()).match(/Relay fee: ([\d.]+) ETH/)[1]), out = Number(await text(p, '#hx-swap #out'));
     ok(fee > 0 && Math.abs(out - (0.1 - fee)) < 1e-9, `hxteth: 0.1 tETH back to ETH pays out 0.1 less the relay fee (${out} = 0.1 - ${fee})`);
-    await p.click('#hx-max');
+    await p.click('#hx-swap #max');
     await until(p, () => /Combines notes: [\d.]+ tETH first/.test(window.__said()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
-    const combine = Number((await line()).match(/Combines notes: ([\d.]+) tETH first/)[1]), max = Number(await p.inputValue('#hx-amt'));
+    const combine = Number((await line()).match(/Combines notes: ([\d.]+) tETH first/)[1]), max = Number(await p.inputValue('#hx-swap #amt'));
     ok(combine > 0 && Math.abs(max + combine - 0.25) < 1e-9, `hxteth: Max over two notes keeps the relay fee that combines them (${max} + ${combine} = 0.25)`);
-    await p.click('#hx-go');
+    await p.click('#hx-swap #go');
     await until(p, (v) => document.querySelector('#sheet-eth[open] #o-amt')?.value === v, String(max), 120000);
     ok(true, 'hxteth: Turn tETH into ETH opens the Withdraw form with that amount');
     await lander();
@@ -6770,14 +6785,16 @@ await step('hxplace', async () => {
   const lander = (p) => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   const marks = (p) => p.$$eval('[data-hxp] [data-place][data-held]', (b) => b.map((x) => x.dataset.place).join());
   const picked = (p) => p.$eval('[data-hxp] [data-place][aria-checked="true"]', (b) => b.dataset.place);
+  const mvMarks = (p) => p.$$eval('#hx-swap .sides[data-side="pay"] [data-p][data-held]', (b) => b.map((x) => ['wallet', 'private', 'bitcoin'][x.dataset.p]).join());
+  const mvPicked = (p) => p.$eval('#hx-swap .sides[data-side="pay"] [data-p][aria-checked="true"]', (b) => ['wallet', 'private', 'bitcoin'][b.dataset.p]);
   // ETH in the wallet and tETH held privately: both tabs stay on the wallet, and both places are marked
   const r = await openFarmKey('7d80'.padEnd(64, '5'), { notes, fees });
   try {
     const p = r.page;
     await lander(p);
-    await p.click('[data-hxm="private"]');
-    await until(p, () => /^Balance \S+ · Max/.test(document.querySelector('#hx-bal')?.textContent || '') && !!document.querySelector('[data-hxp] [data-place="private"][data-held]'), null, 300000);
-    ok(await picked(p) === 'wallet' && await marks(p) === 'wallet,private' && await p.$eval('#hx-from', (e) => e.value) === 'ether', `hxplace: Shield stays on the wallet's ETH, and the wallet and the private place are marked (${await marks(p)})`);
+    await p.click('[data-hxm="swap"]');
+    await until(p, () => !!document.querySelector('#hx-swap .sides[data-side="pay"] [data-p="1"][data-held]') && /Balance \S+ · Max/.test(document.querySelector('#hx-swap #pay-side')?.textContent || ''), null, 300000);
+    ok(await mvPicked(p) === 'wallet' && await mvMarks(p) === 'wallet,private' && /^ETH/.test((await text(p, '#hx-swap #pay-coin')).trim()), `hxplace: the Swap card stays on the wallet's ETH, and the wallet and the private place are marked (${await mvMarks(p)})`);
     await p.click('[data-hxm="earn"]');
     await until(p, () => !!document.querySelector('[data-hxp] [data-place="private"][data-held]'), null, 60000);
     ok(await picked(p) === 'wallet' && await p.$eval('#hx-from', (e) => e.value) === 'ether', 'hxplace: Earn stays on the wallet too');
@@ -6790,17 +6807,17 @@ await step('hxplace', async () => {
   try {
     const q = r2.page;
     await lander(q);
-    await q.click('[data-hxm="private"]');
-    await until(q, () => document.querySelector('#hx-from')?.value === 'eth' && /^Balance 0\.25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | from: ${await q.$eval('#hx-from', (x) => x.value)} | bal: ${await text(q, '#hx-bal')} | place: ${await picked(q)} | marks: ${await marks(q)} | go: ${await text(q, '#hx-go')}`); });
-    ok(await picked(q) === 'private' && await marks(q) === 'private' && await text(q, '#hx-go') === 'Turn tETH into ETH', `hxplace: with nothing in the wallet Shield opens on the private tETH (${await text(q, '#hx-go')})`);
-    ok(await q.evaluate(() => JSON.parse(localStorage.getItem('tacit-hx-card-v1')).sf) === 'ether', 'hxplace: what is kept for the next visit is the place the card opened on');
+    await q.click('[data-hxm="swap"]');
+    await until(q, () => /^tETH/.test((document.querySelector('#hx-swap #pay-coin')?.textContent || '').trim()) && /Balance 0\.25 · Max/.test(document.querySelector('#hx-swap #pay-side')?.textContent || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | from: ${await text(q, '#hx-swap #pay-coin')} | bal: ${await text(q, '#hx-swap #pay-side')} | place: ${await mvPicked(q)} | marks: ${await mvMarks(q)} | go: ${await goText(q)}`); });
+    ok(await mvPicked(q) === 'private' && await mvMarks(q) === 'private' && /^ETH/.test((await text(q, '#hx-swap #get-coin')).trim()), `hxplace: with nothing in the wallet the Swap card opens on taking the private tETH out (${await goText(q)})`);
+    ok(await q.evaluate(() => JSON.parse(localStorage.getItem('tacit-hx-card-v1') || '{}').swq || 'to=tETH&private=to') === 'to=tETH&private=to', 'hxplace: what is kept for the next visit is the pair the card had before');
     await q.click('[data-hxm="earn"]');
     await until(q, () => document.querySelector('#hx-from')?.value === 'eth' && /^Balance 0\.25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 60000);
     ok(await picked(q) === 'private', 'hxplace: Earn opens on the private tETH too');
     await q.click('[data-hxp] [data-place="wallet"]');
     await until(q, () => document.querySelector('#hx-from')?.value === 'ether', null, 60000);
-    await q.click('[data-hxm="private"]'); await q.click('[data-hxm="earn"]');
+    await q.click('[data-hxm="swap"]'); await q.click('[data-hxm="earn"]');
     await q.waitForTimeout(1500);
     ok(await picked(q) === 'wallet' && await q.$eval('#hx-from', (e) => e.value) === 'ether', 'hxplace: a place chosen by hand is not moved off again, though it holds nothing');
     if (r2.errors.length) { fails++; console.log('FAIL hxplace page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
@@ -6944,25 +6961,20 @@ await step('hxsendtac', async () => {
     ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsendtac: a Tacit address typed for the ERC-20 is said to need private TAC, and the button waits');
     // Shield: TAC in the wallet becomes private TAC; the amount goes to the TAC sheet's form.
     await lander(p);
-    await p.click('[data-hxm="private"]');
-    await p.selectOption('#hx-from', 'wtac');
-    await p.fill('#hx-amt', '10');
+    await move(p, 'shield:wtac:defi', '10');
     await until(p, () => /Sent: in one transaction from your (wallet|Tacit account), with a permit/.test(window.__said()), null, 60000);
-    ok(await text(p, '#hx-go') === 'Make TAC private', `hxsendtac: Shield offers wallet TAC as private TAC (${await line()})`);
+    ok(await goText(p) === 'Make TAC private', `hxsendtac: the Swap card offers wallet TAC as private TAC (${await line()})`);
     await look('hxsendtac-shield');
-    await p.click('#hx-go');
+    await p.click(MV.go);
     await until(p, () => document.querySelector('#sheet-tac[open] #tsh-amt')?.value === '10', null, 120000);
     ok(true, 'hxsendtac: and its button opens the TAC sheet\'s Make private form with the amount');
     // The other way: payments, in the TAC pool whose proofs are made on this device; the card opens its Deposit with the amount.
     await lander(p);
-    await p.click('[data-hxm="private"]');
-    await p.selectOption('#hx-from', 'wtac');
-    await pressRow(p, '[data-hxd="pay"]');
-    await p.fill('#hx-amt', '10');
+    await move(p, 'shield:wtac:pay', '10');
     await until(p, () => /Fee: the network fee only/.test(window.__said()), null, 60000);
-    ok(await text(p, '#hx-go') === 'Deposit privately', `hxsendtac: wallet TAC can also go to the TAC pool whose proofs are made on this device (${await line()})`);
+    ok(await goText(p) === 'Deposit privately', `hxsendtac: wallet TAC can also go to the TAC pool whose proofs are made on this device (${await line()})`);
     await look('hxsendtac-pay');
-    await p.click('#hx-go');
+    await p.click(MV.go);
     await until(p, () => document.querySelector('#sheet-eth[open] #d-amt')?.value === '10' && location.hash === '#device/tac', null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash=${await p.evaluate(() => location.hash)} amt=${await p.evaluate(() => document.querySelector('#d-amt')?.value)}`); });
     ok(true, 'hxsendtac: and its button opens the TAC pool\'s Deposit with the amount');
@@ -6994,8 +7006,8 @@ await step('hxsendtac', async () => {
     await until(q, () => /No private TAC yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
     ok((await q.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join()))=== 'shield:wtac:defi', 'hxsendtac: no private TAC offers making the wallet\'s TAC private, not buying more');
     await q.click('#hx-have [data-hxin]');
-    await until(q, () => document.querySelector('[data-hxm="private"]')?.getAttribute('aria-selected') === 'true' && document.querySelector('#hx-from')?.value === 'wtac', null, 60000);
-    ok(true, 'hxsendtac: and that opens Shield on TAC in the wallet');
+    await until(q, () => document.querySelector('[data-hxm="swap"]')?.getAttribute('aria-selected') === 'true' && /^TAC/.test((document.querySelector('#hx-swap #pay-coin')?.textContent || '').trim()) && document.querySelector('#hx-swap .sides[data-side="pay"] [data-p="0"]')?.getAttribute('aria-checked') === 'true', null, 60000);
+    ok(true, 'hxsendtac: and that opens the Swap card on TAC in the wallet');
     await until(q, () => document.querySelectorAll('#dash-g .di-send[data-hx="send:wtac"]').length === 1, null, 120000)
       .catch(async () => { throw new Error(`no dashboard send on TAC: ${await q.$$eval('#dash-g .di-send', (b) => b.map((x) => x.dataset.hx).join())}`); });
     ok(true, 'hxsendtac: Your Tacit offers Send on TAC held only in the wallet');
@@ -7243,8 +7255,11 @@ await step('hxearntac', async () => {
     await p.selectOption('#hx-from', 'tac');
     await p.fill('#hx-amt', '');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Farm privately', null, 240000);
+    // what the key holds privately is known once its scan lands (minutes on a cold fork): only then does the button take it all
+    await until(p, () => /^Balance 500 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000);
     await p.click('#hx-go');
-    await p.waitForSelector('#sheet-farm[open] #sj-b-0', { timeout: 300000 });
+    await p.waitForSelector('#sheet-farm[open] #sj-b-0', { timeout: 300000 })
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash: ${await p.evaluate(() => location.hash)} | q: ${await text(p, '#hx-q')} | go: ${await text(p, '#hx-go')} | bal: ${await text(p, '#hx-bal')} | amt: ${JSON.stringify(await p.inputValue('#hx-amt'))} | routes: ${(await rows()).join(' / ')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
     ok((await text(p, '#hx-q')).trim() !== 'Enter an amount first.' && !(await p.$('#sj-a-0')), 'hxearntac: private TAC held, the button needs no amount typed: it opens the pool and the pool takes what is held');
     await until(p, () => Number(document.querySelector('#sj-b-0')?.value) > 400, null, 420000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | value=${await p.inputValue('#sj-b-0')} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')} | ${(await text(p, '#farm-pid0')).replace(/\s+/g, ' ').slice(0, 300)}`); });
@@ -7339,22 +7354,22 @@ await step('hxtip', async () => {
         body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), tipSplitter: '0x' + '5e'.repeat(20), recommendedWrapTipWei: noTip ? undefined : String(tip) }) });
     });
     await p.goto(r.url);
-    await p.waitForSelector('#hx-amt', { timeout: 120000 });
-    await p.focus('#hx-amt'); await sleep(1500);
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });                       // the Swap card opens on making ETH private
+    await p.focus('#hx-swap #amt'); await sleep(1500);
     ok(asked.length === 0, `hxtip: nothing is asked of the relay before an amount is typed (${asked.length})`);
-    await p.fill('#hx-amt', '0.003');
+    await p.fill('#hx-swap #amt', '0.003');
     await until(p, () => /Relay tip: 0\.00009 ETH/.test(window.__said()), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(-200)}`); });
     ok(true, 'hxtip: a 0.003 ETH wrap says its tip is 0.00009 ETH (3% of it)');
-    await p.fill('#hx-amt', '0.1');
+    await p.fill('#hx-swap #amt', '0.1');
     await until(p, () => /Relay tip: 0\.000117 ETH/.test(window.__said()), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(-200)}`); });
     ok(asked.includes('3000000000000000') && asked.includes('100000000000000000'), `hxtip: and a 0.1 ETH wrap says the capped figure, each amount asked for itself (${asked.join(', ')})`);
     // No figure from the relay means it could not work one out just now: the card says the next step shows it, not a tip of nothing.
     noTip = true;
-    await p.fill('#hx-amt', '0.2');
+    await p.fill('#hx-swap #amt', '0.2');
     await until(p, () => /Relay tip: shown next/.test(window.__said()), null, 60000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-q')).replace(/\s+/g, ' ')}`); });
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-swap #q')).replace(/\s+/g, ' ')}`); });
     ok(true, 'hxtip: a quote with no tip in it is not read as a tip of nothing');
     if (r.errors.length) { fails++; console.log('FAIL hxtip page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
@@ -7461,93 +7476,74 @@ await step('hxout', async () => {
   const p = r.page;
   const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   const body = async () => (await text(p, '#hx-body')).replace(/\s+/g, ' ');
-  // Shield names what is held, then the ways it can go: the Bitcoin legs are ways, and each follows its own setting.
-  const sourceValues = () => p.$$eval('#hx-from option', (o) => o.map((x) => x.value).filter((v) => v !== 'wtac').join());   // wallet TAC is offered whenever the wallet holds the ERC-20, and has its own scenario (hxsendtac)
-  const waysOf = async (src) => { await p.selectOption('#hx-from', src); return p.$$eval('#hx-dest [data-hxd], #hx-dest .hx-r', (r) => r.map((x) => x.dataset.hxd || 'back').join()); };
-  const repaint = async () => { await p.click('[data-hxm="swap"]'); await p.click('[data-hxm="private"]'); };
+  // The Swap card's To side reaches Bitcoin only from what has a bridge there, and each bridge follows its own setting.
+  const btcFrom = async (src) => { await moveFrom(p, src); return (await toPlaces(p)).split(',').includes('bitcoin'); };
+  const btcs = async () => [await btcFrom('ether'), await btcFrom('eth'), await btcFrom('tac')].map((x) => (x ? 'btc' : '-')).join(' ');
   try {
     await lander();
-    await p.click('[data-hxm="private"]'); await p.selectOption('#hx-from', 'tac');
-    ok(!!(await p.$('[data-hxd="btc"]')), 'hxout: with TAC to Bitcoin switched on, private TAC has a way to Bitcoin');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC to Bitcoin', null, 120000);
-    ok((await sourceValues()) === 'ether,eth,tac,pp,btc' && (await waysOf('ether')) === 'defi,pay' && (await waysOf('eth')) === 'wallet' && (await waysOf('tac')) === 'btc,wallet', `hxout: with only TAC on, only TAC has a way to Bitcoin (${await sourceValues()})`);
-    await p.selectOption('#hx-from', 'tac');
-    await p.fill('#hx-amt', '25');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '21' && /Cuts a note/.test(window.__said()), null, 240000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | q: ${await text(p, '#hx-q').catch(() => '?')} | out: ${await text(p, '#hx-out').catch(() => '?')} | dash: ${(await text(p, '#dash-g').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+    ok((await btcs()) === '- - btc', `hxout: with only TAC to Bitcoin switched on, only private TAC can go to Bitcoin (ETH, tETH, TAC: ${await btcs()})`);
+    await move(p, 'shield:tac:btc', '25');
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '21' && /Cuts a note/.test(window.__said()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | said: ${await said(p).catch(() => '?')} | out: ${await text(p, MV.out).catch(() => '?')} | dash: ${(await text(p, '#dash-g').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
     const line = await said(p);
-    ok(line === 'Arrives: 21 TAC on Bitcoin | Relay fee: 4 TAC | Cuts a note: 2 TAC first | Bitcoin fee: in sats, from your Bitcoin address | Limits: 20 to 1,000 TAC a bridge | Time: a few hours, at most a day', `hxout: 25 TAC arrives as 21 (the relay's 4 TAC floor, 8 TAC if it has moved), the cut of a note of that size, the limits and the time are said (${line.slice(0, 260)})`);
-    await p.click('#hx-go');
+    ok(line === 'Arrives: 21 TAC on Bitcoin | Relay fee: 4 TAC | Cuts a note: 2 TAC first | Bitcoin fee: in sats, from your Bitcoin address | Limits: 20 to 1,000 TAC a bridge | Time: a few hours, at most a day', `hxout: 25 TAC arrives as 21 (the relay's 4 TAC floor, 8 TAC if it has moved), the cut of a note this size said, the limits said (${line})`);
+    await p.click(MV.go);
     await until(p, () => location.hash === '#bridge/out' && !!document.querySelector('#bridge-body [data-brm="out"][aria-selected="true"]') && document.querySelector('#xt-amt')?.value === '25', null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash: ${await p.evaluate(() => location.hash)} | body: ${(await text(p, '#bridge-body')).replace(/\s+/g, ' ').slice(0, 200)} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
     ok(true, 'hxout: the button opens the TAC sheet on its To Bitcoin side, with the amount in the form');
     // Outside what a bridge takes: no figure is promised, and the limits are said.
     await lander();
-    // Each amount's own answer (the card shows a quote still out as coming, never the last amount's): 5,000 is also more than the 62 held.
     const limits = 'A bridge takes 20 to 1,000 TAC while this is new.';
-    for (const [v, said] of [['5', limits], ['5000', `You hold 62 private TAC, less than this: make TAC private first. ${limits}`]]) {
-      await p.fill('#hx-amt', v);
-      await until(p, (x) => document.querySelector('#hx-out')?.textContent === '—' && (document.querySelector('#hx-q')?.textContent || '').trim() === x, said, 240000)
+    for (const [v, says] of [['5', limits], ['5000', `You hold 62 private TAC, less than this: make TAC private first. ${limits}`]]) {
+      await p.fill(MV.amt, v);
+      await until(p, (x) => document.querySelector('#hx-swap #out')?.textContent === '—' && (document.querySelector('#hx-swap #q')?.textContent || '').trim() === x, says, 240000)
         .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | at ${v}: ${await body()}`); });
     }
     ok(true, 'hxout: 5 TAC and 5,000 TAC are not quoted, and the limits are said (5,000 TAC also says what is held)');
-    // 61 of the 62 held, with no note exactly that size: the 2 TAC to cut one cannot also come out of what is left, as the sheet will say.
-    await p.fill('#hx-amt', '61');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '—' && /^The most you can use is 60 TAC: the relay fee to cut a note of this size comes out of it\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+    await p.fill(MV.amt, '61');
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '—' && /^The most you can use is 60 TAC: the relay fee to cut a note of this size comes out of it\.$/.test((document.querySelector('#hx-swap #q')?.textContent || '').trim()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | at 61: ${await body()}`); });
     ok(true, 'hxout: 61 of 62 TAC held is not quoted, and the most that can be used is said');
-    // More than the 62 TAC held: the card says so and sends the holder to make TAC private.
     await lander();
-    await p.fill('#hx-amt', '70');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make TAC private' && /You hold 62 private TAC, less than this: make TAC private first\./.test(document.querySelector('#hx-q')?.textContent || ''), null, 240000)
+    await p.fill(MV.amt, '70');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Make TAC private' && /You hold 62 private TAC, less than this: make TAC private first\./.test(document.querySelector('#hx-swap #q')?.textContent || ''), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card: ${await body()}`); });
     ok(true, 'hxout: more than the private TAC held says what is held and offers to make TAC private');
-    await p.click('#hx-go');
+    await p.click(MV.go);
     await until(p, () => !!document.querySelector('#sheet-tac[open]'), null, 120000);
     const hash = await p.evaluate(() => location.hash);
     ok(hash !== '#sell', `hxout: and the button opens the TAC sheet, where TAC is made private at the top, not on its Sell tab (${hash})`);
-    // Both switched on: ETH, tETH and TAC are offered, and each is quoted as itself.
+    // Both switched on: ETH (made tETH first), tETH and TAC all go to Bitcoin, and each is quoted as itself.
     await lander();
     await p.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
-    await repaint();
-    const both = [await waysOf('ether'), await waysOf('eth'), await waysOf('tac')];
-    ok(both.join(' | ') === 'defi,pay,btc | wallet,btc | btc,wallet' && (await sourceValues()) === 'ether,eth,tac,pp,btc,tb', `hxout: with both on it can send ETH (made tETH first), tETH or TAC to Bitcoin (${both.join(' | ')})`);
-    await p.selectOption('#hx-from', 'eth'); await pressRow(p, '[data-hxd="btc"]');
-    await p.fill('#hx-amt', '0.04');
-    await until(p, () => /tETH a bridge/.test(window.__said()) && document.querySelector('#hx-go')?.textContent !== 'Bridge TAC to Bitcoin', null, 240000)
+    ok((await btcs()) === 'btc btc btc', `hxout: with both on, ETH, tETH and TAC can go to Bitcoin (${await btcs()})`);
+    await move(p, 'shield:eth:btc', '0.04');
+    await until(p, () => /tETH a bridge/.test(window.__said()) && document.querySelector('#hx-swap #go')?.textContent !== 'Bridge TAC to Bitcoin', null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card: ${await body()}`); });
     const tethLine = await said(p);
-    ok(/Relay fee: [\d.]+ tETH \| Bitcoin fee: in sats, from your Bitcoin address \| Limits: [\d.]+ to [\d.]+ tETH a bridge \| Time: a few hours, at most a day/.test(tethLine) && !/TAC/.test(tethLine), `hxout: tETH is quoted as tETH, in its own words, with the time the sheet gives (${tethLine.slice(0, 200)})`);
-    // The picker has the focus when it changes from tETH to TAC, and keeps it through the redraw that causes.
-    await p.focus('#hx-from');
-    await p.selectOption('#hx-from', 'tac');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC to Bitcoin', null, 120000);
-    ok((await p.evaluate(() => document.activeElement?.id)) === 'hx-from', 'hxout: the focus stays on the picker after it redraws the card');
-    await p.fill('#hx-amt', '25');
+    ok(/Relay fee: [\d.]+ tETH \| Bitcoin fee: in sats, from your Bitcoin address \| Limits: [\d.]+ to [\d.]+ tETH a bridge \| Time: a few hours, at most a day/.test(tethLine) && !/TAC/.test(tethLine), `hxout: tETH is quoted as tETH, in its own words, with the time the sheet gives (${tethLine.slice(0, 160)})`);
+    await move(p, 'shield:tac:btc', '25');
     await until(p, () => /Limits: 20 to 1,000 TAC a bridge/.test(window.__said()), null, 120000);
     const tacLine = await said(p);
     ok(/Relay fee: 4 TAC/.test(tacLine) && !/tETH/.test(tacLine), `hxout: and TAC as TAC (${tacLine.slice(0, 120)})`);
-    // Turned back to bringing TAC in, the card names the way out for all the assets it now has.
-    await p.click('#hx-flip');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC from Bitcoin', null, 60000);
-    ok((await p.$eval('#hx-from', (e) => e.value)) === 'btc', 'hxout: reversing TAC to Bitcoin is TAC from Bitcoin');
-    await p.click('#hx-flip');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC to Bitcoin', null, 60000);
-    // Only tETH on: TAC is not offered.
+    // Turned around, TAC to Bitcoin is TAC from Bitcoin.
+    await p.click(MV.flip);
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Bridge TAC from Bitcoin', null, 60000);
+    ok(/^TAC/.test((await text(p, '#hx-swap #pay-coin')).trim()) && (await p.$eval('#hx-swap .sides[data-side="pay"] [data-p="2"]', (b) => b.getAttribute('aria-checked'))) === 'true', 'hxout: turned around, TAC to Bitcoin is TAC from Bitcoin');
+    await p.click(MV.flip);
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Bridge TAC to Bitcoin', null, 60000);
+    // Only tETH on: TAC does not go to Bitcoin.
     await p.evaluate(() => localStorage.setItem('tacit-tac-btc', 'false'));
-    await repaint();
-    const only = [await waysOf('ether'), await waysOf('eth'), await waysOf('tac')];
-    ok(only.join(' | ') === 'defi,pay,btc | wallet,btc | wallet', `hxout: with only tETH on, TAC has no way to Bitcoin (${only.join(' | ')})`);
-    // Neither on: the tab only brings TAC in.
+    ok((await btcs()) === 'btc btc -', `hxout: with only tETH on, TAC does not go to Bitcoin (${await btcs()})`);
+    // Neither on: nothing goes to Bitcoin, and TAC still comes from there.
     await p.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
-    await repaint();
-    const none = [await waysOf('ether'), await waysOf('eth'), await waysOf('tac'), await waysOf('btc')];
-    ok(none.join(' | ') === 'defi,pay | wallet | wallet | eth,pool' && !(await p.$('#hx-flip')), `hxout: with both switched off nothing goes to Bitcoin: it only brings TAC in (${none.join(' | ')})`);
-    // Nothing set: both are on, so ETH, tETH and TAC are all offered.
+    const none = await btcs();
+    await moveFrom(p, 'btc');
+    ok(none === '- - -' && (await toPlaces(p)) === 'private,bitcoin', `hxout: with both switched off nothing goes to Bitcoin, and TAC on Bitcoin still comes over or is shielded there (${none} · from Bitcoin: ${await toPlaces(p)})`);
+    // Nothing set: both are on.
     await p.evaluate(() => { localStorage.removeItem('tacit-teth-btc'); localStorage.removeItem('tacit-tac-btc'); });
-    await repaint();
-    const dflt = [await waysOf('ether'), await waysOf('eth'), await waysOf('tac')];
-    ok(dflt.join(' | ') === 'defi,pay,btc | wallet,btc | btc,wallet', `hxout: with nothing set both are on, and ETH, tETH and TAC go to Bitcoin (${dflt.join(' | ')})`);
+    const dflt = await btcs();
+    ok(dflt === 'btc btc btc', `hxout: with nothing set both are on, and ETH, tETH and TAC go to Bitcoin (${dflt})`);
     if (r.errors.length) { fails++; console.log('FAIL hxout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -7562,12 +7558,10 @@ await step('hxlink', async () => {
   const p = r.page;
   try {
     await p.goto(r.url);
-    await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
-    await p.click('[data-hxm="private"]'); await p.selectOption('#hx-from', 'tac');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC to Bitcoin', null, 60000);
-    await p.fill('#hx-amt', '25');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '21', null, 120000);
-    await p.click('#hx-go');
+    await p.waitForSelector('[data-hxm="swap"]', { timeout: 120000 });
+    await move(p, 'shield:tac:btc', '25');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Bridge TAC to Bitcoin' && document.querySelector('#hx-swap #out')?.textContent === '21', null, 120000);
+    await p.click(MV.go);
     await until(p, () => !!document.querySelector('#sheet-tac[open] #bridge-body-in'), null, 60000);
     const hash = await p.evaluate(() => location.hash);
     ok(hash === '#bridge/out', `hxlink: with no key open the button opens the Bridge tab, which asks for one, still addressed as the way out (${hash})`);
@@ -7613,13 +7607,13 @@ await step('hxpanel', async () => {
     ok(await form('#sj-a-0', '1') && !!(await p.$('#sheet-farm[open]')), 'hxpanel: the second step opens that farm on tETH alone with the same amount');
     // The card's points figure for a wrap is the Private sheet's own: the same number, before and after the hand-off.
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
-    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
+    await move(p, 'shield:ether:defi', '0.02');
     // The amount carries over from the last tab, so the figure for it comes first: wait for this amount's own.
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.02' && !document.querySelector('#hx-pts')?.hidden && /≈ [\d,]+/.test(document.querySelector('#hx-pts b')?.textContent || ''), null, 120000);
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '0.02' && !document.querySelector('#hx-pts')?.hidden && /≈ [\d,]+/.test(document.querySelector('#hx-pts b')?.textContent || ''), null, 120000);
     const figure = (t) => (t.match(/≈\s*([\d,]+)/) || [])[1];
     const onCard = figure(await text(p, '#hx-pts b'));
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 120000);
-    await p.click('#hx-go');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Make ETH private', null, 120000);
+    await p.click('#hx-swap #go');
     ok(await form('#w-amt', '0.02') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: Private opens the wrap with the amount and no second step');
     await until(p, () => /≈\s*[\d,]+/.test(document.querySelector('#w-rcpt [data-pts] b')?.textContent || ''), null, 120000);
     const onSheet = figure(await text(p, '#w-rcpt [data-pts] b'));
@@ -7638,17 +7632,17 @@ await step('hxweek', async () => {
   const p = r.page;
   try {
     await p.waitForSelector('#hx-body .hx-h');
-    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
+    await move(p, 'shield:ether:defi', '0.02');
     await until(p, () => /Counts 1\.5× toward/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 300000);   // the card waits for the Points reading made at sign-in
     const tip = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
     ok(/Counts 1\.5× toward today’s pot\. A loan or a \.wei name this week lifts it to 1\.75×\./.test(tip), `hxweek: yesterday's swap and today's private deposit count x1.5, and the next kind is named (${tip.slice(0, 200)})`);
     if (SHOTS) await (await p.$('#hx')).screenshot({ path: join(SHOTS, 'weld-hxweek.png') });
-    await p.fill('#hx-amt', '0.0001');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
+    await p.fill('#hx-swap #amt', '0.0001');
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
     const small = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
     ok(/TAC points\s*< 1/.test(small) && !/Counts \d[\d.]*×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
     // A key with nothing on Bitcoin is told so, and where to receive it.
-    await p.click('[data-hxm="private"]'); await p.selectOption('#hx-from', 'btc');
+    await moveFrom(p, 'btc');
     await until(p, () => /No TAC on this key’s Bitcoin address yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
     ok(!!(await p.$('#hx-have a[data-link="bitcoin/receive"]')), `hxweek: a key with no TAC on Bitcoin is told so, with the way to receive it (${(await text(p, '#hx-have')).replace(/\s+/g, ' ').slice(0, 120)})`);
     if (r.errors.length) { fails++; console.log('FAIL hxweek page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -7677,15 +7671,15 @@ await step('hxearn', async () => {
     await p.evaluate(() => { location.hash = ''; });
     await p.waitForSelector('#hx-body .hx-h');
     // A deposit for payments: the estimate, and in its "how?" the share limit that pool deposits are under.
-    await p.click('[data-hxm="private"]'); await pressRow(p, '[data-hxd="pay"]'); await p.fill('#hx-amt', '0.5');
+    await move(p, 'shield:ether:pay', '0.5');
     await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
     await p.click('#hx-pts [data-ptsinfo]');
     const how = await line();
     ok(/Deposits in the ETH pools together take at most 40% of a day’s 1,111 TAC\./.test(how.replace(/'/g, '’')), `hxearn: a pool deposit's "how?" names the share limit (${how.slice(-200)})`);
     // A deposit into the Tacit pool is a different activity, and is not under it.
-    await pressRow(p, '[data-hxd="defi"]');
+    await p.click('#hx-swap [data-home="defi"]');
     await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
-    ok(!/together take at most/.test(await line()), `hxearn: a wrap into the Tacit pool does not carry the limit of pool deposits`);
+    ok(!/together take at most/.test(await line()), `hxearn: a wrap into the Tacit pool does not carry the limit of pool deposits (${(await line()).slice(-160)})`);
     // Borrow: the cUSD way names the loan and the bond; the cBTC way the bond alone.
     await p.click('[data-hxm="borrow"]');
     await until(p, () => /Borrow cUSD:/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 60000);
@@ -7729,21 +7723,26 @@ await step('hxnudge', async () => {
   const p = r.page, open = () => p.evaluate(() => [...document.querySelectorAll('dialog')].filter((d) => d.open).map((d) => d.id).join());
   try {
     await p.goto(r.url);
-    await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
-    for (const tab of ['private', 'earn', 'send']) {
+    await p.waitForSelector('[data-hxm="swap"]', { timeout: 120000 });
+    for (const tab of ['earn', 'send']) {
       await p.click(`[data-hxm="${tab}"]`); await p.fill('#hx-amt', ''); await p.click('#hx-go');
       ok((await open()) === '' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), `hxnudge: ${tab} with no amount asks for one in the card, and opens nothing`);
     }
     await p.click('[data-hxm="send"]'); await p.fill('#hx-amt', ''); await p.fill('#hx-rcpt', 'name.wei'); await p.click('#hx-go');
     ok((await open()) === '' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt', 'hxnudge: a recipient with no amount still asks for the amount first, for the pool\u2019s own assets');
     await p.fill('#hx-rcpt', '');
-    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0'); await p.click('#hx-go');
-    ok((await open()) === '' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), 'hxnudge: a zero is no amount either');
-    await p.fill('#hx-amt', '0.5'); await sleep(1500); await p.click('#hx-go');
+    // The Swap card has nothing to ask for: its button waits for an amount, and says so.
+    await move(p, 'shield:ether:defi'); await p.fill(MV.amt, '');
+    ok((await goText(p)) === 'Enter an amount' && await p.$eval(MV.go, (b) => b.disabled) && (await open()) === '', 'hxnudge: the Swap card with no amount waits, says what it needs, and opens nothing');
+    await p.fill(MV.amt, '0');
+    ok((await goText(p)) === 'Enter an amount' && await p.$eval(MV.go, (b) => b.disabled), 'hxnudge: a zero is no amount either');
+    await p.fill(MV.amt, '0.5');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Make ETH private' && !document.querySelector('#hx-swap #go').disabled, null, 120000);
+    await p.click(MV.go);
     await until(p, () => document.querySelector('#sheet-eth')?.open, null, 60000);
     ok(true, 'hxnudge: with an amount the button opens its sheet as before');
     await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-    await p.selectOption('#hx-from', 'btc'); await p.click('#hx-go');
+    await moveFrom(p, 'btc'); await p.click(MV.go);
     await until(p, () => document.querySelector('#sheet-tac')?.open, null, 60000);
     ok(true, 'hxnudge: TAC from Bitcoin, which has no amount to type, still opens its sheet');
     if (r.errors.length) { fails++; console.log('FAIL hxnudge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -7758,15 +7757,18 @@ await step('hxfold', async () => {
   const p = r.page, shown = (sel) => p.$$eval(sel, (b) => b.filter((x) => x.offsetParent).map((x) => x.dataset.hxd || x.dataset.hxr || x.dataset.hxmore).join());
   try {
     await p.goto(r.url);
-    await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
-    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'defi,ways' && /Other ways: For payments, On Bitcoin/.test(await text(p, '[data-hxmore="ways"]')), 'hxfold: Shield shows the way in use and names the others in a line');
-    await p.click('[data-hxmore="ways"]');
-    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'defi,pay,btc,ways', 'hxfold: the line opens them');
-    await p.click('[data-hxd="pay"]');
-    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'pay,ways' && (await text(p, '#hx-go')) === 'Deposit privately', 'hxfold: choosing one folds the rest again, and the button follows the choice');
-    await p.focus('[data-hxd="pay"]'); await p.keyboard.press('ArrowDown');
-    await until(p, () => document.activeElement?.dataset?.hxd === 'btc', null, 30000);
-    ok(true, 'hxfold: the arrow keys still move the choice while it is folded');
+    await p.waitForSelector(MV.go, { timeout: 120000 });
+    const homes = () => p.$$eval('#hx-swap [data-home]', (b) => b.map((x) => `${x.dataset.home}${x.getAttribute('aria-checked') === 'true' ? '*' : ''}`).join());
+    ok((await homes()) === 'defi*,pay', `hxfold: the Swap card opens on making ETH private, its two private homes side by side (${await homes()})`);
+    await p.fill(MV.amt, '0.1');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Make ETH private', null, 120000);
+    await p.click('#hx-swap [data-home="pay"]');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Deposit privately', null, 120000);
+    ok((await homes()) === 'defi,pay*', 'hxfold: choosing the Pay pool moves the choice, and the button follows it');
+    await p.focus('#hx-swap [data-home="pay"]'); await p.keyboard.press('ArrowUp');
+    await until(p, () => document.activeElement?.dataset?.home === 'defi', null, 30000);
+    ok(true, 'hxfold: the arrow keys move between the homes');
+    await p.fill(MV.amt, '');
     // The tab and what was chosen are kept; the amount only for the visit.
     await p.click('[data-hxm="swap"]'); await p.waitForSelector('#hx-swap #amt', { timeout: 60000 }); await p.fill('#hx-swap #amt', '0.25');
     await p.reload(); await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
@@ -7774,11 +7776,11 @@ await step('hxfold', async () => {
     const q = await r.page.context().newPage();
     await q.goto(r.url); await q.waitForSelector('#hx-swap #amt', { timeout: 120000 });
     ok((await q.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'swap' && (await q.inputValue('#hx-swap #amt')) === '', 'hxfold: a later visit finds the tab, and no amount');
-    await q.goto(r.url + '#card=shield:ether:defi&amt=1'); await until(q, () => document.querySelector('#hx-amt')?.value === '1' && document.querySelector('[data-hxm="private"]')?.getAttribute('aria-selected') === 'true', null, 60000);
+    await q.goto(r.url + '#card=shield:ether:defi&amt=1'); await until(q, () => document.querySelector('#hx-swap #amt')?.value === '1' && document.querySelector('[data-hxm="swap"]')?.getAttribute('aria-selected') === 'true', null, 60000);
     ok(true, 'hxfold: a #card link overrides what was kept');
     await q.evaluate(() => { localStorage.setItem('tacit-hx-card-v1', JSON.stringify({ tab: '<img>', sf: '__proto__', sd: 'x'.repeat(40), swp: { from: 'tac', to: 'tac' }, ern: 7, bm: {}, send: 'zzz' })); sessionStorage.setItem('tacit-hx-amt-v1', '{"sig":"x","amt":"<b>"}'); });
-    await q.goto(r.url); await q.reload(); await q.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
-    ok((await q.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'private', 'hxfold: storage that holds nonsense is ignored, and the card opens on Shield');
+    await q.goto(r.url); await q.reload(); await q.waitForSelector('[data-hxm="swap"]', { timeout: 120000 });
+    ok((await q.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'swap', 'hxfold: storage that holds nonsense is ignored, and the card opens on Swap');
     if (r.errors.length) { fails++; console.log('FAIL hxfold page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -7964,35 +7966,40 @@ await step('hxways', async () => {
   const p = r.page;
   const sheetAt = () => p.evaluate(() => { const d = document.querySelector('dialog.sheet[open]:not(.layer)'); return d ? d.id.replace('sheet-', '') + ' ' + location.hash : null; });
   const closeAll = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
-  const waysOf = async (src) => { await p.selectOption('#hx-from', src); return p.$$eval('#hx-dest [data-hxd]', (r) => r.map((x) => x.dataset.hxd).join()); };
+  // what one of the old Shield ways says it does, on the Swap card
+  const wayGo = async (spec) => { await move(p, spec, '0.01'); await until(p, () => !/^(Reading…|Enter an amount)$/.test(document.querySelector('#hx-swap #go')?.textContent || ''), null, 120000).catch(() => {}); return goText(p); };
   try {
     await p.goto(r.url);
     await p.waitForSelector('#hx-body .hx-h');
-    ok((await waysOf('ether')) === 'defi,pay,btc' && (await waysOf('btc')) === 'eth,pool' && (await waysOf('eth')) === 'wallet,btc' && (await waysOf('tac')) === 'btc,wallet' && (await waysOf('pp')) === 'addr,defi' && (await waysOf('tb')) === 'back',
-      'hxways: ETH can be made tETH, kept for payments or sent to Bitcoin; TAC on Bitcoin goes to Ethereum or its shielded pool; each private thing has its own ways out');
-    await p.selectOption('#hx-from', 'ether'); await pressRow(p, '[data-hxd="pay"]');
-    ok(await p.$eval('#hx-chain', (e) => e.hidden) === false, 'hxways: payments ETH asks for its chain');
-    await p.selectOption('#hx-chain-sel', '8453');
-    ok((await waysOf('pp')) === 'addr', 'hxways: on Base, ETH kept for payments goes to an address (moving it into tETH needs Ethereum)');
-    await p.selectOption('#hx-from', 'ether'); await pressRow(p, '[data-hxd="defi"]');
-    ok(await p.$eval('#hx-chain', (e) => e.hidden), 'hxways: the tETH way has no chain to pick');
-    await pressRow(p, '[data-hxd="pay"]');
-    await p.selectOption('#hx-chain-sel', '4326'); await p.fill('#hx-amt', '0.02');
+    const says = {};
+    for (const s of ['ether:defi', 'ether:pay', 'btc:eth', 'btc:pool', 'eth:wallet', 'tac:wallet', 'pp:addr', 'pp:defi', 'tb:back']) says[s] = await wayGo(`shield:${s}`);
+    ok(says['ether:defi'] === 'Make ETH private' && says['ether:pay'] === 'Deposit privately' && says['btc:eth'] === 'Bridge TAC from Bitcoin' && says['btc:pool'] === 'Shield TAC on Bitcoin' && says['eth:wallet'] === 'Turn tETH into ETH'
+      && says['tac:wallet'] === 'Make TAC public' && says['pp:addr'] === 'Withdraw ETH' && says['pp:defi'] === 'Move ETH into tETH' && says['tb:back'] === 'Bring tETH back',
+      `hxways: each way is one move on the Swap card, named on its button (${JSON.stringify(says)})`);
+    await move(p, 'shield:ether:pay');
+    ok(await p.$eval('#hx-swap #chain', (e) => e.hidden) === false, 'hxways: the Pay pool asks for its chain');
+    await p.selectOption('#hx-swap #chain-sel', '8453');
+    await moveFrom(p, 'pp');
+    ok((await toPlaces(p)) === 'wallet', `hxways: on Base, ETH in the Pay pool goes to an address (moving it into tETH needs Ethereum) (${await toPlaces(p)})`);
+    await move(p, 'shield:ether:defi');
+    ok(await p.$eval('#hx-swap #chain', (e) => e.hidden), 'hxways: the DeFi pool has no chain to pick');
+    await move(p, 'shield:ether:pay');
+    await p.selectOption('#hx-swap #chain-sel', '4326'); await p.fill(MV.amt, '0.02');
     await until(p, () => /Points: none on MegaETH/.test(window.__said()) && document.querySelector('#hx-pts')?.hidden, null, 60000);
     ok(true, 'hxways: on MegaETH the card says it scores no points, and shows none');
-    await p.selectOption('#hx-chain-sel', '8453'); await p.fill('#hx-amt', '0.03');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.03' && /Fee: the network fee only/.test(window.__said()), null, 60000);
+    await p.selectOption('#hx-swap #chain-sel', '8453'); await p.fill(MV.amt, '0.03');
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '0.03' && /Fee: the network fee only/.test(window.__said()), null, 60000);
     await pasteKey(p, 'ab12'.padEnd(64, '7'));
     await closeAll();
-    await p.click('#hx-go');
+    await p.click(MV.go);
     await until(p, () => !!document.querySelector('#sheet-eth[open] #d-amt'), null, 120000);
     ok((await sheetAt()) === 'eth #device/base', `hxways: payments on Base opens the Deposit form of the Base pool (${await sheetAt()})`);
     await until(p, () => document.querySelector('#d-amt')?.value === '0.03', null, 60000);
     ok(true, 'hxways: with the amount in it');
     await closeAll();
-    await p.selectOption('#hx-chain-sel', '1'); await p.fill('#hx-amt', '0.04');
-    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.04', null, 60000);
-    await p.click('#hx-go');
+    await p.selectOption('#hx-swap #chain-sel', '1'); await p.fill(MV.amt, '0.04');
+    await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '0.04', null, 60000);
+    await p.click(MV.go);
     await until(p, () => document.querySelector('#sheet-eth[open] #d-amt')?.value === '0.04', null, 120000);
     ok((await sheetAt()) === 'eth #device/ethereum', `hxways: and on Ethereum, the Ethereum pool's (${await sheetAt()})`);
     await closeAll();

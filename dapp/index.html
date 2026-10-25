@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ADtE3Jtr1C0m79v09BLUq83Gip8Hek4W0TQu4Q/eG+Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+CtRA4XxgweIJ/EErbGdpnk+YZLH5r327V+nkDgY6Tw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://aggregator-api.kyberswap.com https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=95b5cef9" as="style">
+<link rel="preload" href="/swap/card.css?cb=ea75467e" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -291,9 +291,9 @@ a.di { color: inherit; text-decoration: none; }
 @media (max-width: 640px) { .hx:has(#hx-body:empty) { min-height: 477px; } }
 @media (max-width: 360px) { .hx:has(#hx-body:empty) { min-height: 475px; } }
 @media (max-width: 340px) { .hx:has(#hx-body:empty) { min-height: 510px; } }
-.hx-h { --i: 0; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
-.hx-h::after { content: ''; position: absolute; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); width: calc((100% - 16px) / 5 * .56);
-  left: calc(8px + (100% - 16px) / 5 * (var(--i) + .22)); transition: left .4s var(--spring); }
+.hx-h { --i: 0; position: relative; display: grid; grid-template-columns: repeat(4, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
+.hx-h::after { content: ''; position: absolute; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); width: calc((100% - 16px) / 4 * .5);
+  left: calc(8px + (100% - 16px) / 4 * (var(--i) + .25)); transition: left .4s var(--spring); }
 .hx-h button { display: grid; justify-items: center; gap: 4px; padding: 12px 0 11px; background: none; border: 0; cursor: pointer; font: italic 400 20px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
 .hx-h button[aria-selected="true"] { color: var(--ink); }
 @media (hover: hover) { .hx-h button:hover { color: var(--ink); } .hx-h button:hover svg { transform: translateY(-2px); } }
@@ -312,7 +312,7 @@ a.di { color: inherit; text-decoration: none; }
 /* What the amount typed earns in the points program (a receipt row, the one right under the receipt), and the nudge toward more of it; a held key's TAC on Bitcoin. */
 .hx-pts, .hx-have { display: grid; gap: 3px; margin: 14px 2px 0; padding: 0; border: 0; font-size: 12px; line-height: 1.55; color: var(--mute); }
 .hx-pts[hidden], .hx-have[hidden] { display: none; }
-#hx-receipt:not([hidden]) + .hx-pts { margin-top: 2px; }
+#hx-receipt:not([hidden]) + .hx-pts, #hx-swap #rcpt:not([hidden]) + .hx-pts { margin-top: 2px; }
 .hx-b .hx-pts .rcpt { margin: 0; }
 .hx-pts dt { display: inline-flex; align-items: center; gap: 6px; }
 .hx-pts dt .tk { width: 14px; height: 14px; }
@@ -979,7 +979,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=95b5cef9">
+<link rel="stylesheet" href="/swap/card.css?cb=ea75467e">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -1182,7 +1182,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h1 id="hero-h">Private DeFi on <em>Bitcoin</em> and Ethereum.</h1>
       <p class="sub">One <b>tacit1</b> ID for both chains, with amounts and owners hidden.</p>
     </div>
-    <section class="hx" id="hx" aria-label="Shield, swap, send, earn or borrow"><div id="hx-body"></div></section>
+    <section class="hx" id="hx" aria-label="Swap, send, earn or borrow"><div id="hx-body"></div></section>
     <div class="proof-row">
       <a class="proof" href="/weld/stats/" title="All stats">
         <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span></b>ETH transacted</span>
@@ -10953,9 +10953,13 @@ function paintTape(d, rec) {
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
 
-const HX = { tab: 'private', mode: 'private', from: 'ether', pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null,
-  sf: 'ether', sd: 'defi', chain: 1, bm: 'cusd', swq: '', ern: 'ether' };
-const HX_TABS = [['private', 'Shield', 'shield'], ['swap', 'Swap', 'swap'], ['send', 'Send', 'send'], ['earn', 'Earn', 'earn'], ['borrow', 'Borrow', 'borrow']];
+const HX = { tab: 'swap', mode: 'swap', from: 'ether', pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null,
+  sf: 'ether', sd: 'defi', chain: 1, bm: 'cusd', swq: 'to=tETH&private=to', ern: 'ether' };
+// the Swap card's pair on a first visit: ETH made private
+const HX_SWQ0 = HX.swq;
+// the move the Swap card is showing, when it is one of the Shield ways (hxMoves, by HX_SWAP), and where its prices go
+const HXM = { key: null, cb: null, amt: '', all: '' };
+const HX_TABS = [['swap', 'Swap', 'swap'], ['send', 'Send', 'send'], ['earn', 'Earn', 'earn'], ['borrow', 'Borrow', 'borrow']];
 const HX_SH = {
   ether: { u: 'ETH', ic: 'eth', name: 'ETH', g: 'In your wallets', place: 'your wallet', ways: ['defi', 'pay', 'btc'] },
   wtac: { u: 'TAC', ic: 'tac', name: 'TAC, in your wallet', g: 'In your wallets', place: 'your wallet', ways: ['defi', 'pay'] },
@@ -10989,7 +10993,8 @@ const hxChain = () => DEVICE_CHAINS.find((c) => c.chainId === HX.chain) || DEVIC
 const hxChainPick = () => ['pay', 'ppout'].includes(HX.mode);
 function hxNorm() {
   const t = HX.tab;
-  if (t === 'private') {
+  if (t === 'private' || (t === 'swap' && HXM.key)) {
+    if (t === 'swap') { [HX.sf, HX.sd] = HXM.key.split('>'); HX.amt = HXM.amt; }
     if (!hxWays(HX.sf).length) HX.sf = 'ether';
     const ways = hxWays(HX.sf);
     if (!ways.includes(HX.sd)) HX.sd = ways[0];
@@ -11083,7 +11088,8 @@ async function hxFarms(amt) {
 const HX_QUICK = { eth: ['0.1', '0.5', '1'], tac: ['500', '1000'], sats: ['50000', '200000'], btc: ['0.005', '0.01'], cusd: ['100', '500'], cbtc: ['0.005', '0.01'], usd: ['25', '100'] };
 function hxAmtKind() {
   const t = HX.tab;
-  if (t === 'private') return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac', wtac: 'tac' }[HX.sf];
+  if (t === 'private' || (t === 'swap' && HXM.key)) return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac', wtac: 'tac' }[HX.sf];
+  if (t === 'swap') return null;
   if (t === 'borrow') return 'btc';
   if (t === 'send') return { eth: 'eth', tac: 'tac', wtac: 'tac', tacb: 'tac', ptac: 'tac', cusd: 'cusd', cbtc: 'cbtc', btc: 'btc', usdc: 'usd', usdt: 'usd' }[HX.send];
   const f = HX.from;
@@ -11468,6 +11474,77 @@ function hxKeepAmt(change) {
 // A Swap tab link (swap:<pay>:<get>, and :private) as the swap card's own link says it: ETH is the wallet's and tETH private; TAC, cUSD and cBTC
 // are the wallet's unless the link asks for private, or are paid for with tETH.
 const HX_SWAP = { ether: 'ETH', eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' };
+// ── the Swap card's moves: one coin from one place to another where the swap card does not make it itself (into the Pay pool, to and from
+// Bitcoin, TAC in and out of the wallet). They are the Shield ways (HX_WAY), priced by hxQuote and started by hxGo as that tab did, with the
+// card as their only face. The card names a side by its coin and its place: ETH, tETH or TAC, in a wallet, the DeFi pool, the Pay pool or on
+// Bitcoin. For each way's source, what each coin-and-place it can reach is called. ──
+const HX_MV_SRC = { 'eth@wallet': 'ether', 'tac@wallet': 'wtac', 'tac@btc': 'btc', 'teth@defi': 'eth', 'tac@defi': 'tac', 'eth@pay': 'pp', 'teth@btc': 'tb' };
+const HX_MV = {
+  ether: { 'teth@defi': 'defi', 'eth@pay': 'pay', 'teth@btc': 'btc' }, wtac: { 'tac@defi': 'defi', 'tac@pay': 'pay' }, btc: { 'tac@defi': 'eth', 'tac@btc': 'pool' },
+  eth: { 'eth@wallet': 'wallet', 'teth@btc': 'btc' }, tac: { 'tac@btc': 'btc', 'tac@wallet': 'wallet' }, pp: { 'eth@wallet': 'addr', 'teth@defi': 'defi' }, tb: { 'teth@defi': 'back' },
+};
+const hxMvCoin = (k) => (k === 'teth' ? 'teth' : /^0x0{40}$/.test(k) ? 'eth' : k === ADDR.tac.toLowerCase() ? 'tac' : null);
+function hxMoveKey(pay, pa, get, ga) {
+  const sf = HX_MV_SRC[`${hxMvCoin(pay)}@${pa}`], sd = sf && HX_MV[sf][`${hxMvCoin(get)}@${ga}`];
+  return sd && hxWays(sf).includes(sd) ? `${sf}>${sd}` : null;
+}
+function hxMoveSet(key, amt = '') {
+  const [sf, sd] = key.split('>');
+  if (HXM.key !== key || HX.amt !== amt) HX.q = null;
+  Object.assign(HXM, { key, amt }); HX.sf = sf; HX.sd = sd; HX.amt = amt;
+  HX.max = sf === 'pp' && HXM.all === `${key}:${amt}`;
+}
+// the wallet's chain for a move: the Pay pool's when ETH goes into it, else Ethereum's
+const hxMoveChain = (key) => (key === 'ether>pay' ? hxChain().chainId : 1);
+// a move of all of it, or one with nothing to type: it starts without an amount; some take none at all (their own form chooses it)
+const hxMoveFixed = () => ['btcpool', 'tbback'].includes(HX.mode) || (HX.mode === 'btc' && HX.dir === 'in');
+const hxMoveFree = () => hxMoveFixed() || HX.mode === 'tacpub';
+const hxMoves = {
+  key: hxMoveKey,
+  // its points and what its place holds are the page's own lines under the card's receipt (hxPtsPaint, hxHave)
+  // only while the Swap tab is up: a timer of the card's that fires after another tab is chosen prices and starts nothing
+  quote: (key, amt, cb) => {
+    if (HX.tab !== 'swap') return;
+    HXM.cb = (q) => { if (q) cb({ ...q, free: hxMoveFree(), fixed: hxMoveFixed() }); };
+    hxMoveSet(key, amt); hxQuote();
+  },
+  go: (key, amt) => { if (HX.tab !== 'swap') return; hxMoveSet(key, amt); hxNorm(); hxGo(); },
+  idle: () => { HXM.key = null; HXM.cb = null; },
+  // what a move's source holds, in the card's units (18 decimals), and what Max puts in: that, less what its own fees keep back
+  held: (k, at, key) => { const sf = HX_MV_SRC[`${hxMvCoin(k)}@${at}`], h = sf ? hxHeldOf(sf, hxMoveChain(key)) : null; return h ? (h[1] === 18 ? h[0] : h[0] * 10n ** BigInt(18 - h[1])) : null; },
+  most: async (key) => {
+    const [sf] = key.split('>'), cid = hxMoveChain(key), h = hxHeldOf(sf, cid);
+    if (!h) return null;
+    const keep = await hxKeep(sf, cid), left = h[0] > keep ? h[0] - keep : 0n, v = left ? plain(h[1] === 18 ? left / E10 : left, 8) : '';
+    HXM.all = `${key}:${v}`;
+    return v;
+  },
+  // the places that hold something, marked on the From side's switch
+  marks: () => new Set(hxGroups('private').filter(([, l]) => l.some(([k]) => hxHeldOf(k)?.[0] > 0n)).map(([, , p]) => (p === 'bitcoin' ? 'btc' : p))),
+  chains: () => DEVICE_CHAINS.map((c) => ({ id: c.chainId, name: c.name })),
+  get chain() { return HX.chain; },
+  setChain: (id) => { if (DEVICE_CHAINS.some((c) => c.chainId === id)) { HX.chain = id; hxRemember(); } },
+};
+// A first visit with nothing in the wallet and tETH held privately opens on taking it back out, as the Shield tab did, until the card is touched;
+// what the card opened on before is what is kept for the next visit.
+function hxMoveAuto() {
+  if (!SWC.card || SWC.touched || SWC.autoDone || HX.swq !== HX_SWQ0) return;
+  const eth = hxHeldOf('ether'), teth = S.key && P.scan ? hxHeldOf('eth') : null;
+  if (!eth || eth[0] > 0n || !teth || !(teth[0] > 0n)) return;
+  SWC.autoDone = true; SWC.auto = true;
+  try { SWC.card.load(hxMoveAsk('eth', 'wallet')); } finally { SWC.auto = false; }
+}
+// a Shield way as the Swap card's link: its two coins and places
+function hxMoveAsk(sf, sd, amt) {
+  const sym = { eth: 'ETH', teth: 'tETH', tac: 'TAC' }, src = Object.keys(HX_MV_SRC).find((k) => HX_MV_SRC[k] === sf), dst = HX_MV[sf] && Object.keys(HX_MV[sf]).find((k) => HX_MV[sf][k] === sd);
+  const way = HX_WAY[`${sf}>${sd}`], [fc, fa] = (src || 'eth@wallet').split('@'), [tc, ta] = (dst || (way?.same ? 'teth@defi' : 'teth@defi')).split('@');
+  const p = new URLSearchParams({ from: sym[fc], to: sym[tc] });
+  if (fa === 'defi' || ta === 'defi') p.set('private', fa === 'defi' && ta === 'defi' ? 'both' : fa === 'defi' ? 'from' : 'to');
+  if (fa === 'pay' || fa === 'btc') p.set('from-at', fa);
+  if (ta === 'pay' || ta === 'btc') p.set('to-at', ta);
+  if (amt) p.set('amt', amt);
+  return p;
+}
 function hxSwapAsk(a, b, route, amt) {
   const pin = a === 'eth' || (route === 'private' && a !== 'ether'), pout = pin || b === 'eth' || route === 'private';
   const p = new URLSearchParams({ from: HX_SWAP[a], to: pout && b === 'ether' ? 'tETH' : HX_SWAP[b] });
@@ -11483,15 +11560,15 @@ function hxPreset(spec, amt, inCard = false, route = null) {
   if (!(tab === 'shield' ? !!HX_SH[a] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? HX_SEND.some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
   hxKeepAmt(() => {
     HX.q = null;
-    if (tab === 'shield') { HX.tab = 'private'; HX.sf = a; HX.sd = b; HX.placePick = true; }
+    if (tab === 'shield') { HX.tab = 'swap'; SWC.ask = hxMoveAsk(a, b, amt); }
     else if (tab === 'swap') { HX.tab = 'swap'; SWC.ask = hxSwapAsk(a, b, route, amt); }
     else if (tab === 'send') { HX.tab = 'send'; HX.send = a; HX.sendPick = true; HX.ask = false; }
     else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; HX.placePick = true; if (b === 'public') HX.pool = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = b.slice(1); }
     else { HX.tab = 'borrow'; HX.bm = a === 'cbtc' ? 'cbtc' : 'cusd'; }
   });
-  if (amt != null && tab !== 'swap') { HX.amt = amt; HX.max = false; }
+  if (amt != null && tab !== 'swap' && tab !== 'shield') { HX.amt = amt; HX.max = false; }
   paintHx();
-  if (inCard) { if (tab === 'swap') SWC.card?.focus(); else $('#hx-amt')?.focus(); return; }
+  if (inCard) { if (tab === 'swap' || tab === 'shield') SWC.card?.focus(); else $('#hx-amt')?.focus(); return; }
   const card = $('#hx'), calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   card.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
   if (!calm) card.animate([{ outline: '2px solid var(--orange)', outlineOffset: '2px' }, { outline: '2px solid transparent', outlineOffset: '12px' }], { duration: 1100, easing: 'ease-out' });
@@ -11507,7 +11584,7 @@ function hxTyped(now) {
 }
 async function hxQuote() {
   hxNorm();
-  if (HX.tab === 'swap') return;
+  if (HX.tab === 'swap' && !HXM.key) return;
   const my = ++HX.seq, units = hxUnits(), m = HX.mode, ethN = units ? Number(units) / 1e8 : 0;
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld(); HX.heldTac = hxHeldTac(); HX.heldSend = hxSendHeld();
@@ -11617,12 +11694,14 @@ function hxPts(pk, eth, outTac = 0) {
   const why = [known ? `${early.toFixed(1)}× early` : '', pk === 'wrap' ? `${PGM.wrapBoost}× tETH` : '', wt !== 1 ? `${wt}× now` : '', hold > 1 ? `${hold}× TAC holder` : ''].filter(Boolean).join(' · ');
   return { pts, known, why, tips: tips.filter(Boolean) };
 }
+// a Shield way shown: the Shield tab's, or the Swap card's while it shows one of them
+const hxShieldy = () => HX.tab === 'private' || (HX.tab === 'swap' && !!HXM.key);
 function hxHave() {
   const el = $('#hx-have'), pub = S.key?.pubHex;
   if (!el) return;
-  if (pub && HX.tab === 'private' && HX.sf === 'tb') return hxHaveTb(el, pub);
+  if (pub && hxShieldy() && HX.sf === 'tb') return hxHaveTb(el, pub);
   if (HX.tab === 'send') { if (HX.ask) { el.hidden = true; el.__h = ''; return; } return hxHaveSend(el, pub); }
-  if (pub && P.scan && HX.tab === 'private' && HX.sf === 'ether') return hxHaveTeth(el);
+  if (pub && P.scan && hxShieldy() && HX.sf === 'ether') return hxHaveTeth(el);
   if (pub && HX.tab === 'borrow') return hxHaveAddr(el, LOCK.state?.addr || (LOCK.addr?.pub === pub ? LOCK.addr.a : null));
   el.__h = '';
   if (!pub || HX.mode !== 'btc' || HX.dir !== 'in') { el.hidden = true; return; }
@@ -11694,14 +11773,14 @@ function hxWalletRead(what, cid, read) {
   }
   return HXW.get(k).v;
 }
-const hxWalletChain = () => (HX.tab === 'private' && HX.sd === 'pay' ? hxChain().chainId : 1);
-function hxWalletEth() {
-  const c = hxChain(), cid = hxWalletChain();
+const hxWalletChain = () => ((HX.tab === 'private' || (HX.tab === 'swap' && HXM.key)) && HX.sd === 'pay' ? hxChain().chainId : 1);
+function hxWalletEth(cid = hxWalletChain()) {
+  const c = hxChain();
   return hxWalletRead('eth', cid, (who) => (cid === 1 ? ethBalance() : rpc('eth_getBalance', [who, 'latest'], c.rpc).then(BigInt, () => null)));
 }
 const hxWalletTac = () => hxWalletRead('tac', 1, (who) => ethCall(ADDR.tac, SEL.balanceOf + addrWord(who)).then((r) => wordAt(r, 0)));
-function hxHeldOf(k) {
-  if (k === 'ether') { const v = hxWalletEth(); return v == null ? null : [v, 18, 'ETH']; }
+function hxHeldOf(k, cid) {
+  if (k === 'ether') { const v = hxWalletEth(cid); return v == null ? null : [v, 18, 'ETH']; }
   if (k === 'wtac') { const v = hxWalletTac(); return v == null ? null : [v, 18, 'TAC']; }
   if (!S.key) return null;
   const dp = hxDev(k);
@@ -11727,13 +11806,14 @@ function hxDevFee(p) {
 }
 const hxDevKeep = async (p) => { const f = await hxDevFee(p).catch(() => null); return f ? (f * 5n) / 4n : 0n; };
 const hxAmtSrc = () => (HX.tab === 'private' ? HX.sf : HX.tab === 'borrow' ? 'btc' : HX.tab === 'send' ? HX.send : HX.from);
-async function hxKeep(src) {
-  if (src === 'ether') return hxWalletChain() !== 1 ? 2n * 10n ** 14n : ethKeep(hxWrapMode() && ownNow(['wrap']));
+async function hxKeep(src, cid = hxWalletChain()) {
+  if (src === 'ether') return cid !== 1 ? 2n * 10n ** 14n : ethKeep(hxWrapMode() && ownNow(['wrap']));
   if (src === 'btc') return lockPad().catch(() => 10000n);
   return noteKeep(src);
 }
 // Under the amount, as on the swap card: what is held there and Max; with nothing held to show, the amounts most often typed, until one is
 function hxBalPaint() {
+  if (HX.tab === 'swap') { hxMoveAuto(); SWC.card?.refresh?.(); }
   const el = $('#hx-bal');
   if (!el) return;
   if (hxPlaceAuto()) { paintHx(); return; }
@@ -11842,6 +11922,7 @@ function hxPrivOut() {
   return !['unwrap', 'tacpub', 'ppout'].includes(m) && !(m === 'btc' && HX.dir === 'out');
 }
 function paintHxQ() {
+  if (HX.tab === 'swap') { if (HXM.key) { HXM.cb?.(HX.q); if (!HX.q?.busy) hxPtsPaint(HX.q || {}); hxHave(); } return; }
   const q = HX.q || {}, out = $('#hx-out');
   if (!$('#hx-panel')) return;
   hxNorm();
@@ -11878,20 +11959,7 @@ function paintHxQ() {
     rc.classList.toggle('stale', !!q.busy);
     if (!q.busy) { const rs = (q.rc || []).filter(Boolean); rc.hidden = !rs.length; mount(rc, html`${rs.map(([k, v, c, t]) => html`<div${t ? html` title="${t}"` : ''}><dt>${k}</dt><dd${c ? html` class="${c}"` : ''}>${v}</dd></div>`)}`); }
   }
-  const pts = $('#hx-pts');
-  if (pts && !q.busy) {
-    const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac), borrows = !p && HX.mode === 'borrow' ? hxBorrowPts() : null;
-    pts.hidden = !p && !borrows;
-    if (p) hxWantPoints();
-    // one more receipt row: the figure, with what it rests on folded under its "how?" (for borrowing, each rate's own terms)
-    const row = (v) => html`<dl class="rcpt"><div><dt><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg>TAC points</dt><dd><b>${v}</b><button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></dd></div></dl>`;
-    const lead = (m) => m.split(/[,;]\s| \(| once | when | until | while /)[0].trim();
-    if (borrows) mount(pts, html`${row(borrows.map(([, , , m]) => lead(m)).join(' · '))}
-      <span class="note" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}<a class="link" href="#points" data-link="points">All terms</a></span>`);
-    if (p) mount(pts, html`${row(p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`)}
-      ${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
-      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${p.why ? `${p.why}. ` : ''}${ptsWhy(q.pk === 'dev')}</span>`);
-  }
+  if (!q.busy) hxPtsPaint(q);
   hxHave();
   const go = $('#hx-go');
   if (go && !(HX.tab === 'send' && HX.ask)) go.classList.toggle('priv', hxPrivOut());
@@ -11904,6 +11972,23 @@ function paintHxQ() {
   }
 }
 OUT.paint = () => paintHxQ();
+// what a quote earns in points: one more receipt row, its "how?" folding the rest (the Shield, Earn and Borrow forms', and the Swap card's)
+function hxPtsPaint(q) {
+  const pts = $('#hx-pts');
+  if (pts) {
+    const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac), borrows = !p && HX.mode === 'borrow' ? hxBorrowPts() : null;
+    pts.hidden = !p && !borrows;
+    if (p) hxWantPoints();
+    // one more receipt row: the figure, with what it rests on folded under its "how?" (for borrowing, each rate's own terms)
+    const row = (v) => html`<dl class="rcpt"><div><dt><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg>TAC points</dt><dd><b>${v}</b><button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></dd></div></dl>`;
+    const lead = (m) => m.split(/[,;]\s| \(| once | when | until | while /)[0].trim();
+    if (borrows) mount(pts, html`${row(borrows.map(([, , , m]) => lead(m)).join(' · '))}
+      <span class="note" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}<a class="link" href="#points" data-link="points">All terms</a></span>`);
+    if (p) mount(pts, html`${row(p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`)}
+      ${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
+      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${p.why ? `${p.why}. ` : ''}${ptsWhy(q.pk === 'dev')}</span>`);
+  }
+}
 const hxFarmHeld = () => !HX.amt.trim() && HX.mode === 'earn' && /^\d+$/.test(String(HX.pool)) && (HX.from === 'eth' ? hxHeld() : HX.from === 'tac' ? hxHeldTac() : 0n) > 0n;
 const hxNeedsAmt = () => !!$('#hx-amt') && !hxUnits() && !(HX.mode === 'borrow' && !S.key) && !hxFarmHeld();
 function hxAskAmt() {
@@ -11973,11 +12058,13 @@ function hxRecall() {
       if (['ether', 'eth', 'tac', 'wtac'].includes(m.ern)) HX.ern = m.ern;
       if (['cusd', 'cbtc'].includes(m.bm)) HX.bm = m.bm;
       if (HX_SEND.some(([k]) => k === m.send)) { HX.send = m.send; HX.sendPick = !!m.sendPick; }
+      // the Shield tab, kept from before the Swap card: the card opens on the way it showed
+      if (m.tab === 'private') { HX.tab = 'swap'; HX.swq = hxMoveAsk(HX.sf, HX.sd).toString(); }
     }
     hxNorm();
     const a = JSON.parse(sessionStorage.getItem(HX_AMT) || 'null');
     if (a?.sig === hxSig() && typeof a.amt === 'string' && /^[\d.,]{1,24}$/.test(a.amt)) HX.amt = a.amt;
-  } catch { Object.assign(HX, { tab: 'private', sf: 'ether', sd: 'defi', swq: '', ern: 'ether', bm: 'cusd', send: 'eth', sendPick: false, amt: '' }); }
+  } catch { Object.assign(HX, { tab: 'swap', sf: 'ether', sd: 'defi', swq: HX_SWQ0, ern: 'ether', bm: 'cusd', send: 'eth', sendPick: false, amt: '' }); }
 }
 // ── the Swap tab: the swap page's own card (swap/card.js), with this page's wallet, its Tacit key, its pool module and its Activity journal. It
 // is drawn the first time the tab shows and kept: the tab painted again gets the same card back, with what was typed in it. ──
@@ -12012,19 +12099,20 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=b9af9c78').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=699f2ebe').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
-  const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) s.replaceWith(SWC.el); swcAsk(); };
+  const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
   if (SWC.el) return put();
   swcLoad().then((m) => {
     if (!SWC.el) {
       SWC.el = Object.assign(document.createElement('div'), { id: 'hx-swap', className: 'hx-swap' });
+      for (const ev of ['pointerdown', 'keydown']) SWC.el.addEventListener(ev, () => { SWC.touched = true; }, { once: true });
       SWC.card = m.mountSwapCard(SWC.el, {
-        wallet: swcWallet, W: swcW, connect: () => connect().catch((e) => { if (e?.code !== 4001 && !/cancel/i.test(e?.message || '')) toast(errText(e), true); }), getUx, lane: false, recent: false,
+        wallet: swcWallet, W: swcW, connect: () => connect().catch((e) => { if (e?.code !== 4001 && !/cancel/i.test(e?.message || '')) toast(errText(e), true); }), getUx, lane: false, recent: false, moves: hxMoves,
         key: { session: { get unlocked() { return !!S.key; }, get key() { return S.key; }, priv: walletPriv }, openKey: swcKey, wait: swcWait },
         // the pair and its sides are kept in this browser, the amount for the visit only, as the other tabs keep theirs
-        onChange: () => { const p = SWC.card.params(), amt = p.get('amt') || ''; p.delete('amt'); HX.swq = p.toString(); hxRemember(); try { sessionStorage.setItem(HX_AMT, JSON.stringify({ sig: 'swap', amt })); } catch { } },
+        onChange: () => { if (SWC.auto) return; const p = SWC.card.params(), amt = p.get('amt') || ''; p.delete('amt'); HX.swq = p.toString(); hxRemember(); try { sessionStorage.setItem(HX_AMT, JSON.stringify({ sig: 'swap', amt })); } catch { } },
         onDone: () => { HXW.clear(); hxBalPaint(); if (S.key) scanPrivate(true).catch(() => {}); dashSoon(); },
         farmIt: (wei) => hxPreset('earn:wtac:public', wei ? plain(wei / E10, 8) : '', true),
       });
@@ -12079,20 +12167,7 @@ function paintHx() {
     ${button(go0)}
     <p class="q" id="hx-alt" hidden></p>`;
   let body;
-  if (m === 'private') {
-    const src = HX_SH[HX.sf], ways = hxWays(HX.sf), many = ways.length > 1, here = HX_WAY[`${HX.sf}>${HX.sd}`], groups = hxGroups('private'), place = hxPlaceOf('private', HX.sf);
-    const [rf, rw] = (here.rev || '>').split('>'), revOk = !!(here.rev && HX_SH[rf] && hxWays(rf).includes(rw));
-    const taken = !!src.priv || HX.sf === 'tb';
-    const way = (w) => {
-      const x = HX_WAY[`${HX.sf}>${w}`], on = w === HX.sd, pr = x.pr === 'chain' ? `on ${hxChain().name}` : x.pr;
-      const inner = html`<svg class="tk" aria-hidden="true"><use href="#tk-${x.ic}"/></svg><span class="rt"><b>${x.t}</b><small>${hxNb(x.p)}</small></span><span class="ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0</output>` : x.same ? html`<span data-hxa></span>` : ''} ${x.u}</span>${pr ? html`<small>${pr}</small>` : ''}</span>${many ? html`<span class="rd" aria-hidden="true"></span>` : ''}`;
-      return many ? html`<button type="button" role="radio" class="c" aria-checked="${String(on)}" data-hxd="${w}" tabindex="${on ? 0 : -1}">${inner}</button>` : html`<div class="c one" data-hxd="${w}">${inner}</div>`;
-    };
-    const whole = ['btcpool', 'tbback', 'tacpub'].includes(HX.mode) || (HX.mode === 'btc' && HX.dir === 'in');
-    body = html`${field(taken ? 'You take out' : 'You put in', held(groups, place), whole ? html`<span class="word">Your ${src.u}</span>` : amt(`${src.u} to move`), coin('hx-from', taken ? 'You take out' : 'You put in', groups, HX.sf, place), !whole, place === 'private')}
-      ${mid(revOk ? 'Reverse' : '')}
-      ${rowsOf('You get', many, ways.map(way), many ? html`<button type="button" class="fold" data-hxmore="ways" aria-expanded="false"></button>` : '')}${tail}`;
-  } else if (m === 'swap') {
+  if (m === 'swap') {
     body = html`<div class="hx-swap" id="hx-swap"></div>`;
   } else if (m === 'earn') {
     const groups = hxGroups('earn'), place = hxPlaceOf('earn', HX.from);
@@ -12154,7 +12229,8 @@ function paintHx() {
     e.preventDefault(); pickTab(HX_TABS[(j + HX_TABS.length) % HX_TABS.length][0], true);
   };
   if (focus) { const f = (focus.id && document.getElementById(focus.id)) || (focus.place && $(`[data-hxp] [data-place="${focus.place}"]`, el)) || (focus.pk && $(`.coin[data-pk="${focus.pk}"]`, el)) || (focus.hxd && $(`[data-hxd="${focus.hxd}"]`, el)) || (focus.hxm && $(`[data-hxm="${focus.hxm}"]`, el)); if (f && f !== document.activeElement) f.focus(); }
-  if (m === 'swap') { hxSwap(); return; }
+  // the Swap card paints itself; the page's own links inside it (its line on what a place holds) still go where they say
+  if (m === 'swap') { el.onclick = (e) => { const g = e.target.closest?.('[data-hxin]'); if (g) hxPreset(g.dataset.hxin, undefined, true); }; hxSwap(); return; }
   if (m === 'borrow' && HX.bwFace === 'track') { hxBwPaint(); return; }
   if (m === 'borrow' && $('#hx-bw-s') && FLASH['hx-bw-s']) mount($('#hx-bw-s'), FLASH['hx-bw-s']);
   $('#hx-bw-back')?.addEventListener('click', () => { HX.bwMore = false; paintHx(); });

@@ -40,6 +40,7 @@
 .swc .sides button { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; padding: 1px 10px; font: 12px var(--mono); color: var(--mute); background: none; border: 0; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
 .swc .sides button[aria-checked="true"] { background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 55%, transparent); }
 .swc .sides .lock { flex: none; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
+.swc .sides button:disabled { opacity: .35; cursor: default; }
 @media (pointer: coarse) { .swc .sides button { min-height: 34px; padding: 1px 12px; } }
 .swc .ffr { display: inline-flex; align-items: center; gap: 10px; }
 .swc .ff .where { display: inline-flex; align-items: center; gap: 6px; }
@@ -49,6 +50,8 @@
 .swc .fm { display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 2px 0; }
 .swc .fm .amt, .swc .fm .big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; outline: none; font-variant-numeric: tabular-nums; }
 .swc .fm .big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a move that says where rather than how much (Private, All): a word, not a figure */
+.swc .fm .big.word { font-size: 30px; color: var(--mute); }
 .swc .fm .amt.long, .swc .fm .big.long { font-size: 34px; } .swc .fm .amt.longer, .swc .fm .big.longer { font-size: 27px; }
 .swc .fm .amt::placeholder { color: var(--hair-2); opacity: 1; } .swc .fm .big.ph { color: var(--hair-2); }
 .swc .fm .big.busy { opacity: .45; transition: opacity .15s; }
