@@ -821,6 +821,21 @@ export const CFG = {
   pointsLpExclude: opt('POINTS_LP_EXCLUDE', ''),
   pointsLpUsdc: opt('POINTS_LP_USDC', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
   pointsLpEthUsdFeed: opt('POINTS_LP_ETH_USD_FEED', '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419'),
+  // The token pools' campaign (lib/points-tokpool.js): TAC for depositing into the private USDC, USDT and TAC pools, credited as ledger
+  // adjustments from a pocket of its own, outside the daily pot. Off unless the schedule, the pools, the pocket and the end time are set.
+  // POINTS_TOKPOOL_SCHEDULE is "<day>:daily=<TAC>,cap=<TAC per $ deposited>;<day>:off" (the day's amount is split evenly between the pools);
+  // POINTS_TOKPOOL_POOLS is "<pool>/<router>=usd|tac,…". POINTS_TOKPOOL_ADDRESS_USD is the most an address's deposits count for in one pool
+  // in a day, POINTS_TOKPOOL_MIN_USD the least a deposit must be worth to count. TAC is priced from POINTS_TOKPOOL_TAC_ORACLE's spot()
+  // (ETH per TAC) and the ETH price feed, the median of the day's hourly readings. Kept as text and checked where it is read.
+  pointsTokpoolSchedule: opt('POINTS_TOKPOOL_SCHEDULE', ''),
+  pointsTokpoolPools: opt('POINTS_TOKPOOL_POOLS', ''),
+  pointsTokpoolPocket: opt('POINTS_TOKPOOL_POCKET_WEI', ''),
+  pointsTokpoolEndSec: opt('POINTS_TOKPOOL_END_SEC', ''),
+  pointsTokpoolFromBlock: opt('POINTS_TOKPOOL_FROM_BLOCK', ''),
+  pointsTokpoolAddressUsd: opt('POINTS_TOKPOOL_ADDRESS_USD', ''),
+  pointsTokpoolMinUsd: opt('POINTS_TOKPOOL_MIN_USD', ''),
+  pointsTokpoolExclude: opt('POINTS_TOKPOOL_EXCLUDE', '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0'),
+  pointsTokpoolTacOracle: opt('POINTS_TOKPOOL_TAC_ORACLE', '0x000000cE58D7d49319252DaFB0ABdB3F02101271'),
   // Where the balance monitor reads the points service's /rewards funding report.
   pointsApiBase: opt('POINTS_API_BASE', 'https://tacit-points.onrender.com'),
   pointsSettleMaxWaitSecs: num('POINTS_SETTLE_MAX_WAIT_SECS', 21600),

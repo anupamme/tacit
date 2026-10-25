@@ -27,6 +27,8 @@ import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
 import { createTasks } from './lib/points-tasks-service.js';
 import { createLp } from './lib/points-lp-service.js';
+import { createTokPool } from './lib/points-tokpool-service.js';
+import { parseTokPools } from './lib/points-tokpool.js';
 import { parseLpSchedule, parseLpPools, parseLpSettings, parseLpFarms } from './lib/points-lp.js';
 import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
@@ -1738,6 +1740,20 @@ function startHttp(store, evmState) {
         res.end(JSON.stringify({ day, ...kept }));
         return;
       }
+      // The token pools' campaign (lib/points-tokpool-service.js): its terms, pocket and pools, with ?address= that account's part; /tokpool/day/<n>
+      // is a paid day's record with its hash.
+      if (url.pathname === '/tokpool' || /^\/tokpool\/day\/\d{1,6}$/.test(url.pathname)) {
+        if (url.pathname === '/tokpool') {
+          res.setHeader('Cache-Control', 'public, max-age=30');
+          res.end(JSON.stringify(tokpool ? tokpool.view({ address: /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null }) : { enabled: false }));
+          return;
+        }
+        const day = Number(url.pathname.split('/').pop()), kept = tokpool?.dayRecord(day);
+        if (!kept) { res.statusCode = 404; res.end(JSON.stringify({ error: 'no record for that day' })); return; }
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.end(JSON.stringify({ day, ...kept }));
+        return;
+      }
       if (url.pathname === '/tasks/claim') {
         if (req.method !== 'POST') { res.statusCode = 405; res.end(JSON.stringify({ error: 'POST the transaction hashes' })); return; }
         const r = tasks ? await tasks.claim(await readJson(req), { client: clientKey(req) }) : { status: 404, body: { error: 'not enabled' } };
@@ -1925,8 +1941,9 @@ function setupTasks(store) {
 }
 
 // The liquidity campaign (lib/points-lp-service.js): off unless POINTS_LP_SCHEDULE, POINTS_LP_POOLS, POINTS_LP_POCKET_WEI and POINTS_LP_END_SEC are set.
-let lp = null, lpFarms = [];
-const lpCampaigns = () => [lp, ...lpFarms].filter(Boolean);
+let lp = null, lpFarms = [], tokpool = null;
+// Every campaign paid from a pocket of its own: the liquidity campaign, its virtual farms and the token pools' campaign.
+const lpCampaigns = () => [lp, ...lpFarms, tokpool].filter(Boolean);
 // What the campaigns have yet to credit (a pocket less what it has paid, while the campaign runs): the distributor holds it for them, so the
 // headroom that is the regular pot's is what is left after it.
 function lpFundingFields(funding) {
@@ -1984,6 +2001,25 @@ function setupLp(store) {
   return l;
 }
 
+// The token pools' campaign (lib/points-tokpool-service.js): off unless POINTS_TOKPOOL_SCHEDULE, _POOLS, _POCKET_WEI and _END_SEC are set.
+function setupTokPool(store) {
+  const schedule = parseLpSchedule(CFG.pointsTokpoolSchedule, (m) => log(m.replace('POINTS_LP_SCHEDULE', 'POINTS_TOKPOOL_SCHEDULE'))), pools = parseTokPools(CFG.pointsTokpoolPools, log);
+  const set = parseLpSettings({ pocket: CFG.pointsTokpoolPocket, endSec: CFG.pointsTokpoolEndSec, fromBlock: CFG.pointsTokpoolFromBlock }, (m) => log(m.replace(/POINTS_LP_/g, 'POINTS_TOKPOOL_')));
+  if (!set || !CFG.pointsProgramStartSec || !schedule.length || !pools.length) return null;
+  const usd = (name, v, dflt) => { if (v === '') return dflt; if (!/^\d{1,9}$/.test(v)) { log(`ignoring ${name}="${v}": expected whole dollars; using ${dflt}`); return dflt; } return BigInt(v); };
+  const t = createTokPool({
+    ...lpDeps(store),
+    cfg: {
+      schedule, pools, pocketWei: set.pocketWei, endSec: set.endSec, fromBlock: set.fromBlock,
+      addressUsdWei: usd('POINTS_TOKPOOL_ADDRESS_USD', CFG.pointsTokpoolAddressUsd, 2500n) * 10n ** 18n, minUsdWei: usd('POINTS_TOKPOOL_MIN_USD', CFG.pointsTokpoolMinUsd, 10n) * 10n ** 18n,
+      exclude: CFG.pointsTokpoolExclude.split(',').map((a) => a.trim()).filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a)),
+      tacOracle: CFG.pointsTokpoolTacOracle, ethUsdFeed: CFG.pointsLpEthUsdFeed, confirmations: CFG.pointsConfirmations,
+    },
+  });
+  log(`token pools' campaign on: ${pools.length} pool(s), pocket ${formatTac(set.pocketWei)} TAC, until ${new Date(set.endSec * 1000).toISOString()}`);
+  return t;
+}
+
 async function main() {
   if (!CFG.pointsStartBlock) throw new Error('missing required env POINTS_START_BLOCK');
   const store = openStore(CFG.pointsDbPath, { excluded: CFG.evmPoolPointsExclude });
@@ -2022,6 +2058,7 @@ async function main() {
   tasks = setupTasks(store);
   try { lp = setupLp(store); } catch (err) { log('liquidity campaign not started:', err?.message || err); lp = null; }
   try { lpFarms = setupLpFarms(store); } catch (err) { log('virtual farms not started:', err?.message || err); lpFarms = []; }
+  try { tokpool = setupTokPool(store); } catch (err) { log("token pools' campaign not started:", err?.message || err); tokpool = null; }
   startHttp(store, evmState);
 
   for (;;) {
@@ -2101,7 +2138,7 @@ async function main() {
       log('settle cycle failed:', err?.message || err);
     }
     // After the regular settlement, which comes first: the campaign's own scan and credits can wait a cycle, the daily pot cannot.
-    for (const c of lpCampaigns()) { try { await c.cycle(); } catch (err) { log(`${c.name ? `virtual farm "${c.name}"` : 'liquidity campaign'} cycle failed:`, err?.message || err); } }
+    for (const c of lpCampaigns()) { try { await c.cycle(); } catch (err) { log(`${c === tokpool ? "token pools' campaign" : c.name ? `virtual farm "${c.name}"` : 'liquidity campaign'} cycle failed:`, err?.message || err); } }
     if (holding) { try { await holding.cycle(); } catch (err) { log('holding cycle failed:', err?.message || err); } }
     await new Promise((r) => setTimeout(r, CFG.pointsPollSecs * 1000));
   }
