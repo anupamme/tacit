@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-2ZfNxGjf5Zn24HHD+vy4UQS4x84xQnYbLkoBwrvZQe8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.0xbow.io https://api.routescan.io https://fastrelay.xyz https://v1.privacypools.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9vtdh8T27XthJ0+vs0dtro4Z8Dun6r/IJ9YeItGmE0g=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.0xbow.io https://api.routescan.io https://fastrelay.xyz https://v1.privacypools.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-btc-pool-mainnet.onrender.com https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay · ETH</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH, proved on your device and recovered from your key.">
@@ -1104,6 +1104,7 @@ function forget() {
   const typed = DRAFT['f-amt'];
   for (const k of Object.keys(DRAFT)) delete DRAFT[k];
   if (REQ.v && !REQ.v.paid) { DRAFT['f-to'] = REQ.v.bp; if (REQ.v.amount) DRAFT['f-amt'] = plain(REQ.v.amount); else if (typed) DRAFT['f-amt'] = typed; }
+  else if (HANDED.v) { DRAFT['f-to'] = HANDED.v.to; if (HANDED.v.amt) DRAFT['f-amt'] = HANDED.v.amt; HANDED.v = null; }
   GIFTSEEN.clear(); MADEQ.clear();
   SENT.v = null; say($('#status'), '');
   for (const k of Object.keys(TK)) Object.assign(TK[k], tkBlank());
@@ -3429,6 +3430,8 @@ function formReceive(f) {
 window.addEventListener('resize', () => { if (S.key && S.tab === 'receive') FORM.check?.(); });
 
 const REQ = { v: null };
+// a send handed over by a link (#send&to=…&amount=…, the front page's Send): filled in until a key opens, which clears the forms
+const HANDED = { v: null };
 const PAID_REQ = 'tacit-pay-paid-req-v1', PAID_DAYS = 30;
 const paidReqs = () => Object.fromEntries(Object.entries(readJson(PAID_REQ) || {}).filter(([, x]) => Date.now() - (x?.at || 0) < PAID_DAYS * 86400e3));
 const rememberPaid = (r, landed = false) => {
@@ -4422,6 +4425,14 @@ function applyHash() {
     }
     if (!S.busy) { S.tab = 'send'; S.sendMode = 'to'; }
   } else if (tab && !S.busy && TABS.some(([k]) => k === tab)) S.tab = tab;
+  // a send handed over from elsewhere (the front page's Send): its recipient and amount filled in, not a request
+  const to = (q.get('to') || '').trim();
+  if (to && !bp && !S.busy && to.length < 400) {
+    S.tab = 'send'; S.sendMode = 'to';
+    HANDED.v = { to, amt: amount ? (tok ? plainOf(amount, tok.dec) : plain(amount)) : '' };
+    DRAFT['f-to'] = to; if (HANDED.v.amt) DRAFT['f-amt'] = HANDED.v.amt;
+    if (S.key) HANDED.v = null;
+  }
   if (/(^|&)gift=/.test(h) && !giftLater && c) try { history.replaceState(null, '', location.pathname); } catch {}
 }
 document.addEventListener('keydown', (e) => {
