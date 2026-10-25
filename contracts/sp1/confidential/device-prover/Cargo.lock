@@ -2239,14 +2239,13 @@ dependencies = [
 [[package]]
 name = "p3-challenger"
 version = "0.4.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6a908924d43e4cfb93fb41c8346cac211b70314385a9037e9241f5b7f3eaf77"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
  "p3-symmetric",
  "p3-util",
  "serde",
+ "tacit-leafhash",
  "tracing",
 ]
 
@@ -2338,8 +2337,6 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.4.3-succinct"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a9683cd0ef68100df7c62490533047bcf19c04c4a0fa1efc9d7c1e03e31f6b3"
 dependencies = [
  "cfg-if",
  "num-bigint 0.4.8",
@@ -4592,6 +4589,7 @@ dependencies = [
  "sha2",
  "slop-algebra",
  "slop-bn254",
+ "slop-challenger",
  "slop-koala-bear",
  "slop-symmetric",
  "sp1-sdk",

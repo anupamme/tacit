@@ -1,9 +1,11 @@
-//! Leaf hashing for SP1's outer (wrap) Merkle commitments on an Apple GPU.
+//! Leaf hashing and node compression for SP1's outer (wrap) Merkle commitments on an Apple GPU.
 //!
 //! The wrap STARK commits its trace with `MultiField32PaddingFreeSponge<KoalaBear, Bn254Fr, Poseidon2<t=3>, 3, 16, 1>`:
 //! a row of KoalaBear values is packed eight to a BN254 element, absorbed two elements at a time in overwrite mode, and
 //! permuted. [`hash_rows`] computes the same digests on the GPU, one row per thread. Each digest is the four little-endian
-//! u64 Montgomery limbs p3-bn254-fr stores for a `Bn254Fr`. Elsewhere than macOS, or with `TACIT_METAL=0`, the GPU is
+//! u64 Montgomery limbs p3-bn254-fr stores for a `Bn254Fr`. [`compress_pairs`] computes the layer above a layer of such
+//! digests, each node `TruncatedPermutation<_, 2, 1, 3>` of its two children, and [`grind`] searches the outer challenger's
+//! proof-of-work nonces. Elsewhere than macOS, or with `TACIT_METAL=0`, the GPU is
 //! reported unavailable and callers keep their CPU path.
 
 mod rc;
@@ -31,8 +33,8 @@ pub fn hash_rows(rows: &[u32], width: usize, monty: bool, out: &mut [[u64; 4]]) 
     if width == 0 || rows.len() != n * width || n == 0 {
         return n == 0;
     }
-    // Keeps each dispatch's row buffer near 256 MB.
-    let per = (64usize << 20).div_ceil(width).max(1);
+    // Keeps each dispatch's row buffer near 256 MB, each block starting on a page so it is read where it lies.
+    let per = ((64usize << 20) / width / 4096).max(1) * 4096;
     let mut start = 0;
     while start < n {
         let end = (start + per).min(n);
@@ -53,6 +55,53 @@ pub fn hash_rows(rows: &[u32], width: usize, monty: bool, out: &mut [[u64; 4]]) 
     true
 }
 
+/// Compresses each pair of `prev` (a layer of digests, two per node) into `out`, which holds `prev.len() / 2` nodes. Returns
+/// false when the GPU is unavailable or a dispatch fails, leaving `out` unspecified.
+pub fn compress_pairs(prev: &[[u64; 4]], out: &mut [[u64; 4]]) -> bool {
+    if gpu().is_none() || prev.len() != 2 * out.len() {
+        return false;
+    }
+    // Keeps each dispatch's input near 512 MB.
+    let per = 1usize << 23;
+    let mut start = 0;
+    while start < out.len() {
+        let end = (start + per).min(out.len());
+        let rc = unsafe {
+            tacit_compress_run(prev[2 * start..2 * end].as_ptr() as *const u64, (end - start) as u32, out[start..end].as_mut_ptr() as *mut u64)
+        };
+        if rc != 0 {
+            return false;
+        }
+        start = end;
+    }
+    true
+}
+
+/// Proof-of-work for SP1's outer challenger: the least nonce under the KoalaBear prime that passes `bits` with the sponge in
+/// `state` (Bn254Fr Montgomery limbs) and `prefix` (the canonical KoalaBear values already buffered, at most 15). None when
+/// the GPU is unavailable or a dispatch fails; the caller checks the nonce with the challenger itself.
+pub fn grind(state: &[[u64; 4]; 3], prefix: &[u32], bits: u32) -> Option<u32> {
+    if gpu().is_none() || prefix.len() > 15 || bits == 0 || bits > 30 {
+        return None;
+    }
+    const P: u32 = 0x7f000001;
+    let per = 1u32 << 20;
+    let mut start = 0u32;
+    while start < P {
+        let n = per.min(P - start);
+        let mut found = u32::MAX;
+        let rc = unsafe { tacit_grind_run(state.as_ptr() as *const u64, prefix.as_ptr(), prefix.len() as u32, bits, start, n, &mut found) };
+        if rc != 0 {
+            return None;
+        }
+        if found != u32::MAX {
+            return Some(found);
+        }
+        start += n;
+    }
+    None
+}
+
 struct Gpu {
     name: String,
 }
@@ -66,10 +115,22 @@ fn gpu() -> Option<&'static Gpu> {
 extern "C" {
     fn tacit_leafhash_init(msl: *const u8, ext: *const u64, intc: *const u64, name: *mut u8, name_len: usize) -> i32;
     fn tacit_leafhash_run(rows: *const u32, n: u32, width: u32, monty: u32, out: *mut u64) -> i32;
+    fn tacit_compress_run(prev: *const u64, n: u32, out: *mut u64) -> i32;
+    fn tacit_grind_run(state: *const u64, prefix: *const u32, plen: u32, bits: u32, start: u32, n: u32, found: *mut u32) -> i32;
 }
 
 #[cfg(not(target_os = "macos"))]
 unsafe fn tacit_leafhash_run(_: *const u32, _: u32, _: u32, _: u32, _: *mut u64) -> i32 {
+    -1
+}
+
+#[cfg(not(target_os = "macos"))]
+unsafe fn tacit_compress_run(_: *const u64, _: u32, _: *mut u64) -> i32 {
+    -1
+}
+
+#[cfg(not(target_os = "macos"))]
+unsafe fn tacit_grind_run(_: *const u64, _: *const u32, _: u32, _: u32, _: u32, _: u32, _: *mut u32) -> i32 {
     -1
 }
 

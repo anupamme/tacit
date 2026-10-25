@@ -252,6 +252,9 @@ where
     C: Sync,
 {
     debug_assert!(prev_layer.len().is_power_of_two());
+    if let Some(next) = crate::gpu::compress::<P, C, DIGEST_ELEMS>(prev_layer, c) {
+        return next;
+    }
     let width = P::WIDTH;
     let next_len = prev_layer.len() / 2;
 

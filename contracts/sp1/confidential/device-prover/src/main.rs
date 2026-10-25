@@ -73,8 +73,13 @@ fn main() {
     }
 }
 
-// Below 16 GB the SDK's default concurrency (several shards and recursion proofs at once) pages; one per stage is faster.
+// The SDK verifies each shard and recursion proof as it goes; `run` verifies the final proof, which no wrong step survives,
+// so the checks along the way only cost time. Below 16 GB the SDK's default concurrency (several shards and recursion proofs
+// at once) pages; one per stage is faster.
 fn lean_workers() {
+    if std::env::var_os("SP1_WORKER_VERIFY_INTERMEDIATES").is_none() {
+        std::env::set_var("SP1_WORKER_VERIFY_INTERMEDIATES", "false");
+    }
     if ram_bytes().map_or(true, |b| b >= 16 << 30) {
         return;
     }
@@ -309,6 +314,81 @@ fn handle(mut conn: TcpStream, state: &Arc<(Mutex<State>, Condvar)>, origins: &[
 
 // The GPU leaf hash against SP1's own outer hasher on random rows of several widths, with timings.
 fn check() -> bool {
+    let cpu = check_inner_perm();
+    let gpu = check_gpu();
+    check_grind() && gpu && cpu
+}
+
+// The wrap stage's proof-of-work: for buffered inputs of several lengths, the GPU's nonce must be the least one the
+// challenger itself accepts (every smaller nonce refused), then a 22-bit search is timed as the wrap stage runs it.
+fn check_grind() -> bool {
+    use rand::Rng;
+    use slop_algebra::{AbstractField, PrimeField32};
+    use slop_bn254::{outer_perm, Bn254Fr, OuterPerm};
+    use slop_challenger::{CanObserve, GrindingChallenger, MultiField32Challenger};
+    use slop_koala_bear::KoalaBear;
+    type C = MultiField32Challenger<KoalaBear, Bn254Fr, OuterPerm, 3, 2>;
+    if tacit_leafhash::device().is_none() {
+        return true;
+    }
+    let mut rng = rand::thread_rng();
+    let mut ok = true;
+    for plen in [0usize, 1, 7, 8, 15] {
+        let mut c = C::new(outer_perm()).unwrap();
+        for _ in 0..16 + plen {
+            c.observe(KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001)));
+        }
+        let mut g = c.clone();
+        let w = g.grind(10);
+        let least = (0..w.as_canonical_u32()).all(|x| !c.clone().check_witness(10, KoalaBear::from_canonical_u32(x)));
+        let same = least && c.clone().check_witness(10, w);
+        ok &= same;
+        println!("proof-of-work, {plen:2} inputs buffered: nonce {} {}", w.as_canonical_u32(), if same { "is the least the challenger accepts" } else { "DIFFERS" });
+    }
+    let mut c = C::new(outer_perm()).unwrap();
+    c.observe(KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001)));
+    let t = Instant::now();
+    let w = c.clone().grind(22);
+    println!("22-bit proof-of-work on the GPU: nonce {} in {:.2} s", w.as_canonical_u32(), t.elapsed().as_secs_f64());
+    ok
+}
+
+// The core and recursion stages' Poseidon2 (KoalaBear, width 16): the patched NEON permutation against the scalar one, which
+// p3-koala-bear computes by a separate route (shifts instead of a diagonal product).
+fn check_inner_perm() -> bool {
+    use rand::Rng;
+    use slop_algebra::AbstractField;
+    use slop_koala_bear::{my_kb_16_perm, KoalaBear};
+    use slop_symmetric::Permutation;
+    let perm = my_kb_16_perm();
+    let mut rng = rand::thread_rng();
+    let n = 1 << 16;
+    let states: Vec<[KoalaBear; 16]> = (0..n).map(|_| core::array::from_fn(|_| KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001)))).collect();
+    let t = Instant::now();
+    let scalar: Vec<[KoalaBear; 16]> = states.iter().map(|s| perm.permute(*s)).collect();
+    let ts = t.elapsed();
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    {
+        use slop_koala_bear::PackedKoalaBearNeon as P;
+        let t = Instant::now();
+        let mut same = true;
+        for (q, want) in states.chunks(4).zip(scalar.chunks(4)) {
+            let out = perm.permute(core::array::from_fn::<P, 16, _>(|j| P(core::array::from_fn(|l| q[l][j]))));
+            same &= (0..4).all(|l| (0..16).all(|j| out[j].0[l] == want[l][j]));
+        }
+        let tp = t.elapsed();
+        println!("{n} KoalaBear Poseidon2 states: NEON {} the scalar permutation; scalar {:.2} us, NEON {:.2} us per state (one thread)",
+            if same { "equals" } else { "DIFFERS FROM" }, ts.as_secs_f64() * 1e6 / n as f64, tp.as_secs_f64() * 1e6 / n as f64);
+        same
+    }
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+    {
+        let _ = (scalar, ts);
+        true
+    }
+}
+
+fn check_gpu() -> bool {
     use rand::Rng;
     use slop_algebra::{AbstractField, PrimeField32};
     use slop_bn254::{outer_perm, Bn254Fr, OuterPerm};
@@ -341,6 +421,23 @@ fn check() -> bool {
         let same = ran && g1 == cpu && g2 == cpu;
         ok &= same;
         println!("{n:6} rows x {width:3}: {}  CPU (one thread) {:.1} us/row, GPU ({dev}) {:.2} us/row",
+            if same { "equal" } else { "DIFFERENT" }, tc.as_secs_f64() * 1e6 / n as f64, tg.as_secs_f64() * 1e6 / n as f64);
+    }
+    // The tree's layers above the leaves: each node Poseidon2([left, right, 0])[0], as p3's TruncatedPermutation<_, 2, 1, 3>.
+    use slop_symmetric::{PseudoCompressionFunction, TruncatedPermutation};
+    let c = TruncatedPermutation::<OuterPerm, 2, 1, 3>::new(outer_perm());
+    for n in [4096usize, 1 << 16] {
+        let prev: Vec<[Bn254Fr; 1]> = (0..2 * n).map(|_| [Bn254Fr::from_canonical_u64(rng.gen()) * Bn254Fr::from_canonical_u64(rng.gen())]).collect();
+        let t = Instant::now();
+        let cpu: Vec<[u64; 4]> = prev.chunks(2).map(|p| unsafe { std::mem::transmute::<Bn254Fr, [u64; 4]>(c.compress([p[0], p[1]])[0]) }).collect();
+        let tc = t.elapsed();
+        let mut gpu = vec![[0u64; 4]; n];
+        let t = Instant::now();
+        let ran = tacit_leafhash::compress_pairs(unsafe { std::slice::from_raw_parts(prev.as_ptr() as *const [u64; 4], 2 * n) }, &mut gpu);
+        let tg = t.elapsed();
+        let same = ran && gpu == cpu;
+        ok &= same;
+        println!("{n:6} nodes:       {}  CPU (one thread) {:.1} us/node, GPU ({dev}) {:.2} us/node",
             if same { "equal" } else { "DIFFERENT" }, tc.as_secs_f64() * 1e6 / n as f64, tg.as_secs_f64() * 1e6 / n as f64);
     }
     ok

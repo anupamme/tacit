@@ -1,4 +1,4 @@
-// The leaf hash of SP1's outer (wrap) Merkle commitments, one row per thread: a row of KoalaBear values through the
+// The leaf hash and the node compression of SP1's outer (wrap) Merkle commitments, one row or one node per thread. The leaf hash: a row of KoalaBear values through the
 // multi-field sponge (eight values packed per BN254 element, rate 2, Poseidon2 t=3 with x^5, 8 external + 56 internal rounds,
 // overwrite mode). BN254 Fr is in Montgomery form (R = 2^256) on eight 32-bit limbs, which Apple GPUs multiply natively; eight
 // little-endian u32 limbs are byte-identical to p3-bn254-fr's four u64 limbs, so the digests are its Bn254Fr values.
@@ -117,4 +117,58 @@ kernel void leaf_hash(device const uint *rows [[buffer(0)]],
         permute(st, ext, intc);
     }
     out[gid] = st[0];
+}
+
+// One layer up the tree: node i is Poseidon2([prev[2i], prev[2i+1], 0])[0], p3's TruncatedPermutation<_, 2, 1, 3>.
+kernel void compress_pairs(device const F *prev [[buffer(0)]],
+                           device F *out [[buffer(1)]],
+                           constant F *ext [[buffer(2)]],
+                           constant F *intc [[buffer(3)]],
+                           constant uint &n [[buffer(4)]],
+                           uint gid [[thread_position_in_grid]]) {
+    if (gid >= n) return;
+    F st[3];
+    st[0] = prev[2 * (ulong)gid];
+    st[1] = prev[2 * (ulong)gid + 1];
+    for (int k = 0; k < 8; k++) st[2].l[k] = 0;
+    permute(st, ext, intc);
+    out[gid] = st[0];
+}
+
+// Proof-of-work for SP1's outer challenger (MultiField32Challenger<KoalaBear, Bn254Fr, Poseidon2 t=3, 3, 2>): nonce w passes when,
+// with w observed after the `plen` buffered inputs, the next sample has its low `bits` bits zero. That sample duplexes the
+// inputs into the sponge (eight canonical values per element, overwriting the front of the state), permutes, and pops the
+// last output: the top 64-bit digit of state[1] (canonical), reduced mod the KoalaBear prime. The least passing nonce of
+// the dispatch is kept in `found`.
+kernel void grind(constant F *state [[buffer(0)]],
+                  constant uint *prefix [[buffer(1)]],
+                  constant F *ext [[buffer(2)]],
+                  constant F *intc [[buffer(3)]],
+                  constant uint &plen [[buffer(4)]],
+                  constant uint &bits [[buffer(5)]],
+                  constant uint &start [[buffer(6)]],
+                  device atomic_uint *found [[buffer(7)]],
+                  uint gid [[thread_position_in_grid]]) {
+    uint w = start + gid;
+    if (w >= 0x7f000001u) return;
+    F r2; for (int i = 0; i < 8; i++) r2.l[i] = R2[i];
+    F st[3];
+    for (int i = 0; i < 3; i++) st[i] = state[i];
+    uint total = plen + 1;
+    for (uint c = 0; c * 8 < total; c++) {
+        F acc; for (int k = 0; k < 8; k++) acc.l[k] = 0;
+        for (uint k = 0; k < 8 && c * 8 + k < total; k++) {
+            uint x = c * 8 + k < plen ? prefix[c * 8 + k] : w;
+            uint bit = 31 * k, wd = bit / 32, o = bit % 32;
+            acc.l[wd] |= x << o;
+            if (o > 1 && wd + 1 < 8) acc.l[wd + 1] |= x >> (32 - o);
+        }
+        st[c] = fmul(acc, r2);
+    }
+    permute(st, ext, intc);
+    F one; for (int k = 0; k < 8; k++) one.l[k] = 0; one.l[0] = 1;
+    F v = fmul(st[1], one);                  // out of Montgomery form
+    ulong top = ((ulong)v.l[7] << 32) | v.l[6];
+    uint sample = (uint)(top % 0x7f000001UL);
+    if ((sample & ((1u << bits) - 1u)) == 0) atomic_fetch_min_explicit(found, w, memory_order_relaxed);
 }

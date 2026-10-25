@@ -26,7 +26,7 @@ guest's verifying key is not the pool's `PROGRAM_VKEY` (`0x006cd47f…d6e3`).
 
 ```sh
 ./target/release/tacit-prover            # serve on 127.0.0.1:47815
-./target/release/tacit-prover check      # GPU leaf hashing against the CPU hasher, then exit
+./target/release/tacit-prover check      # every faster path against the reference code, then exit
 ./target/release/tacit-prover prove f    # one proof of the bincode SP1Stdin in f, to f.proof.json
 ```
 
@@ -42,8 +42,9 @@ start loads in seconds.
 | `TACIT_PROVER_PORT` | `47815` | the page looks here |
 | `TACIT_PROVER_ORIGINS` | tacit.finance, www.tacit.finance, and localhost:8080 / 127.0.0.1:8080 for a local dapp | pages allowed to ask for a proof |
 | `TACIT_PROVER_DIR` | `~/.tacit-prover` | finished proofs, kept by input hash |
-| `TACIT_METAL` | on, on macOS | `0` hashes Merkle leaves on the CPU |
+| `TACIT_METAL` | on, on macOS | `0` keeps all hashing and proof-of-work on the CPU |
 | `SP1_WORKER_NUM_*_WORKERS` | 1 per stage under 16 GB of RAM | the SDK's own concurrency settings |
+| `SP1_WORKER_VERIFY_INTERMEDIATES` | `false` | the final proof is verified before it is returned, which no wrong step survives |
 
 The server listens on 127.0.0.1 only and answers a browser only from an allowed origin. It makes one proof at a time, and
 the rest wait in a queue. A job's id is the hash of its input, so a page reloaded mid-proof picks up the same job. Finished
@@ -56,27 +57,30 @@ These are real mainnet wraps, each accepted by the live verifier `0xb69f2584…f
 | machine | time |
 |---|---|
 | MacBook Air M2, 8 GB, fanless, stock SP1 | 41 min, 27 GB peak footprint |
-| the same Air, this prover | **23 min**, 17 GB peak; Groth16 alone 11 min → 4 min |
+| the same Air, this prover | **18 min** (core to shrink 7.4, wrap 4.8, Groth16 4–6), 17 GB peak |
 | an M-series with 16 GB or more | expected 5–10 min |
 | a 12-core desktop or M4 Pro | expected 5–6 min |
 
-Most of the time goes to SP1's BN254 wrap STARK. On macOS its Merkle leaf hashing runs on the GPU, checked against the CPU
-on every commit (see below).
+On macOS the wrap STARK's Merkle trees (leaves and every layer above) hash on the GPU and the CPU at once, and its 22-bit
+proof-of-work is searched on the GPU; each is checked against the CPU code it replaces (see below).
 
 ## What the patches change
 
-`patches/` holds four crates that replace their crates.io versions through `[patch.crates-io]`. Each one changes how a value
-is computed, never which value. Proofs are byte-for-byte what stock SP1 6.2.4 makes, and `tacit-prover check` compares the
-GPU path against the CPU path.
+`patches/` holds six crates that replace their crates.io versions through `[patch.crates-io]`. Each one changes how a value
+is computed, never which value: the proofs are what stock SP1 6.2.4 makes (a proof-of-work nonce is any one that passes, as
+stock SP1 takes whichever thread finds one first). `tacit-prover check` compares every faster path with the code it replaces.
 
 | crate | upstream | change |
 |---|---|---|
 | `sp1-recursion-gnark-ffi` | 6.2.4 | Groth16 loads the proving key by `mmap` and a debug-stripped R1CS, and runs its MSMs one at a time: peak memory 19 → 8–10 GB, key loads 98 s → 2 s |
 | `p3-bn254-fr` | 0.4.3-succinct | CIOS Montgomery multiplication without a final carry chain (BN254 has two spare bits), the Poseidon2 internal layer's diffusion as additions, and `#[inline]` across crates: the wrap STARK 2.5× faster |
 | `p3-symmetric` | 0.4.3-succinct | packs 31-bit field elements into BN254 two at a time (62-bit words), the same integer as one at a time |
-| `p3-merkle-tree` | 0.4.3-succinct | the first digest layer of a BN254 tree hashed by `crates/leafhash` on the GPU (Metal). Three rows of every commit are rehashed on the CPU, and any mismatch falls back to the CPU for the whole layer |
+| `p3-merkle-tree` | 0.4.3-succinct | a BN254 tree's leaves and each layer above hashed by `crates/leafhash` on the GPU (Metal) while the CPU's threads take the rest of the layer, the split tuned from both rates as it goes. Three of the GPU's rows or nodes in every layer are recomputed on the CPU, and a mismatch turns that GPU path off |
+| `p3-koala-bear` | 0.4.3-succinct | the NEON Poseidon2 internal layer folds its Montgomery rescale into the diagonal (exact in the field), so a round takes 17 multiplications instead of 32 and no longer calls `memset` once per lane, which was 17% of the core stage's CPU time: the permutation 1.36× faster |
+| `p3-challenger` | 0.4.3-succinct | the outer challenger's proof-of-work (22 bits in the wrap stage) searched on the GPU, ~4 s against ~20 s of CPU; the nonce is checked by the challenger itself before it is used |
 
-`crates/leafhash` is the Metal kernel: BN254 Poseidon2 on eight 32-bit limbs, with the KoalaBear packing done in the kernel.
+`crates/leafhash` holds the Metal kernels (leaf hash, node compression, proof-of-work): BN254 Poseidon2 on eight 32-bit
+limbs, with the KoalaBear packing done in the kernel. Page-aligned memory is handed to the GPU where it lies, without a copy.
 The round constants (`src/rc.rs`) are the Horizen Labs set SP1 uses.
 
-All four crates keep their upstream licences (MIT OR Apache-2.0).
+All six crates keep their upstream licences (MIT OR Apache-2.0).
