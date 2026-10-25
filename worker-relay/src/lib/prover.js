@@ -20,6 +20,7 @@ import { makeBoardProver } from './board-prover.js';
 import { boardPost, boardStatus, boardCancel, boardSummary } from './worker-client.js';
 import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
+import { makeReflectPriceCap } from './reflect-price-cap.js';
 import { proverEnvFrom } from './prover-env.js';
 import { isUnexecutable } from './block-cap.js';
 import { pickRpc, hostOf } from './rpc-pick.js';
@@ -115,6 +116,8 @@ async function writeEthProofFor(ethPv) {
 // needs the compressed eth-proof bytes on disk first (writeEthProofFor above). Returns { publicValues,
 // proofBytes } either way — the recursion branch lives inside bitcoin_prove itself, keyed on the fixture's
 // own modeB field.
+const priceCap = makeReflectPriceCap({ capWei: CFG.reflectMaxPricePerPgu, waitSecs: CFG.reflectCapWaitSecs });
+
 export async function proveReflection(input) {
   await mkdir(CFG.fixtureDir, { recursive: true });
   await mkdir(CFG.proverOut, { recursive: true });
@@ -123,8 +126,9 @@ export async function proveReflection(input) {
   await rm(path.join(CFG.proverOut, 'bitcoin_proof_bytes.hex'), { force: true });
   if (input.modeB) await writeEthProofFor(input.ethPv);
 
+  const cap = priceCap.cap();
   const { code, out, err } = await run(CFG.bitcoinProveBin, {
-    env: proverEnv({ PROOF_MODE: 'groth16', REFLECT_FIXTURE: fixture }),
+    env: proverEnv({ PROOF_MODE: 'groth16', REFLECT_FIXTURE: fixture, REFLECT_MAX_PRICE_PER_PGU: cap }),
     cwd: CFG.proverOut,
     timeoutMs: CFG.reflectionProveTimeoutSecs * 1000,
     rssLimitKB: CFG.reflectionProverRssKB,
@@ -137,8 +141,10 @@ export async function proveReflection(input) {
   try {
     const publicValues = await readHex(pvPath);
     const proofBytes = await readHex(pbPath);
+    priceCap.settled({ capped: cap !== '0', filled: true });
     return { publicValues, proofBytes };
   } catch (e) {
+    priceCap.settled({ capped: cap !== '0', filled: false });
     const fail = new Error(`bitcoin_prove produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
     // The network's refusal is reported on stderr, which the message above leaves out; it is marked here so the caller
     // can tell a batch the network would not run from a crash.

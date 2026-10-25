@@ -223,6 +223,10 @@ export const CFG = {
   // own cycle and the budget check then stops the run, rather than the container being killed mid-write.
   reflectionProveTimeoutSecs: num('REFLECTION_PROVE_TIMEOUT_SECS', 40 * 60),
   reflectionProverRssKB: num('REFLECTION_PROVER_RSS_KB', 1_700_000),
+  // The most a reflection fill may charge, in PROVE wei per prover gas unit (unset or 0: no cap), and how long capped requests may go
+  // unfilled before the next one is asked without it (src/lib/reflect-price-cap.js).
+  reflectMaxPricePerPgu: num('REFLECT_MAX_PRICE_PER_PGU', 0),
+  reflectCapWaitSecs: num('REFLECT_CAP_WAIT_SECS', 20 * 60),
   // Replenish from INSIDE the settle service, during idle time. The settle wallet earns the fees and holds
   // the only copy of SETTLE_KEY, so running the sweep here means the key never has to be copied to a cron.
   // It runs between cycles — never concurrently — because a swap and a settle from the same wallet would
