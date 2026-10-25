@@ -101,10 +101,17 @@ fn main() {
     let gas_limit: u64 = std::env::var("REFLECT_GAS_LIMIT").ok()
         .and_then(|v| v.parse().ok()).unwrap_or(100_000_000_000);
     println!("cycle_limit={cycle_limit} gas_limit={gas_limit}");
+    // REFLECT_MAX_PRICE_PER_PGU (PROVE wei per prover gas unit): the most a fill may charge. Batches usually clear near 2.3e8
+    // (0.23 PROVE per billion PGU) and some at 5.6e8-6.5e8 when the network is busy; a cap near 3e8 leaves those to a later
+    // try, which costs nothing while unfilled (the lane asks again). Unset: no cap, as before.
+    let max_pgu: Option<u64> = std::env::var("REFLECT_MAX_PRICE_PER_PGU").ok().and_then(|v| v.parse().ok()).filter(|v| *v > 0);
+    if let Some(m) = max_pgu { println!("max_price_per_pgu={m}"); }
+    let req = pclient.prove(&bpk, stdin).cycle_limit(cycle_limit).gas_limit(gas_limit);
+    let req = match max_pgu { Some(m) => req.max_price_per_pgu(m), None => req };
     let proof = if mode == "groth16" {
-        pclient.prove(&bpk, stdin).groth16().cycle_limit(cycle_limit).gas_limit(gas_limit).run().expect("groth16 proof failed")
+        req.groth16().run().expect("groth16 proof failed")
     } else {
-        pclient.prove(&bpk, stdin).compressed().cycle_limit(cycle_limit).gas_limit(gas_limit).run().expect("compressed proof failed")
+        req.compressed().run().expect("compressed proof failed")
     };
     let pv = proof.public_values.as_slice().to_vec();
     println!("PROVED mode={mode} pv_bytes={}", pv.len());
