@@ -315,6 +315,14 @@ func TestPoseidonKoalaBear2() *C.char {
 	return nil
 }
 
+//export CheckLeanGroth16Bn254
+func CheckLeanGroth16Bn254() *C.char {
+	if err := sp1.CheckLean(); err != nil {
+		return C.CString(err.Error())
+	}
+	return nil
+}
+
 //export FreeString
 func FreeString(s *C.char) {
 	C.free(unsafe.Pointer(s))

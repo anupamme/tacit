@@ -4594,6 +4594,7 @@ dependencies = [
  "slop-challenger",
  "slop-koala-bear",
  "slop-symmetric",
+ "sp1-recursion-gnark-ffi",
  "sp1-sdk",
  "tacit-leafhash",
  "tracing",

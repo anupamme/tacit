@@ -567,7 +567,25 @@ fn handle(mut conn: TcpStream, state: &Arc<(Mutex<State>, Condvar)>, origins: &[
 fn check() -> bool {
     let cpu = check_inner_perm();
     let gpu = check_gpu();
-    check_grind() && gpu && cpu
+    let g16 = check_groth16();
+    check_grind() && gpu && cpu && g16
+}
+
+// The Groth16 step's lean prover (patches/sp1-recursion-gnark-ffi go/sp1/prove_lean.go): a circuit with a commitment
+// proved with its multi-exponentiations in blocks (and its G1 ones on the GPU, on a Mac) and verified, a changed proof
+// refused, and blocked multi-exponentiations on G1 and G2, and the GPU's G1 one, equal to gnark's whole ones.
+fn check_groth16() -> bool {
+    let t = Instant::now();
+    match sp1_recursion_gnark_ffi::ffi::check_lean_groth16_bn254() {
+        Ok(()) => {
+            println!("Groth16 lean prover: proofs in blocks of 0, 1, 7 and 64 bases (with the GPU's G1 sums, on a Mac) verify, a changed one does not, and blocked G1/G2 sums and the GPU's G1 sum equal whole ones ({:.1} s)", t.elapsed().as_secs_f64());
+            true
+        }
+        Err(e) => {
+            println!("Groth16 lean prover: FAILED: {e}");
+            false
+        }
+    }
 }
 
 // The wrap stage's proof-of-work: for buffered inputs of several lengths, the GPU's nonce must be the least one the

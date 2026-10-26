@@ -56,6 +56,9 @@ start loads in seconds.
 | `TACIT_METAL` | on, on macOS | `0` keeps all hashing and proof-of-work on the CPU |
 | `TACIT_MINE` | unset | an address: mine the proof pool while idle, for TAC points to it |
 | `TACIT_POOL_API` | `https://api.tacit.finance` | where the proof pool is |
+| `SP1_GNARK_GPU` | on, on macOS | `0` keeps the Groth16 step's G1 multi-exponentiations on the CPU |
+| `SP1_GNARK_MSM_BLOCK` | `4194304` | bases per block of a CPU multi-exponentiation; `0` scans each in one piece |
+| `SP1_GNARK_LEAN` | on | `0` loads the Groth16 key and circuit, and proves, as stock SP1 does |
 | `SP1_WORKER_NUM_*_WORKERS` | 1 per stage under 16 GB of RAM | the SDK's own concurrency settings |
 | `SP1_WORKER_VERIFY_INTERMEDIATES` | `false` | the final proof is verified before it is returned, which no wrong step survives |
 
@@ -96,7 +99,7 @@ stock SP1 takes whichever thread finds one first). `tacit-prover check` compares
 
 | crate | upstream | change |
 |---|---|---|
-| `sp1-recursion-gnark-ffi` | 6.2.4 | Groth16 loads the proving key by `mmap` and a debug-stripped R1CS, and runs its MSMs one at a time: peak memory 19 → 8–10 GB, key loads 98 s → 2 s |
+| `sp1-recursion-gnark-ffi` | 6.2.4 | Groth16 loads the proving key by `mmap` and a debug-stripped R1CS (peak memory 19 → 8–10 GB, key loads 98 s → 2 s), and proves with gnark's arithmetic on a smaller footprint (`go/sp1/prove_lean.go`): H on a domain without its 2 GB of FFT tables, the multi-exponentiations one after another, each walking its bases in blocks that stay in memory, so a page of the 5.9 GB key is read about once per proof. On macOS the four G1 multi-exponentiations run on the GPU (`go/sp1/gpu_msm.metal`, Pippenger with 16-bit windows) while the CPU takes the G2 one; the GPU's sum over the key's own bases is compared with gnark's before it is used, and a proof it helped make is verified before it is returned, any failure putting the step back on the CPU |
 | `p3-bn254-fr` | 0.4.3-succinct | CIOS Montgomery multiplication without a final carry chain (BN254 has two spare bits), the Poseidon2 internal layer's diffusion as additions, and `#[inline]` across crates: the wrap STARK 2.5× faster |
 | `p3-symmetric` | 0.4.3-succinct | packs 31-bit field elements into BN254 two at a time (62-bit words), the same integer as one at a time |
 | `p3-merkle-tree` | 0.4.3-succinct | a BN254 tree's leaves and each layer above hashed by `crates/leafhash` on the GPU (Metal) while the CPU's threads take the rest of the layer, the split tuned from both rates as it goes. Three of the GPU's rows or nodes in every layer are recomputed on the CPU, and a mismatch turns that GPU path off |

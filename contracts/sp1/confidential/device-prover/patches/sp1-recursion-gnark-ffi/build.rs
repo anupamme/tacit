@@ -101,6 +101,9 @@ fn main() {
                 if env::var("SP1_GNARK_FFI_SKIP_MAC_FRAMEWORKS").is_err() {
                     println!("cargo:rustc-link-lib=framework=CoreFoundation");
                     println!("cargo:rustc-link-lib=framework=Security");
+                    // The Groth16 step's G1 multi-exponentiations on the GPU (go/sp1/gpu_msm_darwin.m).
+                    println!("cargo:rustc-link-lib=framework=Metal");
+                    println!("cargo:rustc-link-lib=framework=Foundation");
                 }
             }
         }

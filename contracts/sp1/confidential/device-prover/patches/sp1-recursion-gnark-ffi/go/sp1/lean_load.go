@@ -21,6 +21,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	curve "github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr/fft"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/pedersen"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16_bn254 "github.com/consensys/gnark/backend/groth16/bn254"
@@ -90,6 +91,13 @@ func loadPkMmap(path string) (*groth16_bn254.ProvingKey, error) {
 	if _, err := pk.Domain.ReadFrom(cr); err != nil {
 		return nil, fmt.Errorf("domain: %w", err)
 	}
+	// The key keeps a domain without FFT tables (2 GB at this size): the lean prover's transforms build the little they need
+	// (prove_lean.go), and the tables would otherwise hold memory the other stages need between proofs.
+	bare := fft.NewDomain(pk.Domain.Cardinality, fft.WithoutPrecompute())
+	if !bare.Generator.Equal(&pk.Domain.Generator) || !bare.FrMultiplicativeGen.Equal(&pk.Domain.FrMultiplicativeGen) {
+		return nil, fmt.Errorf("domain: the key's is not the one NewDomain builds for its size")
+	}
+	pk.Domain = *bare
 	dec := curve.NewDecoder(cr, curve.NoSubgroupChecks())
 	var nbWires uint64
 	var nbCommitments uint32

@@ -194,6 +194,17 @@ pub fn test_plonk_bn254(witness_json: &str, constraints_json: &str) {
     test(ProofSystem::Plonk, witness_json, constraints_json)
 }
 
+/// The lean Groth16 prover's self-test (go/sp1/lean_check.go): a committed circuit proved in blocks and verified, and
+/// blocked multi-exponentiations equal to whole ones.
+pub fn check_lean_groth16_bn254() -> Result<(), String> {
+    let err_ptr = unsafe { bind::CheckLeanGroth16Bn254() };
+    if err_ptr.is_null() {
+        Ok(())
+    } else {
+        Err(unsafe { ptr_to_string_freed(err_ptr) })
+    }
+}
+
 pub fn build_groth16_bn254(data_dir: &str) {
     build(ProofSystem::Groth16, data_dir)
 }

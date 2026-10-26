@@ -12,7 +12,9 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
+	groth16_bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/consensys/gnark/constraint"
+	cs "github.com/consensys/gnark/constraint/bn254"
 	"github.com/consensys/gnark/frontend"
 )
 
@@ -109,7 +111,29 @@ func ProveGroth16(dataDir string, witnessPath string) Proof {
 
 	start = time.Now()
 	// Generate the proof.
-	proof, err := groth16.Prove(globalR1cs, globalPk, witness)
+	var proof groth16.Proof
+	if leanEnabled() {
+		// A proof the GPU took part in is checked against the circuit's verifying key before it is returned.
+		check := func(p *groth16_bn254.Proof) error {
+			vkFile, err := os.Open(dataDir + "/" + groth16VkPath)
+			if err != nil {
+				return err
+			}
+			defer vkFile.Close()
+			vk := groth16.NewVerifyingKey(ecc.BN254)
+			if _, err := vk.ReadFrom(vkFile); err != nil {
+				return err
+			}
+			pub, err := witness.Public()
+			if err != nil {
+				return err
+			}
+			return groth16.Verify(p, vk, pub)
+		}
+		proof, err = proveLean(globalR1cs.(*cs.R1CS), globalPk.(*groth16_bn254.ProvingKey), witness, check)
+	} else {
+		proof, err = groth16.Prove(globalR1cs, globalPk, witness)
+	}
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		panic(err)
