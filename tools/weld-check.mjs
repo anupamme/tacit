@@ -7459,7 +7459,7 @@ await step('farmzapeth', async () => {
 });
 
 // LP vouchers: the farm's share notes proved ahead. On the relay lane the share for the amount typed is asked of the relay once the amount
-// settles, and opening the farm's zap keeps its sizes (0.01, 0.1 and 1 ETH) ready through the community pool, shown as buttons under the
+// settles, and every farm keeps its sizes (0.001, 0.01, 0.1 and 1 ETH) ready through the community pool, shown as buttons under the
 // amount; a ready size pressed fills its exact cost, and the zap goes out at once as ONE transaction from the paying account
 // (zapETHIntoFarm: the zap and the settle of that share's proof), nothing asked of the relay at the press, the bond after. The pool's
 // settle is answered here (no real proof; tests/…/zapfarm fork.mjs runs it with a real one): the note is then made by the relay stub.
@@ -7501,9 +7501,10 @@ await step('lpvoucher', async () => {
     const pooled = (await lpOf('pool')).find((v) => v.size === '10000000000000000');
     ok(pooled?.status === 'ready', `lpvoucher: and the pool's proof is kept as a ready share (${(await lpOf('pool')).map((v) => `${v.size}/${v.status}`)})`);
     // (3) the 0.01 ETH size, ready, fills its exact cost, and the zap goes out from that share as one transaction from the Tacit account
-    await until(p, () => /ready now/.test(document.querySelector('#sz-sizes-0 [data-size]')?.textContent || ''), null, 90000).catch(() => {});
+    const z01 = '#sz-sizes-0 button:nth-child(2)';                                     // 0.001, 0.01, 0.1, 1 ETH: the second is 0.01
+    await until(p, (q) => /ready now/.test(document.querySelector(q)?.textContent || ''), z01, 90000).catch(() => {});
     ok(/0\.01 ETH\s*ready now/.test(await text(p, '#sz-sizes-0')), `lpvoucher: the kept sizes show under the amount, the proved one as ready now (${(await text(p, '#sz-sizes-0')).replace(/\s+/g, ' ')})`);
-    await p.click('#sz-sizes-0 [data-size]');
+    await p.click(z01);
     await until(p, () => /ready now/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 240000).catch(() => {});
     ok(/one transaction/.test(await text(p, '#sz-rcpt-0')), `lpvoucher: and pressing it fills its cost, the receipt saying one transaction (${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ').slice(-110)})`);
     const b0 = BigInt(await rpc('eth_blockNumber', [])), s1 = submits.length;
@@ -10816,7 +10817,7 @@ await step('poolkeep', async () => {
     await r.page.waitForSelector('#sheet-prove[open] [data-keep="cETH:10000000000000000"]', { timeout: 60000 });
     ok(/proved free by the community/.test(await text(r.page, '#sp-keep')), `poolkeep: with no prover of your own the sizes are kept by the community pool (${await text(r.page, '#sp-keep')})`);
     const pressed = await r.page.$$eval('[data-keep]', (bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.keep).join());
-    ok(pressed === 'cETH:10000000000000000,cETH:100000000000000000', `poolkeep: 0.01 and 0.1 ETH are kept ready for a key nobody has chosen for (${pressed})`);
+    ok(pressed === 'cETH:1000000000000000,cETH:10000000000000000,cETH:100000000000000000,cETH:1000000000000000000', `poolkeep: 0.001, 0.01, 0.1 and 1 ETH are kept ready for a key nobody has chosen for (${pressed})`);
     // nothing pressed: the default sizes are asked of the pool by themselves, the smaller first
     const ethReq = (b) => { const o = b && wrapOpFromStdin(b.stdin, STUB_CETH); return o && o.value === String(10n ** 16n / 10n ** 10n) ? o : null; };
     await chainUntil(async () => poolReqs.slice(q0).some(ethReq), 150000);

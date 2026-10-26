@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-J0I1mV+Se8QMXp4mVp4mwIhxz9/zOsgLZWp4YGTld3g=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lcSnZ+irRGsFATlEengpihTWE7BkW/1lIdgGczHWI8o=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8221,14 +8221,16 @@ function renderTacBal(el) {
 const VOUCH = { mod: null, ahead: null, keep: 0 };
 const vouchers = async () => (VOUCH.mod ||= (await import('/wrap-vouchers.js?cb=1b01bab7')).makeVouchers());
 const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
-// The sizes that can be kept ready, by pool ticker. ETH's two smaller ones are kept for every key until its holder turns them off
-// (an empty choice is stored as such): a wrap of a common size then goes out with no proving wait, and asking for one costs nothing.
+// The sizes that can be kept ready, by pool ticker. ETH's are kept for every key until its holder turns them off (an empty choice is
+// stored as such): a wrap of a common size then goes out with no proving wait, and asking for one costs nothing.
 const KEEP_READY = {
-  cETH: { sizes: [10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 16n, 10n ** 17n], sym: 'ETH', dp: 2 },
+  cETH: { sizes: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], sym: 'ETH', dp: 3 },
   TAC: { sizes: [100n * 10n ** 18n, 1000n * 10n ** 18n, 10000n * 10n ** 18n], dflt: [], sym: 'TAC', dp: 0 },
 };
 const keepKey = (tk) => KEEP_PREF + (tk === 'cETH' ? '' : `${tk}:`) + S.key.pubHex;
-const keepSizes = (tk = 'cETH') => { if (!S.key) return []; const v = store.get(keepKey(tk)); return (Array.isArray(v) ? v : KEEP_READY[tk].dflt).map(BigInt); };
+// The defaults are kept only through the community pool: on this computer's prover each takes minutes of its CPU, so there only the sizes
+// chosen are.
+const keepSizes = (tk = 'cETH') => { if (!S.key) return []; const v = store.get(keepKey(tk)); return (Array.isArray(v) ? v : devOn() ? [] : KEEP_READY[tk].dflt).map(BigInt); };
 // One wrap of `wei` proved on this computer and kept as a voucher; its job is kept with it, so a reload picks it up.
 // `relay`: asked of Tacit's relay as its sponsored proof (the relay proves wraps from its own budget; a wrap's proof pins nothing, so
 // asking before the deposit costs it nothing more), when your own prover is not on. It answers in about a minute, so asking once an
@@ -8282,12 +8284,16 @@ async function resumeVouchers() {
 // LP vouchers: a farm pool's share notes proved ahead. A share note's OP_WRAP binds only the pool's share asset, the share count and the
 // commitment, so it is proved like any wrap; at the zap the ETH legs are sized at the reserves then to mint exactly that share count
 // (lp-zap.js zapPlanFor), and one transaction (ConfidentialRouter.zapETHIntoFarm) mints the shares, shields them and settles the note,
-// the bond after. A pool's sizes (about LP_KEEP_ETH of shares, counted at the reserves when asked for) are kept once its zap has been
-// opened with this key, and one whose cost has moved more than LP_DRIFT from its size is proved again at its own index; a zap uses a
-// voucher whose share count costs, now, between 97% of the amount entered and that amount plus 2%.
-const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [10n ** 16n, 10n ** 17n, 10n ** 18n], LP_DRIFT = 25n;   // per thousand
+// the bond after. Every farm pool's sizes (about LP_KEEP_ETH of shares, counted at the reserves when asked for) are kept for every key,
+// and one whose cost has moved more than LP_DRIFT from its size is proved again at its own index; a zap uses a voucher whose share count
+// costs, now, between 97% of the amount entered and that amount plus 2%.
+const POOL_PER_TICK = 6;
+const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], LP_DRIFT = 25n;   // per thousand
 const lpTicker = (poolId) => `lp:${String(poolId).toLowerCase()}`;
-const lpKept = () => (S.key ? store.get(LP_KEEP_PREF + S.key.pubHex) || [] : []);
+// the pools whose zap this key opened, and (through the community pool, not this computer's prover) every farm pool the zap goes into:
+// tETH paired with TAC, cUSD or cBTC
+const lpKept = () => (S.key ? [...new Set([...(store.get(LP_KEEP_PREF + S.key.pubHex) || []),
+  ...(devOn() ? [] : (FARM.program?.pools || []).filter((x) => ZAP_TOKEN[String(x.pair).split('/').find((k) => k !== 'cETH')]).map((x) => x.poolId))])] : []);
 const lpKeep = (poolId) => { if (S.key && !lpKept().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpKept(), poolId].slice(-4)); };
 // A share note of `shares` in pool `poolId`, at an index no note, zap or voucher of this key holds.
 async function lpBuild(t, priv, poolId, shares, at = null) {
@@ -8344,35 +8350,40 @@ async function lpReady(poolId, wei, res) {
   }
   return best;
 }
-// The sizes picked in the prove sheet, kept ready: one missing at a time, while the prover has nothing else to do.
-// Without a prover of your own, the sizes are asked of the community proof pool instead (/prover/pool/*): anyone running
+// The sizes kept ready (the prove sheet's, and every farm's shares), checked each minute: proved on this computer one at a time while its
+// prover has nothing else to do, or else asked of the community proof pool (/prover/pool/*) a few at a time, where anyone running
 // tacit-prover, and Tacit's own prover when it is idle, proves them for TAC points, free to you.
 async function keepReady() {
-  if (VOUCH.ahead || !S.key) return;
-  const v = await vouchers();
-  for (const tk of Object.keys(KEEP_READY)) {
-    const have = v.list(S.key.pubHex, tk).map((x) => x.amount);
-    const want = keepSizes(tk).find((w) => !have.includes(String(w)));
-    if (!want) continue;
-    if (!devOn()) return poolRequest(tk, want);
+  if (!S.key) return;
+  const v = await vouchers(), pub = S.key.pubHex, device = devOn();
+  if (device ? VOUCH.ahead : Date.now() < (VOUCH.poolCapUntil || 0)) return;
+  // this computer proves one at a time while it is idle; the pool is asked for up to POOL_PER_TICK a minute
+  let posts = 0;
+  const next = async (pool, prove) => {
+    if (!device) { await pool(); return ++posts >= POOL_PER_TICK; }
     const h = await LOCAL.prover?.health?.().catch(() => null);
-    if (!h || h.busy || h.queued) return;
-    return proveAhead(tk, want);
+    if (h && !h.busy && !h.queued) prove();
+    return true;
+  };
+  for (const tk of Object.keys(KEEP_READY)) {
+    const have = v.list(pub, tk).map((x) => x.amount);
+    for (const want of keepSizes(tk).filter((w) => !have.includes(String(w)))) {
+      if (await next(() => poolRequest(tk, want), () => proveAhead(tk, want))) return;
+    }
   }
   for (const poolId of lpKept()) {
-    const mine = v.list(S.key.pubHex, lpTicker(poolId)), t = await getUx(), res = await t.poolReserves(poolId).catch(() => null);
+    const mine = v.list(pub, lpTicker(poolId)), t = await getUx(), res = await t.poolReserves(poolId).catch(() => null);
     // a kept share whose price has moved off its size is proved again at its own index (its deposit was never made)
     const stale = res && mine.find((x) => x.size && x.status === 'ready' && (() => { const c = lpCost(x, res), z = BigInt(x.size); return c == null || (c > z ? c - z : z - c) * 1000n > z * LP_DRIFT; })());
-    const want = stale ? BigInt(stale.size) : LP_KEEP_ETH.find((e) => !mine.some((x) => x.size === String(e)));
-    if (want == null) continue;
     if (stale) {
-      if (wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(stale.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) { v.drop(S.key.pubHex, stale.depositId); return; }
-      v.drop(S.key.pubHex, stale.depositId);
+      v.drop(pub, stale.depositId);
+      if (wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(stale.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) continue;
+      if (await next(() => lpPoolRequest(poolId, BigInt(stale.size), stale.index), () => lpProve(poolId, { size: BigInt(stale.size), at: stale.index }))) return;
+      continue;
     }
-    if (!devOn()) return lpPoolRequest(poolId, want, stale ? stale.index : null);
-    const h = await LOCAL.prover?.health?.().catch(() => null);
-    if (!h || h.busy || h.queued) return;
-    return lpProve(poolId, { size: want, at: stale ? stale.index : null });
+    for (const want of LP_KEEP_ETH.filter((e) => !mine.some((x) => x.size === String(e)))) {
+      if (await next(() => lpPoolRequest(poolId, want), () => lpProve(poolId, { size: want }))) return;
+    }
   }
 }
 // A wrap asked of the proof pool: the note is made here from the key, and only its program input (no secret in it: the asset,

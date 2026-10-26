@@ -32,7 +32,7 @@ import { isHex } from './confidential-open.js';
 export const PROOF_POOL = Object.freeze({
   types: Object.freeze(['wrap']),
   maxStdinBytes: 64 * 1024,          // bincode SP1Stdin; a wrap's is under 1 KiB
-  reqPerClientDay: 8,                // POOL_REQ_IP_DAILY
+  reqPerClientDay: 40,               // POOL_REQ_IP_DAILY: a key keeps 16 sizes ready (four ETH wraps, four shares in each of three farms)
   maxPending: 2000,                  // POOL_MAX_PENDING: queued and leased together
   leaseMs: 45 * 60_000,              // POOL_LEASE_MS: a laptop proves a wrap in about 15 minutes
   keepMs: 7 * 86_400_000,            // POOL_KEEP_MS: how long a finished proof stays readable
