@@ -13,6 +13,7 @@ import (
 
 func gpuMsmReady() bool                  { return false }
 func gpuMsmOff(string)                   {}
+func gpuMsmRelease()                     {}
 func gpuMsmCanary([]curve.G1Affine) bool { return false }
 func gpuMsmG1(*curve.G1Jac, []curve.G1Affine, []fr.Element) error {
 	return fmt.Errorf("no GPU path on this platform")

@@ -1,5 +1,6 @@
-// Metal host for gpu_msm.metal: the pipeline and a queue built once, and buffers for one block kept between calls (a
-// multi-exponentiation's bucket sums stay on the GPU from block to block). One caller at a time (gpu_msm_darwin.go locks).
+// Metal host for gpu_msm.metal: the pipeline and a queue built once; buffers for one block (612 MB) made when a Groth16
+// step first needs them and freed after it (tacit_msm_release), so they do not sit through the other stages. A
+// multi-exponentiation's bucket sums stay on the GPU from block to block. One caller at a time (gpu_msm_darwin.go locks).
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <stdint.h>
@@ -25,12 +26,8 @@ int tacit_msm_init(const char *msl, uint32_t cap, uint32_t nb, uint32_t windows,
         id<MTLFunction> fn = [lib newFunctionWithName:@"bucket_sum"];
         id<MTLComputePipelineState> pso = fn ? [dev newComputePipelineStateWithFunction:fn error:&err] : nil;
         if (!pso) return -3;
-        g_pts = [dev newBufferWithLength:(size_t)cap * 64 options:MTLResourceStorageModeShared];
-        g_order = [dev newBufferWithLength:(size_t)cap * windows * 4 options:MTLResourceStorageModeShared];
-        g_start = [dev newBufferWithLength:(size_t)(nb + 1) * windows * 4 options:MTLResourceStorageModeShared];
-        g_out = [dev newBufferWithLength:(size_t)nb * windows * 96 options:MTLResourceStorageModeShared];
         g_queue = [dev newCommandQueue];
-        if (!g_pts || !g_order || !g_start || !g_out || !g_queue) return -4;
+        if (!g_queue) return -4;
         g_dev = dev;
         g_pso = pso;
         g_cap = cap;
@@ -41,6 +38,19 @@ int tacit_msm_init(const char *msl, uint32_t cap, uint32_t nb, uint32_t windows,
         return 0;
     }
 }
+
+// The block buffers, made if they are not there.
+int tacit_msm_alloc(void) {
+    if (g_pts) return 0;
+    g_pts = [g_dev newBufferWithLength:(size_t)g_cap * 64 options:MTLResourceStorageModeShared];
+    g_order = [g_dev newBufferWithLength:(size_t)g_cap * g_windows * 4 options:MTLResourceStorageModeShared];
+    g_start = [g_dev newBufferWithLength:(size_t)(g_nb + 1) * g_windows * 4 options:MTLResourceStorageModeShared];
+    g_out = [g_dev newBufferWithLength:(size_t)g_nb * g_windows * 96 options:MTLResourceStorageModeShared];
+    if (!g_pts || !g_order || !g_start || !g_out) { g_pts = g_order = g_start = g_out = nil; return -4; }
+    return 0;
+}
+
+void tacit_msm_release(void) { g_pts = g_order = g_start = g_out = nil; }
 
 // Where the caller writes a block's points, its per-window order and starts, and reads the bucket sums.
 void *tacit_msm_pts(void) { return g_pts.contents; }

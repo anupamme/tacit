@@ -89,7 +89,9 @@ func CheckLean() error {
 	w2.MultiExp(b2, sc, ecc.MultiExpConfig{})
 	if gpuMsmReady() {
 		var g curve.G1Jac
-		if err := gpuMsmG1(&g, b1, sc); err != nil || !g.Equal(&w1) {
+		err := gpuMsmG1(&g, b1, sc)
+		gpuMsmRelease()
+		if err != nil || !g.Equal(&w1) {
 			return fmt.Errorf("the GPU's G1 multi-exponentiation is not gnark's (%v)", err)
 		}
 	}

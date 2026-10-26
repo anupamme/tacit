@@ -16,6 +16,8 @@ package sp1
 #include <stdint.h>
 #include <stdlib.h>
 int tacit_msm_init(const char *msl, uint32_t cap, uint32_t nb, uint32_t windows, char *name, size_t name_len);
+int tacit_msm_alloc(void);
+void tacit_msm_release(void);
 void *tacit_msm_pts(void);
 void *tacit_msm_order(void);
 void *tacit_msm_start(void);
@@ -74,6 +76,13 @@ func gpuMsmReady() bool {
 	return gpuState == 1
 }
 
+// gpuMsmRelease frees the GPU's block buffers until the next multi-exponentiation needs them.
+func gpuMsmRelease() {
+	gpuMu.Lock()
+	C.tacit_msm_release()
+	gpuMu.Unlock()
+}
+
 // gpuMsmOff turns the GPU path off for the rest of the process.
 func gpuMsmOff(why string) {
 	gpuMu.Lock()
@@ -97,10 +106,9 @@ func gpuMsmCanary(bases []curve.G1Affine) bool {
 		if _, err := want.MultiExp(bases[:n], s, ecc.MultiExpConfig{}); err != nil {
 			return
 		}
-		if err := gpuMsmG1(&got, bases[:n], s); err != nil {
-			return
-		}
-		canaryOK = got.Equal(&want)
+		err := gpuMsmG1(&got, bases[:n], s)
+		gpuMsmRelease()
+		canaryOK = err == nil && got.Equal(&want)
 	})
 	if !canaryOK {
 		gpuMsmOff("its sum over the key's bases differs from the CPU's")
@@ -123,6 +131,9 @@ func gpuMsmG1(dst *curve.G1Jac, bases []curve.G1Affine, scalars []fr.Element) er
 	defer gpuMu.Unlock()
 	if gpuState != 1 {
 		return fmt.Errorf("the GPU path is off")
+	}
+	if rc := C.tacit_msm_alloc(); rc != 0 {
+		return fmt.Errorf("the GPU's buffers could not be made (%d)", rc)
 	}
 	ptsBuf := unsafe.Slice((*curve.G1Affine)(C.tacit_msm_pts()), gpuBlock)
 	order := unsafe.Slice((*uint32)(C.tacit_msm_order()), gpuBlock*gpuWindows)

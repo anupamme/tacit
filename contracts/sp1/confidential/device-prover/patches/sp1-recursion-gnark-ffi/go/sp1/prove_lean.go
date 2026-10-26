@@ -189,6 +189,7 @@ func proveLean(r1cs *cs.R1CS, pk *groth16_bn254.ProvingKey, fullWitness witness.
 		}()
 		bs, g2err = g2()
 		<-done
+		gpuMsmRelease()
 		if g1err != nil {
 			gpuMsmOff(g1err.Error())
 			useGPU = false
