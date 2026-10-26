@@ -190,7 +190,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -224,6 +224,11 @@ function wrapOpFromStdin(stdin, asset) {
   return { asset: '0x' + a, value: value.toString(), cx: f(), cy: f(), owner: f() };
 }
 function wrapPv(op) { return wrapPvOf(STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner), depositIdOf(op)); }
+// A deposit swapped in one proof: the swap's note inserted, its deposit consumed.
+function wrapSwapPv(op) {
+  const d = Number(op.direction) === 0, inA = d ? op.assetA : op.assetB, outA = d ? op.assetB : op.assetA;
+  return wrapPvOf(STUB_POOL.leaf(outA, op.out.cx, op.out.cy, op.out.owner), depositIdOf({ asset: inA, value: op.amountIn, cx: op.deposit.cx, cy: op.deposit.cy, owner: op.deposit.owner }));
+}
 // A wrap's public values as the pool reads them: one leaf inserted, one deposit consumed.
 function wrapPvOf(leaf, dep) {
   const w = (v) => BigInt(v).toString(16).padStart(64, '0'), head = Array(40).fill(w(0));
@@ -341,7 +346,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     }
     if (sub) {
       const jobId = 'stub-' + (submits.push(sub));
-      if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [], ...(sub.type === 'wrap' && sub.op ? { pv: wrapPv(sub.op) } : {}) };
+      if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [], ...(sub.type === 'wrap' && sub.op ? { pv: wrapPv(sub.op) } : sub.type === 'wrapswap' && sub.op ? { pv: wrapSwapPv(sub.op) } : {}) };
       if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
       if (pendingNext > 0 && (sub.mode || 'settle') === 'settle') { pendingNext--; pendingJobs[jobId] = sub.type; }          // a job that stays in the relay's line
       if (sub.mode === 'preproven') postedJobs[jobId] = { type: sub.type, txHash: '0x' + 'ad'.repeat(32) };               // the relay sends a posted proof
@@ -1041,6 +1046,8 @@ await step('wrapform', async () => {
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
         body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2', tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9', recommendedWrapTipWei: String(tip) }) });
     });
+    // nothing is kept ready in this step: a size asked of the proof pool takes the next wrap index, and this step reads which index a retry gets
+    await p.route(/\/prover\/pool\/request/, (route) => route.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"not in this step"}' }));
     const logs = [];
     r.ctx.on('request', (q) => { if (q.method() === 'POST' && /eth_getLogs/.test(q.postData() || '')) logs.push(q.postData().toLowerCase()); });
     await p.goto(r.url + '#private');
@@ -6704,6 +6711,86 @@ await step('lpsend', async () => {
 // as farm rewards, a Tacit address and an amount hand it to the farm sheet's form with both in it, quoted as private TAC is (the claim's fee
 // in wTAC), an Ethereum address is quoted as arriving there as wTAC, the sheet's Send wTAC opens the same form, and a press splits the note
 // to the amount first (tests/farm-reward-send-fork.mjs runs the harvest, the split, the lock, the claim and the send out through the real guest).
+// Public ETH into private TAC in one transaction. With the key open, an amount standing on the card's wallet-to-private swap through one pool
+// is asked of the relay as a deposit swapped in one proof, prove-only and ahead (its board only), with no fee bound in; the receipt says the
+// proof is made, and the press sends one router transaction (wrapAndSettleETH: the 0.01 ETH, and the relay's tip on top) that deposits it and
+// settles the swap, with nothing more asked of the relay. (The router on the fork takes any call here: a stand-in proof cannot settle;
+// tests/wrapswap-first-fork.mjs settles real ones through the guest, and shows a stale one refused.)
+await step('swapahead', async () => {
+  const hex = '5a1d'.padEnd(64, '4');
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, q = (s) => text(p, `#hx-swap ${s}`).then((t) => t.replace(/\s+/g, ' '));
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+  try {
+    proveStub = true;
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h');
+    await pasteKey(p, hex);
+    await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    const s0 = submits.length;
+    await p.evaluate(() => { location.hash = '#card=swap:ether:tac:private&amt=0.01'; });
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await until(p, () => /Proof\s*made: one transaction/.test(document.querySelector('#hx-swap #rcpt')?.textContent || ''), null, 300000).catch(() => {});
+    const asked = submits.slice(s0).filter((x) => x.type === 'wrapswap');
+    ok(asked.length === 1 && asked[0].mode === 'prove' && asked[0].ahead === true && BigInt(asked[0].op?.fee ?? 1) === 0n && BigInt(asked[0].op?.amountIn ?? 0) === 1000000n && /Proof\s*made: one transaction/.test(await q('#rcpt')),
+      `swapahead: the amount standing, the swap is asked of the relay ahead as one proof, no fee in it, and the receipt says it is made (${asked.map((x) => `${x.type}/${x.mode}/ahead ${x.ahead}`)}; ${(await q('#rcpt')).match(/Proof.{0,30}/)?.[0]})`);
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
+    const w0 = walletTxs.length, s1 = submits.length;
+    // a press on a quote over a minute old reads the price again and waits for the next (a slow fork can take that long to quote)
+    for (let i = 0; i < 4 && walletTxs.length === w0; i++) {
+      await until(p, () => { const b = document.querySelector('#hx-swap #go'); return !!b && !b.disabled && /^Swap/.test(b.textContent || ''); }, null, 600000).catch(() => {});
+      await p.click('#hx-swap #go');
+      await until(p, () => /Done\.|class="err"|Nothing was sent|read again/.test(document.querySelector('#hx-swap #q')?.innerHTML || ''), null, 300000).catch(() => {});
+    }
+    const sent = walletTxs.slice(w0), one = sent.filter((x) => String(x.to).toLowerCase() === ROUTER_ADDR);
+    ok(/Done\./.test(await q('#q')) && sent.length === 1 && one.length === 1 && one[0].data.startsWith('0x50de88e1') && BigInt(one[0].value) > 10n ** 16n && submits.length === s1,
+      `swapahead: the press is one router transaction that deposits it and settles the swap, the tip on top, nothing asked of the relay (${sent.map((x) => `${String(x.to).slice(0, 10)}/${String(x.data).slice(0, 10)}`)}; asked ${submits.length - s1}; ${(await q('#q')).slice(0, 120)})`);
+    if (r.errors.length) { fails++; console.log('FAIL swapahead page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
+// A name with no Tacit address published, paid at its Ethereum address instead. The card's Send of private tETH to such a name says, under the
+// field, that it is paid at the name's address, out of the pool, quotes it as a send to an address, and its press opens the withdrawal with that
+// address; the private TAC send form quotes a name like that as arriving at its address, the name named in the receipt. (The name is a stand-in:
+// its record and address are answered here.)
+await step('hxsendname', async () => {
+  const OUT = '0x' + '4e'.repeat(20);
+  const r = await openFarmKey('b05c'.padEnd(64, '6'), { notes: [['@cETH', 50000000n], ['@cTAC', 5000000000n]], fees: { transfer: 100000, stealthclaim: 100000, sendunwrap: 100000, unwrap: 100000 } }, null, (pg) => pg.route(/\/confidential-names\.js(\?cb=[0-9a-f]+)?$/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-names.js?stub=real';
+    export * from '/confidential-names.js?stub=real';
+    const out = (raw) => /^out-only\\.wei$/i.test(String(raw || '').trim());
+    export function makeConfidentialNames(o) {
+      const n = real.makeConfidentialNames(o), rr = n.resolveRecipient, ra = n.resolveAddress;
+      n.resolveRecipient = async (raw, opts) => { if (!out(raw)) return rr(raw, opts); const e = new Error('out-only.wei has not published a Tacit address.'); e.name = 'NameError'; e.code = 'no-record'; throw e; };
+      n.resolveAddress = async (raw) => (out(raw) ? { name: 'out-only.wei', source: 'wei', address: '${OUT}' } : ra(raw));
+      return n;
+    }` })));
+  const p = r.page;
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); window.scrollTo(0, 0); });
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'eth');
+    await p.fill('#hx-amt', '0.1');
+    await p.fill('#hx-rcpt', 'out-only.wei');
+    await until(p, () => /paid at/.test(document.querySelector('#hx-rc')?.textContent || '') && /at that address/.test(document.querySelector('#hx-receipt')?.textContent || ''), null, 120000).catch(() => {});
+    const rc = (await text(p, '#hx-rc')).replace(/\s+/g, ' '), rcpt = (await text(p, '#hx-receipt')).replace(/\s+/g, ' ');
+    ok(/out-only\.wei has no Tacit address, so it is paid at/.test(rc) && !(await p.$eval('#hx-rc', (e) => e.classList.contains('warn'))) && /at that address/.test(rcpt) && /Send to the address/.test(await text(p, '#hx-go')),
+      `hxsendname: a name with no Tacit address is paid at its address, said under the field and quoted as a send there (${rc.slice(0, 90)} | ${rcpt.slice(0, 80)})`);
+    await p.click('#hx-go');
+    await until(p, (o) => (document.querySelector('#o-to')?.value || '').toLowerCase() === o, OUT, 120000).catch(() => {});
+    ok((await p.$eval('#o-to', (e) => e.value).catch(() => '')).toLowerCase() === OUT, 'hxsendname: its press opens the withdrawal with the name\'s address in it');
+    await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(p, '#tac');
+    await p.waitForSelector('#ts-to', { timeout: 120000 });
+    await p.fill('#ts-to', 'out-only.wei');
+    await p.fill('#ts-amt', '10');
+    await until(p, () => /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || ''), null, 120000).catch(() => {});
+    const form = (await text(p, '#ts-rcpt')).replace(/\s+/g, ' ');
+    ok(/out-only\.wei\s*no Tacit address, so paid at/.test(form) && /Arrives/.test(form) && !(await p.$eval('#ts-go', (b) => b.disabled)), `hxsendname: the private TAC form quotes such a name as arriving at its address (${form.slice(0, 120)})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxsendname page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('rsend', async () => {
   const r = await openFarmKey('b05d'.padEnd(64, '6'), { notes: [[FARM_WTAC_ASSET, 1234560000n]], positions: [] });
   const p = r.page, to = tacit1('abd'.padEnd(64, '5'));

@@ -1357,12 +1357,16 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { ...r, dShares, pid, lpAsset, assetA, assetB, firstMint: sharesPre === 0n };
   }
 
-  async function wrapSwap({ walletPriv, fromTicker, toTicker, amountWei, feeBps = 30, minOut = 0n, fee = 0n, deadline = 0n, index = 0, selfRelay = false, selfSettle = null, waitOpts } = {}) {
+  // A deposit swapped in the pool in one proof (OP 33): the deposit of `amountWei` of `fromTicker` at wrap index `index` (the same note a plain
+  // wrap at that index makes, so a deposit whose swap does not settle can still be settled as a wrap) swapped at the pool's reserves now for
+  // `toTicker` (or the pool asset `toAsset`), the proof pinning those reserves. → the op, its output note and the deposit's commit, in the
+  // shape wrapSettleCall and wrapProofFits take (`amount`, `commit`, `wrapArgs.assetId`, `depositId`, `leaf`).
+  async function buildWrapSwap({ walletPriv, fromTicker = 'cETH', toTicker = null, toAsset = null, amountWei, feeBps = 30, minOut = 0n, fee = 0n, deadline = 0n, index = 0 } = {}) {
     const id = identity(walletPriv);
     const D = _depositLeg({ id, ticker: fromTicker, amountWei, index });
-    const outMeta = assetByTicker[toTicker];
-    if (!outMeta) throw new Error(`unknown asset ${toTicker}`);
-    const inAsset = D.meta.assetId, outAsset = outMeta.assetId;
+    const outAsset = toAsset || assetByTicker[toTicker]?.assetId;
+    if (!outAsset) throw new Error(`unknown asset ${toTicker}`);
+    const inAsset = D.meta.assetId;
     if (BigInt(inAsset) === BigInt(outAsset)) throw new Error('wrap-swap: pick two different assets');
     const lo = BigInt(inAsset) < BigInt(outAsset);
     const assetA = lo ? inAsset : outAsset, assetB = lo ? outAsset : inAsset;
@@ -1404,10 +1408,34 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const outLeaf = pool.leaf(outAsset, oC.cx, oC.cy, outOwner);
     const outputs = [{ value: amountOut.toString(), blinding: beHex(rOutBl), secret: outNk, asset: outAsset, owner: outOwner, cx: oC.cx, cy: oC.cy, ownerPub: id.pubHex }];
     const ephRand = freshEph;
-    const sealedMemos = guard.sealMemosForOutputs({ outputs, ephRand });
-    guard.assertOutputsRecoverable({ leaves: [outLeaf], outputs, memos: sealedMemos });
-    const r = await _dispatch({ type: 'wrapswap', spec: { op, leaves: [outLeaf], outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
-    return { ...r, amountOut, pid, assetIn: inAsset, assetOut: outAsset };
+    const memos = guard.sealMemosForOutputs({ outputs, ephRand });
+    guard.assertOutputsRecoverable({ leaves: [outLeaf], outputs, memos });
+    return { op, leaves: [outLeaf], outputs, ephRand, memos, amountOut, pid, assetIn: inAsset, assetOut: outAsset, feeBps: Number(feeBps), reserveA: rA, reserveB: rB, index,
+      depositId: D.depositId, leaf: outLeaf, commit: pool.depositCommit(D.cx, D.cy, D.owner), amount: String(BigInt(amountWei)), wrapArgs: { assetId: inAsset } };
+  }
+
+  async function wrapSwap({ walletPriv, fromTicker, toTicker, toAsset = null, amountWei, feeBps = 30, minOut = 0n, fee = 0n, deadline = 0n, index = 0, selfRelay = false, selfSettle = null, waitOpts } = {}) {
+    const b = await buildWrapSwap({ walletPriv, fromTicker, toTicker, toAsset, amountWei, feeBps, minOut, fee, deadline, index });
+    return submitWrapSwap({ walletPriv, built: b, selfRelay, selfSettle, waitOpts });
+  }
+  // A built wrap-swap whose deposit is in the pool, proved and settled by the relay (its fee bound into the op).
+  async function submitWrapSwap({ walletPriv, built: b, selfRelay = false, selfSettle = null, waitOpts } = {}) {
+    const r = await _dispatch({ type: 'wrapswap', spec: { op: b.op, leaves: b.leaves, outputs: b.outputs, ephRand: b.ephRand }, sealedMemos: b.memos, selfRelay, selfSettle, walletPriv, waitOpts });
+    return { ...r, amountOut: b.amountOut, pid: b.pid, assetIn: b.assetIn, assetOut: b.assetOut };
+  }
+  // A wrap-swap proved before anything is deposited, with no fee bound in (the holder's own transaction deposits and settles it through the
+  // router's wrapAndSettleETH, the relay's tip on top): `ahead` asks the relay's prover board only, behind the jobs people pressed. The proof
+  // holds only while the pool's reserves are those it was built at (`built.reserveA`/`reserveB`), so a trade in the pool before it is sent
+  // makes the router refuse it, with nothing sent.
+  async function proveWrapSwap({ walletPriv, fromTicker = 'cETH', toTicker = null, toAsset = null, amountWei, feeBps = 30, deadline = 0n, index, ahead = false, waitOpts, onBuilt } = {}) {
+    if (!cfg.router) throw new Error('ConfidentialRouter not deployed for this network');
+    if (index == null) index = await nextWrapIndex({ walletPriv, ticker: fromTicker });
+    const built = await buildWrapSwap({ walletPriv, fromTicker, toTicker, toAsset, amountWei, feeBps, deadline, index });
+    onBuilt?.(built);
+    const proven = await relay.prove({ type: 'wrapswap', op: built.op, leaves: built.leaves, outputs: built.outputs, memos: built.memos, ephRand: built.ephRand, ...(ahead ? { ahead: true } : {}) }, waitOpts);
+    if (!proven.publicValues || !proven.proof) throw new Error(`the prover returned no proof for this swap (${proven.status || 'no status'})`);
+    if (!wrapProofFits(built, proven)) throw Object.assign(new Error('the proof returned is not for this swap, so it is not used and nothing was sent'), { code: 'wrong_proof' });
+    return { built, proven: { ...proven, memos: proven.memos || built.memos } };
   }
 
   async function wrapAndSend({ walletPriv, amountWei, ticker = 'cETH', recipientPubHex, amount, fee = 0n, ethFeeWei = 0n, feeRecipient, index, gasLimit = 1400000n, broadcast = true, permit = null, waitOpts, onBuilt } = {}) {
@@ -3258,7 +3286,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
     deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, exitAhead, exitAheadSend, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
-    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
+    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, buildWrapSwap, submitWrapSwap, proveWrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };
 }

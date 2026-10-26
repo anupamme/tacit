@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9n4S0gvZowwM4/YSyXU6F9Ai5YxlTUAJ0hhWnaDnLQ0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vu3kOJII4poHLIkNQAcDKt0fSY85zMKyfTNz23ynTrk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1742,7 +1742,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=16bb4d0d","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=d0b266f4","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4451,7 +4451,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=16bb4d0d'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=d0b266f4'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -5009,6 +5009,8 @@ const feeRoom = (units, fee, held, notes, show, dp = 6) => {
 };
 const overBalance = () => P.scan ? 'More than your private balance.' : P.err ? 'Your private balance could not be read: press retry above.' : 'Still reading your private balance.';
 const resolveToM = memoRoute(resolveTo);
+// A name's Ethereum address (its resolver's addr): where a name with no Tacit address published is paid instead, out of the pool. null when it has none.
+const nameAddrM = memoRoute(async (raw) => (await getNames()).resolveAddress(String(raw || '').trim()));
 function v1Send(el, status) {
   const held = spendable('eth');
   mount(el, html`
@@ -11932,7 +11934,7 @@ function assetSendForm(el, status0, { prefix, sheet, statusId, sources, pick, af
   mount(el, html`
     <div class="lbl"><span>Send</span>${sources.length > 1 ? html`<span>${sources.map((x, i) => html`${i ? ' · ' : ''}<button type="button" data-${prefix}="${x.id}" aria-pressed="${x.id === src.id}">${x.label || x.unit}</button>`)}</span>` : ''}</div>
     <div class="lbl"><span>To</span>${!src.pub && S.address && !a.noMe ? html`<button type="button" id="${prefix}-me">${mine()}, as ${a.out}</button>` : ''}</div>
-    <div class="amt text"><input id="${prefix}-to" placeholder="${src.pub ? '0x…' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
+    <div class="amt text"><input id="${prefix}-to" placeholder="${src.pub ? '0x… or name.wei' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
     <div class="lbl"><span>Amount</span><button type="button" id="${prefix}-max">${src.pub ? `Public in ${your()}` : 'Private'} ${show(src.held)} ${src.unit}${src.pub ? '' : inUse(k, 8, a.dp, src.unit)}</button></div>
     <div class="amt"><input id="${prefix}-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${src.unit} to send"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-${src.pub ? a.pubIcon : a.icon}"/></svg>${src.unit}</span></div>
     <div class="rcpt" id="${prefix}-rcpt" hidden></div>
@@ -11952,20 +11954,28 @@ function assetSendForm(el, status0, { prefix, sheet, statusId, sources, pick, af
     if (tooFine(rc, amt.value, units, src.dec)) return;
     if (!raw || !units) { rc.hidden = true; return; }
     try {
-      if (src.pub || /^0x[0-9a-fA-F]{0,40}$/.test(raw)) {
+      // a name is paid at its Ethereum address when the send is public, or when it has no Tacit address published (out of the pool, said so)
+      let named = null;
+      if (/\.(eth|wei|gwei)$/i.test(raw)) {
+        if (src.pub) named = await nameAddrM(raw);
+        else { try { await resolveToM(raw); } catch (x) { if (x?.code !== 'no-record' || !(named = await nameAddrM(raw))) throw x; } }
+        if (stale()) return;
+      }
+      if (src.pub || named || /^0x[0-9a-fA-F]{0,40}$/.test(raw)) {
         let recipient = null, bad = null;
-        try { recipient = recipientOf(raw); } catch (x) { bad = x; }
+        try { recipient = recipientOf(named ? named.address : raw); } catch (x) { bad = x; }
+        const at = named ? html`<div class="kv"><span>${named.name}</span><b>${src.pub ? '' : 'no Tacit address, so '}paid at ${short(named.address, 10)}</b></div>` : '';
         if (src.pub) {
-          q = recipient && { units, recipient };
-          mount(rc, html`<div class="kv"><span>Arrives</span><b>${show(units)} ${a.out}</b></div>`);
+          q = recipient && { units, recipient, named };
+          mount(rc, html`${at}<div class="kv"><span>Arrives</span><b>${show(units)} ${a.out}</b></div>`);
         } else {
           const t = await getUx(), tk = a.tk, own = ownNow(['sendunwrap', 'unwrap']);
           const minFee = await t.quoteOpFee(tk, 'sendunwrap');
           const fee = own ? 0n : t.quoteUnwrapFee(units, tk, { minFee }).fee;
           const size = own || freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units) ? 0n : BigInt(await t.quoteOpFee(tk, 'transfer'));
           if (stale()) return;
-          q = recipient && { units, recipient, out: true };
-          mount(rc, html`<div class="kv"><span>Relay fee</span><b>${own ? noRelayFee() : `${show(fee)} ${dtk}`}</b></div>${size ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${show(size)} ${dtk}</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${show(units > fee ? units - fee : 0n)} ${a.out}</b></div>`);
+          q = recipient && { units, recipient, out: true, named };
+          mount(rc, html`${at}<div class="kv"><span>Relay fee</span><b>${own ? noRelayFee() : `${show(fee)} ${dtk}`}</b></div>${size ? html`<div class="kv"><span>Relay fee to ${freeNotes(P.scan[k].notes).some((n) => BigInt(n.value) >= units + size) ? 'split a note' : 'combine notes'}</span><b>${show(size)} ${dtk}</b></div>` : ''}<div class="kv"><span>Arrives</span><b>${show(units > fee ? units - fee : 0n)} ${a.out}</b></div>`);
           if (units <= fee) { q = null; warn(rc, `Send more than the ${show(fee)} ${dtk} relay fee.`); }
           else if (units + size > src.held) { q = null; warn(rc, feeRoom(units, size, src.held, P.scan[k].notes, (v) => `${show(v)} ${dtk}`) || 'More than your private balance.'); }
           else if (recipient && ownAccount(recipient)) rc.insertAdjacentHTML('beforeend', linkNote());
@@ -12004,6 +12014,8 @@ function assetSendForm(el, status0, { prefix, sheet, statusId, sources, pick, af
     if (!x) return;
     try {
       if (x.who) await pinned(x.who, () => resolveToM(raw, null, true), to);
+      // a name paid at its address is read again: one that points elsewhere now stops here, with nothing sent
+      if (x.named && String((await nameAddrM(raw, null, true))?.address || '').toLowerCase() !== String(x.recipient).toLowerCase()) throw new Error(`${x.named.name} points somewhere else now. Check it and press again.`);
       if (src.pub) {
         const hash = await sendTx({ to: a.token, data: SEL.transfer + addrWord(x.recipient) + word(x.units), label: `Send ${show(x.units)} ${a.out}` });
         say(stat(), html`Sent ${txLink(hash)}. Waiting for it to land…`);
@@ -12542,12 +12554,26 @@ const hxWrapMode = () => HX.mode === 'private';
 // and, with a key, whether its proof is made already (wraps kept ready that add up to it: one transaction, no proving wait)
 const hxWrapReady = (units) => !!(units && S.key && VOUCH.mod?.pick(S.key.pubHex, 'cETH', units * E10));
 // A wrap's or a zap's Proof row: made already (one kept ready fits it), or who makes it now and about how long it takes
-const proofRow = (ready) => (ready ? ['Proof', 'made already: no wait', 'ok']
+const proofRow = (ready, making = false) => (ready ? ['Proof', 'made already: no wait', 'ok']
   : ownNow(['wrap']) ? ['Proof', devOn() ? 'on this computer, a few minutes' : 'with your own credit, about a minute']
-  : ['Proof', 'by the relay, about a minute']);
+  : ['Proof', making ? 'being made now, about a minute' : 'by the relay, about a minute']);
+// The tile's wrap, its amount standing a moment with a key open and no wrap kept ready that fits: asked of the relay ahead, as the wrap form
+// asks it, so the press finds the proof made (or nearly) and sends one transaction.
+let hxWaT = 0;
+const hxWrapMaking = (units) => !!(units && VOUCH.ahead?.relay && VOUCH.ahead.wei === String(units * E10));
+function hxWrapAhead(units) {
+  clearTimeout(hxWaT);
+  if (!units || !S.key || ownOn() || hxWrapReady(units) || hxWrapMaking(units)) return;
+  hxWaT = setTimeout(async () => {
+    // not under an open sheet: the wrap form there asks for its own, and one proof is made at a time
+    if (hxUnits() !== units || !hxWrapMode() || document.querySelector('dialog[open]') || !(await relayProving())) return;
+    const p = proveAhead('cETH', units * E10, { relay: true });
+    if (p) { hxQuote(); p.then(() => hxQuote(), () => {}); }
+  }, 1500);
+}
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap', tip,
   rc: units ? [ownNow(['wrap']) ? ['Relay tip', 'none: your own proof'] : ['Relay tip', tip ? `${fmt(tip, 18, 6)} ETH` : tip === undefined ? 'shown next' : tip == null ? '…' : 'none', '', 'Paid on top, to the relay that settles the deposit'],
-    S.key ? proofRow(hxWrapReady(units)) : null,
+    S.key ? proofRow(hxWrapReady(units), hxWrapMaking(units)) : null,
     ['Chain sees', `your ${fmt(units, 8, 6)} ETH going in`]] : [] });
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
 const hxWarmWrap = () => { if (!S.key || Date.now() - (HX.warmWrap || 0) < 60e3) return; HX.warmWrap = Date.now(); getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); };
@@ -12646,11 +12672,14 @@ async function hxSendQuote(units) {
     rc: over || small ? [] : [['They get', `about ${show(units - claim)}`], ['Claim fee', show(claim), '', 'They claim the payment with their key; the relay that sends their claim takes this from what they get'],
       split ? [notes.some((n) => BigInt(n.value) >= units + split) ? 'Splits a note' : 'Combines notes', `${show(split)} first`] : null, ...hxSendSees()] };
 }
-const hxRcptKind = (r = HX.rcpt) => (/^0x[0-9a-fA-F]{40}$/.test(r) ? 'eth' : /^(bc1[a-z0-9]{20,}|sp1[a-z0-9]{40,})$/i.test(r) || /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(r) ? 'btc' : '');
+// A name with no Tacit address published, paid at the name's Ethereum address instead (out of the pool): { raw, address }, set by the check below.
+const hxNamed = (r = HX.rcpt) => !!HX.rcName && HX.rcName.raw === r && !hxIsLp();
+const hxTo = () => (hxNamed() ? HX.rcName.address : HX.rcpt);
+const hxRcptKind = (r = HX.rcpt) => (/^0x[0-9a-fA-F]{40}$/.test(r) || hxNamed(r) ? 'eth' : /^(bc1[a-z0-9]{20,}|sp1[a-z0-9]{40,})$/i.test(r) || /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(r) ? 'btc' : '');
 function hxSendFit() {
   const r = hxRcptKind();
   if (r === 'eth' && hxSendBtc()) return 'That is an Ethereum address. To pay it, choose tETH, TAC, cUSD or cBTC.';
-  if (r === 'eth') { try { recipientOf(HX.rcpt); } catch (e) { return e.message; } }
+  if (r === 'eth') { try { recipientOf(hxTo()); } catch (e) { return e.message; } }
   if (r === 'btc' && HX.send === 'tacb') return 'TAC on Bitcoin goes to a tacit1 address or a name. A Bitcoin address takes BTC.';
   if (r === 'btc' && HX.send !== 'btc') return 'That is a Bitcoin address. To pay it, choose BTC.';
   if (hxSendWallet() && HX.rcpt && !r) return 'TAC in your wallet goes to an Ethereum address (0x…). To pay a Tacit address, make it private first.';
@@ -12710,8 +12739,11 @@ function hxRcptCheck() {
   el.hidden = true;
   // what the check said of a whole name or address it cannot pay holds the button (said under the field, once)
   if (HX.rcBad) { HX.rcBad = false; hxHave(); }
-  if (!raw || HX.ask || hxSendBtc() || hxSendWallet() || hxRcptKind()) return;
+  if (HX.rcName && HX.rcName.raw !== raw) HX.rcName = null;
   const show = (warn, view) => { if (my !== hxRcSeq || !el.isConnected) return; mount(el, view); el.classList.toggle('warn', warn); el.hidden = false; if (warn !== !!HX.rcBad) { HX.rcBad = warn; hxHave(); } };
+  const outTo = (a) => show(false, html`${a.name} has no Tacit address, so it is paid at <span class="mono">${short(a.address, 10)}</span>, out of the pool`);
+  if (hxNamed(raw) && !HX.ask && !hxSendBtc() && !hxSendWallet()) return outTo(HX.rcName);
+  if (!raw || HX.ask || hxSendBtc() || hxSendWallet() || hxRcptKind()) return;
   hxRcT = setTimeout(() => {
     resolveToM(raw).then((r) => {
       if (String(r.pubHex).replace(/^0x/, '').toLowerCase() === S.key?.pubHex) return show(true, html`That is your own Tacit address.`);
@@ -12720,6 +12752,15 @@ function hxRcptCheck() {
       show(false, html`${r.name ? html`${r.name} → ` : ''}<span class="mono">${short(to, 10)}</span>${to ? html` · ID <b class="num">${addressId(to)}</b>` : ''}`);
     }, (e) => {
       if (e?.code === 'bad-recipient') return show(full, html`${/^bp1/i.test(raw) ? 'That is a pool address (bp1…), which takes ETH paid in from a wallet. A private send needs a tacit1… address or a name.' : /^tacit1/i.test(raw) ? 'That Tacit address is not whole or has a typo. Paste it again.' : 'That is not a Tacit address or a name. Use tacit1…, name.wei or 0x….'}`);
+      // a name with no Tacit address is paid at its Ethereum address, out of the pool, where what is sent can go there
+      if (e?.code === 'no-record' && !hxIsLp()) {
+        return nameAddrM(raw).then((a) => {
+          if (my !== hxRcSeq) return;
+          if (!a) return show(true, html`${errText(e)}`);
+          HX.rcName = { raw, name: a.name, address: a.address };
+          outTo(HX.rcName); hxQuote();
+        }, () => show(true, html`${errText(e)}`));
+      }
       if (full || e?.name === 'NameError') show(full, html`${errText(e)}`);
     });
   }, full ? 450 : 900);
@@ -12759,9 +12800,9 @@ function hxSendGo() {
   }
   if (hxSendFit() || HX.rcBad) return;
   if (!hxUnits() && (!HX.rcpt || !hxSendBtc())) return hxAskAmt();
-  const k = HX.send, u = hxUnits(), amt = u ? plain(u, hxDec()) : HX.amt, to = HX.rcpt;
+  const k = HX.send, u = hxUnits(), amt = u ? plain(u, hxDec()) : HX.amt, to = hxRcptKind() === 'eth' ? hxTo() : HX.rcpt;
   HX.draft = null;
-  hxRecentAdd(to);
+  hxRecentAdd(HX.rcpt);
   { const dp = hxDev(k);
     if (dp) { if (S.key && devBal(dp.slug, S.key.pubHex) === 0n) return; hxDraft({ mode: 'tsend', slug: dp.slug, to, amt }); return openLink(`device/${dp.slug}/${hxRcptKind() === 'eth' ? 'withdraw' : 'send'}`); } }
   if (k === 'pp') {
@@ -13193,7 +13234,7 @@ async function hxQuote() {
   const bridge = (u, lim, min, dp) => [['Bitcoin fee', 'in sats, from your Bitcoin address'], ['Limits', lim ? `${fmt(min, 8, dp)} to ${fmt(lim.capRaw, 8, dp)} ${u} a bridge` : `a small amount a bridge`, '', 'While the bridge is new'], ['Time', 'a few hours, at most a day']];
   try {
     if (hxWrapMode()) {
-      if (units) hxWarmWrap();
+      if (units) { hxWarmWrap(); hxWrapAhead(units); }
       if (units && !hxTipFresh(units)) done({ ...hxWrapSay(units, null), early: true });
       return done(hxWrapSay(units, units ? await hxWrapTip(units).catch(() => undefined) : null));
     }
@@ -13768,7 +13809,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=81c5f2ce').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=b7362c2d').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

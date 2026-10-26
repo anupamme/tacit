@@ -450,7 +450,7 @@ function requote(now_ = false) {
 }
 async function quote(my, wei) {
   const kind = kindOf(S.pay, S.get), pay = tokenOf(S.pay), get = tokenOf(S.get);
-  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!S.hold || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); };
+  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!S.hold || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); aheadSoon(); };
   if (!kind) return done({ none: true });
   const account = W.account || undefined;
   // Swap privately from a token: sold for ETH into the private pool (the zap), and the swap's share of that ETH sold for the token on the way
@@ -604,7 +604,7 @@ const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
 // The pool module, one copy for the quotes and the private swap (private.js is handed it).
 let uxP = null;
 const getUx = () => (H.getUx ? H.getUx() : uxP ||= (async () => {
-  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=16bb4d0d'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
+  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=d0b266f4'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
   dep.setActiveNetwork('mainnet');
   return makeConfidentialPoolUx({ secp: d.secp, keccak256: d.keccak_256, sha256: d.sha256, network: 'mainnet' });
 })().catch((e) => { uxP = null; throw e; }));
@@ -787,6 +787,7 @@ function paintQuote() {
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null && (!(r.agg || r.pin) || Math.abs(m) >= 0.01)) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
     if (r.priv) lines.push(...feeLines(q, r));
+    { const a = r.priv && aheadArgs(q), st = a && PV?.aheadOf?.(a); if (st) lines.push(['Proof', st === 'ready' ? 'made: one transaction' : 'being made, about a minute', st === 'ready' ? 'ok' : '']); }
     { const nudge = r.priv && privRow(q, r); if (nudge) lines.push(nudge); }
     if (r.pout) lines.push(['Chain sees', `${get.sym} to ${S.to ? who(S.to) : W.account ? 'your wallet' : 'the address'}, not from whom`]);
     else if (r.pin) lines.push(['Chain sees', `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} for ETH, then a deposit`]);
@@ -1415,11 +1416,24 @@ function stepsClick(e) {
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
-const pvLoad = () => (PVP ||= import('/swap/private.js?cb=db58f4c2').then((m) => {
+const pvLoad = () => (PVP ||= import('/swap/private.js?cb=ccb8db92').then((m) => {
   PV = m.makePrivate({ getUx, pick: pickWallet, ...H.key, onKey: (why) => { if (why) say(esc(why), 'err', true); else { PV.read().then(paint, () => {}); if (plans().some((x) => x.state === 'waiting')) ltLoad().then(readBlend, () => {}); } paint(); } });
   PV.mod = m;
   return PV;
 }).catch((e) => { PVP = null; throw e; }));
+// A swap of the wallet's ETH into the private balance through one pool is proved ahead (private.js `ahead`) once its quote has stood a moment
+// with the key open: the press then sends one transaction that deposits it and settles the swap.
+const aheadArgs = (q) => { const p = q?.pools; const units = parseUnits(S.amt, 8); return q?.kind === 'private' && !S.inP && isEth(S.pay) && S.get !== 'teth' && p?.length === 1 && units && IDS[p[0].b] ? { wei: units * E10, toAsset: IDS[p[0].b], feeBps: p[0].feeBps } : null; };
+let ahT = 0;
+function aheadSoon() {
+  clearTimeout(ahT);
+  const q = S.q, a = aheadArgs(q);
+  if (!a || !(PV?.unlocked || H.key?.session?.unlocked)) return;
+  ahT = setTimeout(() => {
+    if (S.q !== q) return;
+    pvLoad().then((pv) => { const p = pv.ahead(a); paintQuote(); return p; }).then(() => { if (S.q === q) paintQuote(); }, () => {});
+  }, 1500);
+}
 // The key's private balance of a coin, in its 18 decimals: null until the key is open here and its notes are read.
 const privBal = (k) => { const id = IDS[PK[k]]; return PV?.held && id ? PV.of(id).value * E10 : null; };
 // A page that holds the key itself (the front page): a private side reads the balance at once, with nothing to open on the card.
@@ -1488,6 +1502,7 @@ async function privateGo(r, kind = 'private') {
     proving: `Deposited ${h ? txLink(h) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…',
     split: 'The relay is cutting a note to the amount first, about a minute…', combine: 'The relay is combining your notes into one of the amount first, about a minute…',
     route: 'The relay is proving your private swap, about a minute…', send: 'The relay is sending it on to them, about a minute…',
+    ahead: 'Finishing the proof of your swap…', check: 'Checking it first…', swap: `Deposited ${h ? txLink(h) : ''}. The relay is proving your swap, about a minute…`,
     exit: 'The relay is sending it out of the pool, about a minute…', exitswap: 'The relay is sending it out of the pool to be swapped, about a minute…',
     activate: `Out of the pool ${h ? txLink(h) : ''}. The relay is running the swap…`,
   }[k] || ''));
@@ -1578,7 +1593,7 @@ async function pinGo(r) {
       path: getKey === 'teth' ? [] : (q.pools || []).map((p) => ({ assetNext: IDS[p.b], feeBps: p.feeBps })),
       minOut: (r.out / E10) * 99n / 100n, label: `Swap ${what} for ${get.sym} privately`, sendTo: S.toTacit, outTicker: POOL_TK[PK[getKey]] };
     const step = (k, x) => say({ prepare: 'Swapped to ETH. Preparing the deposit…', confirm: 'Confirm the deposit in your wallet…', sent: `Deposit sent ${x ? txLink(x) : ''}. Waiting for it to land…`,
-      proving: `Deposited ${x ? txLink(x) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…', route: 'The relay is proving your private swap, about a minute…', send: 'The relay is sending it on to them, about a minute…' }[k] || '');
+      proving: `Deposited ${x ? txLink(x) : ''}. The relay is making it private, about a minute…`, note: 'Private now. Finding its note…', route: 'The relay is proving your private swap, about a minute…', ahead: 'Finishing the proof of your swap…', check: 'Checking it first…', swap: `Deposited ${x ? txLink(x) : ''}. The relay is proving your swap, about a minute…`, send: 'The relay is sending it on to them, about a minute…' }[k] || '');
     const res = await pv.swap(plan, { wallet, from, say: step });
     const got = res.made != null ? `${tidy(plain(res.made, 8))} tETH` : `about ${tidy(amtFmt(res.out * E10, 18))} ${get.sym}`;
     if (res.txHash) remember(res.txHash, `Swapped ${what} for ${got} privately`);

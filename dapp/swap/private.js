@@ -1,13 +1,15 @@
-// The private swap made on the swap card, with the Tacit key opened here. A swap paid from the wallet's ETH makes the ETH private first (the
-// tETH page's deposit, which the relay settles) and then swaps that note in the Tacit pool; one paid from the private balance swaps a note of
+// The private swap made on the swap card, with the Tacit key opened here. A swap paid from the wallet's ETH through one pool is a deposit swapped in
+// one proof: proved ahead while the quote stands, one transaction deposits and settles it; else a wrap kept ready makes the ETH private in one
+// transaction and the relay swaps that note; else the deposit goes first and the relay proves the swap in one step. Through two pools the ETH is
+// made private first (the tETH page's deposit, which the relay settles) and then that note is swapped in the Tacit pool; one paid from the private balance swaps a note of
 // exactly the amount, cutting one to size first (a send to itself) when none is, as the front page does: a swap spends its note whole. A swap
 // out of the pool (to ETH or a token, at an address) routes the note to tETH and then exits that note, through an exit recipe for a token. The
 // relay proves and sends each step. Nothing here is loaded until the first private swap, or the first ask for a private balance; the key is
 // held in this visit's memory only.
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=88028d84';
-import { forgetUx } from '/trade/poolux.js?cb=00dd519e';
-import { wrapEth, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=ee139105';
-import { wrapQuote } from '/teth/read.js?cb=f00ab10f';
+import { forgetUx } from '/trade/poolux.js?cb=f4b7b030';
+import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=8054284a';
+import { wrapQuote, WRAP_TIP } from '/teth/read.js?cb=f00ab10f';
 import { secp, keccak_256, sha256, bytesToHex } from '/vendor/tacit-deps.min.js';
 import { makeRunner } from '/activity.js?cb=6ee0e434';
 
@@ -76,6 +78,50 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   // What the key holds of an asset, less the notes a step still in flight may spend.
   const of = (id) => { const g = held?.byAsset?.[lc(id)]; const notes = (g?.notes || []).filter(free); return { value: notes.reduce((a, n) => a + BigInt(n.value), 0n), notes }; };
   const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.value) > BigInt(b.value) ? 1 : 0);
+
+  // The swap proved ahead: the wallet's ETH deposited and swapped through one pool in one proof (the pool module's proveWrapSwap), asked of the
+  // relay's prover board while the card's quote stands (`{ wei, toAsset, feeBps }`), with no fee bound in. At the press one transaction
+  // deposits and settles it (the router's wrapAndSettleETH, the relay's tip on top) if the pool has not traded since: its proof pins the
+  // reserves. One at a time, at one wrap index kept for it (a proof for an amount since changed is let go, the next made at the same index),
+  // only while the relay is proving, and at most AHEAD_MAX a visit.
+  const AHEAD_MAX = 6;
+  let ah = null, aheadAsked = 0;
+  const aheadKey = (wei, toAsset, feeBps) => `${wei}:${lc(toAsset)}:${feeBps}`;
+  async function ahead({ wei, toAsset, feeBps }) {
+    if (!key.unlocked || !wei || !toAsset) return null;
+    const k = aheadKey(wei, toAsset, feeBps), pub = key.key.pubHex;
+    if (ah?.k === k && ah.pub === pub) return ah.p;
+    if (aheadAsked >= AHEAD_MAX || !(await relayState())?.proving) return null;
+    const t = await getUx(), index = ah?.pub === pub && ah.index != null ? ah.index : await t.nextWrapIndex({ walletPriv: key.priv(), ticker: 'cETH' });
+    aheadAsked++;
+    const me = ah = { k, pub, index, r: null };
+    me.p = t.proveWrapSwap({ walletPriv: key.priv(), toAsset, amountWei: BigInt(wei), feeBps, index, ahead: true, waitOpts: { viaRelay: true, timeoutMs: 6 * 60e3, intervalMs: 3000 } })
+      .then((r) => { if (ah === me) me.r = r; return r; }, () => { if (ah === me) me.k = null; return null; });
+    return me.p;
+  }
+  // Where the proof made ahead for this swap is: 'ready', 'proving', or null (none asked, or it failed).
+  const aheadOf = ({ wei, toAsset, feeBps }) => (ah && ah.pub === key.key?.pubHex && ah.k === aheadKey(wei, toAsset, feeBps) ? (ah.r ? 'ready' : 'proving') : null);
+  // The proof made ahead for this swap, if it still holds: waited for while the board finishes it, and only while the pool's reserves are the
+  // ones it pins and it pays at least the swap's least.
+  async function aheadFor(plan, say) {
+    const hop = plan.path[0];
+    if (!ah || ah.k !== aheadKey(plan.wei, hop.assetNext, hop.feeBps) || ah.pub !== key.key.pubHex) return null;
+    if (!ah.r) { say('ahead'); await Promise.race([ah.p, sleep(75e3)]); }
+    const r = ah?.r;
+    if (!r) return null;
+    const res = await (await getUx()).poolReserves(r.built.pid).catch(() => null);
+    return res && BigInt(res.reserveA) === r.built.reserveA && BigInt(res.reserveB) === r.built.reserveB && r.built.amountOut >= BigInt(plan.minOut) ? r : null;
+  }
+  // A wallet that declined: nothing more is asked of it.
+  const declined = (e) => e?.code === 4001 || !!e?.userStopped || /user (rejected|denied)|rejected the request|denied transaction/i.test(String(e?.shortMessage || e?.message || e || ''));
+  // One router transaction for a proof made before anything was deposited (a swap proved ahead, or a wrap kept ready): null when the router
+  // would refuse it (a pool traded since, a wrap already sent), with nothing sent.
+  async function oneTx(ready, { wei, tip, to, from, wallet, say }) {
+    try { const r = await wrapFirst({ priv: () => key.priv(), wei, tip, to, from, wallet, say, ux: await getUx(), ready }); return r.already ? null : r; }
+    catch (e) { if (declined(e) || !e?.ready || e.sent) throw e; return null; }
+  }
+  let vouchP = null;
+  const vouchers = () => (vouchP ||= import('/wrap-vouchers.js?cb=1b01bab7').then((m) => m.makeVouchers()));
 
   // A note of exactly `units`: one held, or one cut to size by a send to itself (the smallest note that covers it and the relay's fee, else up
   // to 16 notes combined, largest first). The cut's fee comes out of the notes, so the amount swapped is the amount asked.
@@ -253,15 +299,41 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     if (plan.wallet) {
       // priced before the ETH leaves the wallet, so a price already past the quote stops here and not after the deposit
       if (plan.path?.length) await price(plan.asset, plan.units, plan.path, plan.fee, plan.minOut);
-      const tq = await wrapQuote(plan.wei), t = await getUx();
-      // wrapEth throws with `deposit` once the ETH has left the wallet: the page says where it is and how to finish it
-      const { hash, built } = await wrapEth({ priv: () => key.priv(), wei: plan.wei, tip: tq.tip, to: tq.to, from, wallet, say, ux: t });
+      const tq = await wrapQuote(plan.wei), t = await getUx(), outAsset = plan.path?.length ? plan.path[plan.path.length - 1].assetNext : plan.asset;
+      if (plan.path?.length === 1) {
+        await read(true).catch(() => null);
+        before = new Set((held?.byAsset?.[lc(outAsset)]?.notes || []).map((n) => lc(n.leaf)));
+        // 1. proved ahead: one transaction, the wrap's tip and the swap's fee paid on top in ETH as the quote showed them
+        const r = await aheadFor(plan, say);
+        const one = r && await oneTx(r, { wei: plan.wei, tip: tq.tip + BigInt(plan.fee) * E10, to: tq.to, from, wallet, say });
+        if (one) {
+          ah = null; held = null;
+          const made = { txHash: one.hash, out: r.built.amountOut, one: true };
+          return plan.sendTo ? sendOn({ plan, made, before, say }) : made;
+        }
+      }
+      // 2. a wrap of the amount kept ready: one transaction makes the ETH private, and the relay swaps that note
+      const vs = await vouchers(), kept1 = key.key ? vs.pick(key.key.pubHex, 'cETH', plan.wei) : null;
+      let hash = null, leaf = null;
+      if (kept1?.length === 1) {
+        const x = kept1[0], c = vs.call(x), w = await oneTx({ built: { ...c.built, leaf: x.leaf }, proven: c.proven }, { wei: plan.wei, tip: tq.tip, to: tq.to, from, wallet, say });
+        vs.drop(key.key.pubHex, x.depositId);
+        if (w) { hash = w.hash; leaf = x.leaf; }
+      }
+      // 3. through one pool: the deposit, then the relay proves and settles the swap in one step (a swap that does not settle, the pool having
+      // moved while it was proved, is settled as a plain wrap of the same deposit, so the ETH is private tETH to swap from)
+      if (!hash && plan.path?.length === 1 && !plan.sendTo) return depositSwap(plan, { t, tq, from, wallet, say });
+      if (!hash) {
+        // wrapEth throws with `deposit` once the ETH has left the wallet: the page says where it is and how to finish it
+        const w = await wrapEth({ priv: () => key.priv(), wei: plan.wei, tip: tq.tip, to: tq.to, from, wallet, say, ux: t });
+        hash = w.hash; leaf = w.built.leaf;
+      }
       held = null;
       if (!plan.path?.length && !plan.sendTo) return { made: plan.units, txHash: hash };
       say('note');
       for (let i = 0; i < 10 && !note; i++) {
         const h = await read(true).catch(() => null);
-        note = h ? of(built.note.asset).notes.find((n) => lc(n.leaf) === lc(built.leaf)) || null : null;
+        note = h ? of(plan.asset).notes.find((n) => lc(n.leaf) === lc(leaf)) || null : null;
         if (!note) await sleep(5000);
       }
       if (!note) throw kept('Your ETH is private now as tETH, but its note is not showing yet. Press again in a minute to swap it.');
@@ -281,6 +353,40 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
       throw e;
     }
     return plan.sendTo ? sendOn({ plan, made, before, say }) : made;
+  }
+
+  // The deposit swapped by the relay in one proof (its fee, the route's, bound in; the deposit tips it as a wrap's would): one wait for the
+  // relay instead of a wrap's and then a swap's.
+  async function depositSwap(plan, { t, tq, from, wallet, say }) {
+    const hop = plan.path[0], priv = key.priv();
+    say('prepare');
+    const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'cETH' });
+    let built;
+    try { built = await t.buildWrapSwap({ walletPriv: priv, toAsset: hop.assetNext, amountWei: plan.wei, feeBps: hop.feeBps, fee: plan.fee, minOut: plan.minOut, index }); }
+    catch (e) {
+      try { t.releaseWrapIndex?.({ walletPriv: priv, ticker: 'cETH', index }); } catch { }
+      throw /below minOut/.test(String(e?.message)) ? Object.assign(new Error('The price moved past what was quoted, so the swap was not sent.'), { moved: true }) : e;
+    }
+    say('confirm');
+    let hash;
+    try { hash = await wallet.sendTx({ to: WRAP_TIP, data: wrapCalldata({ commit: built.commit, wei: plan.wei, to: tq.to }), value: plan.wei + tq.tip, from }); }
+    catch (e) { if (declined(e)) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker: 'cETH', index }); } catch { } } throw e; }
+    say('sent', hash);
+    const asWrap = () => t.buildWrap({ walletPriv: priv, amountWei: plan.wei, ticker: 'cETH', index });
+    let rc;
+    try { rc = await wallet.receipt(hash); } catch (e) { throw Object.assign(e, { deposit: { hash, built: asWrap(), landed: false } }); }
+    if (rc.status !== '0x1') throw Object.assign(new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`), { reverted: true });
+    held = null;
+    say('swap', hash);
+    try {
+      const r = await t.submitWrapSwap({ walletPriv: priv, built, waitOpts: { ...run().wait(plan.label, 15 * 60e3), intervalMs: 4000, viaRelay: true } });
+      return { txHash: r?.txHash || null, out: built.amountOut };
+    } catch (e) {
+      if (pending(e)) throw Object.assign(new Error(`${relayWords(e)} Your swap may still go through: check your private balance in a few minutes before swapping again.`), { pending: true, cause: e });
+      // not settled: the same deposit settled as a plain wrap, so the ETH is private tETH and the card offers to swap it from there
+      await settle({ t, built: asWrap(), hash, say });
+      throw kept(`Your ETH is private now as tETH, but the swap stopped: ${/reserve|amm|state/i.test(String(e?.message)) ? 'the pool’s price moved while it was proved.' : relayWords(e)}`, e);
+    }
   }
 
   // What the swap made, sent on to another Tacit address: the note it paid into the balance, locked for the recipient (a stealth payment they claim
@@ -336,7 +442,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   }
 
   return {
-    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate,
+    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate, ahead, aheadOf,
     // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
     relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },
