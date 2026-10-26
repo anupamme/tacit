@@ -4,6 +4,8 @@
 //   airdrop  a listed recipient claims its TAC; the tile updates
 //   links    friendly links open the right sheet and tab (#swap, #points, #earn), the address bar follows the tab, and
 //            every sheet has a copy-link button
+//   swapurl the swap page's address on the front page: ?from=&to=&amt=&private= open the Swap tab on that swap, the address follows the card's pair
+//            (never the amount) while that tab shows, other parameters and the hash stay, and the first pair leaves it plain
 //   ux       the page's shell: a toast over an open sheet can be pressed, a drag ending on the backdrop leaves the sheet open, an
 //            unreadable amount says so, one sheet replacing another keeps its link in the address bar, a hash naming nothing is ignored
 //   apr      every farm row shows its APR now, and the public farm's card spells it out; the Farm tile leads with the public farm's APR
@@ -188,7 +190,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -567,6 +569,8 @@ const asksFor = async (p, re, act) => {
   return asked || '';
 };
 const leavesFor = async (p, base, h, re) => { await p.goto(base + h); await p.waitForURL(re, { timeout: 30000 }); return p.url(); };
+// the pair the front page's Swap card shows, as 'ETH>TAC'
+const cardIs = (p, want, t = 60000) => p.waitForFunction((w) => ['pay', 'get'].map((x) => (document.querySelector(`#hx-swap #${x}-coin`)?.textContent || '').trim().match(/^[A-Za-z0-9]+/)?.[0]).join('>') === w, want, { timeout: t }).then(() => true, () => false);
 
 const main = await openPage({ account: A0, key: K0 });
 const { page, url } = main;
@@ -594,12 +598,21 @@ await step('airdrop', async () => {
 });
 
 await step('links', async () => {
-  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#swap', /\/swap\//)), 'links: #swap opens the swap page, ETH for TAC');
-  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#buy', /\/swap\//)), 'links: so does #buy');
-  ok(/\/swap\/\?from=TAC&to=ETH$/.test(await leavesFor(page, url, '#sell', /\/swap\//)), 'links: #sell opens it the other way, TAC for ETH');
+  await page.goto(url + '#swap');
+  ok((await cardIs(page, 'ETH>TAC')) && !/\/swap\//.test(page.url()), 'links: #swap puts ETH for TAC in the card here, and stays on the front page');
+  await page.goto(url + '#sell');
+  ok(await cardIs(page, 'TAC>ETH'), 'links: #sell puts it the other way, TAC for ETH');
+  await page.goto(url + '#buy');
+  ok(await cardIs(page, 'ETH>TAC'), 'links: and #buy ETH for TAC');
   await page.goto(url + '#bridge');
-  await page.waitForSelector('#sheet-tac[open] .tac-ways a[href^="/swap/"]', { timeout: 60000 });
-  ok((await page.getAttribute('#sheet-tac .tac-ways a[href^="/swap/"]', 'href')) === '/swap/?from=ETH&to=TAC' && (await page.getAttribute('#sheet-tac .tac-ways a[href="/rewards/"]', 'href')) === '/rewards/', 'links: the TAC sheet links to the swap and rewards pages');
+  await page.waitForSelector('#sheet-tac[open] .tac-ways a[data-link="buy"]', { timeout: 60000 });
+  ok((await page.getAttribute('#sheet-tac .tac-ways a[data-link="buy"]', 'href')) === '#buy' && (await page.getAttribute('#sheet-tac .tac-ways a[href="/rewards/"]', 'href')) === '/rewards/', 'links: the TAC sheet links to the card here and to the rewards page');
+  await page.goto(url + '#sell');
+  await cardIs(page, 'TAC>ETH');
+  await page.goto(url + '#bridge');
+  await page.waitForSelector('#sheet-tac[open] .tac-ways a[data-link="buy"]', { timeout: 60000 });
+  await page.click('#sheet-tac .tac-ways a[data-link="buy"]');
+  ok((await cardIs(page, 'ETH>TAC')) && !(await page.$('#sheet-tac[open]')), 'links: its Buy or sell TAC closes the sheet and puts ETH for TAC in the card');
   await page.goto(url + '#points');
   await page.waitForSelector('#sheet-pts[open]', { timeout: 60000 });
   await page.goto(url + '#earn');
@@ -611,6 +624,36 @@ await step('links', async () => {
   const shares = await page.$$eval('dialog.sheet:not(.layer) .sheet-head .x.share', (b) => b.length);
   const sheets = await page.$$eval('dialog.sheet:not(.layer)', (d) => d.length);
   ok(shares === sheets && sheets >= 6, `links: every sheet has a copy-link button (${shares}/${sheets})`);
+});
+
+// The swap page's address on the front page: ?from=&to=&amt=&private= open the Swap tab on that swap (an amount is taken, then kept out of the address), the
+// address follows the card's pair while that tab shows and goes when it does not, anything else in it stays, and the first pair leaves it plain.
+await step('swapurl', async () => {
+  const r = await openPage({ account: A0, key: K0 }), p = r.page, u = r.url;
+  const qs = () => new URL(p.url()).searchParams;
+  try {
+    await p.goto(u + '?stealth=1&from=TAC&to=ETH&amt=2');
+    ok(await cardIs(p, 'TAC>ETH'), 'swapurl: ?from=TAC&to=ETH opens the Swap tab on TAC for ETH');
+    ok(await p.waitForFunction(() => document.querySelector('#hx-swap #amt')?.value === '2', null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: with the amount in the card');
+    ok(await p.waitForFunction(() => !/amt=/.test(location.search) && /from=TAC/.test(location.search), null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: and the amount out of the address');
+    ok(qs().get('stealth') === '1' && qs().get('to') === 'ETH', 'swapurl: the address keeps the pair and what else was in it');
+    await p.click('#hx-swap #flip');
+    ok((await cardIs(p, 'ETH>TAC')) && (await p.waitForFunction(() => /from=ETH/.test(location.search) && /to=TAC/.test(location.search), null, { timeout: 30000 }).then(() => true, () => false)), 'swapurl: the card turned over, and the address with it');
+    await p.click('#hx-body .hx-h button:nth-child(3)');
+    ok(await p.waitForFunction(() => !/from=|to=/.test(location.search) && /stealth=1/.test(location.search), null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: on another tab the pair is gone from the address and stealth stays');
+    await p.click('#hx-body .hx-h button:nth-child(1)');
+    ok(await p.waitForFunction(() => /from=ETH/.test(location.search), null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: back on Swap it is there again');
+    await p.goto(u + '?private=to&from=ETH&to=TAC#points');
+    ok((await cardIs(p, 'tETH>TAC')) || (await cardIs(p, 'ETH>TAC')), 'swapurl: private and a hash in the address are read, and the hash stays');
+    ok(new URL(p.url()).hash === '#points', 'swapurl: the hash is left alone');
+  } finally { await r.browser.close(); }
+  const f = await openPage({ account: A0, key: K0 });
+  try {
+    await f.page.goto(f.url);
+    await f.page.waitForSelector('#hx-swap #pay-coin', { timeout: 60000 }).catch(() => {});
+    await f.page.waitForTimeout(1500);
+    ok(new URL(f.page.url()).search === '', 'swapurl: the first pair leaves the address plain');
+  } finally { await f.browser.close(); }
 });
 
 // The picture of the two chains under the front page's lanes: read nothing until it is near, then its own feed, drawn, and no sideways scroll.
@@ -851,8 +894,9 @@ await step('reinvest', async () => {
 });
 
 await step('buy', async () => {
-  // Buying TAC is the swap page's (tests/swap-page.mjs buys on the fork): the front page's link goes there
-  ok(/\/swap\/\?from=ETH&to=TAC$/.test(await leavesFor(page, url, '#buy', /\/swap\//)), 'buy: #buy opens the swap page, ETH for TAC');
+  // Buying TAC is made on the swap card (tests/swap-page.mjs buys on the fork): the front page's link puts the pair in its own card
+  await page.goto(url + '#buy');
+  ok(await cardIs(page, 'ETH>TAC'), 'buy: #buy puts ETH for TAC in the card');
 });
 
 await step('tacfarm', async () => {
@@ -894,8 +938,9 @@ await step('tacfarm', async () => {
 });
 
 await step('sell', async () => {
-  // Selling TAC is the swap page's (tests/swap-page.mjs sells by permit on the fork): the front page's link goes there
-  ok(/\/swap\/\?from=TAC&to=ETH$/.test(await leavesFor(page, url, '#sell', /\/swap\//)), 'sell: #sell opens the swap page, TAC for ETH');
+  // Selling TAC is made on the swap card (tests/swap-page.mjs sells by permit on the fork): the front page's link puts the pair in its own card
+  await page.goto(url + '#sell');
+  ok(await cardIs(page, 'TAC>ETH'), 'sell: #sell puts TAC for ETH in the card');
 });
 
 await step('v1', async () => {

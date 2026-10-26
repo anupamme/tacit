@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0w1cR6BwXwNj9c2LYLlAH01KjWVov/cIIHr/fexzjGQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9n4S0gvZowwM4/YSyXU6F9Ai5YxlTUAJ0hhWnaDnLQ0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1642,7 +1642,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </div>
     <details class="tpx" id="tac-px" hidden></details>
     <div id="tac-bal"></div>
-    <p class="note tac-ways"><a href="/swap/?from=ETH&amp;to=TAC">Buy or sell TAC →</a> · <a href="/rewards/">Airdrop and farms →</a></p>
+    <p class="note tac-ways"><a href="#buy" data-link="buy">Buy or sell TAC →</a> · <a href="/rewards/">Airdrop and farms →</a></p>
     <div id="bridge-body"></div>
   </div>
 </dialog>
@@ -3375,7 +3375,7 @@ document.addEventListener('click', (e) => {
 const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : chainTag(1)}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-change>Change account</button> <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
 const S = { address: null, wallet: null, provider: null, key: null, acct: null, pay: null };
 // The Swap tab's card (swap/card.js), once drawn, and the private swaps in it that wait for a key to be opened (the hero's Swap tab, below)
-const SWC = { el: null, card: null, p: null, ask: null, keyw: new Set() };
+const SWC = { el: null, card: null, p: null, ask: null, url: false, keyw: new Set() };
 const walletPriv = () => {
   if (!S.key) throw Object.assign(new Error('Your Tacit wallet was locked, so this stopped. Open it again to continue.'), { said: true });
   return hexToBytes(S.key.priv);
@@ -4263,9 +4263,15 @@ function openAsset(key) {
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-asset]'); if (b) { e.preventDefault(); openAsset(b.dataset.asset); } });
 
 const SHEETS = ['eth', 'btc', 'tac', 'pts', 'farm', 'borrow', 'wallet'];
-// Buying and selling TAC is the swap page's, the airdrop the rewards page's: a link or button for them here goes there
-const AWAY = { buy: '/swap/?from=ETH&to=TAC', swap: '/swap/?from=ETH&to=TAC', sell: '/swap/?from=TAC&to=ETH', airdrop: '/rewards/' };
-const goAway = (name, amt) => { location.href = AWAY[name] + (amt && name !== 'airdrop' ? `&amt=${encodeURIComponent(amt)}` : ''); };
+// Buying and selling TAC is the card's, here: a link or button for them closes what is open and puts the pair in the card. The airdrop is the rewards page's.
+const CARD = { buy: 'swap:ether:tac', swap: 'swap:ether:tac', sell: 'swap:tac:ether' };
+const AWAY = { airdrop: '/rewards/' };
+const goAway = (name) => { location.href = AWAY[name]; };
+const toCard = (name) => {
+  for (const o of $$('dialog.sheet[open]')) o.close();
+  if (location.hash.slice(1) === name) history.replaceState(null, '', location.pathname + location.search);
+  hxPreset(CARD[name]);
+};
 const ALIAS = { bridge: ['tac', 'bridge'], private: ['eth', 'v1'], device: ['eth', 'dev'],
   points: ['pts'], names: ['pts'], bitcoin: ['btc'], earn: ['farm'], lp: ['farm'], lock: ['borrow'], leaderboard: ['pts'] };
 const linkName = (sheet) => Object.keys(ALIAS).find((k) => ALIAS[k][0] === sheet && ALIAS[k][1] && ALIAS[k][1] === TAB[sheet]) || ({ btc: 'bitcoin', pts: 'points' }[sheet] ?? sheet);
@@ -4323,6 +4329,7 @@ function openLink(h) {
   if (head === 'asset') return openAsset(parts[0]);
   if (head === 'activity') return openAct();
   if (head === 'prove-self') return openProve();
+  if (Object.hasOwn(CARD, head)) return toCard(head);
   if (Object.hasOwn(AWAY, head)) return goAway(head);
   if (!SHEETS.includes(head) && !Object.hasOwn(ALIAS, head)) return;
   const [sheet, tab] = Object.hasOwn(ALIAS, head) ? ALIAS[head] : [head];
@@ -4350,6 +4357,7 @@ function paintBack(sheet) {
   head.after(line);
 }
 function openSheet(name) {
+  if (Object.hasOwn(CARD, name)) return toCard(name);
   if (Object.hasOwn(AWAY, name)) return goAway(name);
   const [sheet, tab] = Object.hasOwn(ALIAS, name) ? ALIAS[name] : [name];
   const d = $(`#sheet-${sheet}`);
@@ -13678,6 +13686,33 @@ function hxRemember() {
   if (!HX.recalled) return;
   const was = HX.placeAuto || HX;
   try { localStorage.setItem(HX_MEM, JSON.stringify({ tab: HX.tab, sf: was.sf, sd: was.sd, swq: HX.swq, ern: was.ern, bm: HX.bm, send: HX.send, sendPick: !!HX.sendPick })); } catch { }
+  hxUrl();
+}
+// A link can name a swap the way the swap page's does (?from=ETH&to=TAC&amt=1&private=to): the Swap tab opens on it. While that tab shows a pair other than
+// its first one, the address keeps the pair (never the amount, which stays out of the address and the history), so a copied address opens the same swap.
+// Whatever else is in the address, and its hash, is left as it is.
+const HX_QK = ['from', 'to', 'amt', 'private', 'from-at', 'to-at'];
+function hxAskFromUrl() {
+  try {
+    const u = new URLSearchParams(location.search), p = new URLSearchParams();
+    for (const k of HX_QK) { const v = u.get(k); if (v != null && v.length <= 64) p.set(k, v); }
+    if (!p.has('from') && !p.has('to') && !p.has('private')) return;
+    HX.tab = 'swap'; SWC.ask = p; SWC.url = true;
+    const q = new URLSearchParams(p); q.delete('amt'); HX.swq = q.toString();
+  } catch { }
+}
+function hxUrl() {
+  if (!history.replaceState) return;
+  const u = new URLSearchParams(location.search);
+  for (const k of HX_QK) u.delete(k);
+  if (HX.tab === 'swap' && HX.swq !== HX_SWQ0 && (SWC.touched || SWC.url)) {
+    // the card leaves out ETH and TAC, its own first pair, but this page's first pair is another, so both sides are named
+    const c = new URLSearchParams(HX.swq);
+    u.set('from', c.get('from') || 'ETH'); u.set('to', c.get('to') || 'TAC');
+    for (const [k, v] of c) if (k !== 'from' && k !== 'to') u.set(k, v);
+  }
+  const qs = u.toString(), want = qs ? `?${qs}` : '';
+  if (location.search !== want) history.replaceState(null, '', location.pathname + want + location.hash);
 }
 function hxRememberAmt() { try { sessionStorage.setItem(HX_AMT, JSON.stringify({ sig: hxSig(), amt: HX.amt })); } catch { } }
 function hxRecall() {
@@ -13937,6 +13972,7 @@ function hxSync() {
   if (HX.mode === 'btc' && HX.dir === 'out' && HX.from === 'tac' && hxHeldTac() !== HX.heldTac) hxQuoteSoon();
 }
 hxRecall();
+hxAskFromUrl();
 paintHx();
 refreshTape();
 loadTacPrice().catch(() => {});
