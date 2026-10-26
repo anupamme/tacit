@@ -118,6 +118,10 @@ export const PROVER_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
 // registration and the check take more than the anonymous ceiling.
 const BURNDEP_PATH = /^\/reflection\/burndep(\/check)?(\?|$)/i;
 export const BURNDEP_MAX_BYTES = 4 * 1024 * 1024;
+// A board worker's answer (POST /prover/result, sent with its own worker token, not the box token): a compressed proof of the
+// Ethereum-state guest is about 1.3 MB, 1.7 MB as base64 (worker/src/prover-board.js caps the proof at 2 MiB before base64).
+const PROVER_RESULT_PATH = /^\/prover\/result(\?|$)/i;
+export const PROVER_RESULT_MAX_BYTES = 4 * 1024 * 1024;
 
 function sizeEnv(env, key, dflt) {
   const raw = Number(env?.[key] ?? process.env[key]);
@@ -137,6 +141,7 @@ export function maxRequestBytes(env, nodeReq) {
   if (!nodeReq || UPLOAD_PATH.test(nodeReq.url || '') || carriesBoxToken(nodeReq, env)) return full;
   if (PROVER_UPLOAD_PATH.test(nodeReq.url || '')) return Math.min(full, PROVER_UPLOAD_MAX_BYTES);
   if (BURNDEP_PATH.test(nodeReq.url || '')) return Math.min(full, sizeEnv(env, 'MAX_BURNDEP_REQUEST_BYTES', BURNDEP_MAX_BYTES));
+  if (PROVER_RESULT_PATH.test(nodeReq.url || '')) return Math.min(full, PROVER_RESULT_MAX_BYTES);
   return Math.min(full, sizeEnv(env, 'MAX_ANON_REQUEST_BYTES', DEFAULT_MAX_ANON_REQUEST_BYTES));
 }
 

@@ -3706,7 +3706,7 @@ async function handleProverBoard(req, env, url, cors) {
     try {
       if (url.pathname === '/prover/claim') {
         const want = Array.isArray(b.classes) && b.classes.length ? b.classes.filter((c) => worker.classes.includes(c)) : worker.classes;
-        const job = await board.claim({ worker, classes: want, pubkey: typeof b.pubkey === 'string' ? b.pubkey : null, warming: b.warming === true });
+        const job = await board.claim({ worker, classes: want, pubkey: typeof b.pubkey === 'string' ? b.pubkey : null, warming: b.warming === true, programs: Array.isArray(b.programs) ? b.programs.filter((x) => typeof x === 'string') : null });
         return jsonResponse(job ? { job } : {}, 200, nostore);
       }
       return jsonResponse(await board.result({ worker, jobId: b.jobId, publicValues: b.publicValues ?? null, proof: b.proof ?? null, error: b.error ?? null }), 200, nostore);
