@@ -35,7 +35,7 @@ function pxHtml(v) {
   const usd0 = (x, dp = 0) => `$${x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
   const item = (id, name, val, link, title) => (val ? `<${link ? `a href="${link}" title="${title}"` : 'span'} class="px"><svg class="tk" aria-hidden="true"><use href="#tk-${id}"/></svg><b>${name}</b><span class="num">${val}</span></${link ? 'a' : 'span'}>` : '');
   // Each entry stands on what it needs: TAC on the Precision pool's price, cBTC on the engine's price of bitcoin, tETH on that and the ETH it costs.
-  return (tac ? item('tac', 'TAC', usd0(tac, tac < 1 ? 3 : 2), '/trade/tac/', 'Trade TAC') : '') + (v?.usdBtc ? item('cbtc', 'cBTC', usd0(v.usdBtc), '/cbtc/', 'cBTC: locked bitcoin, priced as bitcoin is; what backs it and its pools') : '') + (eth ? item('teth', 'tETH', usd0(eth), '/teth/', 'tETH: private ETH, one for one; its pool and its farms') : '');
+  return (tac ? item('tac', 'TAC', usd0(tac, tac < 1 ? 3 : 2), '/trade/tac/', 'Trade TAC') : '') + (v?.usdBtc ? item('cbtc', 'cBTC', usd0(v.usdBtc), '/cbtc/', 'cBTC: locked bitcoin, its backing and pools') : '') + (eth ? item('teth', 'tETH', usd0(eth), '/teth/', 'tETH: private ETH, its pool and farms') : '');
 }
 export function paintPx(el, v) {
   const out = pxHtml(v);

@@ -3572,7 +3572,7 @@ await step('clearedfind', async () => {
     await r.page.evaluate(() => { location.hash = '#btc'; });
     await until(r.page, () => /2 TAC notes at your Bitcoin address are not counted yet/.test(document.querySelector('#btc-body')?.textContent || ''), null, 90000).catch(() => {});
     const body = (await text(r.page, '#btc-body')).replace(/\s+/g, ' ');
-    ok(/2 TAC notes at your Bitcoin address are not counted yet: their history could not be read from Bitcoin just now/.test(body), 'clearedfind: TAC notes whose history could not be read are said to be not counted yet, not shown as nothing');
+    ok(/2 TAC notes at your Bitcoin address are not counted yet: their history could not be read from Bitcoin/.test(body), 'clearedfind: TAC notes whose history could not be read are said to be not counted yet, not shown as nothing');
     ok(/One TAC note just sent to your Bitcoin address is counted once it has confirmed/.test(body), 'clearedfind: and a just-sent one is said to be arriving');
     if (r.errors.length) { fails++; console.log('FAIL clearedfind page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     await r.browser.close();
@@ -3833,7 +3833,7 @@ await step('xobridge', async () => {
   await until(r.page, () => /The proof has seen the burn\./.test(document.querySelector('#act-body')?.textContent || ''), null, 60000);
   const keyed = await r.page.evaluate(() => !!document.querySelector('#wallet-dot.on'));
   const reached = (await r.page.$$eval('#act-body .actr', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), key: !!x.querySelector('[data-act-key]') })))).find((x) => /Bridge 0\.0039 tETH to Bitcoin/.test(x.text));
-  ok(reached && !/Waiting for Bitcoin’s proof/.test(reached.text) && reached.key === !keyed && (keyed ? /in a moment/ : /Open your key to send the Bitcoin step/).test(reached.text),
+  ok(reached && !/Waiting for Bitcoin’s proof/.test(reached.text) && reached.key === !keyed && (keyed ? /in a moment/ : /Open your Tacit wallet to send the Bitcoin step/).test(reached.text),
     `xobridge: a burn the proof has reached says so and, with no key open, offers to open it (key open ${keyed}: ${reached?.text.slice(0, 220)})`);
   if (!keyed) {
     // The summary is there once a wallet is connected, key or not.
@@ -3842,7 +3842,7 @@ await step('xobridge', async () => {
     await r.page.click('#pts-connect');
     await r.page.waitForSelector('#pts-body', { timeout: 60000 }).catch(() => {});
     await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
-    await until(r.page, () => /under way in this browser\. Open your key/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000)
+    await until(r.page, () => /under way in this browser\. Open your Tacit wallet/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).slice(0, 300)}`); });
     ok(true, 'xobridge: with no key open the landing page says bridges are under way in this browser and offers to open the key');
   }
@@ -5352,7 +5352,7 @@ await step('rewardsfolds', async () => {
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
     const days = await read('#c-pts .rows');
-    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days) && /Thu 15 Oct\s*\+20\.0\s*—/.test(days) && /A dash means that day's TAC is in the total above/.test(await read('#c-pts')), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days) && /Thu 15 Oct\s*\+20\.0\s*—/.test(days) && /A dash means that day’s TAC is in the total above/.test(await read('#c-pts')), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
@@ -5475,8 +5475,9 @@ await step('ptsview', async () => {
     items: [...document.querySelectorAll('#pts-body .pt .ptl li:not(.day)')].map((li) => li.textContent.replace(/\s+/g, ' ').trim()),
     days: [...document.querySelectorAll('#pts-body .pt .ptl li.day')].map((li) => li.textContent.replace(/\s+/g, ' ').trim()),
     bars: document.querySelectorAll('#pts-body .ptd-b').length,
+    marks: [...document.querySelectorAll('#pts-body [role="img"][aria-label]')].map((m) => ({ label: m.getAttribute('aria-label'), row: !!m.closest('.ptl li') })),
     links: [...document.querySelectorAll('#pts-body .ptl a')].map((a) => a.href) }));
-  ok(/^Wrapped ETH/.test(v.items[0] || '') && /^Deposited ETH on Base/.test(v.items[1] || '') && /^Swapped ETH/.test(v.items[2] || ''), `ptsview: recent points in time order across chains (${v.items.join(' | ')})`);
+  ok(/^Wrapped ETH/.test(v.items[0] || '') && /^Deposited ETH/.test(v.items[1] || '') && v.marks.some((m) => m.row && m.label === 'Base') && /^Swapped ETH/.test(v.items[2] || ''), `ptsview: recent points in time order across chains (${v.items.join(' | ')})`);
   ok(v.days.length >= 2 && /^Today\s*\+215\s*1\.25×\s*about 4\.5 TAC$/.test(v.days[0]) && /^Yesterday\s*\+100\s*2 TAC$/.test(v.days[1]), `ptsview: the activity is grouped under each day's total and what it paid (${v.days.join(' | ')})`);
   ok(/Holder boost at last activity\s*1\.5×/.test(v.body), 'ptsview: the holder boost is the newest activity\'s');
   ok(/rank\s*#2/.test(v.body) && /#1 today/.test(v.body) && /Claimed so far\s*5 TAC/.test(v.body) && /10% · about 111\.11 TAC/.test(v.body) && /closes in \d/.test(v.body), `ptsview: rank, claimed, today's share and the countdown (${v.body.slice(0, 500)})`);
@@ -5487,7 +5488,7 @@ await step('ptsview', async () => {
   const lastD = dShort(today + 81), nextD = dShort(today + 20);
   ok(new RegExp(`Every day through ${lastD} \\(UTC\\), up to 1,111 TAC is split by that day’s points, at most 0\\.02 TAC per point, no limit from ${nextD}\\.`).test(v.body),
     `ptsview: the lede states the days, the pot and the limit per point with its next change as the service gives them (${v.body.slice(0, 260)})`);
-  ok(/1,500 points per ETH/.test(v.body) && /1,000 per ETH, on Ethereum, Base or Robinhood Chain/.test(v.body) && /1,000 per wstETH/.test(v.body) && !/Borrow cUSD/.test(v.body),
+  ok(/1,500 points per ETH/.test(v.body) && /1,000 per ETH on/.test(v.body) && v.marks.some((m) => m.label === 'Ethereum, Base, Robinhood Chain') && /1,000 per wstETH/.test(v.body) && !/Borrow cUSD/.test(v.body),
     'ptsview: each way of earning pays what the service says, and one it does not list is not offered');
   ok(/Early activity counts up to 3×\. Holding 50 or 500 public TAC at the same address through the past day multiplies its points by 1\.1 or 1\.3\./.test(v.body),
     `ptsview: the early bonus and the holder tiers are the service's (${v.body.slice(-330)})`);
@@ -5850,7 +5851,7 @@ await step('activity', async () => {
     if (await r.page.$('#w-lock')) { await r.page.click('#w-lock'); await until(r.page, () => !document.querySelector('#wallet-dot.on')); }
     await pasteKey(r.page, 'bd82'.padEnd(64, '7'));
     await openActivity(r.page);
-    ok(/Made with another Tacit key/.test((await row('job:j-mint')).text) && !/another Tacit key/.test((await row('job:j-old')).text),
+    ok(/Made in another Tacit wallet/.test((await row('job:j-mint')).text) && !/another Tacit wallet/.test((await row('job:j-old')).text),
       `activity: an entry another key made says so (${(await row('job:j-mint')).text.slice(-60)})`);
     // At most twenty entries are kept, newest first.
     for (let i = 0; i < 22; i++) await fire({ jobId: `j-n${i}`, type: 'transfer', status: 'settled', txHash: H('ab') });

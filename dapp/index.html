@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lcSnZ+irRGsFATlEengpihTWE7BkW/1lIdgGczHWI8o=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-SY5PTqzNW1OeJhASb6E0sYdKFpuPmFnEREE1nVqNiwc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=d9cf2eb2" as="style">
+<link rel="preload" href="/swap/card.css?cb=8c3bff9c" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -18,7 +18,7 @@
 <script src="/front-route.js?cb=5a77fd77"></script>
 <title>tacit defi</title>
 <link rel="canonical" href="https://tacit.finance/">
-<meta name="description" content="Private DeFi on Bitcoin and Ethereum. Assets issued on Bitcoin with hidden amounts, a zero-knowledge bridge to a private pool on Ethereum, private ETH, TAC, points, farms and dollars borrowed against Bitcoin.">
+<meta name="description" content="Private DeFi on Bitcoin and Ethereum: private ETH, Bitcoin payments, TAC, points, farms and dollars borrowed against Bitcoin.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/">
@@ -138,6 +138,9 @@ main:focus { outline: none; }
 .tk.md { width: 40px; height: 40px; }
 .tk.lg { width: 48px; height: 48px; }
 .pair { display: flex; align-items: center; }
+.cmk { display: inline-flex; vertical-align: -3px; margin-right: 5px; }
+.cmk .tk, .chs .tk { width: 16px; height: 16px; }
+.chs { display: inline-flex; gap: 4px; vertical-align: -3px; margin: 0 2px; }
 .swc .rows .c:has(> .pair) { grid-template-columns: 46px minmax(0, 1fr) auto 18px; }
 .swc .rows .c > .pair .tk { width: 28px; height: 28px; }
 .swc .rows .c > .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--field); }
@@ -381,6 +384,7 @@ a.di { color: inherit; text-decoration: none; }
 .hx-pt::before { content: '+ '; font-weight: 600; color: var(--ok); }
 .hx-chain { display: flex; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
 .hx-chain[hidden] { display: none; }
+.hx-chain .cmk { margin-right: 0; }
 .hx-chain select { font: inherit; color: var(--ink); background: none; border: 0; border-bottom: 1px dashed var(--ink); padding: 0 2px; cursor: pointer; }
 .hx .btn { width: 100%; min-height: 56px; margin: 16px 0 0; border-radius: 12px; font-size: 15px; transition: transform .2s var(--spring), box-shadow .2s, background .15s, color .15s; }
 @media (hover: hover) { .hx .btn:hover:not(:disabled) { color: var(--card); background: var(--ink); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--orange); } }
@@ -475,6 +479,7 @@ a.di { color: inherit; text-decoration: none; }
 .wd-foot button + button { justify-content: flex-end; text-align: right; border-left: 1px solid var(--hair); }
 @media (hover: hover) { .wd-foot button:hover { color: var(--ink); background: var(--field); } }
 .wd-foot .tk { width: 24px; height: 24px; }
+.wd-foot .chs .tk { width: 18px; height: 18px; }
 .wd-foot .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
 .wd-foot b { font-weight: 500; color: var(--ink); }
 /* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
@@ -705,6 +710,8 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .seg.sub { border-color: var(--hair); margin-bottom: 16px; }
 .seg.sub button { min-height: 36px; font-size: 13px; }
 .seg.sub button + button { border-color: var(--hair); }
+.seg.sub .cmk { display: flex; justify-content: center; margin: 0 0 2px; }
+@media (max-width: 560px) { .seg.sub button[data-chain]:not([aria-selected="true"]) .cn { display: none; } .seg.sub button[data-chain]:not([aria-selected="true"]) .cmk { margin: 0; } }
 
 .bal { display: flex; align-items: center; gap: 14px; padding: 14px 0; margin-bottom: 16px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
 .bal .v { font: 500 26px/1.1 var(--mono); letter-spacing: -.02em; }
@@ -788,6 +795,7 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .farm > button:disabled::after { visibility: hidden; }
 .farm .name { font: 400 22px/1.1 var(--serif); }
 .farm .kind { display: block; font-size: 12px; color: var(--mute); margin-top: 3px; }
+.farm .kind .gs { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; stroke: currentColor; }
 .farm .rate { text-align: right; font-size: 13px; }
 .farm .rate b { display: block; font-weight: 500; font-size: 14px; }
 .farm .rate span { color: var(--mute); }
@@ -870,6 +878,10 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .note.tb-ask { margin: 0 0 14px; }
 .parts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: -8px 0 16px; font-size: 12px; color: var(--mute); }
 .parts b { font-weight: 400; color: var(--ink); }
+.parts > span { display: inline-flex; align-items: center; }
+.parts > span > b { margin-left: .5em; }
+.parts .cmk { vertical-align: 0; margin-right: 5px; }
+.gs { width: 15px; height: 15px; margin-right: 5px; fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .links { list-style: none; margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--hair); display: grid; gap: 8px; font-size: 13px; }
 .links a { color: var(--ink); text-underline-offset: 3px; }
 .bw-alt { margin: 16px 0 0; font-size: 13px; }
@@ -1015,7 +1027,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=d9cf2eb2">
+<link rel="stylesheet" href="/swap/card.css?cb=8c3bff9c">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -1155,6 +1167,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-usdt" viewBox="0 0 32 32"><g fill="none" fill-rule="evenodd"><circle cx="16" cy="16" r="16" fill="#26A17B"/><path fill="#FFF" d="M17.922 17.383v-.002c-.11.008-.677.042-1.942.042-1.01 0-1.721-.03-1.971-.042v.003c-3.888-.171-6.79-.848-6.79-1.658 0-.809 2.902-1.486 6.79-1.66v2.644c.254.018.982.061 1.988.061 1.207 0 1.812-.05 1.925-.06v-2.643c3.88.173 6.775.85 6.775 1.658 0 .81-2.895 1.485-6.775 1.657m0-3.59v-2.366h5.414V7.819H8.595v3.608h5.414v2.365c-4.4.202-7.709 1.074-7.709 2.118 0 1.044 3.309 1.915 7.709 2.118v7.582h3.913v-7.584c4.393-.202 7.694-1.073 7.694-2.116 0-1.043-3.301-1.914-7.694-2.117"/></g></symbol>
     <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
+    <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
+    <symbol id="c-mega" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M10.4 21.2V11.4L16 17.4L21.6 11.4V21.2" fill="none" stroke="#ff8fb4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="lg-zfi" viewBox="0 0 400 400"><rect width="400" height="400" fill="#000"/><path fill="#fff" d="M-60-20H460V90L80 310H460V420H-60V310L320 90H-60Z"/></symbol>
     <symbol id="lg-wns" viewBox="0 0 64 64"><rect width="64" height="64" fill="#0A0A0A"/><defs><path id="wns-t" d="M4,4H60"/><path id="wns-r" d="M60,4V60"/><path id="wns-b" d="M60,60H4"/><path id="wns-l" d="M4,60V4"/></defs><g font-family="'Courier New',monospace" font-size="4.2" fill="#2D5FE8" fill-opacity=".6" letter-spacing="-.3"><text><textPath href="#wns-t">//////////////////////////////</textPath></text><text><textPath href="#wns-r">//////////////////////////////</textPath></text><text><textPath href="#wns-b">//////////////////////////////</textPath></text><text><textPath href="#wns-l">//////////////////////////////</textPath></text></g><path d="M16,16V48H22L32,32L42,48H48V16H42V38L32,22L22,38V16Z" fill="#2D5FE8"/></symbol>
     <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
@@ -1269,7 +1284,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </ol>
       <div class="wd-foot">
         <button type="button" data-hx="swap:sats:tac"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><b>Sats for TAC</b> on Bitcoin’s order book</span></button>
-        <button type="button" data-hx="shield:ether:pay"><span><b>Pay pools</b> on Ethereum, Base, Robinhood Chain and MegaETH</span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
+        <button type="button" data-hx="shield:ether:pay" aria-label="Pay pools on Ethereum, Base, Robinhood Chain and MegaETH"><span><b>Pay pools</b> <span class="chs" title="Ethereum, Base, Robinhood Chain, MegaETH" aria-hidden="true"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk" aria-hidden="true"><use href="#c-rh"/></svg><svg class="tk" aria-hidden="true"><use href="#c-mega"/></svg></span></span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
       </div>
     </div>
     <div class="kept" id="kept"><h3 class="kept-h">Bitcoin, proven on Ethereum.<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
@@ -1490,7 +1505,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/tasks/open.js?cb=1eb26901"></script>
+<script type="module" src="/tasks/open.js?cb=a2591741"></script>
 
 <!-- ── wallet ── -->
 <dialog class="sheet" id="sheet-wallet" aria-labelledby="wallet-h">
@@ -1564,7 +1579,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h2 id="farm-h" tabindex="-1" autofocus>Farm TAC</h2>
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
-    <p class="lede-s">Earn TAC every second, and withdraw any time. Private pools keep what you hold hidden.</p>
+    <p class="lede-s">Earn TAC every second. Withdraw any time.</p>
     <div id="farm-notes"></div>
     <ul class="farms" id="farm-list"></ul>
   </div>
@@ -1664,7 +1679,7 @@ import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-ou
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
 import { makeOutFee, limitText, proofWarn, fundingText, onTheWay } from '/bridge-out.js?cb=ecf49203';
 import { SERVED as SERVED_POOLS, keeperIdOf, makeTokenPools, KEEPERS as POOL_KEEPERS, RELAYER as POOL_RELAYER } from '/evm-pool-tokens.js?cb=e1ab5d24';
-import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, prepsAfterPass, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=21533762';
+import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, prepsAfterPass, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=1b8357ef';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=532a162f';
@@ -1804,6 +1819,14 @@ function runCount(el) {
   requestAnimationFrame(step);
 }
 const tacitShort = (a) => `${a.slice(0, 16)}…${a.slice(-6)}`;
+// A chain's mark (c-*), named for assistive tech and on hover; chainTag adds the name where the mark alone would not be read.
+const CHAIN_MARK = { btc: 'c-btc', 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh', 4326: 'c-mega' };
+const CHAIN_FULL = { btc: 'Bitcoin', 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain', 4326: 'MegaETH' };
+const chainFull = (id) => CHAIN_FULL[id] || 'Ethereum';
+const chainMark = (id) => html`<span class="cmk" role="img" aria-label="${chainFull(id)}" title="${chainFull(id)}"><svg class="tk" aria-hidden="true"><use href="#${CHAIN_MARK[id] || 'c-eth'}"/></svg></span>`;
+const chainTag = (id) => html`${chainMark(id)}${chainFull(id)}`;
+const chainTab = (id, name) => html`${chainMark(id)}<span class="cn">${name}</span>`;
+const chainMarks = (ids) => html`<span class="chs" role="img" aria-label="${ids.map((x) => chainFull(x)).join(', ')}" title="${ids.map((x) => chainFull(x)).join(', ')}">${ids.map((x) => html`<svg class="tk" aria-hidden="true"><use href="#${CHAIN_MARK[x]}"/></svg>`)}</span>`;
 const chipView = (a) => (/^tacit1/.test(a || '') && a.length > 30 ? html`<span class="wide">${tacitShort(a)}</span><span class="narrow">tacit1…${a.slice(10, 16)}</span>` : html`${short(a, 6)}`);
 
 function fmt(v, dec = 18, max = 4) {
@@ -1910,7 +1933,7 @@ const errText = (e) => {
   if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet’s own browser, or install MetaMask, Rabby or Rainbow.${isPasskeyAvailable() ? ' Or use a passkey.' : ''}`;
   const r = revertText(e);
   if (r) return r;
-  if (relayCode(e) === 'prove_reserved') return `The relay is keeping its proving credit for the bridge right now, so it isn’t proving requests sent from your own account. Nothing was spent${e?.hint === 'relay' ? ' and what you hold is still in the pool' : ''}. Try again later, or prove it yourself.`;
+  if (relayCode(e) === 'prove_reserved') return `The relay isn’t proving from your own account right now. Nothing was spent${e?.hint === 'relay' ? ' and what you hold is still in the pool' : ''}. Try again later, or prove it yourself.`;
   if (proveCapped(e)) return e?.class === 'client' ? 'You have used today’s share of proofs the relay pays for. It opens again at midnight UTC; nothing was spent. Prove it yourself to go on now.'
     : 'The relay has made as many proofs as it can for today. Try again after midnight UTC; nothing was spent.';
   if (e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load') return spMsg(e);
@@ -1936,7 +1959,7 @@ const errText = (e) => {
   if (/failed to fetch|networkerror|load failed|all rpcs failed/i.test(m)) return 'Could not reach the network. Check your connection and try again.';
   if (/rate.?limit|too many requests|\b429\b|exceeded.*(?:request|quota)|upgrade.*(?:plan|tier)/i.test(m)) return 'That network is busy. Try again in a moment.';
   if (/timed? ?out|timeout/i.test(m)) return 'The network took too long to answer. Try again.';
-  if (/previously derived a different Tacit identity/i.test(m)) return 'This account opened a different Tacit key on this device before. Switch to that account in your wallet, or open your key another way.';
+  if (/previously derived a different Tacit identity/i.test(m)) return 'This account opened a different Tacit wallet on this device before. Switch to that account in your wallet, or open yours another way.';
   if (/non-canonical \(high-s\) signature/i.test(m)) return 'The wallet’s signature came back in a form Tacit does not use, so nothing was opened. Reconnect the wallet and try again.';
   const t = m.replace(/^Error:\s*/, '').replace(/\brelayer/gi, 'relay');
   if (t.length <= 240) return t;
@@ -2188,7 +2211,7 @@ function newRun(sheet) {
     return w;
   };
   run.switched = () => !!run.pub && S.key?.pubHex !== run.pub;
-  run.check = () => { if (run.switched()) throw new Error(S.key ? 'Another Tacit key was opened, so this stopped before its next step.' : 'Your Tacit key was locked, so this stopped before its next step.'); };
+  run.check = () => { if (run.switched()) throw new Error(S.key ? 'Another Tacit wallet was opened, so this stopped before its next step.' : 'Your Tacit wallet was locked, so this stopped before its next step.'); };
   run.take = (...keys) => { for (const k of keys) run.keys.add(k); };
   run.say = (el, view) => { if (!run.away) say(el, view); };
   run.fail = (el, e) => runFail(run, el, e);
@@ -2429,6 +2452,7 @@ function failText(it) {
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
 const txUrl = (it) => (it.kind === 'btc' ? `${MEMPOOL}/tx/${it.hash}` : `${(DEVICE_CHAINS.find((c) => c.chainId === (it.chain || 1)) || DEVICE_CHAINS[0]).explorer}/tx/${it.hash}`);
+const txMark = (it) => chainMark(it.kind === 'btc' ? 'btc' : it.chain || 1);
 const txSite = (it) => (it.kind === 'btc' ? 'mempool.space' : { 8453: 'Basescan', 4663: 'Blockscout' }[it.chain] || 'Etherscan');
 const linked = (text) => html`${String(text).split(/(0x[0-9a-fA-F]{64})/).map((p, i) => (i % 2 ? html`<a href="${SCAN}/tx/${p}" target="_blank" rel="noopener">${short(p, 6)} ↗</a>` : p))}`;
 
@@ -2438,7 +2462,7 @@ function actSaid(it, prev) {
   const mine = run ? run.live && !run.away : SESS.has(it.id) && own != null && running(own);
   const inView = !document.hidden && !!$(`#sheet-${own}`)?.open;
   const view = html`<button class="link" type="button" data-act-open>Activity</button>`;
-  const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : '';
+  const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txMark(it)}${txSite(it)} ↗</a>` : '';
   const good = it.status === 'settled' || it.status === 'confirmed', bad = it.status === 'failed' || it.status === 'unknown';
   const line = it.kind === 'op' && (good || bad) ? document.querySelector(`[data-op="${it.id}"]`)?.closest('.status') : null;
   if (line) say(line, good ? html`<span class="ok">✓ ${it.label}: done.</span>${it.dest ? html` Now at ${it.dest}.` : ''} ${link}` : html`<span class="err">${it.label} did not go through: ${linked(failText(it))}</span>`);
@@ -2535,11 +2559,11 @@ function opWhere(it) {
   if (!cur?.it) return 'Getting it ready…';
   if (cur.main) return jobWhere(cur.it);
   if (okStatus(cur.it.status)) return 'Done with that. Queuing the rest…';
-  if (cur.it.kind === 'tx') return html`${cur.doing || cur.step}: waiting for it to land · <a href="${txUrl(cur.it)}" target="_blank" rel="noopener">${txSite(cur.it)} ↗</a>`;
+  if (cur.it.kind === 'tx') return html`${cur.doing || cur.step}: waiting for it to land · <a href="${txUrl(cur.it)}" target="_blank" rel="noopener">${txMark(cur.it)}${txSite(cur.it)} ↗</a>`;
   return `${cur.doing || cur.step}. ${jobWhere(cur.it)}`;
 }
 function actFoot(it) {
-  const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : '';
+  const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txMark(it)}${txSite(it)} ↗</a>` : '';
   if (it.status === 'failed' || it.status === 'unknown') return html`<div class="actr-f${actStale(it) ? '' : ' err'}">${linked(failText(it))}</div>${selfDoLine(it)}${proofHelp(it)}${SELF.has(it.id) || actStale(it) ? '' : againLine(it)}`;
   const took = it.end ? clock(it.end - it.at) : '';
   if (it.kind === 'op' && !ended(it)) return html`<div class="actr-f">${opWhere(it)}</div>${selfLine(it)}${openLine(it)}`;
@@ -2553,7 +2577,7 @@ function actFoot(it) {
     proven: () => (ownJob(it.id) ? jobWhere(it) : JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.'
       : `Proved, but the page that asked for it stopped waiting, so it was never sent.${openOf(it) ? '' : ' Start it again.'}`),
     confirmed: () => html`${it.flip ? 'Confirmed' : `Confirmed in ${took}`} · ${link}`,
-    stale: () => html`${it.kind === 'btc' ? 'Not confirmed after three days.' : 'Not seen on chain after half an hour; it may have been dropped or replaced.'} ${link}`,
+    stale: () => html`${it.kind === 'btc' ? 'Not confirmed after three days.' : 'Not seen after half an hour; it may have been dropped or replaced.'} ${link}`,
   }[it.status];
   return html`<div class="actr-f">${say_ ? say_() : ''}</div>${it.warn ? html`<div class="actr-f err">${it.warn}</div>` : ''}${selfLine(it)}${openLine(it)}`;
 }
@@ -2930,7 +2954,7 @@ async function spProver() {
   if (SP.prover && SP.who === a.address) return SP.prover;
   const m = await spMod();
   if (S.acct?.address !== a.address) return null;
-  const prover = m.makeSelfProver({ priv: () => { if (S.acct?.address !== a.address) throw new Error('Another Tacit key was opened, so this stopped.'); return S.acct.priv; },
+  const prover = m.makeSelfProver({ priv: () => { if (S.acct?.address !== a.address) throw new Error('Another Tacit wallet was opened, so this stopped.'); return S.acct.priv; },
     address: a.address, secp, keccak256: keccak_256, proxyBase: API });
   Object.assign(SP, { prover, who: a.address, credit: null, creditAt: 0 });
   return prover;
@@ -3108,16 +3132,16 @@ function actBridgeBody(it, b) {
   const at = b.stage === 'minted' ? 4 : XO_AT[b.stage] ?? 1;
   const due = b.stage !== 'minted' && xoDue(b), locked = (b.stage === 'covered' || (b.stage === 'settled' && xoCovered(b))) && !xoKeyOpen(b);
   return html`<ol class="stp">${XO_STEPS.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing || rejected ? 'bad' : 'now') : ''))}</ol>
-    <div class="actr-f">${b.stage === 'minted' ? html`On your Bitcoin address.` : fund ? xoFundRow(b) : xoNoteText(b)}${it.hash ? html` · <a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : ''}</div>
+    <div class="actr-f">${b.stage === 'minted' ? html`On your Bitcoin address.` : fund ? xoFundRow(b) : xoNoteText(b)}${it.hash ? html` · <a href="${txUrl(it)}" target="_blank" rel="noopener">${txMark(it)}${txSite(it)} ↗</a>` : ''}</div>
     ${failing ? html`<div class="actr-f err">${xoErr(b.lastError.message)}</div>` : ''}
-    ${locked ? html`<div class="brr-a"><button class="btn ghost" type="button" data-act-key>Open your key</button></div>`
+    ${locked ? html`<div class="brr-a"><button class="btn ghost" type="button" data-act-key>Open your Tacit wallet</button></div>`
       : due ? html`<div class="brr-a"><a class="btn ghost" href="#${xoLink(xaOf(b))}" data-link="${xoLink(xaOf(b))}">${due}</a></div>` : ''}`;
 }
 const actRow = (it) => {
   const b = actBridge(it), open = !!b && b.stage !== 'minted', done = ended(it) && !open;
   return html`<li class="actr" data-act="${it.id}">
   <div class="actr-h"><b>${it.label}</b>${done ? html`<span>${ago(b?.mintedAt || it.end || it.up || it.at)}</span>` : html`<span class="num" data-since="${it.at}">${clock(Date.now() - it.at)}</span>`}</div>
-  ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made with another Tacit key. Open that key to act on it.</div>` : ''}</li>`;
+  ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made in another Tacit wallet. Open it to act on it.</div>` : ''}</li>`;
 };
 let ACT_VIEW = '';
 // A stopped row whose same action was sent again within a day and went through is no longer news (a retried attempt keeps its own receipt: its id carries a ~), and a stopped one from days ago is not offered a retry (its own
@@ -3236,12 +3260,12 @@ document.addEventListener('click', (e) => {
   evm.disconnect();
   S.provider = null; rerender('wallet');
 });
-const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : 'Ethereum'}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-change>Change account</button> <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
+const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : chainTag(1)}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-change>Change account</button> <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
 const S = { address: null, wallet: null, provider: null, key: null, acct: null, pay: null };
 // The Swap tab's card (swap/card.js), once drawn, and the private swaps in it that wait for a key to be opened (the hero's Swap tab, below)
 const SWC = { el: null, card: null, p: null, ask: null, keyw: new Set() };
 const walletPriv = () => {
-  if (!S.key) throw Object.assign(new Error('Your Tacit key was locked, so this stopped. Open it again to continue.'), { said: true });
+  if (!S.key) throw Object.assign(new Error('Your Tacit wallet was locked, so this stopped. Open it again to continue.'), { said: true });
   return hexToBytes(S.key.priv);
 };
 
@@ -3448,7 +3472,7 @@ function pickWallet(list) {
 }
 // The wallet is another account, or none: a key opened with it no longer has it and locks.
 function walletMoved(why = 'switched accounts') {
-  if (S.key?.mode === 'eth' && S.key.address !== S.wallet) { S.key = null; resetPrivate(); toast(`Your wallet ${why}, so the Tacit key opened with it was locked. Open it again to continue.`); }
+  if (S.key?.mode === 'eth' && S.key.address !== S.wallet) { S.key = null; resetPrivate(); toast(`Your wallet ${why}, so the Tacit wallet opened with it was locked. Open it again to continue.`); }
   syncAccount(); paintWallet(); refreshAll();
   SWC.card?.walletChanged();
 }
@@ -3535,7 +3559,7 @@ async function protectGone(hash) {
 }
 async function sendFromTacitNow({ to, data, value, chainId, sweep = false, protect = false }, a) {
   const call = await chainRpc(chainId);
-  const where = chainId === 1 ? '' : ` on ${DEVICE_CHAINS.find((c) => c.chainId === chainId).name}`;
+  const where = chainId === 1 ? '' : ` on ${chainFull(chainId)}`;
   const hex = (n) => '0x' + BigInt(n).toString(16);
   const tx = { from: a.address, to, data: '0x' + strip(data), value: hex(value) };
   const [bal, nonce, block, tip] = await Promise.all([
@@ -3678,7 +3702,7 @@ render.wallet = () => {
     ${segSub('wal', WAL.mode, [['add', 'Add ETH'], ['out', 'Send out']])}
     <div id="ac-form"></div>
     <div class="status" role="status" id="ac-status"></div>
-    <div class="kv sep"><span>Bitcoin</span>${btcAddr ? html`<b>${short(btcAddr, 8)}</b>` : html`<span class="mute">connects when you lock BTC to borrow</span>`}</div>
+    <div class="kv sep"><span>${chainTag('btc')}</span>${btcAddr ? html`<b>${short(btcAddr, 8)}</b>` : html`<span class="mute">connects when you lock BTC to borrow</span>`}</div>
     ${ethLine()}
     ${kept ? html`<p class="note"><button class="link" type="button" id="w-backup">Copy key to back up</button></p>` : ''}
     <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab, and whoever holds it holds the Tacit account too. Private payments to your Tacit address reach you here and everywhere on tacit.finance.</p>`);
@@ -3692,7 +3716,7 @@ render.wallet = () => {
     .then((rows) => {
       const has = rows.filter(([, b]) => b != null && b >= 10n ** 14n);
       if (!l2.isConnected || !has.length) return;
-      mount(l2, html`Also ${has.map(([c, b]) => `${fmt(b, 18, 4)} ETH on ${c.name}`).join(' and ')}, which pays for the private pool there.`); l2.hidden = false;
+      mount(l2, html`Also ${has.map(([c, b], i) => html`${i ? ' and ' : ''}${fmt(b, 18, 4)} ETH ${chainTag(c.chainId)}`)}, which pays for the private pool there.`); l2.hidden = false;
     });
   $$('[data-pay]', el).forEach((b) => b.onclick = () => !midAction() && busy(b, async () => {
     try { if (b.dataset.pay === 'wallet' && !S.wallet) await connect(); setPayer(b.dataset.pay); } catch (e) { toast(errText(e), true); }
@@ -3704,7 +3728,7 @@ render.wallet = () => {
   if (WAL.mode === 'add') {
     mount(f, html`
       <div class="kv"><span>Address</span><b class="mono">${short(a.address, 10)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
-      <p class="note">Send ETH to it from any wallet or exchange. On Ethereum it pays for everything here; on Base, Robinhood Chain or MegaETH, for the private pool there.${S.wallet ? ' Or add some from your wallet here; that links the two on chain.' : html` Or <button class="link" type="button" id="ac-connect">connect a wallet</button> to add from it.`}</p>
+      <p class="note">Send ETH to it from any wallet or exchange. On Ethereum it pays for everything here; on ${chainMarks([8453, 4663, 4326])}, for the private pool there.${S.wallet ? ' Or add some from your wallet here; that links the two on chain.' : html` Or <button class="link" type="button" id="ac-connect">connect a wallet</button> to add from it.`}</p>
       ${S.wallet ? html`${amountField()}<button class="btn" type="button" id="ac-go">Add from wallet</button>` : ''}`);
     const cn = $('#ac-connect');
     if (cn) cn.onclick = () => busy(cn, async () => { try { await connect(); setPayer('tacit'); } catch (e) { sayErr(status, e); } });
@@ -3712,7 +3736,7 @@ render.wallet = () => {
     const tac = WAL.asset === 'tac', chain = tac ? 1 : WAL.chain;
     mount(f, html`
       ${segSub('wala', WAL.asset, [['eth', 'ETH'], ['tac', 'TAC']])}
-      ${tac ? '' : segSub('walc', String(chain), DEVICE_CHAINS.map((x) => [String(x.chainId), x.name]))}
+      ${tac ? '' : segSub('walc', String(chain), DEVICE_CHAINS.map((x) => [String(x.chainId), chainTab(x.chainId, x.name)]))}
       <div class="lbl"><span>To</span>${S.wallet ? html`<button type="button" id="ac-me">My wallet</button>` : ''}</div>
       <div class="amt text"><input id="ac-to" placeholder="0x…" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient address"></div>
       ${tac ? html`<div class="lbl"><span>Amount</span><button type="button" id="ac-max">Max</button></div>
@@ -3743,7 +3767,7 @@ render.wallet = () => {
       if (!value) throw new Error('Enter an amount.');
       const out = WAL.mode === 'out', tac = out && WAL.asset === 'tac', chainId = out && !tac ? WAL.chain : 1;
       const c = DEVICE_CHAINS.find((x) => x.chainId === chainId);
-      const label = tac ? `Send ${fmt(value, 18, 6)} TAC out` : out ? `Send ${fmt(value, 18, 6)} ETH out${chainId === 1 ? '' : ` on ${c.name}`}` : `Add ${fmt(value, 18, 6)} ETH to your Tacit account`;
+      const label = tac ? `Send ${fmt(value, 18, 6)} TAC out` : out ? `Send ${fmt(value, 18, 6)} ETH out${chainId === 1 ? '' : ` on ${chainFull(c.chainId)}`}` : `Add ${fmt(value, 18, 6)} ETH to your Tacit account`;
       base = c.explorer;
       const all = out && !tac && WAL.all;
       hash = await sendTx(tac ? { to: ADDR.tac, data: SEL.transfer + addrWord(to) + word(value), via: 'tacit', label } : { to, data: '0x', value, via: out ? 'tacit' : 'wallet', chainId, label, sweep: all });
@@ -3823,7 +3847,7 @@ function renderProve() {
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
   mount(el, html`
-    <p class="lede-s">Prove your private actions on Succinct’s prover network with your own credit, so nothing waits on the relay’s queue or credit. Their details go to Succinct’s prover as a private input, passing through Tacit’s API without being kept; while Succinct’s network isn’t taking private inputs they go as a public input, which anyone can read, and the action says so. Each costs about ${perProof()} PROVE and is sent from ${your()}, which pays its network fee.</p>
+    <p class="lede-s">Prove your private actions on Succinct’s network with your own credit, so nothing waits in the relay’s queue. Details go to the prover as a private input and are not kept; while the network isn’t taking private inputs they go public, and the action says so. Each costs about ${perProof()} PROVE and is sent from ${your()}, which pays its network fee.</p>
     <ol class="steps">
       <li class="step done"><span class="n">1</span><div><h3>Your prover account</h3>
         <div class="kv"><span>Tacit account</span><b class="mono">${short(a.address, 8)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
@@ -4388,7 +4412,7 @@ async function finishDeposits(run, sheet, status, { self = false } = {}) {
     if (self) { await payingAccount(); await selfGasCheck(); }
     const t = await getUx(), priv = walletPriv();
     for (const p of ps) {
-      if (run.switched()) { miss(new Error('Another Tacit key was opened, so the rest stopped.')); break; }
+      if (run.switched()) { miss(new Error('Another Tacit wallet was opened, so the rest stopped.')); break; }
       const what = `${fmt(p.value, p.dec, 6)} ${p.shown}`;
       run.say(status, own ? spSaid('uploading', null, spPublicNow()) : self ? `The relay is proving a ${what} deposit for ${your()} to send, about a minute…` : `Making a ${what} deposit private…`);
       const built = t.buildWrap({ walletPriv: priv, amountWei: (p.value * p.scale).toString(), ticker: p.ticker, index: p.index });
@@ -4477,7 +4501,7 @@ async function settleLocks(run, kind, status) {
   run.go({ label: mine.length > 1 ? `${kind === 'claim' ? 'Claiming' : 'Taking back'} ${mine.length} payments` : `${kind === 'claim' ? 'Claiming' : 'Taking back'} a payment`, one: false, status: () => $('#' + sid) });
   let ok = 0, err = null, offered = false;
   for (;;) {
-    if (run.switched()) { const e = new Error('Another Tacit key was opened, so the rest stopped.'); if (run.away) run.fail(status, e); else err ||= e; break; }
+    if (run.switched()) { const e = new Error('Another Tacit wallet was opened, so the rest stopped.'); if (run.away) run.fail(status, e); else err ||= e; break; }
     try { await loadLocks(true); } catch (e) { err ||= e; break; }
     const due = (kind === 'claim' ? LK.mine : LK.back).find((l) => run.keys.has(kLock(l)) && !tried.has(l.leaf));
     if (!due) break;
@@ -4526,7 +4550,7 @@ function renderV1(el) {
     ${depositCallout('eth', 'v1-finish')}
     ${LK.pub === S.key.pubHex && lockList('claim').length ? html`<div class="callout"><span>${lockLine(lockList('claim'), 'claim')}</span><button class="btn ghost" type="button" id="v1-claim">Claim</button></div>` : ''}
     ${LK.pub === S.key.pubHex && lockList('refund').length ? html`<div class="callout"><span>${lockLine(lockList('refund'), 'refund')}</span><button class="btn ghost" type="button" id="v1-back">Take back</button></div>` : ''}
-    ${LK.failed?.pub === S.key.pubHex && LK.pub !== S.key.pubHex && !LK.scanning ? html`<div class="callout"><span>Payments sent to you could not be looked for just now.</span><button class="btn ghost" type="button" id="v1-locks">Try again</button></div>` : ''}
+    ${LK.failed?.pub === S.key.pubHex && LK.pub !== S.key.pubHex && !LK.scanning ? html`<div class="callout"><span>Could not check for payments sent to you.</span><button class="btn ghost" type="button" id="v1-locks">Try again</button></div>` : ''}
     ${segSub('v1', V1.mode, [['wrap', 'Make private'], ['send', 'Send'], ['swap', 'Swap'], ['out', 'Withdraw'], ...(xoShown(S.key.pubHex) ? [['btc', xoJournal(S.key.pubHex, XA.teth).length || brJournal(S.key.pubHex, 'tETH').some((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered') ? html`Bitcoin<i class="dot live" aria-hidden="true"></i><span class="sr">, under way</span>` : 'Bitcoin']] : [])])}
     <div id="v1-form"></div>
     <div class="status" role="status" id="v1-status"></div>`);
@@ -4599,7 +4623,7 @@ document.addEventListener('click', (e) => {
   for (const n of $$('[data-ptsnote]')) n.hidden = !PTSINFO;
 });
 function pointsRow(wei, kind, chain) {
-  if (chain?.points === false) return html`<p class="note mute">No TAC points on ${chain.name}: the points program counts deposits on Ethereum, Base and Robinhood Chain.</p>`;
+  if (chain?.points === false) return html`<p class="note mute">No TAC points on ${chainTag(chain.chainId)}. They count on ${chainMarks([1, 8453, 4663])}.</p>`;
   readOutlook();
   const v1 = kind === 'v1', dev = Object.values(OUT.dev);
   const known = v1 ? !!OUT.v1 : dev.length === DEVICE_CHAINS.filter((c) => c.points !== false).length, n = v1 ? OUT.v1?.deposits ?? 0 : dev.reduce((a, x) => a + x.deposits, 0);
@@ -4611,7 +4635,7 @@ function pointsRow(wei, kind, chain) {
 }
 function poolLine(where) {
   readOutlook();
-  const x = where === 'v1' ? OUT.v1 : OUT.dev[where], name = where === 'v1' ? 'The Tacit pool' : `The pool on ${DEVICE_CHAINS.find((c) => c.chainId === Number(where))?.name || 'this chain'}`;
+  const x = where === 'v1' ? OUT.v1 : OUT.dev[where], name = where === 'v1' ? 'The Tacit pool' : `The pool on ${DEVICE_CHAINS.some((c) => c.chainId === Number(where)) ? chainFull(where) : 'this chain'}`;
   return x ? html`${name} holds <b>${fmt(x.held, 18, 3)} ETH</b> · <b>${fmt(x.in, 18, 2)} ETH</b> transacted in ${Number(x.deposits).toLocaleString('en-US')} deposits.` : html``;
 }
 function outlookPaint() {
@@ -4648,7 +4672,7 @@ function v1Wrap(el, status) {
     const j = await r.json();
     const own = ownNow(['wrap']);
     // No figure means the relay could not work one out just now ("ask again"); a wrap sent with no tip draws on its free settles.
-    if (!own && !/^\d+$/.test(String(j.recommendedWrapTipWei ?? ''))) throw new Error('The relay could not name its tip just now, so nothing will be sent. Try again in a moment.');
+    if (!own && !/^\d+$/.test(String(j.recommendedWrapTipWei ?? ''))) throw new Error('Could not get the relay’s tip, so nothing was sent. Try again in a moment.');
     const tip = own ? 0n : BigInt(j.recommendedWrapTipWei), named = String(j.tipSplitter || j.recommendedTipRecipient || '').toLowerCase();
     const to = [ADDR.tipOps, ADDR.tipSplitter].find((a) => a.toLowerCase() === named);
     if (!to) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again in a moment.');
@@ -5244,9 +5268,9 @@ function xoCovered(r) {
 const xoKeyOpen = (r) => !!S.key && S.key.pubHex === r.walletPub;
 const xoNoteText = (r) => ({
   settling: 'Sent to Ethereum. Waiting for the burn to land: this page looks for it again by itself, also after a reload.',
-  settled: xoCovered(r) ? `The proof has seen the burn. ${xoKeyOpen(r) ? 'This page sends the Bitcoin step in a moment.' : 'Open your key to send the Bitcoin step: it goes out by itself once the key is open.'}`
-    : 'Burned on Ethereum. Waiting for Bitcoin’s proof on Ethereum to see the burn, usually within an hour or two. The Bitcoin step is sent by this page once it has, while it is open with your key.',
-  covered: `The proof has seen the burn. ${xoKeyOpen(r) ? 'Sending the Bitcoin step needs your key: it goes on by itself while this page is open with it.' : 'Open your key to send the Bitcoin step: it goes out by itself once the key is open.'}`,
+  settled: xoCovered(r) ? `The proof has seen the burn. ${xoKeyOpen(r) ? 'This page sends the Bitcoin step in a moment.' : 'Open your Tacit wallet to send the Bitcoin step. It goes out by itself once it is open.'}`
+    : 'Burned on Ethereum. Waiting for Bitcoin’s proof on Ethereum to see the burn, usually an hour or two. This page then sends the Bitcoin step, while your Tacit wallet is open.',
+  covered: `The proof has seen the burn. ${xoKeyOpen(r) ? 'The Bitcoin step goes out by itself while this page is open.' : 'Open your Tacit wallet to send the Bitcoin step. It goes out by itself once it is open.'}`,
   'mint-signed': 'Signed. Sending it to Bitcoin…',
   'mint-submitted': 'With Bitcoin. It needs a confirmation first.',
   'mint-confirmed': `Confirmed on Bitcoin. Waiting for the ${xoTk(r)} to be credited to your Bitcoin address, usually within a few hours.`,
@@ -5499,7 +5523,7 @@ function wireHeld(el, status, a = XA.teth) {
         <div class="kv"><span>Bitcoin fee</span><b>about ${fee.toLocaleString('en-US')} sats${xoUsd({ sats: fee })} in all</b></div>
         <div class="kv"><span>Relay fee</span><b>None</b></div>
         <div class="kv"><span>Arrives</span><b>usually a few hours, sometimes up to a day</b></div>`);
-      if (good.length < ns.length) rc.insertAdjacentHTML('beforeend', html`<p class="note">${ns.length - good.length} of ${ns.length} cannot come back just now and stay where they are.</p>`.s);
+      if (good.length < ns.length) rc.insertAdjacentHTML('beforeend', html`<p class="note">${ns.length - good.length} of ${ns.length} can’t come back right now and stay where they are.</p>`.s);
       if (coins && reach < good.length) warn(rc, html`This key’s Bitcoin address has ${fmt(BigInt(have), 8, 8)} BTC free for fees, enough for ${reach} of ${good.length}. ${reach ? 'The rest come back when you add bitcoin and press again.' : ''} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
       go.textContent = `Bring back ${good.length} notes`;
       ackRow.hidden = false; gateOk();
@@ -5849,7 +5873,7 @@ async function devWalletOn(chainId) {
 const payFrom = (chainId, label) => {
   const pub = S.key?.pubHex, via = payer();
   return { address: S.address, send: ({ to, data, value }) => {
-    if (S.key?.pubHex !== pub) throw new Error('Another key was opened, so this was not sent. Open the first key again to send it.');
+    if (S.key?.pubHex !== pub) throw new Error('Another Tacit wallet was opened, so this was not sent. Open the first one again to send it.');
     return sendTx({ to, data, value: BigInt(value || 0), chainId, label, via });
   } };
 };
@@ -5948,7 +5972,7 @@ async function holdingRound({ manual = false } = {}) {
   if (!manual && !holdConsented()) return null;
   if (HOLD.running) { HOLD.again = true; return null; }
   HOLD.running = true; HOLD.err = ''; HOLD.step = '';
-  const same = () => { if (S.key?.pubHex !== pub) throw new Error('Another key was opened, so this stopped.'); };
+  const same = () => { if (S.key?.pubHex !== pub) throw new Error('Another Tacit wallet was opened, so this stopped.'); };
   try {
     const [m, h] = await Promise.all([getDeviceMods(), holdMod()]);
     return await h.runHolding({
@@ -5956,7 +5980,7 @@ async function holdingRound({ manual = false } = {}) {
       build: async (args) => { same(); return hwBuild(args); },
       prove: async (input) => { same(); return hwProve(input); },
       checkRoot: holdingCheckRoot,
-      onStep: (x) => { HOLD.step = `Proving ${fmt(BigInt(x.bucketWei), 18, 2)} ETH held on ${ptChain(x.chainId)?.name || 'a chain'}, ${dayShort(x.epoch)}`; rerender('pts'); },
+      onStep: (x) => { HOLD.step = `Proving ${fmt(BigInt(x.bucketWei), 18, 2)} ETH held on ${ptChain(x.chainId) ? chainFull(x.chainId || 1) : 'a chain'}, ${dayShort(x.epoch)}`; rerender('pts'); },
     });
   } catch (e) { HOLD.err = String(e?.message || e).slice(0, 160); return null; }
   finally { hwStop(); HOLD.running = false; HOLD.step = ''; await holdingRows().catch(() => {}); rerender('pts'); if (HOLD.again) { HOLD.again = false; holdingRound(); } }
@@ -6101,12 +6125,12 @@ function privacyCheck(c, amount, to, self) {
   }
   const large = v.ins.filter(([, x]) => BigInt(x) >= amount).length;
   if (large < 5) {
-    notes.push(`${large ? `Only ${large} deposit${large === 1 ? '' : 's'}` : 'No deposit'} on ${c.name} ${large === 1 || !large ? 'was' : 'were'} this large. Smaller parts blend in better.`);
+    notes.push(`${large ? `Only ${large} deposit${large === 1 ? '' : 's'}` : 'No deposit'} on ${chainFull(c.chainId)} ${large === 1 || !large ? 'was' : 'were'} this large. Smaller parts blend in better.`);
     if (large < 2) level = 'weak'; else if (level === 'part') level = 'fair';
   }
   if (self) fair('Your wallet shows as the one sending it.');
-  if (v.ins.length < 25) fair(`The pool on ${c.name} is still young: ${v.ins.length} deposit${v.ins.length === 1 ? '' : 's'} so far. Every new deposit makes yours harder to single out.`);
-  const crowd = `Your ETH hides among ${W.summary().leaves} notes from ${v.ins.length} deposits in the pool on ${c.name}.`;
+  if (v.ins.length < 25) fair(`The pool on ${chainFull(c.chainId)} is still young: ${v.ins.length} deposit${v.ins.length === 1 ? '' : 's'} so far. Every new deposit makes yours harder to single out.`);
+  const crowd = `Your ETH hides among ${W.summary().leaves} notes from ${v.ins.length} deposits in the pool on ${chainFull(c.chainId)}.`;
   return { level, notes, crowd, round: (same || odd) && round && round !== amount ? round : null };
 }
 function privacyView(c, amount, to, self) {
@@ -6122,14 +6146,14 @@ function privacyView(c, amount, to, self) {
 
 function renderDevice(el) {
   if (DEV.tok) return renderTokenPool(el);
-  if (!needKey(el, 'Keep ETH private on Ethereum, Base, Robinhood Chain or MegaETH, proved in your browser.')) return;
+  if (!needKey(el, html`Keep ETH private on ${chainMarks([1, 8453, 4663, 4326])}, proved in your browser.`)) return;
   const c = DEV.chain, W = DEV.W && DEV.key === S.key.pubHex + c.chainId ? DEV.W : null;
   const last = DEV.bal == null ? devBal(c.chainId, S.key.pubHex) : null;
   mount(el, html`
     ${segSub('chain', String(c.chainId), devPools())}
     <div class="bal">
       <span class="pair"><svg class="tk md" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk md" aria-hidden="true"><use href="#tk-peth"/></svg></span>
-      <div><div class="v num">${DEV.bal != null ? fmt(DEV.bal, 18, 6) : DEV.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 18, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">ETH, private on ${c.name}</div></div>
+      <div><div class="v num">${DEV.bal != null ? fmt(DEV.bal, 18, 6) : DEV.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 18, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">ETH, private on ${chainTag(c.chainId)}</div></div>
       <div class="side">${DEV.err ? html`<button class="link" type="button" id="d-rescan">retry</button>` : DEV.bal != null ? html`<button class="link" type="button" id="d-rescan">refresh</button>` : 'updating…'}</div>
     </div>
     ${segSub('dev', DEV.mode, [['deposit', 'Deposit'], ['send', 'Send'], ['out', 'Withdraw'], ['receive', 'Receive']])}
@@ -6247,7 +6271,7 @@ function renderDevice(el) {
           to = r.bp;
         }
         const W2 = await deviceWallet();
-        await payingAccount(); W2.connect(payFrom(c.chainId, `Deposit ${fmt(amount, 18, 6)} ETH${to ? ' to someone else’s private balance' : ''} on this device${c.chainId === 1 ? '' : `, on ${c.name}`}`));
+        await payingAccount(); W2.connect(payFrom(c.chainId, `Deposit ${fmt(amount, 18, 6)} ETH${to ? ' to someone else’s private balance' : ''} on this device${c.chainId === 1 ? '' : `, on ${chainFull(c.chainId)}`}`));
         const h = to ? await W2.depositTo({ to, amount, onStep: step }) : await W2.deposit({ amount, onStep: step });
         if (c.points !== false) rewardPop(go, { pts: hxPts('dev', Number(amount) / 1e18)?.pts });
         await waitTx(h, { timeoutMs: 20e3, chainId: c.chainId });
@@ -6264,18 +6288,18 @@ function renderDevice(el) {
         <li>Someone with no wallet yet: <a href="${at('link')}">send a link</a> they take to any wallet, with no network fee</li>
         <li>Saved recipients, and proof of any payment later, from your key alone</li>
       </ul>
-      <p class="note">The same key, pool and balance as here, on ${c.name}. You open your wallet there once more, the same way as here.</p>
+      <p class="note">The same key, pool and balance as here, on ${chainFull(c.chainId)}. You open your wallet there once more, the same way as here.</p>
     </div>`);
   } else if (DEV.mode === 'out') {
     const dest = c.chainId === 1 ? DEV.dest : 'addr', l2 = DEVICE_CHAINS.find((x) => String(x.chainId) === dest);
-    mount(f, html`${c.chainId === 1 ? segSub('dest', dest, [['addr', 'Address'], ['v1', 'Tacit pool'], ...DEVICE_CHAINS.filter((x) => x.chainId !== 1 && x.bridge !== false).map((x) => [String(x.chainId), x.name])]) : ''}
+    mount(f, html`${c.chainId === 1 ? segSub('dest', dest, [['addr', 'Address'], ['v1', 'Tacit pool'], ...DEVICE_CHAINS.filter((x) => x.chainId !== 1 && x.bridge !== false).map((x) => [String(x.chainId), chainTab(x.chainId, x.name)])]) : ''}
       ${dest === 'addr' ? html`<div class="lbl"><span>To</span><button type="button" id="d-me">${mine()}</button></div>
         <div class="amt text"><input id="d-to" placeholder="0x… (a fresh address keeps it unlinked)" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient address"></div>` : ''}
       ${amountField('d-amt', 'Amount', maxPriv)}
       <div class="rcpt" id="d-rcpt" hidden></div>
-      <button class="btn" type="button" id="d-go" disabled>${dest === 'addr' ? 'Withdraw' : dest === 'v1' ? 'Move to the Tacit pool' : `Move to ${l2.name}`}</button>
+      <button class="btn" type="button" id="d-go" disabled>${dest === 'addr' ? 'Withdraw' : dest === 'v1' ? 'Move to the Tacit pool' : `Move to ${chainFull(l2.chainId)}`}</button>
       ${dest === 'addr' ? '' : html`<p class="note">${dest === 'v1' ? 'Arrives as tETH in the Tacit pool in the same transaction, with no address in between. The amount shows on Ethereum; which note paid does not.'
-        : `Arrives in your private balance on ${l2.name} within minutes. The amount shows on Ethereum; which note paid does not.`}${DEV.self && dest === 'v1' ? '' : ' The relay fee comes out of your private balance.'}</p>`}${dest === 'addr' || dest === 'v1' ? selfNote() : ''}`);
+        : `Arrives in your private balance on ${chainFull(l2.chainId)} within minutes. The amount shows on Ethereum; which note paid does not.`}${DEV.self && dest === 'v1' ? '' : ' The relay fee comes out of your private balance.'}</p>`}${dest === 'addr' || dest === 'v1' ? selfNote() : ''}`);
     wireMax();
     wireSub(f, 'dest', (d) => { DEV.dest = d; keep($('#sheet-eth'), render.eth); });
     const toEl = $('#d-to'), amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt');
@@ -6325,16 +6349,16 @@ function renderDevice(el) {
         const W2 = await deviceWallet(), via = walletRoute() ? 'self' : null;
         let h, done;
         if (dest === 'addr') {
-          const label = `Withdraw ${fmt(amount, 18, 6)} ETH from this device${c.chainId === 1 ? '' : `, on ${c.name}`}`;
+          const label = `Withdraw ${fmt(amount, 18, 6)} ETH from this device${c.chainId === 1 ? '' : `, on ${chainFull(c.chainId)}`}`;
           if (via) { await payingAccount(); W2.connect(payFrom(c.chainId, label)); }
           const sent = await W2.withdraw({ to: recipientOf(toEl.value), amount, via, maxFee, onStep: step });
           h = via ? sent : keeperTx(sent, c.chainId, label); done = 'Withdrawn.';
         }
         else if (dest === 'v1') { h = await moveToV1(run, W2, amount, step, via, maxFee); done = 'Moved into the Tacit pool as tETH.'; }
         else {
-          h = keeperTx(await W2.bridgeOut({ toChainId: l2.chainId, amount, maxFee, now: chainNow(), l2Rpc: (await getDeviceMods()).jsonRpc(l2.rpc), onStep: step }), 1, `Move ${fmt(amount, 18, 6)} ETH to ${l2.name}`);
+          h = keeperTx(await W2.bridgeOut({ toChainId: l2.chainId, amount, maxFee, now: chainNow(), l2Rpc: (await getDeviceMods()).jsonRpc(l2.rpc), onStep: step }), 1, `Move ${fmt(amount, 18, 6)} ETH to ${chainFull(l2.chainId)}`);
           devWalletOn(l2.chainId).then((w) => w.watchReceive()).catch(() => {});
-          done = `On its way to ${l2.name}.`;
+          done = `On its way to ${chainFull(l2.chainId)}.`;
         }
         if (dest !== 'v1') await waitTx(h, { timeoutMs: 20e3, chainId: dest === 'addr' ? c.chainId : 1 });
         clearField(amt); rc.hidden = true;
@@ -6344,7 +6368,7 @@ function renderDevice(el) {
         else if (e?.said || waitRanOut(e)) { clearField(amt); rc.hidden = true; afterAction(html`<span class="err">${errText(e)}</span>`); }
         else if (e?.feeMoved != null) await feeMoved(e);
         else if (dest === 'addr' || dest === 'v1') failed(e);
-        else if (l2 && l2.chainId !== 8453 && /^not enough in the pool/.test(e?.message || '')) sayErr(status, new Error(`More than your private balance, once ${l2.name}’s bridge fee is counted as well: its ticket is priced as the move is sent. Try a little less.`));
+        else if (l2 && l2.chainId !== 8453 && /^not enough in the pool/.test(e?.message || '')) sayErr(status, new Error(`More than your private balance, once ${chainFull(l2.chainId)}’s bridge fee is counted as well: its ticket is priced as the move is sent. Try a little less.`));
         else sayErr(status, e);
       }
     });
@@ -6359,8 +6383,8 @@ function renderDevice(el) {
         ${idRow(W.address)}
         <p class="note">For private sends within this pool, from another Tacit user’s device. Nothing on chain links a payment to it.</p></div>
       <div class="blk"><div class="kv"><span>Deposit address</span><b class="mono">${short(W.receiveBox, 8)}</b><button class="link" type="button" data-copy="${W.receiveBox}">copy</button></div>
-        <p class="note">Send ETH here from any wallet or exchange, choosing ${c.name} as the network. It moves into your private balance within minutes, less at most 0.25%.${min ? html` The relay takes it in from ${fmt(min, 18, 4)} ETH, a floor that moves with network fees${c.chainId === 1 ? '; for less, pick Base' : ''}. Less waits there for more, or you sweep it in yourself.` : ''}</p>
-        <p class="note">Send only ETH, and only on Ethereum, Base, Robinhood Chain or MegaETH: anything else can’t be collected.</p></div>
+        <p class="note">Send ETH here from any wallet or exchange, choosing ${chainTag(c.chainId)} as the network. It moves into your private balance within minutes, less at most 0.25%.${min ? html` The relay takes it in from ${fmt(min, 18, 4)} ETH, a floor that moves with network fees${c.chainId === 1 ? '; for less, pick Base' : ''}. Less waits there for more, or you sweep it in yourself.` : ''}</p>
+        <p class="note">Send only ETH, and only on ${chainMarks([1, 8453, 4663, 4326])}: anything else can’t be collected.</p></div>
       <div id="d-wait"></div>
       <p class="note">To ask for an amount, <a href="/pay/eth/#receive&chain=${c.chainId}">get paid by link or QR</a> in tacit pay: each link has a deposit address of its own.</p>` : html`<p class="note">Reading your addresses…</p>`);
     $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy));
@@ -6371,7 +6395,7 @@ function renderDevice(el) {
       const b = $('#d-sweep');
       b.onclick = () => busy(b, async (run) => {
         try {
-          await payingAccount(); W.connect(payFrom(c.chainId, `Sweep ${fmt(w, 18, 6)} ETH in on this device${c.chainId === 1 ? '' : `, on ${c.name}`}`));
+          await payingAccount(); W.connect(payFrom(c.chainId, `Sweep ${fmt(w, 18, 6)} ETH in on this device${c.chainId === 1 ? '' : `, on ${chainFull(c.chainId)}`}`));
           const h = await W.sweep({ onStep: step });
           await waitTx(h, { timeoutMs: 20e3, chainId: c.chainId });
           afterAction(html`<span class="ok">Swept in.</span> ${explorer(h)}`);
@@ -6390,7 +6414,7 @@ function setDeviceChain(c) {
 // and pays its network fee in ETH; a transfer or withdrawal goes through the relay, paid in the pool's token out of the private balance, or
 // (TK.self) from the paying account like a deposit. Their state is TK, apart from the ETH pools' DEV; DEV.tok names the pool the sheet shows.
 const TK = { W: null, key: null, bal: null, at: 0, err: null, syncing: null, plan: null, keys: null, quote: null, qAt: 0, qFail: 0, qBusy: false, self: false };
-const devPools = () => [...DEVICE_CHAINS.map((x) => [String(x.chainId), x.name]), ...TOKEN_POOLS.map((p) => [p.slug, p.name])];
+const devPools = () => [...DEVICE_CHAINS.map((x) => [String(x.chainId), chainTab(x.chainId, x.name)]), ...TOKEN_POOLS.map((p) => [p.slug, p.name])];
 function pickPool(id) {
   const p = TOKEN_POOLS.find((x) => x.slug === id), was = DEV.tok;
   if (p) DEV.tok = p; else setDeviceChain(DEVICE_CHAINS.find((x) => String(x.chainId) === id));
@@ -6456,7 +6480,7 @@ async function sendBatch(calls, label, sent = () => {}) {
     const st = await Promise.race([S.provider.request({ method: 'wallet_getCallsStatus', params: [id] }), sleep(9000).then(() => { throw new Error('slow'); })])
       .then((x) => { quiet = 0; return x; }, () => { if (++quiet > 9) throw unknown('Your wallet sent it but cannot say how it went. Check its activity before trying again.'); return null; });
     const rs = st?.receipts || [], q = String(st?.status ?? '');
-    if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed on chain, so nothing was deposited.');
+    if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed. Nothing was deposited.');
     const last = rs[rs.length - 1], h = last && (q === '200' || /CONFIRMED|SUCCESS/i.test(q) || rs.length >= calls.length) ? last.transactionHash || last.hash : null;
     if (h) return actTx(h, { label, chainId: 1 });
     await sleep(1000);
@@ -6467,7 +6491,7 @@ async function sendBatch(calls, label, sent = () => {}) {
 const payFromTok = (label) => {
   const base = payFrom(1, label), pub = S.key?.pubHex, from = S.wallet;
   return payer() === 'wallet' ? { ...base, batch: (calls, sent) => {
-    if (S.key?.pubHex !== pub || S.wallet !== from) throw new Error('Another key or account was opened, so this was not sent. Open the first one again to send it.');
+    if (S.key?.pubHex !== pub || S.wallet !== from) throw new Error('Another Tacit wallet or account was opened, so this was not sent. Open the first one again to send it.');
     return sendBatch(calls, label, sent);
   } } : base;
 };
@@ -6736,7 +6760,7 @@ function renderTokenPool(el) {
     mount(f, W ? html`
       ${uni ? html`<div class="blk"><div class="kv"><span>Your Tacit address</span><b class="mono">${tacitShort(S.key.tacit)}</b><button class="link" type="button" data-copy="${S.key.tacit}">copy</button></div>
         ${idRow(S.key.tacit)}
-        <p class="note">A private ${t.sym} send from another person's ${t.sym} pool to this address lands in your balance here once this page reads the pool. ${t.sym} sent from the Tacit pool arrives in the Tacit pool instead.</p></div>` : ''}
+        <p class="note">A private ${t.sym} send from another person’s ${t.sym} pool to this address lands in your balance here once this page reads the pool. ${t.sym} sent from the Tacit pool arrives in the Tacit pool instead.</p></div>` : ''}
       <div class="blk"><div class="kv"><span>Pool address</span><b class="mono">${short(W.address, 10)}</b><button class="link" type="button" data-copy="${W.address}">copy</button></div>
         ${idRow(W.address)}
         <p class="note">For private sends within this pool, from another Tacit user’s device.</p></div>` : html`<p class="note">Reading your addresses…</p>`);
@@ -6844,7 +6868,7 @@ async function shDiscover(pub) {
   } catch { } finally { shLooking = null; rerender('btc'); rerender('tac'); }
 }
 const shLookingNote = (pub) => html`${shLooking === pub ? html`<p class="note">Looking for TAC sent privately to your tacit1 address, which this browser has no record of yet…</p>` : ''}${BTC.pub === pub && BTC.unread
-  ? html`<p class="note">${BTC.unread === 1 ? 'One TAC note' : `${BTC.unread} TAC notes`} at your Bitcoin address ${BTC.unread === 1 ? 'is' : 'are'} not counted yet: ${BTC.unread === 1 ? 'its' : 'their'} history could not be read from Bitcoin just now. Refresh the Bitcoin balance in a minute.</p>` : ''}${BTC.pub === pub && BTC.arriving
+  ? html`<p class="note">${BTC.unread === 1 ? 'One TAC note' : `${BTC.unread} TAC notes`} at your Bitcoin address ${BTC.unread === 1 ? 'is' : 'are'} not counted yet: ${BTC.unread === 1 ? 'its' : 'their'} history could not be read from Bitcoin. Refresh the Bitcoin balance in a minute.</p>` : ''}${BTC.pub === pub && BTC.arriving
   ? html`<p class="note">${BTC.arriving === 1 ? 'One TAC note' : `${BTC.arriving} TAC notes`} just sent to your Bitcoin address ${BTC.arriving === 1 ? 'is' : 'are'} counted once ${BTC.arriving === 1 ? 'it has' : 'they have'} confirmed and been checked.</p>` : ''}`;
 async function lookForShielded(status) {
   try {
@@ -7014,7 +7038,7 @@ function btcNotes(f, status, b) {
     ${bridged.length ? html`<div class="blk"><div class="lbl sep"><span>Bridged to Bitcoin</span></div>
       <p class="note">These sit at your Taproot address. Move one to your Bitcoin address to send, split, combine or swap it.${satsFor(MOVE_SATS) ? '' : ` A move needs about ${Number(MOVE_SATS).toLocaleString('en-US')} sats there for its fees.`}</p>
       ${bridged.map((n) => { const tk = BTC_TOKENS[n.aid]; return html`<div class="kv"><span>${n.amount == null ? `${tk}, amount not readable yet` : `${fmt(BigInt(n.amount), 8, 8)} ${tk}`}${n.confirmed ? '' : ' · waiting for its confirmation'}</span><button class="btn ghost" type="button" data-bnmove="${n.txid}" data-bnaid="${n.aid}" ${n.confirmed && n.amount != null ? '' : 'disabled'}>Move</button></div>`; })}</div>`
-      : mine && BNOTES.err ? html`<p class="note">Notes bridged to Bitcoin could not be read just now. <button class="link" type="button" id="bn-re">Try again</button></p>` : ''}
+      : mine && BNOTES.err ? html`<p class="note">Could not read the notes bridged to Bitcoin. <button class="link" type="button" id="bn-re">Try again</button></p>` : ''}
     ${toks.length && !satsFor(ASSET_SEND_SATS) ? html`<p class="note warn">Splitting or combining needs about ${Number(ASSET_SEND_SATS).toLocaleString('en-US')} sats at your Bitcoin address for its fees. Add some from Receive.</p>` : ''}`);
   $$('[data-bnpick]', f).forEach((x) => x.onchange = () => { BNOTES.pick[x.dataset.bnpick] = x.value; rerender('btc'); });
   const re = $('#bn-re', f);
@@ -7398,7 +7422,7 @@ function brRow(rec) {
     <div class="actr-h"><b class="num">${brAmt(rec)}</b><span>${due ? html`<b class="brdue">Your turn</b> · ` : ''}${when}</span></div>
     ${held ? '' : html`<ol class="stp">${steps.map((l, i) => stepLi(l, i < at ? 'done' : i === at ? (failing ? 'bad' : 'now') : ''))}</ol>`}
     <div class="actr-f">${brNoteText(rec)}</div>
-    ${tx || eth ? html`<div class="actr-f brl">${tx ? html`<a href="${MEMPOOL}/tx/${tx}" target="_blank" rel="noopener">Bitcoin ${short(tx, 6)} ↗</a>` : ''}${eth ? html`<a href="${SCAN}/tx/${eth}" target="_blank" rel="noopener">Ethereum ${short(eth, 6)} ↗</a>` : ''}</div>` : ''}
+    ${tx || eth ? html`<div class="actr-f brl">${tx ? html`<a href="${MEMPOOL}/tx/${tx}" target="_blank" rel="noopener">${chainMark('btc')}${short(tx, 6)} ↗</a>` : ''}${eth ? html`<a href="${SCAN}/tx/${eth}" target="_blank" rel="noopener">${chainMark(1)}${short(eth, 6)} ↗</a>` : ''}</div>` : ''}
     ${failing ? html`<div class="actr-f err">${brErr(rec.lastError.message)}${rec.errorCount > 1 ? ` (${rec.errorCount} tries)` : ''}</div>` : ''}
     ${act || stuck || back ? html`<div class="brr-a">${act}${back ? btn('reclaim', 'Move back to my wallet') : ''}${stuck ? btn('cancel', brArmed(rec.id) ? 'Yes, cancel it' : 'Cancel this bridge') : ''}</div>` : ''}
     ${brStalled(rec) ? html`<div class="actr-f">Your TAC is at its burn address, untouched. Move back returns it to your wallet.</div>` : ''}
@@ -7502,7 +7526,7 @@ function brPrepRow(p) {
     <div class="actr-h"><b class="num">${amt}</b><span>${due ? html`<b class="brdue">Your turn</b> · ` : ''}Sent ${ago(p.at)}</span></div>
     <ol class="stp">${['Sent', 'Confirmed', 'Ready'].map((l, i) => stepLi(l, i < at ? 'done' : i === at ? 'now' : ''))}</ol>
     <div class="actr-f">${text}</div>
-    <div class="actr-f brl"><a href="${MEMPOOL}/tx/${p.txid}" target="_blank" rel="noopener">Bitcoin ${short(p.txid, 6)} ↗</a></div>
+    <div class="actr-f brl"><a href="${MEMPOOL}/tx/${p.txid}" target="_blank" rel="noopener">${chainMark('btc')}${short(p.txid, 6)} ↗</a></div>
     ${st === 'ready' ? html`<div class="brr-a"><button class="btn" type="button" data-brprep="${p.txid}">Bridge it</button></div>` : ''}
   </li>`;
 }
@@ -7534,7 +7558,7 @@ function renderBridgeIn(el) {
   if (BR.act && (!bulk || (BR.act === 'merge' && !bulk.merge.groups.length))) BR.act = null;
   if (BR.act) BR.pick = null;
   mount(el, html`
-    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. Its row says once the relay finishes it with this page closed; until then it picks up when you open it again with the same wallet. Tick the receipt’s choice to arrive as public TAC (ERC20), or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
+    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually a few hours, up to a day. Tick the receipt’s choice to arrive as public TAC (ERC20), or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
     ${brLooking === pub ? html`<p class="note">Looking through your Bitcoin history for bridges this browser has no record of…</p>` : ''}
     ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
@@ -7849,7 +7873,7 @@ function brBulkWire(el, pub, bulk, closeSingle) {
       if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats${q.later ? `, and about ${q.later.toLocaleString('en-US')} for the burns after` : ''}`;
       if (short) warn(panel, html`This key’s Bitcoin address has ${q.free.toLocaleString('en-US')} sats free for fees, short of the about ${q.need.toLocaleString('en-US')} this needs. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
       gate();
-    }).catch(() => { const fee = $('#br-allfee', panel); if (fee) fee.textContent = 'not quoted just now'; });
+    }).catch(() => { const fee = $('#br-allfee', panel); if (fee) fee.textContent = 'not quoted'; });
     go.onclick = () => busy(go, (run) => (kind === 'merge' ? brRunMerge : brRunAll)(run, pub, bulk, brBulkPlan(panel, quote, kind)));
   };
   for (const k of Object.keys(btn)) if (btn[k]) btn[k].onclick = () => { BR.act = BR.act === k ? null : k; if (BR.act) closeSingle(); paint(); };
@@ -8132,7 +8156,7 @@ function renderTacBal(el) {
       if (S.wallet) tacSend($('#tac-send'), $('#tac-bal-status'));
       return;
     }
-    mount(el, html`${S.wallet ? html`<div id="tac-send"></div><div class="status" role="status" id="tac-bal-status"></div>` : ''}<p class="lede-s">Open your Tacit wallet to see your private TAC, send it, or make it public. It is the same wallet as everywhere on tacit.finance.</p>${signIn('tb')}`);
+    mount(el, html`${S.wallet ? html`<div id="tac-send"></div><div class="status" role="status" id="tac-bal-status"></div>` : ''}<p class="lede-s">Open your Tacit wallet to see your private TAC, send it or make it public.</p>${signIn('tb')}`);
     wireSignIn(el, 'tb');
     if (S.wallet) tacSend($('#tac-send'), $('#tac-bal-status'));
     return;
@@ -8140,8 +8164,8 @@ function renderTacBal(el) {
   if (!who) { mount(el, html``); return; }
   const k = S.key?.pubHex, btcTac = k && BTC.pub === k ? BTC.held.find((a) => a.id === TAC_BTC_ID) : null;
   const parts = [
-    ...(k ? [['On Bitcoin', BTC.pub === k && BTC.got >= 2 ? (btcTac ? btcTac.balance * 10n ** BigInt(18 - btcTac.decimals) : 0n) : null]] : []),
-    ['On Ethereum', TACB.who === who ? TACB.erc : null],
+    ...(k ? [['Bitcoin', BTC.pub === k && BTC.got >= 2 ? (btcTac ? btcTac.balance * 10n ** BigInt(18 - btcTac.decimals) : 0n) : null]] : []),
+    ['Ethereum', TACB.who === who ? TACB.erc : null],
     ...(k ? [['Private', P.scan?.tac ? P.scan.tac.value * E10 : null]] : []),
   ];
   const total = parts.reduce((sum, [, v]) => sum + (v || 0n), 0n), known = parts.every(([, v]) => v != null),
@@ -8152,7 +8176,7 @@ function renderTacBal(el) {
       <div><div class="v num">${known || total || failed ? fmt(total, 18, 2) : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">TAC${known ? '' : failed ? ', some balances unavailable' : ', still reading'}</div></div>
       <div class="side"><button class="link" type="button" data-asset="tac">About TAC</button></div>
     </div>
-    <div class="parts">${parts.map(([label, v]) => html`<span>${label} <b class="num">${v != null ? fmt(v, 18, 2) : (label === 'Private' && badP) || (label === 'On Ethereum' && badE) || (label === 'On Bitcoin' && badB) ? html`<span class="err">—</span> <button class="link" type="button" data-tac-retry>retry</button>` : html`<span class="sk" style="--w:4ch"></span>`}</b></span>`)}</div>
+    <div class="parts">${parts.map(([label, v]) => html`<span>${label === 'Private' ? html`<svg class="gs" aria-hidden="true"><use href="#g-shield"/></svg>` : chainMark(label === 'Bitcoin' ? 'btc' : 1)}${label} <b class="num">${v != null ? fmt(v, 18, 2) : (label === 'Private' && badP) || (label === 'Ethereum' && badE) || (label === 'Bitcoin' && badB) ? html`<span class="err">—</span> <button class="link" type="button" data-tac-retry>retry</button>` : html`<span class="sk" style="--w:4ch"></span>`}</b></span>`)}</div>
     ${k ? shLookingNote(k) : ''}
     ${k ? depositCallout('tac', 'tac-finish') : ''}
     ${k ? html`<div id="tac-shield"></div>` : ''}
@@ -8192,7 +8216,7 @@ function renderTacBal(el) {
       run.go({ label: `Making ${fmt(sum * E10, 18, 2)} TAC public`, one: false, dest, status: () => $('#tac-bal-status') });
       let offered = false, moved = 0;
       for (const [i, n] of worth.entries()) {
-        if (run.switched()) { run.fail(status, new Error('Another Tacit key was opened, so the rest stopped.')); break; }
+        if (run.switched()) { run.fail(status, new Error('Another Tacit wallet was opened, so the rest stopped.')); break; }
         run.say(status, `The relay is moving your TAC${worth.length > 1 ? ` (${i + 1} of ${worth.length})` : ''}…`);
         const label = `Make ${fmt(BigInt(n.value), 8, 2)} TAC public`;
         try {
@@ -8826,7 +8850,7 @@ const earnRows = () => {
   const r = PGM.rates, n = rateStr, day = utcDay(now());
   return [
     r.wrap && ['private', 'teth', 'Wrap ETH into the Tacit pool', `${n(r.wrap)} points per ETH${weightNote('wrap', day)}`],
-    r.evmpooldeposit && ['device', 'eth', 'Deposit ETH on this device', `${n(r.evmpooldeposit)} per ETH, on Ethereum, Base or Robinhood Chain${weightNote('evmpooldeposit', day)}${capNote('evmpooldeposit', day)}${shareNote('evmpooldeposit', day)}`],
+    r.evmpooldeposit && ['device', 'eth', 'Deposit ETH on this device', html`${n(r.evmpooldeposit)} per ETH on ${chainMarks([1, 8453, 4663])}${weightNote('evmpooldeposit', day)}${capNote('evmpooldeposit', day)}${shareNote('evmpooldeposit', day)}`],
     r.zswapeth && ['buy', 'tac', 'Buy TAC with ETH', `${n(r.zswapeth)} per ETH, through the Precision pool${weightNote('zswapeth', day)}`],
     r.cbtcmint && ['borrow', 'cbtc', 'Post a bond toward cBTC', bondEarnText(r, day, n)],
     r.cusdmint && ['borrow', 'cusd', 'Borrow cUSD', `${n(r.cusdmint)} per dollar, when you send the loan yourself${weightNote('cusdmint', day)}`],
@@ -8935,7 +8959,7 @@ function retention() {
     return html`<div class="lbl"><span>Retention</span></div>
     <p class="note">ETH you leave in the private pools earns ${st.rate ? `${st.rate.toLocaleString('en-US')} points per ETH` : 'points'} for each day: at a random moment of the day, the size of each note you hold is proven on this device, and the points go to ${short(to)}.${st.buckets.length ? ` Sizes: ${listOr(st.buckets.map(size))} ETH.` : ''}</p>
     <p class="note">The points service learns which of your accounts holds how many private notes of which sizes each day, and when that stops; it does not learn which notes. The first time, about 31 MB of proving files are downloaded.</p>
-    ${rows?.length ? html`<ul class="ptl">${rows.map((x) => html`<li><span class="ptl-w">${x.credited ? `${size(BigInt(x.bucketWei))} ETH held` : x.error ? `Not counted: ${x.error}` : `${size(BigInt(x.bucketWei))} ETH held, already counted`}<span class="ptl-m">${ptChain(x.chainId)?.name || 'chain'} · ${dayShort(Number(x.epoch) || 0)}</span></span><b class="num">${x.credited || x.points ? `+${ptsFmt(Number(x.points) || 0)}` : ''}</b></li>`)}</ul>` : rows && on ? html`<p class="note">Nothing proven yet. The page does this once a day while your pool balance is read, or press below.</p>` : ''}
+    ${rows?.length ? html`<ul class="ptl">${rows.map((x) => html`<li><span class="ptl-w">${x.credited ? `${size(BigInt(x.bucketWei))} ETH held` : x.error ? `Not counted: ${x.error}` : `${size(BigInt(x.bucketWei))} ETH held, already counted`}<span class="ptl-m">${ptChain(x.chainId) ? chainTag(x.chainId || 1) : 'chain'} · ${dayShort(Number(x.epoch) || 0)}</span></span><b class="num">${x.credited || x.points ? `+${ptsFmt(Number(x.points) || 0)}` : ''}</b></li>`)}</ul>` : rows && on ? html`<p class="note">Nothing proven yet. The page does this once a day while your pool balance is read, or press below.</p>` : ''}
     ${S.key ? html`<button class="btn" type="button" id="hold-now" ${HOLD.running ? 'disabled' : ''}>${HOLD.running ? 'Proving…' : on ? 'Prove what I hold now' : 'Count my private ETH'}</button>
       ${on ? html`<p class="note">This browser does it by itself once a day. <button class="link" type="button" id="hold-off">Turn that off</button></p>` : ''}` : html`<p class="note">Open your Tacit wallet to count what it holds in the private pools.</p>`}
     <div class="status" role="status" id="hold-status">${HOLD.step || HOLD.err}</div>`;
@@ -8969,7 +8993,7 @@ render.pts = () => {
     return html`<details class="lockmore ptlog"><summary>Points by day</summary><ul class="ptl">${[...days].map(([k, list]) => html`
       <li class="day"><span>${dayName(k)}</span><b class="num">+${ptsFmt(r.hist ? (r.hist.get(k)?.p ?? 0) : list.reduce((s, d) => s + Number(d.points || 0), 0))}${r.hist && !(r.hist.get(k)?.p > 0) ? html` <small class="mute">not counted</small>` : ''}${r.hist?.get(k)?.raw > 0 && r.hist.get(k).p / r.hist.get(k).raw > 1.005 ? html` <small class="mute">${Math.round(r.hist.get(k).p / r.hist.get(k).raw * 100) / 100}×</small>` : ''}${r.hist?.get(k)?.wei ? html` <small class="mute">${r.hist.get(k).settled ? '' : 'about '}${fmt(r.hist.get(k).wei, 18, 2)} TAC</small>` : ''}</b></li>${list.map((d) => {
         const [what, unit] = PT_ACTS[d.activity] || ['Activity'], c = ptChain(d.chain_id), amt = unit && big(d.amount_wei);
-        return html`<li><span class="ptl-w">${what}${c && c.name !== 'Ethereum' ? ` on ${c.name}` : ''}<span class="ptl-m">${amt ? `${fmt(amt, 18, 4)} ${unit} · ` : ''}${ago(Number(d.block_time) * 1000)}${d.tac_boost > 1 ? ` · ${d.tac_boost}× holder` : ''}${c && d.tx_hash && d.activity !== 'cbtchold' ? html` · ${txLink(d.tx_hash, c.explorer)}` : ''}</span></span><b class="num">+${ptsFmt(d.points)}</b></li>`;
+        return html`<li><span class="ptl-w">${what}${c && c.chainId && c.chainId !== 1 ? html` ${chainMark(c.chainId)}` : ''}<span class="ptl-m">${amt ? `${fmt(amt, 18, 4)} ${unit} · ` : ''}${ago(Number(d.block_time) * 1000)}${d.tac_boost > 1 ? ` · ${d.tac_boost}× holder` : ''}${c && d.tx_hash && d.activity !== 'cbtchold' ? html` · ${txLink(d.tx_hash, c.explorer)}` : ''}</span></span><b class="num">+${ptsFmt(d.points)}</b></li>`;
       })}`)}</ul>${r.count > r.recent.length ? html`<p class="note">The latest ${r.recent.length} of ${r.count.toLocaleString('en-US')} are listed.</p>` : ''}</details>`;
   };
   const card = (r, i, watch = false) => html`
@@ -9323,14 +9347,14 @@ render.farm = () => {
       <div class="body" id="farm-precision"></div>
     </li>`];
   if (!prog && FARM.errs?.program) rows.push(html`<li class="farm"><p class="note err">The private farms could not be read. <button class="link" type="button" data-retry="farm">Try again</button></p></li>`);
-  else if (!prog) rows.push(html`<li class="farm"><button type="button" disabled>${logoPair('TAC', 'cETH')}<span><span class="name"><span class="sk" style="--w:10ch"></span></span><span class="kind">Private pool</span></span><span class="rate"><b><span class="sk" style="--w:7ch"></span></b><span class="sk" style="--w:11ch"></span></span></button></li>`);
+  else if (!prog) rows.push(html`<li class="farm"><button type="button" disabled>${logoPair('TAC', 'cETH')}<span><span class="name"><span class="sk" style="--w:10ch"></span></span><span class="kind"><svg class="gs" aria-hidden="true"><use href="#g-shield"/></svg>Private pool</span></span><span class="rate"><b><span class="sk" style="--w:7ch"></span></b><span class="sk" style="--w:11ch"></span></span></button></li>`);
   for (const p of prog?.pools || []) {
     const [a, b] = p.pair.split('/');
     rows.push(html`
       <li class="farm${FARM.open === 'pid' + p.pid ? ' open' : ''}" data-farm="pid${p.pid}">
         <button type="button" aria-controls="farm-pid${p.pid}" aria-expanded="${FARM.open === 'pid' + p.pid}">
           ${logoPair(a === 'cETH' ? b : a, 'cETH')}
-          <span><span class="name">${pairName(p.pair)}</span><span class="kind">Private pool${depthText(poolDepthEth(p))}${mine(p.pid).length ? html`<span class="tag">yours</span>` : ''}</span></span>
+          <span><span class="name">${pairName(p.pair)}</span><span class="kind"><svg class="gs" aria-hidden="true"><use href="#g-shield"/></svg>Private pool${depthText(poolDepthEth(p))}${mine(p.pid).length ? html`<span class="tag">yours</span>` : ''}</span></span>
           <span class="rate"><b>${live ? Math.round(Number(p.tacPerDayForPool)).toLocaleString('en-US') : 0} TAC</b><span>a day${live && shieldedApr(p) != null ? ` · ${aprShort(shieldedApr(p))}` : ''}</span></span>
         </button>
         <div class="body" id="farm-pid${p.pid}"></div>
@@ -9504,7 +9528,7 @@ function renderFarmNotes(el) {
       ${inAccount ? html`<div class="kv"><span>wTAC in ${your()}</span><b>${fmt(inAccount, 18, 2)}</b></div>` : ''}
       ${inNotes || inAccount || owed ? html`<button class="btn ghost" type="button" id="fn-redeem">${owed ? 'Claim rewards' : 'Turn into TAC'}</button>
         ${owed && (inNotes || inAccount) ? html`<button class="btn ghost" type="button" id="fn-turn">Turn harvested into TAC</button>` : ''}
-        ${owed ? html`<p class="note">Claim rewards harvests every position whose reward is worth turning into TAC (the relay charges at least 2 TAC to unwrap each note), then turns all of it into TAC in ${your()}. What is earned but not yet worth it keeps growing. Each step takes a few minutes; if you close the page, press it again to carry on.</p>` : ''}` : ''}
+        ${owed ? html`<p class="note">Claim rewards harvests every position whose reward is worth turning into TAC (the relay charges at least 2 TAC to unwrap each note), then turns it all into TAC in ${your()}. The rest keeps growing. Each step takes a few minutes; if you close the page, press again to carry on.</p>` : ''}` : ''}
       ${FARM.left && Date.now() - FARM.left.at < 10 * 60e3 ? html`<p class="note" id="fn-left">${FARM.left.n} earned reward${FARM.left.n === 1 ? ' is' : 's are'} not yet worth turning into TAC (the unwrap costs more than ${FARM.left.n === 1 ? 'it returns' : 'they return'}): ${FARM.left.n === 1 ? 'it keeps' : 'they keep'} growing, and Claim rewards takes ${FARM.left.n === 1 ? 'it' : 'them'} once worth it.</p>` : ''}
       ${lps.map(({ p, notes: ns }) => { const n = ns.reduce((a, x) => a + BigInt(x.value), 0n); return html`<div class="kv"><span>${pairName(p.pair)} liquidity, not bonded</span><b>${lpWorth(p, n) || `${n.toLocaleString('en-US')} shares`}</b></div>
         <button class="btn ghost" type="button" data-lpbond="${p.pid}">Farm it</button>
@@ -11642,8 +11666,8 @@ function dashItems() {
     out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value : null, err: scanErr, meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
     let dev = null;
     const on = [];
-    for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
-    out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
+    for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.chainId); } }
+    out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? html`private on ${chainMarks(on)}` : 'private', open: 'device', show: dev > 0n });
     const devTac = devBal('tac', k);
     out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
     // the other token pools on this device (TACD and TACE beside the vaults, and any a private swap went through), each a row when it holds some
@@ -11805,7 +11829,7 @@ function paintDash() {
   }
   if (!k) {
     const n = window.tacitBridges?.().under || 0;
-    if (n) due.push([n === 1 ? 'A bridge is under way in this browser. Open your key to follow it and to send its next step.' : `${n} bridges are under way in this browser. Open your key to follow them and to send their next steps.`, 'key', 'Open your key']);
+    if (n) due.push([n === 1 ? 'A bridge is under way in this browser. Open your Tacit wallet to follow it and send its next step.' : `${n} bridges are under way in this browser. Open your Tacit wallet to follow them and send their next steps.`, 'key', 'Open your Tacit wallet']);
   }
   const dueHtml = html`${due.map(([t, go, label, href]) => html`<div class="callout"><span>${t}</span>${href ? html`<a class="btn ghost" href="${href}" target="_blank" rel="noopener">${label}</a>`
     : html`<button class="btn ghost" type="button" data-dash-do="${go}">${label}</button>`}</div>`)}`.s;
@@ -11870,10 +11894,9 @@ function readRecent() {
   RECENT.at = Date.now();
   return (RECENT.p = fetch(`${API}/recent?limit=40`, { signal: within(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null));
 }
-const chainName = (id) => CHAIN_META[id]?.chainName || `chain ${id}`;
 const FEED = {
   wrap: (r) => ({ icons: ['tk-teth'], what: 'ETH made private', amt: `${twoFig(r.amount)} ETH` }),
-  evmpooldeposit: (r) => ({ icons: ['tk-peth'], what: 'ETH to a pay pool', amt: `${twoFig(r.amount)} ETH on ${chainName(r.chain)}` }),
+  evmpooldeposit: (r) => ({ icons: ['tk-peth'], what: 'ETH to a pay pool', amt: `${twoFig(r.amount)} ETH`, chain: Number(r.chain) || 1 }),
   zswapeth: (r) => ({ icons: ['tk-tac'], what: 'TAC bought with ETH', amt: `${twoFig(r.amount)} ETH` }),
   cbtcmint: (r) => ({ icons: ['tk-cbtc'], what: 'A bond posted toward cBTC', amt: `${twoFig(r.amount)} wstETH` }),
   cusdmint: (r) => ({ icons: ['tk-cusd'], what: 'cUSD borrowed against bitcoin', amt: `${(Number(BigInt(r.amount)) / 1e8).toLocaleString('en-US', { maximumSignificantDigits: 2 })} cUSD` }),
@@ -11896,17 +11919,17 @@ function tapeEvents(d, rec) {
   for (const t of latest(d?.link?.times?.attests || [], 4)) ev.push({ t, icons: ['tk-btc', 'tk-eth'], what: 'Bitcoin proven on Ethereum' });
   // The same thing again within six hours is one entry, counted, at the time of its latest.
   const out = [];
-  for (const e of ev.sort((a, b) => b.t - a.t)) { const same = out.find((o) => o.what === e.what && o.amt === e.amt && o.t - e.t < 6 * 3600); if (same) same.n++; else out.push({ ...e, n: 1 }); }
+  for (const e of ev.sort((a, b) => b.t - a.t)) { const same = out.find((o) => o.what === e.what && o.amt === e.amt && o.chain === e.chain && o.t - e.t < 6 * 3600); if (same) same.n++; else out.push({ ...e, n: 1 }); }
   return out.slice(0, 18);
 }
 function paintTape(d, rec) {
   const box = $('#tape'), run = $('#tape-run'), ev = tapeEvents(d, rec);
   if (!ev.length) { box.hidden = true; return; }
-  const key = ev.map((e) => `${e.t}${e.what}${e.n}`).join();
+  const key = ev.map((e) => `${e.t}${e.what}${e.n}${e.chain || ''}`).join();
   if (key === TAPE.key) { for (const el of $$('time[data-t]', run)) el.textContent = ago(Number(el.dataset.t) * 1000); return; }
   TAPE.key = key;
   const coin = (id) => html`<svg class="tk" aria-hidden="true"><use href="#${id}"/></svg>`;
-  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}${e.n > 1 ? ` ×${e.n}` : ''}</b>${e.amt ? html`<span>${e.amt}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
+  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}${e.n > 1 ? ` ×${e.n}` : ''}</b>${e.amt ? html`<span>${e.amt}${e.chain ? html` ${chainMark(e.chain)}` : ''}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
   const fill = (reps) => { const set = (copy) => Array.from({ length: reps }, () => ev.map((e) => item(e, copy))).flat(); mount(run, html`${set(false)}${set(true)}`); box.hidden = false; };
   fill(1);
   const half = run.scrollWidth / 2, strip = run.parentElement.clientWidth;
@@ -12082,7 +12105,7 @@ function hxSub() {
 function hxHandoff(m, units) {
   const amt = units ? fmt(units, 8, 6) : null, ch = hxChain(), n = (u) => `${amt ? `${amt} ` : ''}${u}`;
   const deposit = (u, on) => [['Arrives', n(`${u}, for payments`)], ['Fee', 'the network fee only', '', `Proved on this device and sent from ${your()}`], ['Chain sees', `a deposit on ${on}, not whose`]];
-  if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: ch.points === false ? null : 'dev', rc: [...deposit('ETH', ch.name), ch.points === false ? ['Points', `none on ${ch.name}`] : null] };
+  if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: ch.points === false ? null : 'dev', rc: [...deposit('ETH', chainFull(ch.chainId)), ch.points === false ? ['Points', `none on ${chainFull(ch.chainId)}`] : null] };
   if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', rc: [['Arrives', 'shielded TAC on Bitcoin'], ['Chain sees', 'a deposit, not who holds it'], ['Sells', 'for sats, on the book']] };
   if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', rc: [['Arrives', 'ETH, one for one'], ['Relay fee', 'out of it, shown next']] };
   if (m === 'paytac') return { out: amt, go: 'Deposit privately', rc: deposit('TAC', 'Ethereum') };
@@ -12904,9 +12927,9 @@ function hxBalPaint() {
   };
 }
 function hxSubOf(id, k) {
-  if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `for payments on ${hxChain().name}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
+  if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `for payments on ${chainFull(hxChain().chainId)}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
   // under the picker's headers (where each is held), what sets each apart
-  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'public ERC-20', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', pp: `pays on ${hxChain().name}`, ptac: 'pays on Ethereum', usdc: 'a dollar, pays on Ethereum', usdt: 'a dollar, pays on Ethereum' }[k] || '';
+  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'public ERC-20', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', pp: `pays on ${chainFull(hxChain().chainId)}`, ptac: 'pays on Ethereum', usdc: 'a dollar, pays on Ethereum', usdt: 'a dollar, pays on Ethereum' }[k] || '';
   if (HX.tab === 'borrow') return k === 'btc' ? 'locked for cUSD or cBTC' : 'in a vault, for TACD or TACE';
   return { ether: 'zapped in, one transaction', wtac: 'public ERC-20', eth: 'ETH, made private', tac: 'Tacit’s token' }[k] || '';
 }
@@ -13164,7 +13187,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=98d64472').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=0b094832').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -13225,7 +13248,7 @@ function paintHx() {
     private: 'Make ETH private', earn: 'Farm with ETH', borrow: HX.bsrc === 'tac' ? `Borrow ${HX.bm === 'tace' ? 'TACE' : 'TACD'}` : HX.bm === 'cbtc' ? 'Lock BTC for cBTC' : 'Lock BTC and borrow',
     btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : HX.from === 'tac' ? 'Bridge TAC to Bitcoin' : 'Send to Bitcoin',
   }[md];
-  const chainRow = html`<label class="hx-chain" id="hx-chain"${hxChainPick() ? '' : ' hidden'}>On <select id="hx-chain-sel" aria-label="Chain">${DEVICE_CHAINS.map((c) => html`<option value="${c.chainId}"${c.chainId === HX.chain ? ' selected' : ''}>${c.name}</option>`)}</select></label>`;
+  const chainRow = html`<label class="hx-chain" id="hx-chain"${hxChainPick() ? '' : ' hidden'}>On ${chainMark(HX.chain)}<select id="hx-chain-sel" aria-label="Chain">${DEVICE_CHAINS.map((c) => html`<option value="${c.chainId}"${c.chainId === HX.chain ? ' selected' : ''}>${chainFull(c.chainId)}</option>`)}</select></label>`;
   const tail = html`${chainRow}
     <div class="rows" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
     <dl class="rcpt" id="hx-receipt" hidden></dl>
