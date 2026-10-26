@@ -4079,6 +4079,7 @@ async function handleConfidentialSubmit(req, env, cors) {
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
       publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed, charge, early: submitMode === 'prove' && body.ahead === true });
+    if (!r.deduped) wakeRelay();
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (onBoard) await spendDailyBudget(env, 'prove:board').catch(() => {});
@@ -4087,6 +4088,17 @@ async function handleConfidentialSubmit(req, env, cors) {
     }
     return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
   } catch (e) { return jsonResponse({ ok: false, error: String(e && e.message || e) }, 400, cors); }
+}
+// GET /confidential/wake?wait=N — box-token gated. A relay with nothing to do waits here instead of a fixed pause: answered { woke: true }
+// as soon as a job is accepted (one pressed, one proved ahead, a proof posted to be sent), else { woke: false } after `wait` seconds (at most
+// 15). One API process serves the relay, so the waiters are kept in memory; a lost wake costs only the wait.
+const WAKE = new Set();
+function wakeRelay() { for (const f of WAKE) f(true); WAKE.clear(); }
+async function handleConfidentialWake(req, env, cors) {
+  if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+  const wait = Math.max(0, Math.min(15, Number(new URL(req.url).searchParams.get('wait')) || 0));
+  const woke = await new Promise((res) => { const f = (v) => { clearTimeout(t); WAKE.delete(f); res(v); }, t = setTimeout(() => f(false), wait * 1000); WAKE.add(f); });
+  return jsonResponse({ woke }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 // GET /confidential/queue — box-token gated. Counts and ages only, never job contents: it exists so the monitor can
 // tell an idle relay from a stopped one (a oldest-pending age that keeps growing).
@@ -27849,6 +27861,7 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/submit' && req.method === 'POST') return handleConfidentialSubmit(req, env, cors);
     if (url.pathname === '/confidential/job' && req.method === 'GET') return handleConfidentialJob(req, env, cors);
     if (url.pathname === '/confidential/queue' && req.method === 'GET') return handleConfidentialQueue(req, env, cors);
+    if (url.pathname === '/confidential/wake' && req.method === 'GET') return handleConfidentialWake(req, env, cors);
     if (url.pathname === '/confidential/ledger' && req.method === 'GET') return handleConfidentialLedger(req, env, cors);
     if (url.pathname === '/confidential/ack' && req.method === 'POST') return handleConfidentialAck(req, env, cors);
     if (url.pathname === '/confidential/arm' && req.method === 'POST') return handleConfidentialArm(req, env, cors);

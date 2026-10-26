@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialRefresh, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks, quoteAsset } from './lib/worker-client.js';
+import { confidentialJob, confidentialWake, confidentialBatch, confidentialAck, confidentialRefresh, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks, quoteAsset } from './lib/worker-client.js';
 import { makeBatchWindow } from './lib/batch-window.js';
 import { proveSettle, proveMixed, proveSealed, boardAlive } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
@@ -61,6 +61,17 @@ function bookSettled(jobs, txHash) {
     .catch(() => {});
 }
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+// Idle, the relay waits on the API's wake (a job accepted wakes it at once) rather than a fixed pause, for up to SETTLE_WAKE_SECS; an API
+// without the route, or a call that fails, falls back to the SETTLE_POLL_SECS pause.
+async function idleWait() {
+  const t0 = Date.now();
+  if (CFG.settleWakeSecs > 0) {
+    const r = await confidentialWake(Math.max(CFG.settleWakeSecs, CFG.settlePollSecs)).catch(() => null);
+    if (typeof r?.woke === 'boolean') return;
+  }
+  const left = CFG.settlePollSecs - (Date.now() - t0) / 1000;
+  if (left > 0) await sleep(left);
+}
 
 // Settle submission: a private endpoint accepting a transaction is not the same as a builder including it,
 // and an un-included settle costs a proof that was already paid for. These bound how hard the relay tries
@@ -1183,7 +1194,7 @@ async function main() {
       // has to be able to run then (it is awaited here, so it still never overlaps a settle on the same nonce).
       await maybeReplenish();
       await maybeDepositArrived();
-      if (!worked) await sleep(CFG.settlePollSecs);
+      if (!worked) await idleWait();
     } catch (e) {
       log('cycle error (continuing):', e.message);
       await heartbeat('settle', `error ${safeErr(e)}`);

@@ -157,6 +157,14 @@ export async function confidentialJob({ mode = null, openable = false } = {}) {
   const q = [mode ? `mode=${mode}` : '', openable ? 'openable=1' : ''].filter(Boolean).join('&');
   return getJson(q ? `/confidential/job?${q}` : '/confidential/job');
 }
+// Wait, while there is nothing to do, for the API's word that a job came in: { woke: true } at once on one, { woke: false } after `secs`;
+// { unavailable } from an API without the route, so the caller pauses as it always did.
+export async function confidentialWake(secs) {
+  const wait = Math.max(1, Math.round(secs));
+  const res = await fetch(`${CFG.workerBase}/confidential/wake?wait=${wait}`, { headers: auth(), signal: AbortSignal.timeout((wait + 10) * 1000) });
+  if (!res.ok) return { unavailable: res.status };
+  try { return await res.json(); } catch { return {}; }
+}
 // The open board as anyone reads it: [{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt,
 // feeUsd, feeAsset }], oldest first. An older API without the board answers nothing.
 export async function confidentialOpenList(limit = 32) {

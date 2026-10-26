@@ -369,6 +369,8 @@ export const CFG = {
   reflectionNextJobWaitSecs: num('REFLECTION_NEXT_JOB_WAIT_SECS', 300),
   reflectionRunBudgetSecs: num('REFLECTION_RUN_BUDGET_SECS', 2700),
   settlePollSecs: num('SETTLE_POLL_SECS', 15),
+  // the longest an idle relay waits on the API's wake before looking again (0: the plain SETTLE_POLL_SECS pause)
+  settleWakeSecs: num('SETTLE_WAKE_SECS', 15),
 
   // RUN_MODE=cron ⇒ drain pending work once and exit (Render Cron Job — billed per-run, cheap).
   //   Anything else ⇒ always-on loop (Render Background Worker). Cron mode caps how many
