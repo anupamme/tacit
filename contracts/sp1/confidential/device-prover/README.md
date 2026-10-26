@@ -84,12 +84,18 @@ These are real mainnet wraps, each accepted by the live verifier `0xb69f2584…f
 | machine | time |
 |---|---|
 | MacBook Air M2, 8 GB, fanless, stock SP1 | 41 min, 27 GB peak footprint |
-| the same Air, this prover | **18 min** (core to shrink 7.4, wrap 4.8, Groth16 4–6), 17 GB peak |
+| the same Air, this prover | **13.3 min** (core 4.9, shrink 1.1, wrap 2.5, Groth16 4.8) before the Groth16 and extension changes below |
 | an M-series with 16 GB or more | expected 5–10 min |
 | a 12-core desktop or M4 Pro | expected 5–6 min |
 
 On macOS the wrap STARK's Merkle trees (leaves and every layer above) hash on the GPU and the CPU at once, and its 22-bit
 proof-of-work is searched on the GPU; each is checked against the CPU code it replaces (see below).
+
+Since then, measured on the same Air with other work running (so as CPU time and as A/B pairs started under the same load):
+the Groth16 step takes 26% less time on the CPU path (259 s against 351 s, 6.0 GB peak against 8.3 GB, 40% of the page
+faults), and on the GPU path half the CPU time (308 s against 560 s); a G1 multi-exponentiation over the key's 12.8M A
+bases takes 12.8 s on the GPU path against 22.8 s on the CPU's. The quartic extension's product, 40–46% of the CPU time in
+the core and recursion stages, is 2.2× faster, and a whole proof does about 150 s less CPU work.
 
 ## What the patches change
 
