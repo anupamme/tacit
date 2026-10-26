@@ -1484,12 +1484,13 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // with no root and no deadline), so its proof is good whenever it is sent, and the router deposits and settles it in one transaction.
   // The ETH stays in the wallet until the proof exists, so a slow or stopped prover leaves no deposit waiting. The proof comes from
   // whatever relay.prove uses: this device's prover, the holder's own credit, or the relay.
-  async function proveWrap({ walletPriv, amountWei, ticker = 'cETH', index, waitOpts, onBuilt } = {}) {
+  // `ahead`: asked for before its press (a form that has settled), so the relay makes it only on its own prover, after the jobs pressed
+  async function proveWrap({ walletPriv, amountWei, ticker = 'cETH', index, waitOpts, onBuilt, ahead = false } = {}) {
     if (!cfg.router) throw new Error('ConfidentialRouter not deployed for this network');
     if (index == null) index = await nextWrapIndex({ walletPriv, ticker });
     const built = buildWrap({ walletPriv, amountWei, ticker, index });
     onBuilt?.(built);
-    const proven = await relay.prove({ type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand }, waitOpts);
+    const proven = await relay.prove({ type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand, ...(ahead ? { ahead: true } : {}) }, waitOpts);
     if (!proven.publicValues || !proven.proof) throw new Error(`the prover returned no proof for this wrap (${proven.status || 'no status'})`);
     if (!wrapProofFits(built, proven)) throw Object.assign(new Error('the proof returned is not for this wrap, so it is not used and nothing was sent'), { code: 'wrong_proof' });
     return { built, proven: { ...proven, memos: proven.memos || built.memos } };

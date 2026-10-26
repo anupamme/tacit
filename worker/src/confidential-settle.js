@@ -129,7 +129,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   // given back if the relay fails it on its own account (see ackJobLocked); nothing else reads it.
   const chargeOf = (c) => (c && typeof c === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(String(c.day)) && Array.isArray(c.names)
     ? { day: String(c.day), names: c.names.map(String).slice(0, 6) } : null);
-  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false, sealed = null, charge = null }) {
+  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false, sealed = null, charge = null, early = false }) {
     if (mode === 'preproven') return postProven({ type, memos, publicValues, proof });
     if (mode === 'sealed') {
       if (!type || !SEALED_SHAPE(sealed)) throw new Error('submitJob: a sealed job needs type + sealed { worker, epk, iv, ct }');
@@ -190,6 +190,8 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       // token to the ops fee recipient; the direct-settle path ignores it (fee → msg.sender in-kind).
       feeAsset: feeAsset || null,
       exit: recipe, activateTx: null, activateError: null,
+      // `early`: a proof asked for ahead of its press (a form that has settled): taken only once no job someone has pressed is waiting
+      ...(early && mode === 'prove' ? { early: true } : {}),
       status: 'pending', createdAt: clock(), claimedAt: 0, txHash: null, error: null,
       publicValues: null, proof: null,
     };
@@ -385,12 +387,15 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
 
   async function nextJob({ mode = null, openable = false } = {}) {
     const pend = await storage.getPending();
-    for (const id of pend) {
+    // two passes: every job someone has pressed first, in order, then the proofs asked for ahead of a press
+    for (const [i, id] of [...pend, ...pend].entries()) {
+      const earlyPass = i >= pend.length;
       // Read-check-write of the job record is one step, so an ack or another claim cannot land between them.
       const claim = await exclusive(async () => {
         const j = await storage.getJob(id);
         if (!j) return null;
         if (mode && (j.mode || 'settle') !== mode) return null;
+        if (!!j.early !== earlyPass) return null;
         if (openable && ((j.mode || 'settle') !== 'settle' || !OPEN_TYPES.includes(j.type) || j.exit)) return null;
         const claimable = j.status === 'pending' || (j.status === 'proving' && clock() - (j.claimedAt || 0) > CLAIM_TTL_MS);
         if (!claimable) return null;
@@ -626,8 +631,15 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     // recipients and go on chain with the settle.
     // A send a relay took and never finished reads open again once its claim lapses.
     const status = j.status === 'sending' && isOpen(j) ? 'open' : j.status;
+    // a job waiting its turn: how many are ahead of it in the queue (proving or waiting; a proof asked for ahead of its press waits for
+    // the pressed ones, so it does not count ahead of them), so its page can say so
+    let ahead = -1;
+    if (status === 'pending') {
+      const pend = await storage.getPending(), before = pend.slice(0, Math.max(0, pend.indexOf(jobId)));
+      ahead = j.early ? before.length : (await Promise.all(before.map((id) => storage.getJob(id)))).filter((x) => x && !x.early).length;
+    }
     return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error, lane: j.lane || null, sealed: !!j.sealed,
-      createdAt: j.createdAt, publicValues: j.publicValues || null, proof: j.proof || null,
+      createdAt: j.createdAt, ...(ahead >= 0 ? { ahead } : {}), publicValues: j.publicValues || null, proof: j.proof || null,
       // An open job's memos are public for the same reason: any sender needs them, and they go on chain with the settle.
       memos: (j.status === 'proven' || j.status === 'open' || j.status === 'sending') && Array.isArray(j.memos) ? j.memos : null,
       ...(j.status === 'open' || j.status === 'sending' ? { openSince: j.openSince || 0, expiresAt: j.expiresAt || 0, posted: !!j.posted } : {}),

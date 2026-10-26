@@ -4078,7 +4078,7 @@ async function handleConfidentialSubmit(req, env, cors) {
   const charge = feeless ? { day: new Date().toISOString().slice(0, 10), names: ['free', `free:${freeClassOf(body.type)}`, ...(mintBurn ? [`bridgemint:${mintBurn}`] : [])] } : undefined;
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
-      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed, charge });
+      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed, charge, early: submitMode === 'prove' && body.ahead === true });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (onBoard) await spendDailyBudget(env, 'prove:board').catch(() => {});

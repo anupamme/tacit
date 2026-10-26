@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -7411,10 +7411,10 @@ await step('farmzapeth', async () => {
     ok(/2 steps/.test(await text(p, '#hx-routes [data-hxr="0"]')) && /Zap in one transaction instead/.test(await text(p, '#hx-alt')), 'farmzapeth: and the link swaps the two');
     await p.click('#hx-alt button');
     await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 60000);
-    await p.click('#hx-go');
+    // the card's press sends the zap itself (step fastzap); the farm sheet's own zap form, from its link, with nothing private held
+    await go(p, '#farm/private-0');
     await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
-    await until(p, () => document.querySelector('#sz-a-0')?.value === '0.02', null, 60000);
-    ok(await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true') && /about half is swapped to TAC/.test(await text(p, '#farm-pid0 .how')), 'farmzapeth: its button opens the farm on ETH with the amount in it');
+    ok(await p.$eval('#farm-pid0 [data-sjm="eth"]', (b) => b.getAttribute('aria-selected') === 'true') && /about half is swapped to TAC/.test(await text(p, '#farm-pid0 .how')), 'farmzapeth: with nothing private held, the farm opens on ETH');
     await p.fill('#sz-a-0', '0.05');
     await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
@@ -7479,13 +7479,9 @@ await step('lpvoucher', async () => {
     poolDone = false; proveStub = true;
     const q0 = poolReqs.length, s0 = submits.length;
     await p.evaluate((k) => { localStorage.setItem('tacit-lite-keep-ready-v1:' + k, '[]'); document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); }, pub);
-    await p.click('[data-hxm="earn"]');
-    await p.fill('#hx-amt', '0.02');
-    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
-    await p.click('#hx-routes [data-hxr="0"]');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
-    await p.click('#hx-go');
+    await go(p, '#farm/private-0');                                             // the farm sheet's zap form (the card's press: step fastzap)
     await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await p.fill('#sz-a-0', '0.02');
     await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || ''), null, 420000);
     // (1) the relay lane: the share for 0.02 ETH is asked of the relay as the amount settles, and the receipt says it is ready
     await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'relay' && v.status === 'ready'), pub, 120000).catch(() => {});
@@ -7525,6 +7521,93 @@ await step('lpvoucher', async () => {
   } finally { poolDone = false; proveStub = false; await restore(); await r.browser.close(); }
 });
 
+// One press into a farm. The card's Earn tab offers ETH's sizes kept ready (0.01, 0.1, 1), each marked once its share is proved; one picked
+// and pressed goes out from the card itself as ONE transaction (zapETHIntoFarm: the zap and its share's settle) from the paying account,
+// nothing asked of the relay, the bond after, no sheet opened. The landing's farm does the same from its own card: a pool, a size, Farm or
+// LP only; LP only keeps the share as a private LP note (no bond). Proofs come from the community pool (stubbed here, as in lpvoucher).
+await step('fastzap', async () => {
+  const hex = '1b0d'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00';
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
+  const LP = `lp:${POOL0}`, ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', SZ = '10000000000000000';
+  const restore = await stubPoolSettle('ok');
+  const r = await openFarmKey(hex, { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
+  const p = r.page, kept = () => p.evaluate((k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]'), pub);
+  const readyOne = () => until(p, ([k, lp, sz]) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.ticker === lp && v.size === sz && v.status === 'ready'), [pub, LP, SZ], 600000).catch(() => {});      // a minute's tick to ask, another to collect, on a slow fork more
+  // the zap transactions from the Tacit account between two blocks
+  const sent = async (b0) => {
+    const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
+    for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct) mine.push(tx);
+    return mine;
+  };
+  try {
+    poolDone = true; proveStub = true;
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await readyOne();
+    // (1) the card's Earn tab: the size proved shows as ready, and one press sends it from the card
+    await p.click('[data-hxm="earn"]');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    await until(p, () => !!document.querySelector('#hx-sub [data-hxq="0.01"].rd'), null, 240000).catch(() => {});
+    ok(!!(await p.$('#hx-sub [data-hxq="0.01"].rd')) && !(await p.$('#hx-sub [data-hxq="1"].rd')) && (await p.$$('#hx-sub [data-hxq]')).length === 3,
+      `fastzap: the Earn tab offers 0.01, 0.1 and 1 ETH, the one whose share is proved marked ready (${(await p.$$eval('#hx-sub [data-hxq]', (bs) => bs.map((b) => b.dataset.hxq + (b.classList.contains('rd') ? '*' : '')))).join(' ')})`);
+    await p.click('#hx-sub [data-hxq="0.01"]');
+    await until(p, () => /made already/.test(document.querySelector('#hx-receipt')?.textContent || '') && document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000).catch(() => {});
+    ok(/Proof\s*made already: no wait/.test(await text(p, '#hx-receipt')) && /Network fee\s*about 0\.0\d+ ETH/.test(await text(p, '#hx-receipt')),
+      `fastzap: its receipt says the proof is made and what the network fee is (${(await text(p, '#hx-receipt')).replace(/\s+/g, ' ')})`);
+    const used = (await kept()).find((v) => v.ticker === LP && v.size === SZ && v.status === 'ready');
+    const b0 = BigInt(await rpc('eth_blockNumber', [])), s1 = submits.length;
+    await p.click('#hx-go');
+    await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /class="err"/.test(document.querySelector('#hx-zs')?.innerHTML || ''), null, 300000).catch(() => {});
+    const m1 = await sent(b0), z1 = m1.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), r1 = z1 && await rpc('eth_getTransactionReceipt', [z1.hash]);
+    ok(r1?.status === '0x1' && m1.length === 1 && z1.input.startsWith('0xc4294fac') && z1.input.includes(used.commit.slice(2).toLowerCase()) && !submits.slice(s1).some((x) => x.mode === 'prove')
+      && !(await p.$('#sheet-farm[open]')) && (await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')) && /farm/i.test(await text(p, '#hx-zs')),
+      `fastzap: pressed, it goes from the card as one transaction with that share's proof, nothing asked of the relay, no sheet opened, and the share is farmed (${m1.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 90)})`);
+    // (2) the landing's farm: its pools with their APR, the sizes, Farm or LP only; LP only goes in one transaction and is not bonded
+    await readyOne();
+    await p.evaluate(() => document.querySelector('#fz').scrollIntoView({ block: 'center' }));
+    await until(p, () => document.querySelectorAll('#fz-r [data-fzp]').length > 0 && /Proof/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 240000).catch(() => {});
+    const pairs = await p.$$eval('#fz-r [data-fzp]', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+    ok(pairs.length >= 1 && pairs.every((t) => /^tETH \/ (TAC|cUSD|cBTC).*?[\d,]+%$/.test(t)) && /\d+%/.test(await text(p, '#fz-apr')) && (await p.$$('#fz-r [data-fzs]')).length === 3,
+      `fastzap: the landing's farm lists its pools with their APR and ETH's three sizes (${pairs.join(' | ')}; ${(await text(p, '#fz-apr')).replace(/\s+/g, '')})`);
+    await p.click('#fz-r [data-fzp="0"]');
+    await until(p, () => !!document.querySelector('#fz-r [data-fzs="0.01"].rd'), null, 240000).catch(() => {});   // its mark comes as the proof lands
+    await p.click('#fz-r [data-fzs="0.01"]');
+    await p.click('#fz-r [data-fzm="lp"]');
+    await until(p, () => /made already/.test(document.querySelector('#fz-rc')?.textContent || '') && /fee on every swap/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 240000).catch(() => {});
+    ok(/Add 0\.01 ETH as private LP/.test(await text(p, '#fz-go')) && /made already: no wait/.test(await text(p, '#fz-rc')) && !!(await p.$('#fz-r [data-fzs="0.01"].rd')),
+      `fastzap: LP only, 0.01 ETH, its share proved: one press away (${(await text(p, '#fz-go'))}; ${(await text(p, '#fz-rc')).replace(/\s+/g, ' ')})`);
+    const used2 = (await kept()).find((v) => v.ticker === LP && v.size === SZ && v.status === 'ready');
+    const b2 = BigInt(await rpc('eth_blockNumber', [])), s2 = submits.length, bonds = (await p.evaluate(() => window.__farmCalls)).filter((c) => c.startsWith('bond:')).length;
+    await p.click('#fz-go');
+    await until(p, () => !document.querySelector('#fz-go[aria-busy="true"]') && (/share is a private note/.test(document.querySelector('#fz-s')?.textContent || '') || /class="err"/.test(document.querySelector('#fz-s')?.innerHTML || '')), null, 300000).catch(() => {});
+    const m2 = await sent(b2), z2 = m2.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), r2 = z2 && await rpc('eth_getTransactionReceipt', [z2.hash]);
+    ok(r2?.status === '0x1' && m2.length === 1 && z2.input.startsWith('0xc4294fac') && used2 && z2.input.includes(used2.commit.slice(2).toLowerCase()) && !submits.slice(s2).some((x) => x.mode === 'prove')
+      && (await p.evaluate(() => window.__farmCalls)).filter((c) => c.startsWith('bond:')).length === bonds && /share is a private note/.test(await text(p, '#fz-s')),
+      `fastzap: and pressed, it goes as one transaction and stays a private LP note, not bonded (${m2.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#fz-s')).replace(/\s+/g, ' ').slice(0, 110)})`);
+    // (3) ETH made private from the Swap card: its sizes kept ready, the proved one marked; pressed, the wrap sheet opens and sends it at
+    // once as one transaction (the deposit and the settle of its proof), nothing asked of the relay
+    await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.ticker === 'cETH' && v.amount === '10000000000000000' && v.status === 'ready'), pub, 240000).catch(() => {});
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await move(p, 'shield:ether:defi');
+    await until(p, () => !!document.querySelector('#hx-swap [data-quick="0.01"].rd'), null, 120000).catch(() => {});
+    ok(!!(await p.$('#hx-swap [data-quick="0.01"].rd')) && (await p.$$('#hx-swap #pay-usd [data-quick]')).length === 3,
+      `fastzap: the Swap card's Private in offers ETH's sizes, the proved one marked (${(await p.$$eval('#hx-swap #pay-usd [data-quick]', (bs) => bs.map((b) => b.dataset.quick + (b.classList.contains('rd') ? '*' : '')))).join(' ')})`);
+    await p.click('#hx-swap [data-quick="0.01"]');
+    await until(p, () => /made already/.test(document.querySelector('#hx-swap')?.textContent || '') && document.querySelector('#hx-swap #go')?.textContent === 'Make ETH private' && !document.querySelector('#hx-swap #go').disabled, null, 240000).catch(() => {});
+    ok(/Proof\s*made already: no wait/.test(await text(p, '#hx-swap')), 'fastzap: its receipt says the proof is made');
+    const wv = (await kept()).find((v) => v.ticker === 'cETH' && v.amount === '10000000000000000' && v.status === 'ready');
+    const b4 = BigInt(await rpc('eth_blockNumber', [])), s4 = submits.length;
+    await p.click('#hx-swap #go');
+    await until(p, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const m4 = await sent(b4), r4 = m4[0] && await rpc('eth_getTransactionReceipt', [m4[0].hash]);
+    const left = await kept();
+    ok(/Done\./.test(await text(p, '#v1-status')) && m4.length === 1 && r4?.status === '0x1' && wv && !left.some((v) => v.depositId === wv.depositId) && !submits.slice(s4).some((x) => x.mode === 'prove'),
+      `fastzap: pressed once, the wrap goes as one transaction with that proof, nothing asked of the relay (${m4.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#v1-status')).replace(/\s+/g, ' ').slice(0, 80)}; used ${!!wv && !left.some((v) => v.depositId === wv.depositId)}, cETH kept ${left.filter((v) => v.ticker === 'cETH').map((v) => `${v.amount}/${v.status}/${v.by}`).join(' ')}; asked ${submits.slice(s4).map((x) => `${x.type}/${x.mode || 'settle'}`).join(' ')}${m4.length ? '' : `; sheet ${await p.evaluate(() => [document.querySelector('#sheet-eth')?.open, document.querySelector('#w-amt')?.value, document.querySelector('#w-go')?.disabled].join('/'))}: ${(await text(p, '#w-rcpt')).replace(/\s+/g, ' ').slice(0, 160)}`})`);
+    if (r.errors.length) { fails++; console.log('FAIL fastzap page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { poolDone = false; proveStub = false; await restore(); await r.browser.close(); }
+});
+
 // A zap into tETH/TAC large enough to move the pool: its swap is split with the Precision pool when that keeps more of the deposit, the
 // quote says where, and the zap sent (on the fork) runs the trade venues' split through zRouter and still mints exactly the shares quoted.
 // A zap from the Tacit account goes through Flashbots Protect, which keeps it out of the public count until it lands and drops it if it has
@@ -7545,13 +7628,9 @@ await step('farmzapdrop', async () => {
   const p = r.page, n0 = BigInt(await rpc('eth_getTransactionCount', [acct, 'latest']));
   const toZap = async (page) => {
     await page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
-    await page.click('[data-hxm="earn"]');
-    await page.fill('#hx-amt', '0.02');
-    await page.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
-    await page.click('#hx-routes [data-hxr="0"]');
-    await until(page, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
-    await page.click('#hx-go');
+    await go(page, '#farm/private-0');                                          // the farm sheet's zap form (the card's press sends it itself)
     await page.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await page.fill('#sz-a-0', '0.02');
     await until(page, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(page, '#sz-rcpt-0')).replace(/\s+/g, ' ')}`); });
   };
@@ -8108,8 +8187,11 @@ await step('hxpanel', async () => {
     const figure = (t) => (t.match(/≈\s*([\d,]+)/) || [])[1];
     const onCard = figure(await text(p, '#hx-pts b'));
     await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Make ETH private', null, 120000);
-    await p.click('#hx-swap #go');
-    ok(await form('#w-amt', '0.02') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: Private opens the wrap with the amount and no second step');
+    // the card's press sends the wrap itself (step fastzap); the wrap form, from its link, with the same amount
+    await go(p, '#private');
+    await p.waitForSelector('#sheet-eth[open] #w-amt', { timeout: 120000 });
+    await p.fill('#w-amt', '0.02');
+    ok(await form('#w-amt', '0.02') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: the wrap form for the same amount, with no second step');
     await until(p, () => /≈\s*[\d,]+/.test(document.querySelector('#w-rcpt [data-pts] b')?.textContent || ''), null, 120000);
     const onSheet = figure(await text(p, '#w-rcpt [data-pts] b'));
     ok(onCard && onCard === onSheet, `hxpanel: the card and the Private sheet estimate the same points for 0.02 ETH (${onCard} and ${onSheet})`);

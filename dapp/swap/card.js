@@ -604,7 +604,7 @@ const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
 // The pool module, one copy for the quotes and the private swap (private.js is handed it).
 let uxP = null;
 const getUx = () => (H.getUx ? H.getUx() : uxP ||= (async () => {
-  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=3538c9d2'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
+  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=7c22e7f7'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
   dep.setActiveNetwork('mainnet');
   return makeConfidentialPoolUx({ secp: d.secp, keccak256: d.keccak_256, sha256: d.sha256, network: 'mainnet' });
 })().catch((e) => { uxP = null; throw e; }));
@@ -698,15 +698,18 @@ function paintSides() {
   const homes = $('#homes'), chain = $('#chain');
   if (homes) { const h = homesHtml(); homes.hidden = !h; if (h !== homes.dataset.h) { homes.innerHTML = h; homes.dataset.h = h; } }
   if (chain) { const c = chainHtml(); chain.hidden = !c; if (c !== chain.dataset.h) { chain.innerHTML = c; chain.dataset.h = c; } }
-  const side = $('#pay-side');
+  const side = $('#pay-side'), mk = !S.amt && !fixed ? moveOf() : null, sizes = mk ? H.moves?.sizes?.(mk) || null : null;
   if (payPriv && bal == null && !S.at.pay && !moveOf()) side.innerHTML = PV?.unlocked ? `<span>Reading your private balance…${PV.readFailed ? ' <button type="button" id="pv-read">Read again</button>' : ''}</span>` : '<button type="button" id="pv-open">Your private balance</button>';
   else if (bal != null) side.innerHTML = fixed ? `<span>Balance ${esc(amtFmt(bal, pay.dec))}</span>` : `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
-  else if (!S.amt && !fixed) side.innerHTML = `<span class="quick">${((poolUnits() ? QUICK_PRIV : QUICK)[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
+  else if (!S.amt && !fixed && !sizes) side.innerHTML = `<span class="quick">${((poolUnits() ? QUICK_PRIV : QUICK)[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
   else side.textContent = '';
   const getBal = !S.outP && !S.at.get && !S.to && W.account ? S.bal[S.get] : null;
   $('#get-side').textContent = getBal ? `You have ${amtFmt(getBal, get.dec)}` : '';
-  const v = wei && !fixed ? usdOf(S.pay, wei) : null;
-  $('#pay-usd').textContent = v != null ? `≈ ${usd(v)}` : '';
+  // a move's own quick amounts (the page's sizes kept ready, marked once proved) stand where the dollar value goes until one is typed
+  const v = wei && !fixed ? usdOf(S.pay, wei) : null, pu = $('#pay-usd');
+  const h = sizes ? `<span class="quick">${sizes.map((x) => `<button type="button" data-quick="${esc(x.v)}"${x.rd ? ' class="rd" title="Proved already: one transaction"' : ''}>${x.rd ? '<svg aria-hidden="true"><use href="#i-bolt"/></svg>' : ''}${esc(x.v)}</button>`).join('')}</span>` : '';
+  if (h) { if (pu.dataset.h !== h) { pu.innerHTML = h; pu.dataset.h = h; } }
+  else { pu.dataset.h = ''; pu.textContent = v != null ? `≈ ${usd(v)}` : ''; }
 }
 const QUICK = { ETH: ['0.1', '0.5', '1'], TAC: ['500', '1000'], USDC: ['100', '500'], USDT: ['100', '500'], DAI: ['100', '500'], cUSD: ['100', '500'], tacUSD: ['100', '500'], cBTC: ['0.001', '0.01'], tacBTC: ['0.001', '0.01'], WBTC: ['0.005', '0.01'], WETH: ['0.1', '0.5'], wstETH: ['0.1', '0.5'], tETH: ['0.1', '0.5'] };
 // The private pools are young: these are amounts a few times the relay's fee that move the price a few percent, not more.
@@ -1412,7 +1415,7 @@ function stepsClick(e) {
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
-const pvLoad = () => (PVP ||= import('/swap/private.js?cb=1133b8d7').then((m) => {
+const pvLoad = () => (PVP ||= import('/swap/private.js?cb=64a70e1a').then((m) => {
   PV = m.makePrivate({ getUx, pick: pickWallet, ...H.key, onKey: (why) => { if (why) say(esc(why), 'err', true); else { PV.read().then(paint, () => {}); if (plans().some((x) => x.state === 'waiting')) ltLoad().then(readBlend, () => {}); } paint(); } });
   PV.mod = m;
   return PV;

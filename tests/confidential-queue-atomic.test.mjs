@@ -131,5 +131,30 @@ await test('a failed queue write does not leave a submit blocked as a duplicate'
   ok((await queued(kv)).includes(r.jobId), 'retry did not reach the queue');
 });
 
+await test('a waiting job says how many are ahead of it in the queue; one being proved or done says nothing of the queue', async () => {
+  const kv = slowKV(), q = settlerOver(kv);
+  const ids = [];
+  for (const n of [1, 2, 3]) ids.push((await q.submitJob({ type: 'swap', op: opN(n) })).jobId);
+  const st = await Promise.all(ids.map((id) => q.jobStatus(id)));
+  ok(st.map((x) => x.ahead).join() === '0,1,2', `ahead ${st.map((x) => x.ahead)}`);
+  const claimed = await q.nextJob();
+  ok(claimed && claimed.jobId === ids[0], 'the first is claimed first');
+  const [a, b] = await Promise.all([q.jobStatus(ids[0]), q.jobStatus(ids[1])]);
+  ok(a.status === 'proving' && !('ahead' in a), `a job being proved carries no place in line (${a.status} ${a.ahead})`);
+  ok(b.status === 'pending' && b.ahead === 1, `the next counts the one being proved ahead of it (${b.ahead})`);
+});
+
+await test('a proof asked for ahead of its press waits for the jobs people have pressed, and is not counted ahead of them', async () => {
+  const kv = slowKV(), q = settlerOver(kv);
+  const early = (await q.submitJob({ type: 'sendunwrap', op: opN(7), mode: 'prove', early: true })).jobId;
+  const pressed = (await q.submitJob({ type: 'swap', op: opN(8) })).jobId;
+  const [e, p] = await Promise.all([q.jobStatus(early), q.jobStatus(pressed)]);
+  ok(e.ahead === 0 && p.ahead === 0, `the pressed job is next, the early one does not count ahead of it (${e.ahead}, ${p.ahead})`);
+  const first = await q.nextJob(), second = await q.nextJob();
+  ok(first?.jobId === pressed && second?.jobId === early, `the pressed job is taken first (${first?.jobId === pressed}, ${second?.jobId === early})`);
+  const settleOnly = (await q.submitJob({ type: 'swap', op: opN(9), early: true })).jobId;
+  ok(!(await kv.get('cps:job:' + settleOnly)).includes('"early"'), 'only a prove-only job is marked early');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
