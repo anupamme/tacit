@@ -583,6 +583,10 @@ async function switchAccount() {
 }
 
 const input = $('#q'), go = $('#go'), out = $('#out'), hints = $('#hints'), recent = $('#recent'), note = $('#note');
+// a phone's bar is too narrow for the whole placeholder; the chips and the label still say which names work
+const fullHint = input.placeholder, phone = matchMedia('(max-width: 480px)');
+const hint = () => { input.placeholder = phone.matches ? '0x address or name.eth' : fullHint; };
+hint(); phone.addEventListener('change', hint);
 const said = (t) => { note.textContent = ''; setTimeout(() => { note.textContent = t; }, 30); };
 const recents = () => { try { const l = JSON.parse(store.get(RECENT) || '[]'); return Array.isArray(l) ? l.filter((x) => typeof x === 'string').slice(0, 6) : []; } catch { return []; } };
 const remember = (q) => store.set(RECENT, JSON.stringify([q, ...recents().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6)));

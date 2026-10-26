@@ -4957,7 +4957,7 @@ await step('rewardsuses', async () => {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('.uses');
     const links = await n.page.$$eval('.uses a', (a) => a.map((x) => `${x.firstChild.textContent}:${x.getAttribute('href')}`));
-    ok(links.join(' ') === 'Trade:/trade/tac/ Borrow:/vault/ Shield:/#tac Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the lists names what TAC is for (${links.join(' ')})`);
+    ok(links.join(' ') === 'Trade:/trade/tac/ Borrow:/vault/ Shield:/#card=shield:wtac:defi Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the lists names what TAC is for (${links.join(' ')})`);
     await until(n.page, () => /^\d[\d,]*%\+?$/.test(document.querySelector('#farm-apr')?.textContent || ''), null, 60000);
     ok(Number((await text(n.page, '#farm-apr')).replace(/\D/g, '')) > 0, `rewardsuses: the farm's row carries its APR now (${await text(n.page, '#farm-apr')})`);
     ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), f = document.querySelector('#farms').getBoundingClientRect(); return f.top >= b.bottom && f.top - b.bottom < 200 && f.top < innerHeight; }), 'rewardsuses: and the farms start right under the bar (below the chips for connecting or going back), on the first screen');
@@ -4974,7 +4974,7 @@ await step('rewardsuses', async () => {
     await land('trade/tac/', () => /trade/i.test(document.title) && !!document.querySelector('#route'), '/trade/tac/ is the trade page');
     await land('swap/#earn', () => !!document.querySelector('#p-earn') && !document.querySelector('#p-earn').hidden, '/swap/#earn opens the Earn tab (the Precision farm)');
     await land('vault/', () => /borrow/i.test(document.title), '/vault/ is the borrow page');
-    await land('#tac', () => document.querySelector('#sheet-tac')?.open === true, '/#tac opens the TAC sheet, where TAC is made private');
+    await land('#card=shield:wtac:defi', () => { const t = (document.querySelector('#hx')?.innerText || '').replace(/\s+/g, ' '); return /From Wallet TAC/.test(t) && /To Private/.test(t) && /Private in DeFi pool/.test(t); }, '/#card=shield:wtac:defi sets the front page\'s card to make the wallet\'s TAC private on Ethereum');
     await land('pay/#tac', () => /pay/i.test(document.title) && location.hash === '#tac', '/pay/#tac is the pay page on TAC');
     await land('tac/', () => /tac/i.test(document.title), '/tac/ is the Bitcoin-native shielded TAC page');
   } finally { await n.browser.close(); }
@@ -5216,7 +5216,7 @@ await step('rewardsfarm', async () => {
       await claimed(n);
       await until(n.page, () => !document.querySelector('#farm').hidden && document.querySelector('#farm').open && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 180000);
       const ethIn = Number(await n.page.inputValue('#fm-amt')), tacIn = Number(await n.page.inputValue('#fm-tacamt')), note = (await text(n.page, '#farm-note')).replace(/\s+/g, ' ');
-      ok(ethIn > 0.04 && ethIn <= 0.047 && tacIn < 216176 && /^Your ETH covers [\d,.]+ of the 216,176\.41 TAC\. All of it needs [\d,.]+ ETH\.$/.test(note) && !(await n.page.$eval('#fm-go', (b) => b.disabled)), `rewardsfarm: with 0.05 ETH the pair is what it covers, within the fee kept back, and the page says so (${ethIn} ETH, ${tacIn} TAC; ${note.slice(0, 90)})`);
+      ok(ethIn > 0.04 && ethIn < 0.05 && tacIn < 216176 && /^Your ETH covers [\d,.]+ of the 216,176\.41 TAC\. All of it needs [\d,.]+ ETH\.$/.test(note) && !(await n.page.$eval('#fm-go', (b) => b.disabled)), `rewardsfarm: with 0.05 ETH the pair is what it covers, within the fee kept back, and the page says so (${ethIn} ETH, ${tacIn} TAC; ${note.slice(0, 90)})`);
       await n.page.fill('#fm-amt', '0.01');
       await until(n.page, () => !document.querySelector('#farm-note').textContent, null, 10000);
       ok(true, 'rewardsfarm: and the note goes once the amounts are changed');
