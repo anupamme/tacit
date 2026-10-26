@@ -229,12 +229,14 @@ await run('sell headline', async () => {
   const bid = (id, tac, sats, auto) => ({ asset_id: AID, bid_id: id, buyer_pubkey: OTHER, amount: String(BigInt(tac) * 10n ** 8n), price_sats: sats, min_fill_amount: String(BigInt(tac) * 10n ** 7n), watchtower: !!auto, expiry: now() + 86400 * 20, created_at: now() - 100 });
   const avail = async (bids, pref) => { const m = await mk({ listings: [], bids, markUnit: 150, pref }); m.click('[data-act=side][data-v=sell]'); await m.settle(); const t = m.txt('avail'); m.destroy(); return t; };
   const auto1 = bid('a1', 12000, 12000, true), manual = [bid('m1', 30, 4560), bid('m2', 30, 4500), bid('m3', 30, 4470)];
-  const t = await avail([auto1, ...manual]);
-  ok(/Best bid 1 sats\/TAC · 1 bid you can sell into now/.test(t) && /3 more, up to 152\S* settle only when the bidder is online/.test(t), `the best bid you can sell into is followed by the better bids that settle only while their bidders are online (${t})`);
+  const t = await avail([auto1, ...manual, bid('m5', 100, 5100)]);
+  ok(/Best bid 1 sats\/TAC · 1 bid you can sell into now/.test(t) && /3 more, up to 152\S* settle only when the bidder is online/.test(t), `the best bid you can sell into is followed by the better bids that settle only while their bidders are online, those within the ticket's min price (${t})`);
   const one = await avail([auto1, manual[0]]);
   ok(/1 more at 152\S* settles only when the bidder is online/.test(one), `one such bid reads in the singular (${one})`);
   const allowed = await avail([auto1, ...manual], { side: 'sell', type: 'market', includeManual: true });
   ok(/Best bid 152\S* sats\/TAC · 4 bids you can sell into now/.test(allowed) && !/more/.test(allowed), `once they are allowed they are the best bid and nothing is held back (${allowed})`);
+  const low = await avail([auto1, bid('m5', 100, 5100)]);
+  ok(/Best bid 1 sats\/TAC · 1 bid you can sell into now$/.test(low), `a bid under the ticket's min price is not offered (${low})`);
   const worse = await avail([bid('a2', 1000, 150000, true), bid('m4', 30, 3000)]);
   ok(/Best bid 150\S* sats\/TAC · 1 bid you can sell into now$/.test(worse), `a bid that settles only while its bidder is online and pays less adds nothing (${worse})`);
 });
