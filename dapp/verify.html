@@ -14,7 +14,7 @@
      CDN. connect-src is limited to public Bitcoin explorers, IPFS gateways and public
      Ethereum nodes.
      No third-party script, no analytics. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qR4aK6aucuf++Gwk9bHCFy/ahpc222D58tgwWepcsj8='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link https://ethereum-rpc.publicnode.com https://rpc.mevblocker.io https://eth.drpc.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Tea7FUEx2+ay3JjHq6fWhzbJ8Xd7RgtZvHRXMsLaVsc='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link https://ethereum-rpc.publicnode.com https://rpc.mevblocker.io https://eth.drpc.org; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -121,6 +121,7 @@ code { font: inherit; }
 .note { color: var(--mute); font-size: 12px; line-height: 1.7; margin: 0; }
 .section { margin-top: 34px; padding-top: 26px; border-top: 1px solid var(--hair-2); }
 .section h2 { font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; margin: 0 0 10px; }
+.section h2 .tk { display: inline-block; width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
 .section p { color: var(--mute); font-size: 13px; line-height: 1.65; margin: 0 0 10px; }
 .section p:last-child { margin-bottom: 0; }
 .section a { color: var(--orange); }
@@ -136,6 +137,7 @@ footer a:hover { color: var(--ink); }
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 
@@ -170,7 +172,7 @@ footer a:hover { color: var(--ink); }
   </p>
 
   <div class="section" id="eth">
-    <h2>TAC on Ethereum</h2>
+    <h2><svg class="tk" role="img" aria-label="Ethereum"><title>Ethereum</title><use href="#c-eth"/></svg>TAC on Ethereum</h2>
     <p>
       TAC&rsquo;s public ERC-20 is minted only by the Tacit pool, from TAC proven to have left Bitcoin, and
       burned when it is wrapped back in. These checks read Ethereum directly: every value must come back the same
@@ -195,15 +197,15 @@ footer a:hover { color: var(--ink); }
   <div class="section">
     <h2>Beyond supply: conservation in circulation</h2>
     <p>
-      A fixed supply at genesis is one property. A separate one is that every transfer since then conserves
-      value: a spend cannot create TAC out of nothing. Tacit&rsquo;s indexer checks this by walking a Bitcoin
-      output&rsquo;s ancestry backward, hop by hop, through the protocol&rsquo;s transfer opcodes. At each hop it
-      re-verifies the Pedersen-commitment conservation and the kernel signature, until it reaches this same etch.
+      A fixed supply at genesis is one property. Conservation since then is another: a spend cannot create TAC.
+      Tacit&rsquo;s indexer checks it by walking a Bitcoin output&rsquo;s ancestry backward, hop by hop, through the
+      protocol&rsquo;s transfer opcodes, re-verifying the Pedersen-commitment conservation and the kernel signature
+      at each hop until it reaches this same etch.
     </p>
     <p>
       That code is <a href="https://github.com/src-company/tacit/blob/main/worker/src/tac-ancestry.js" rel="noopener">worker/src/tac-ancestry.js</a>.
-      It is open source, runs against the same public Bitcoin data this page uses and takes no shortcuts
-      through an index. Point it at any TAC-carrying outpoint yourself: it needs only a txid and a vout to start walking.
+      It is open source, runs against the same public Bitcoin data this page uses and takes no shortcut through
+      an index. Point it at any TAC-carrying outpoint: it needs only a txid and a vout.
     </p>
   </div>
 
@@ -424,7 +426,7 @@ async function run() {
     const derived = toHex(await sha256(cat(fromHex(ETCH_TXID).reverse(), u32le(0))));
     settle(r, derived === TAC_ASSET_ID);
 
-    r = row('fetch the etch transaction & find the CETCH envelope');
+    r = row('fetch the etch transaction and find the CETCH envelope');
     const tx = await fetchTx(ETCH_TXID);
     let etch = null;
     for (const vin of (tx.vin || [])) { const w = vin.witness || []; if (w.length < 2) continue; const e = extractEnvelope(fromHex(w[w.length - 2])); if (e) { const d = decodeCEtch(e); if (d) { etch = d; break; } } }
@@ -435,7 +437,7 @@ async function run() {
     r = row(IS_CANONICAL ? `ticker is TAC, decimals = ${etch.decimals}` : `ticker ${etch.ticker}, decimals = ${etch.decimals}`);
     settle(r, !IS_CANONICAL || etch.ticker === 'TAC');
 
-    r = row(IS_CANONICAL ? 'mint authority is zero — non-mintable, no new TAC can ever be valid' : 'mint authority is zero — non-mintable, no more can ever be valid');
+    r = row(IS_CANONICAL ? 'mint authority is zero: non-mintable, no new TAC can ever be valid' : 'mint authority is zero: non-mintable, no more can ever be valid');
     settle(r, etch.mintAuthority.every(b => b === 0), toHex(etch.mintAuthority));
 
     const cid = (etch.imageUri || '').replace(/^ipfs:\/\//, '');

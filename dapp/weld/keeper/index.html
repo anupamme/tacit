@@ -7,12 +7,12 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Kvnt3vQekWK6Sfzlya3fzbI0YIh3DZm0whBIdQCA+nA=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-sVqgENR+et/B56MebxtiAGaY4mkQqMw26OIHxn0jrq0=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <title>tacit community ops</title>
-<meta name="description" content="Move Bitcoin’s state onto Ethereum yourself, from your own wallet or your own machine: advance Tacit’s Bitcoin header relay, submit a published proof, or send a waiting settle for its fee. All are permissionless on-chain calls.">
+<meta name="description" content="Advance the Bitcoin header relay, submit a published proof or send a waiting settle from your own wallet or machine. All are permissionless calls, and you pay only the network fee.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/weld/keeper/">
@@ -87,6 +87,9 @@ code { font: inherit; }
 .chip[aria-busy="true"] { cursor: progress; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; }
 .dot.on { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.tk.sm { width: 16px; height: 16px; }
+.card .m .dot { display: inline-block; margin-right: 6px; vertical-align: 1px; }
 
 h1 { font: italic 400 34px/1.1 var(--serif); margin: 0 0 6px; }
 .lede { color: var(--mute); font-size: 13px; max-width: 60ch; margin: 0 0 8px; }
@@ -96,7 +99,7 @@ section.grp { margin-top: 30px; }
 section.grp > h2 { margin-bottom: 12px; }
 /* Each section keeps the height it has once the relay is read (more on a narrow screen), so what is under it does not move while the figures come in */
 #g-wait { min-height: 500px; } #g-advance { min-height: 334px; } #g-attest { min-height: 474px; }
-@media (min-width: 601px) { #g-wait { min-height: 284px; } #g-advance { min-height: 339px; } #g-attest { min-height: 434px; } }
+@media (min-width: 601px) { #g-wait { min-height: 265px; } #g-advance { min-height: 318px; } #g-attest { min-height: 394px; } }
 @media (max-width: 440px) { .asof { min-height: 3.2em; } }                    /* the line it becomes is two lines on a small phone */
 h2 { font: italic 400 26px/1.1 var(--serif); margin: 0; display: flex; align-items: center; gap: 10px; }
 h2 .tk { width: 24px; height: 24px; }
@@ -327,6 +330,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 
@@ -370,7 +375,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
   <main>
   <h1>Community ops</h1>
-  <p class="lede">Bitcoin’s state reaches Ethereum in two steps: a header relay stores Bitcoin’s block headers, and proofs fold each batch of blocks into the pool. Both are on-chain calls that need no permission, the same calls Tacit’s own services make. When either is behind, you can move it yourself from your own wallet and pay only the network fee.</p>
+  <p class="lede">Two permissionless calls keep Bitcoin’s state current on Ethereum: the header relay and the proofs. When one is behind, move it from your own wallet and pay only the network fee.</p>
   <p class="asof num" id="asof">Reading the relay…</p>
 
   <section class="grp" id="g-wait" aria-labelledby="h-wait">
@@ -381,14 +386,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="grp" id="g-advance" aria-labelledby="h-advance">
     <h2 id="h-advance"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>Advance the header relay</h2>
     <div class="panel">
-      <p class="lede">Sends Bitcoin block headers, read from a public explorer, to <code>BitcoinLightRelay.advanceTip</code> on Ethereum. The contract checks each header’s proof of work itself, so only real Bitcoin blocks are accepted. Each transaction carries up to 40 headers, and your wallet asks you to confirm each one.</p>
+      <p class="lede">Sends Bitcoin’s block headers to <code>BitcoinLightRelay.advanceTip</code>. The contract checks each header’s proof of work, so only real blocks are accepted. Up to 40 headers per transaction, each confirmed in your wallet.</p>
       <div class="plan" id="plan-box"><p><span class="sk" style="--w:30ch"></span></p></div>
       <button class="btn" id="btn-advance" type="button" disabled>Advance the relay</button>
       <ol class="stp" id="strip" hidden></ol>
       <div class="tscroll"><table class="batches num" id="batch-table" hidden><thead><tr><th>Batch</th><th>Blocks</th><th>Status</th></tr></thead><tbody id="batch-rows"></tbody></table></div>
       <p class="status" id="status" role="status"></p>
       <div class="callout" id="ancestry-callout" hidden>
-        <p><b>The proofs are more than 2,016 blocks behind the relay.</b> One batch cannot span that gap, so the pool first needs a checkpoint closer to the proven block. <code>advanceReflectionAncestry()</code> sets it by walking the relay’s chain back, up to 2,016 blocks a call. Anyone can call it. <span id="anc-plan"></span></p>
+        <p><b>The proofs are more than 2,016 blocks behind the relay.</b> One batch can’t span that gap, so the pool needs a checkpoint closer to the proven block first. Anyone can call <code>advanceReflectionAncestry()</code>: it walks the relay’s chain back up to 2,016 blocks a call. <span id="anc-plan"></span></p>
         <button class="btn ghost" id="btn-ancestry" type="button">Call advanceReflectionAncestry()</button>
         <p class="status" id="anc-status" role="status"></p>
       </div>
@@ -398,14 +403,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="grp" id="g-attest" aria-labelledby="h-attest">
     <h2 id="h-attest"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>Submit a proof</h2>
     <div class="panel">
-      <p class="lede">Tacit’s prover publishes each proof the moment it has one, then submits it itself. A proof waiting here can be submitted from any wallet: <code>attestBitcoinStateProven</code> needs no permission, only a valid proof over the pool’s current state.</p>
+      <p class="lede">Tacit’s prover publishes each proof, then submits it itself. Any wallet can submit one that is still waiting: <code>attestBitcoinStateProven</code> takes any valid proof over the pool’s current state.</p>
       <div class="plan" id="proof-box"><p>Reading the latest proof…</p></div>
       <button class="btn" id="btn-proof" type="button" disabled>Submit the proof</button>
       <p class="status" id="proof-status" role="status"></p>
     </div>
     <div class="callout">
-      <p>Each proof is an SP1 zero-knowledge proof over one batch of Bitcoin blocks. It is paid for in <a href="https://etherscan.io/address/0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29" target="_blank" rel="noopener">PROVE</a> credits on the Succinct network, so a prover with a funded Succinct account makes it, not this page.</p>
-      <p>Tacit’s prover looks for a new batch every 5 minutes. Anyone can run the same prover against the same public inputs with their own account: see <a href="https://github.com/src-company/tacit/blob/main/worker-relay/src/reflection-folder.js" target="_blank" rel="noopener">reflection-folder.js</a>.</p>
+      <p>Each proof is an SP1 zero-knowledge proof over one batch of Bitcoin blocks, paid for in <a href="https://etherscan.io/address/0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29" target="_blank" rel="noopener">PROVE</a> credits on the Succinct network. A prover with a funded Succinct account makes it, not this page.</p>
+      <p>Tacit’s prover looks for a new batch every 5 minutes. Anyone can run the same prover on the same public inputs with their own account: <a href="https://github.com/src-company/tacit/blob/main/worker-relay/src/reflection-folder.js" target="_blank" rel="noopener">reflection-folder.js</a>.</p>
     </div>
   </section>
 
@@ -433,7 +438,7 @@ RUNNER_KEY=0x… node tools/community-runner.mjs</code></pre>
   <section class="grp" id="g-mine" aria-labelledby="h-mine" hidden>
     <h2 id="h-mine"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>Prove wraps for points</h2>
     <div class="panel">
-      <p class="lede">Your computer proves wraps people keep ready, and each proof the pool accepts earns TAC points to your address.</p>
+      <p class="lede">Your computer proves wraps people keep ready. Each proof the pool accepts earns TAC points to your address.</p>
       <div class="plan num" id="mine-box"><p><span class="sk" style="--w:22ch"></span></p></div>
       <pre class="cmd"><code>tacit-prover mine 0xYourAddress
 TACIT_MINE=0xYourAddress tacit-prover install   # or: mine whenever it is idle, from login</code></pre>
@@ -629,25 +634,30 @@ function readLink() {
 readLink();
 const forWhat = () => (why === 'lock' ? 'your lock' : why === 'bridge' ? 'your bridge deposit' : 'the linked request');
 
-function cardHtml({ k, v, u, m, attn }) {
-  return `<div class="card${attn ? ' attn' : ''}"><div class="k">${esc(k)}</div><div class="v num">${v == null ? SK('7ch') : `${esc(v)}${u ? `<small>${esc(u)}</small>` : ''}`}</div><div class="m">${m == null ? SK('16ch') : esc(m)}</div></div>`;
+// A card's chain mark is named for a screen reader and on hover; `dot` is a state dot before its line (on = in step, warn = behind).
+const CHAIN = { btc: ['c-btc', 'Bitcoin'], eth: ['c-eth', 'Ethereum'] };
+function cardHtml({ k, v, u, m, attn, chain, dot }) {
+  const mk = chain ? `<svg class="tk sm" role="img" aria-label="${CHAIN[chain][1]}"><title>${CHAIN[chain][1]}</title><use href="#${CHAIN[chain][0]}"/></svg>` : '';
+  return `<div class="card${attn ? ' attn' : ''}"><div class="k">${mk}${esc(k)}</div><div class="v num">${v == null ? SK('7ch') : `${esc(v)}${u ? `<small>${esc(u)}</small>` : ''}`}</div><div class="m">${m == null ? SK('16ch') : `${dot ? `<span class="dot ${dot}"></span>` : ''}${esc(m)}`}</div></div>`;
 }
-const CARDS = ['Header relay', 'Bitcoin tip', 'Proven to', 'Bridge deposits'];
-$('#cards-wait').innerHTML = CARDS.map((k) => cardHtml({ k })).join('');
+const CARDS = [['Header relay', 'eth'], ['Bitcoin tip', 'btc'], ['Proven to', 'eth'], ['Bridge deposits', 'btc']];
+$('#cards-wait').innerHTML = CARDS.map(([k, chain]) => cardHtml({ k, chain })).join('');
 
 let lastRead = 0;
 async function refresh() {
   const [st] = await Promise.all([advance.status(), readGasPrice()]);
   lastRead = Date.now();
+  paintBoard();                                                   // the board's fee estimate needs the price just read
   const lag = st.reflectionLag, far = needsAncestry(lag);
   $('#cards-wait').innerHTML = [
-    cardHtml({ k: 'Header relay', v: int(st.relayTip), u: 'block', m: st.behind <= 0 ? 'at Bitcoin’s tip' : `${plural(st.behind, 'block')} behind Bitcoin’s tip` }),
-    cardHtml({ k: 'Bitcoin tip', v: int(st.btcTip), u: 'block', m: 'from a public explorer' }),
+    cardHtml({ k: 'Header relay', chain: 'eth', v: int(st.relayTip), u: 'block', dot: st.behind <= 0 ? 'on' : 'warn', m: st.behind <= 0 ? 'at the tip' : `${plural(st.behind, 'block')} behind the tip` }),
+    cardHtml({ k: 'Bitcoin tip', chain: 'btc', v: int(st.btcTip), u: 'block', m: 'from a public explorer' }),
     cardHtml({
-      k: 'Proven to', v: st.attested == null ? '—' : int(st.attested), u: st.attested == null ? '' : 'block', attn: far,
-      m: lag == null ? 'not read yet' : lag <= 0 ? 'caught up with the relay' : `${plural(lag, 'block')} the relay has confirmed, not yet proven`,
+      k: 'Proven to', chain: 'eth', v: st.attested == null ? '—' : int(st.attested), u: st.attested == null ? '' : 'block', attn: far,
+      dot: lag == null ? null : lag <= 0 ? 'on' : 'warn',
+      m: lag == null ? 'not read yet' : lag <= 0 ? 'caught up with the relay' : `${plural(lag, 'block')} behind the relay`,
     }),
-    cardHtml({ k: 'Bridge deposits', v: st.burnDeposits == null ? '—' : int(st.burnDeposits), m: 'Deposits from Bitcoin recorded by the proofs' }),
+    cardHtml({ k: 'Bridge deposits', chain: 'btc', v: st.burnDeposits == null ? '—' : int(st.burnDeposits), m: 'recorded by the proofs' }),
   ].join('');
   $('#asof').textContent = `As of ${new Date().toLocaleTimeString('en-GB')} · a block can be proven once it is ${st.confirmations} deep`;
   $('#ancestry-callout').hidden = !far;
@@ -682,7 +692,7 @@ function paintPlan(st, pl) {
     lines.push(what);
     if (pl.useless && need == null) lines.push(`The relay already confirms Bitcoin to block ${int(proven)}, past the proven block ${int(st.attested)}, so the next proof isn’t waiting on it. Advancing now readies the ones after it.`);
     const eth = ethFor(advanceGas(pl.pending, txs));
-    lines.push(`${plural(txs, 'transaction')}${eth ? `, about ${eth} ETH in network fees at the current price` : ''}. Your wallet shows the exact fee before you confirm.`);
+    lines.push(`${plural(txs, 'transaction')}${eth ? `, about ${eth} ETH in network fees` : ''}. Your wallet shows the exact fee.`);
   }
   box.innerHTML = lines.map((l) => `<p>${esc(l)}</p>`).join('');
   if (btn.getAttribute('aria-busy') === 'true') return;   // a run in progress keeps its button
@@ -748,7 +758,7 @@ async function paintAncestry(st) {
   const calls = ancestryCalls(st.reflectionLag);
   const say = () => {
     const eth = ancestryGas != null ? ethFor(ancestryGas) : null;
-    $('#anc-plan').textContent = `This gap takes ${plural(calls, 'call')}${eth ? `, about ${eth} ETH each in network fees at the current price` : ''}.`;
+    $('#anc-plan').textContent = `This gap takes ${plural(calls, 'call')}${eth ? `, about ${eth} ETH each in network fees` : ''}.`;
   };
   say();
   try { ancestryGas = BigInt(await rpc('eth_estimateGas', [{ to: POOL, data: SEL_ANCESTRY }])); say(); } catch {}
@@ -791,7 +801,7 @@ async function refreshProof() {
   if (read.offer === 'spent') return none(`The latest published proof (Bitcoin to block ${int(rec.attestedTo)}) is already on chain, or builds on a state the pool has moved past. Nothing to submit.`);
   const mins = Number.isFinite(rec.at) ? Math.max(0, Math.round((Date.now() - rec.at) / 60000)) : null;
   const eth = ethFor(ATTEST_GAS);
-  box.innerHTML = `<p><b>A proof is ready</b> for Bitcoin to block ${esc(int(rec.attestedTo))}${mins == null ? '' : `, published ${mins < 1 ? 'just now' : `${esc(int(mins))} min ago`}`}, and it is not on chain yet.</p><p>Submitting it takes about 0.5 to 0.6 million gas${eth ? `, about ${esc(eth)} ETH in network fees at the current price` : ''}.</p>`;
+  box.innerHTML = `<p><b>A proof is ready</b> for Bitcoin to block ${esc(int(rec.attestedTo))}${mins == null ? '' : `, published ${mins < 1 ? 'just now' : `${esc(int(mins))} min ago`}`}.</p><p>Submitting costs about 0.5 to 0.6 million gas${eth ? `, about ${esc(eth)} ETH in network fees` : ''}.</p>`;
   btn.disabled = false; readyProof = rec;
   return rec;
 }
@@ -836,7 +846,7 @@ function paintBoard() {
   else {
     const s = boardSummary(board.jobs), fees = s.feeWei > 0n ? `${ethText(s.feeWei)} ETH in fees` : s.feeUsd > 0 ? `≈ $${s.feeUsd.toFixed(2)} in fees` : 'no fee';
     const eth = ethFor(SETTLE_GAS);
-    box.innerHTML = `<p>${s.waiting ? `${esc(plural(s.waiting, 'settle'))} waiting · ${esc(fees)}${eth ? ` · gas ${eth.startsWith('<') ? esc(eth) : `≈ ${esc(eth)}`} ETH each` : ''}` : 'Nothing waiting.'}</p>`;
+    box.innerHTML = `<p>${s.waiting ? `${esc(plural(s.waiting, 'settle'))} waiting · ${esc(fees)}${eth ? ` · network fee ${eth.startsWith('<') ? esc(eth) : `≈ ${esc(eth)}`} ETH each` : ''}` : 'Nothing waiting.'}</p>`;
   }
   if (btn.getAttribute('aria-busy') === 'true') return;           // a send in progress keeps its button
   const next = board && pickSettle(board.jobs, { skip: passed });

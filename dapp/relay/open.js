@@ -4,14 +4,17 @@
 import { makeConfidentialRelay } from '/confidential-relay.js?cb=1624f3a6';
 import { CONFIDENTIAL_DEPLOYMENTS, shownTicker } from '/confidential-deployments.js?cb=477f3312';
 import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=5078b247';
-import { UserStopped } from '/trade/wallet.js?cb=fe7a26b6';
-import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=509d6618';
+import { UserStopped } from '/trade/wallet.js?cb=6778fe25';
+import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=dcf3a4f2';
 
 const API = 'https://api.tacit.finance';
 const SCAN = 'https://etherscan.io/';
 const DEP = CONFIDENTIAL_DEPLOYMENTS.mainnet;
 export const POOL = DEP.pool;
 const lc = (s) => String(s || '').toLowerCase();
+// The marks the page's sprite carries, by the ticker a fee is shown in.
+const MARK = { tETH: 'tk-teth', TAC: 'tk-tac', cTAC: 'tk-tac', cBTC: 'tk-cbtc', cUSD: 'tk-cusd' };
+const markOf = (t) => (MARK[t] ? `<svg class="tk" aria-hidden="true"><use href="#${MARK[t]}"/></svg>` : '');
 
 // The dapp's asset table, by pool asset id: the name an asset is shown under and the decimals its in-pool values carry. A farm's reward is wTAC.
 const ASSETS = new Map();
@@ -23,10 +26,11 @@ export function feeOf(job) {
   let legs = null;
   try { legs = pvFees(job.publicValues); } catch { /* the API's figures below */ }
   const usd = Number.isFinite(job.feeUsd) && job.feeUsd > 0 ? ` ≈ $${job.feeUsd < 10 ? job.feeUsd.toFixed(2) : Math.round(job.feeUsd).toLocaleString('en-US')}` : '';
-  if (!legs) return { text: job.feeAsset ? `in ${job.feeAsset}` : 'unknown', usd, none: false };
+  if (!legs) { const text = job.feeAsset ? `in ${job.feeAsset}` : 'unknown'; return { text, html: esc(text), usd, none: false }; }
   const paid = legs.filter((l) => l.value > 0n);
-  if (!paid.length) return { text: 'no fee', usd: '', none: true };
-  return { text: paid.map((l) => { const a = ASSETS.get(lc(l.assetId)); return a ? `${fmtUnits(l.value, a.dec, a.dec)} ${a.ticker}` : `${l.value} units of ${short(l.assetId, 4)}`; }).join(' + '), usd, none: false };
+  if (!paid.length) return { text: 'no fee', html: 'no fee', usd: '', none: true };
+  const leg = (l) => { const a = ASSETS.get(lc(l.assetId)); return a ? [`${fmtUnits(l.value, a.dec, a.dec)} ${a.ticker}`, markOf(a.ticker)] : [`${l.value} units of ${short(l.assetId, 4)}`, '']; };
+  return { text: paid.map((l) => leg(l)[0]).join(' + '), html: paid.map((l) => { const [t, m] = leg(l); return `${m}${esc(t)}`; }).join(' + '), usd, none: false };
 }
 const span = (ms) => { const m = Math.max(0, Math.round(ms / 60e3)); return m < 1 ? 'under a minute' : m < 90 ? `${m} min` : m < 36 * 60 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`; };
 // When a job's settle stops being accepted, in ms (0 = never): the API's figure, else the deadline its proof commits to.
@@ -54,7 +58,7 @@ export function mountOpen({ el, wallet, W, connect, say }) {
     list.innerHTML = S.jobs.map((j) => {
       const f = feeOf(j), sending = j.status === 'sending', mine = S.busy === j.jobId, ready = j.publicValues && j.proof && Array.isArray(j.memos) && !(expiry(j) && expiry(j) <= at);
       return `<div class="job"><div class="jt"><b>${esc(typeWords(j.type))}</b>${j.posted ? '<span class="tag" title="Proved by its holder’s own prover and posted here">posted</span>' : ''}<small>${esc(timing(j, at))}</small></div>`
-        + `<div class="jf num"><span>${esc(f.text)}</span>${f.usd ? `<small>${esc(f.usd)}</small>` : ''}</div>`
+        + `<div class="jf num"><span>${f.html}</span>${f.usd ? `<small>${esc(f.usd)}</small>` : ''}</div>`
         + (sending ? '<span class="jx mute">being sent</span>' : `<button class="btn sm" type="button" data-send="${esc(j.jobId)}"${S.busy || !ready ? ' disabled' : ''}${mine ? ' aria-busy="true"' : ''}>${mine ? 'Sending…' : 'Send it'}</button>`) + '</div>';
     }).join('');
   }
@@ -80,7 +84,7 @@ export function mountOpen({ el, wallet, W, connect, say }) {
       try { await rpc('eth_call', [{ from, to: POOL, data }, 'latest']); }
       catch (e) {
         if (e?.revert) { say('This one would not go through: someone has most likely sent it already, or its deadline has passed. Nothing was sent.', true); return; }
-        throw new Error('It could not be checked, so nothing was sent. Try again in a moment.');
+        throw new Error('Could not check it. Nothing was sent. Try again in a moment.');
       }
       say(`You pay the network fee${f.none ? '' : `, and the account that sends it is paid ${esc(f.text)}`}. Confirm in your wallet…`);
       const hash = await wallet.sendTx({ to: POOL, data, from });

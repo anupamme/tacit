@@ -50,6 +50,8 @@ function h(tag, attrs = {}, ...kids) {
 const mount = (el, ...kids) => { el.replaceChildren(...kids.flat().filter((x) => x != null && x !== false)); };
 const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
 const scan = (path, text) => link(`https://etherscan.io/${path}`, text);
+const SVG = 'http://www.w3.org/2000/svg';
+const mark = (id) => { const s = document.createElementNS(SVG, 'svg'), u = document.createElementNS(SVG, 'use'); s.setAttribute('class', 'tk'); s.setAttribute('aria-hidden', 'true'); u.setAttribute('href', `#${id}`); s.append(u); return s; };
 const say = (el, text, cls = '') => { el.className = `status ${cls}`.trim(); mount(el, text); };
 
 // ── chain reads ──
@@ -69,7 +71,7 @@ async function waitReceipt(hash, ms = 20 * 60e3) {
   const end = Date.now() + ms;
   for (;;) {
     const r = await rpc('eth_getTransactionReceipt', [hash]).catch(() => null);
-    if (r) { if (r.status !== '0x1') throw new Error('The transaction failed.'); return r; }
+    if (r) { if (r.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`); return r; }
     if (Date.now() > end) throw new Error('Not confirmed after 20 minutes. It can still land: check the transaction on Etherscan.');
     await new Promise((res) => setTimeout(res, 4000));
   }
@@ -219,7 +221,7 @@ function paintState() {
   const tipsHere = S.quote && lc(S.quote) === lc(S.addr);
   mount(el,
     h('p', { class: 'eyebrow' }, h('span', {}, 'Splitter'), scan(`address/${S.addr}`, short(S.addr, 8))),
-    h('p', { class: 'room num' }, fmtEth(S.balance), h('small', {}, 'ETH waiting')),
+    h('p', { class: 'room num' }, mark('tk-eth'), fmtEth(S.balance), h('small', {}, 'ETH waiting')),
     S.balance > 0n ? h('div', { class: 'rows' }, to.map((a, i) => h('div', { class: 'kv' }, h('span', {}, `→ ${nameOf(a) || short(a)}`), h('b', { class: 'num' }, `${fmtEth(pay[i])} ETH`)))) : null,
     go, out,
     S.quote == null ? null : h('div', { class: `callout ${tipsHere ? 'good' : ''}` }, tipsHere
@@ -269,7 +271,7 @@ function paintEdit() {
     h('p', { class: 'eyebrow' }, h('span', {}, 'Change who is paid'), h('button', { class: 'linkbtn', type: 'button', onclick: () => { S.dirty = false; S.rows = S.shares.to.map((a, i) => [a, String(S.shares.weight[i])]); paintEdit(); } }, 'Start again')),
     ed,
     h('button', { class: 'linkbtn', type: 'button', disabled: rows.length >= MAX_RECIPIENTS, onclick: () => { rows.push(['', '1']); S.dirty = true; paintEdit(); } }, rows.length >= MAX_RECIPIENTS ? 'Eight wallets is the most' : '+ Add a wallet'),
-    h('p', { class: 'note' }, 'Weights are plain numbers: 7 and 3, or 70 and 30, both pay 70% and 30%. Payouts are worked out when the balance is sent on, so the new list applies to what has not been sent yet.'),
+    h('p', { class: 'note' }, 'Weights are plain numbers: 7 and 3, or 70 and 30, both pay 70% and 30%. The new list applies to what has not been sent on yet.'),
     hint, go, out,
     ownerNote,
     sb);
@@ -356,16 +358,16 @@ function paintDeploy() {
   mount(el,
     h('p', { class: 'eyebrow' }, h('span', {}, fresh ? 'Deploy the splitter' : 'Deploy another')),
     fresh ? h('ul', { class: 'what' },
-      h('li', {}, 'It receives ETH from wrap tips and holds it until someone sends it on: anyone can, in one call.'),
-      h('li', {}, 'It pays the wallets below in the proportions of their weights. 63 / 27 / 10 is the deployer wallet, the settle wallet and the TAC buyback.'),
-      h('li', {}, 'Only the owner can change who is paid and in what proportion, as often as it likes.')) : null,
+      h('li', {}, 'It holds wrap tips until anyone sends them on, in one call.'),
+      h('li', {}, 'It pays the wallets below by weight. 63 / 27 / 10 is the deployer wallet, the settle wallet and the TAC buyback.'),
+      h('li', {}, 'Only the owner can change who is paid and in what proportion.')) : null,
     h('label', { class: 'lbl', for: 'dep-owner' }, 'Owner: can change the list, and can hand the contract on'),
     h('input', { id: 'dep-owner', class: 'field', type: 'text', value: D.owner, spellcheck: 'false', oninput: (e) => { D.owner = e.target.value.trim(); D.ownerOk = false; tick.checked = false; check(); } }),
     h('p', { class: 'note' }, ownerName),
     h('span', { class: 'lbl' }, 'Who is paid, and in what proportion'),
     ed,
     h('button', { class: 'linkbtn', type: 'button', disabled: D.rows.length >= MAX_RECIPIENTS, onclick: () => { D.rows.push(['', '1']); paintDeploy(); } }, '+ Add a wallet'),
-    h('label', { class: 'tick' }, h('input', { type: 'checkbox', id: 'dep-ok', checked: D.ownerOk, onchange: (e) => { D.ownerOk = e.target.checked; check(); } }), h('span', {}, 'The owner address is right. Whoever owns it can redirect every tip, and the wallet that sends the deploy only pays its network fee.')),
+    h('label', { class: 'tick' }, h('input', { type: 'checkbox', id: 'dep-ok', checked: D.ownerOk, onchange: (e) => { D.ownerOk = e.target.checked; check(); } }), h('span', {}, 'The owner address is right. Its owner can redirect every tip; the wallet that deploys only pays the network fee.')),
     h('p', { class: 'note' }, cost),
     hint, go, h('div', {}, dataBtn), out);
   const tick = $('#dep-ok', el);
@@ -384,7 +386,7 @@ function paintNext() {
     h('p', { class: 'eyebrow' }, 'Switching the tips over'),
     h('ol', { class: 'steps' },
       h('li', {}, h('b', {}, 'Verify it on Etherscan. '), 'From the repo’s contracts folder, with your Etherscan key in the environment (compiler 0.8.37, optimizer 1 run, via IR, EVM prague):', copyBlock('verify', 'forge', lines.verify)),
-      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render, set these two. The relay’s quote then names the splitter in a separate field. Tacit’s own pages tip it, and the relay counts a tip paid to it or to the ops multisig as paid. The multisig stays the quote’s recipient, so a page that pinned it keeps working unchanged.', copyBlock('api', 'tacit-api', lines.api)),
+      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render, set these two. The relay’s quote then names the splitter in a separate field. Tacit’s own pages tip it, and the relay counts a tip paid to it or to the ops multisig as paid.', copyBlock('api', 'tacit-api', lines.api)),
       h('li', {}, h('b', {}, 'Let the relay send it on. '), 'On the settle service, set this. Its next pass (every 30 minutes) sends the splitter on once it holds 0.0005 ETH.', copyBlock('settle', 'tacit-settle', lines.settle)),
       h('li', {}, h('b', {}, 'Pinned pages. '), 'A page that pays the ops multisig directly (an integrator’s, say) still can: its tips reach the multisig as before, and only a page that reads the new field tips the splitter.')));
 }

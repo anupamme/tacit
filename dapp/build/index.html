@@ -58,6 +58,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 [hidden] { display: none !important; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
+.tk.inl { display: inline-block; width: 16px; height: 16px; margin: 0 4px 0 2px; vertical-align: -3px; }
 
 .shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
 
@@ -266,6 +267,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
+    <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
+    <symbol id="c-mega" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M10.4 21.2V11.4L16 17.4L21.6 11.4V21.2" fill="none" stroke="#ff8fb4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -309,7 +314,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
     <section class="hero" aria-labelledby="h">
       <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>tacit <em>build</em></span></h1>
-      <p class="sub">Everything to build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, the TAC vaults, farms and the TAC ERC-20. The client is plain ES modules with no build step. The API is public, with no keys to request. Each path lists the rules that matter and the mainnet transactions behind it.</p>
+      <p class="sub">Build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, the TAC vaults, farms and the TAC ERC-20. Plain ES modules with no build step, and a public API with no keys. Each path lists the rules that matter and the mainnet transactions behind it.</p>
       <div class="facts">
         <div><span>Confidential pool</span><b>0x000000000Ed1eabD231Be41d93b719056F7febFC</b></div>
         <div><span>Relay and reflection API</span><b>https://api.tacit.finance</b></div>
@@ -787,7 +792,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td>TACD</td><td class="h">0xA0f6B02561C8ef08335B69aD25e022C0B342147C</td><td>A dollar borrowed against TAC.</td></tr>
     <tr><td>TACE</td><td class="h">0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570</td><td>Ether borrowed against TAC.</td></tr>
   </table></div>
-  <p>Resolve a pool-minted token with <code>canonicalTokenFor(assetId)</code> rather than caching it. The chain binding a burn or mint targets is <code>keccak256(chainId ‖ poolAddress)</code>. Private ETH on Ethereum, Base, Robinhood Chain and MegaETH uses a separate, smaller pool, described in its own guide, <a href="https://github.com/src-company/tacit/blob/main/docs/EVM-POOL.md" target="_blank" rel="noopener noreferrer">EVM-POOL.md</a>.</p>
+  <p>Resolve a pool-minted token with <code>canonicalTokenFor(assetId)</code> rather than caching it. The chain binding a burn or mint targets is <code>keccak256(chainId ‖ poolAddress)</code>. Private ETH on <svg class="tk inl" aria-hidden="true"><use href="#c-eth"/></svg>Ethereum, <svg class="tk inl" aria-hidden="true"><use href="#c-base"/></svg>Base, <svg class="tk inl" aria-hidden="true"><use href="#c-rh"/></svg>Robinhood Chain and <svg class="tk inl" aria-hidden="true"><use href="#c-mega"/></svg>MegaETH uses a separate, smaller pool, described in <a href="https://github.com/src-company/tacit/blob/main/docs/EVM-POOL.md" target="_blank" rel="noopener noreferrer">EVM-POOL.md</a>.</p>
 </section>
 
 <!-- ─────────────── TAC vaults ─────────────── -->

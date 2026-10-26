@@ -240,7 +240,7 @@ if (want.includes('board')) {
   const jobs = [boardJob('1', 41000), boardJob('2', 200000)];                     // 0.00041 and 0.002 ETH
   const { browser, page, calls, landed } = await run('board', { proof: null, jobs });
   const box = await page.textContent('#board-box');
-  ok(/2 settles waiting · 0\.0024 ETH in fees · gas <0\.0001 ETH each/.test(box), 'the board in figures', box.trim());
+  ok(/2 settles waiting · 0\.0024 ETH in fees · network fee <0\.0001 ETH each/.test(box), 'the board in figures', box.trim());
   ok(!(await page.isDisabled('#btn-board')) && (await page.textContent('#btn-board')) === 'Send one', 'Send one is offered');
   await page.click('#btn-board');
   await page.waitForFunction(() => /Landed/.test(document.querySelector('#board-status')?.textContent || ''), null, { timeout: 15000 });

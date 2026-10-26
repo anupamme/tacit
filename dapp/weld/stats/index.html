@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module (its sha256 pinned in script-src by build/build.mjs) and the reading it imports. It reads
      public data only: no wallet, no key; it keeps the last reading, and the chain data behind it, to read on from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RcTdeCCGq69A8mwYSj7we/xv/teI4YVNbDvY+DdqlJ4='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-w8RCl/0BmgC6+z8l5zDQavWiwPVKnGvT+Q3IqWr9N6Q='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -77,6 +77,14 @@ a:hover { text-decoration-thickness: 2px; }
 .shell { max-width: 960px; margin: 0 auto; padding-bottom: 56px; }
 
 .tk { width: 22px; height: 22px; display: block; flex: none; border-radius: 50%; }
+.tk.sm { width: 16px; height: 16px; }
+.tk.xs { width: 14px; height: 14px; }
+.tk.inl { display: inline-block; vertical-align: -3px; margin: 0 2px; }
+.chs, .pl, .pair { display: inline-flex; align-items: center; }
+.chs { gap: 4px; margin-left: 10px; }
+.pl { gap: 8px; }
+.pair { flex: none; }
+.pair .tk + .tk { margin-left: -9px; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0; }
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
 .brand .tk { width: 30px; height: 30px; }
@@ -290,6 +298,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="i-pts" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16 8.5L18 14L23.5 16L18 18L16 23.5L14 18L8.5 16L14 14Z" fill="#f7931a"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+    <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-ethereum" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
+    <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
   </defs>
 </svg>
 
@@ -336,7 +350,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <h2><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>Private ETH</h2>
     <div class="cards" data-cards="eth"></div>
     <div class="figure" id="f-eth">
-      <div class="k"><span>ETH over time</span><span class="legend"><span><i style="background:var(--ink)"></i>Private now</span><span><i style="background:var(--eth)"></i>Transacted each day</span></span></div>
+      <div class="k"><span>ETH over time<span class="chs" role="group" aria-label="Ethereum, Base and Robinhood Chain"><svg class="tk sm" role="img" aria-label="Ethereum"><title>Ethereum</title><use href="#c-ethereum"/></svg><svg class="tk sm" role="img" aria-label="Base"><title>Base</title><use href="#c-base"/></svg><svg class="tk sm" role="img" aria-label="Robinhood Chain"><title>Robinhood Chain</title><use href="#c-rh"/></svg></span></span><span class="legend"><span><i style="background:var(--ink)"></i>Private now</span><span><i style="background:var(--eth)"></i>Transacted each day</span></span></div>
       <div id="c-eth"></div>
     </div>
     <div class="figure" id="f-dev">
@@ -366,7 +380,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="grp" id="g-link">
-    <h2><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin and Ethereum</h2>
+    <h2><span class="pair" aria-hidden="true"><svg class="tk"><use href="#c-btc"/></svg><svg class="tk"><use href="#c-ethereum"/></svg></span>Bitcoin and Ethereum</h2>
     <div class="cards" data-cards="link"></div>
     <div class="figure" id="f-flow">
       <div class="k"><span>Between the chains</span></div>
@@ -381,12 +395,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <details class="how">
     <summary>How the figures are counted</summary>
     <dl>
-      <dt>Transacted</dt><dd>ETH deposited into the Tacit pool (its Wrap events) and into the device pools on Ethereum, Base and Robinhood Chain (their Transact events).</dd>
+      <dt>Transacted</dt><dd>ETH deposited into the Tacit pool (its Wrap events) and into the device pools on <svg class="tk xs inl" role="img" aria-label="Ethereum"><title>Ethereum</title><use href="#c-ethereum"/></svg><svg class="tk xs inl" role="img" aria-label="Base"><title>Base</title><use href="#c-base"/></svg><svg class="tk xs inl" role="img" aria-label="Robinhood Chain"><title>Robinhood Chain</title><use href="#c-rh"/></svg> (their Transact events).</dd>
       <dt>Private now</dt><dd>The ETH balance of the Tacit pool and of each device pool.</dd>
-      <dt>Withdrawn</dt><dd>What those pools have paid out, as withdrawals and relay fees.</dd>
+      <dt>Withdrawn</dt><dd>What those pools paid out: withdrawals and relay fees.</dd>
       <dt>Wallets</dt><dd>Distinct senders of the Tacit pool’s wraps. Device pools also take deposits through routers and keepers, so their senders are not counted.</dd>
       <dt>By pool</dt><dd>Each pool’s own deposits, payments out and balance. The totals are the figures above. Withdrawn includes relay fees.</dd>
-      <dt>ETH over time</dt><dd>Private now is each pool’s deposits and payments out added up as they happened, ending on its balance now. Beneath it, the ETH transacted on each UTC day, to its own scale.</dd>
+      <dt>ETH over time</dt><dd>Private now: each pool’s deposits and payments out, added up as they happened, ending on its balance. Beneath it, the ETH transacted on each UTC day, to its own scale.</dd>
       <dt>BTC locked</dt><dd>Proven locks not yet spent or redeemed, each found by its bond (EscrowPosted).</dd>
       <dt>cBTC minted</dt><dd>Every mint on those locks, including locks since closed.</dd>
       <dt>Bonds</dt><dd>wstETH in escrow now.</dd>
@@ -436,6 +450,11 @@ import { bodyType } from '/rpc-body.js';
 
 const EXPLORER = { 1: 'https://etherscan.io', 8453: 'https://basescan.org', 4663: 'https://robinhoodchain.blockscout.com' };
 const NAME = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood' };
+const CHAIN = { btc: ['c-btc', 'Bitcoin'], 1: ['c-ethereum', 'Ethereum'], 8453: ['c-base', 'Base'], 4663: ['c-rh', 'Robinhood Chain'] };
+// A chain's mark, named for a screen reader and on hover; `deco` is the bare mark for a place where the chain's name is written beside it.
+const mark = (c, cls = 'xs inl', name = CHAIN[c][1]) => `<svg class="tk ${cls}" role="img" aria-label="${name}"><title>${name}</title><use href="#${CHAIN[c][0]}"/></svg>`;
+const tag = (c) => `<svg class="tk xs inl" aria-hidden="true"><use href="#${CHAIN[c][0]}"/></svg>${CHAIN[c][1]}`;
+const deco = (c) => `<svg class="tk sm" aria-hidden="true"><use href="#${CHAIN[c][0]}"/></svg>`;
 const CACHE = 'tacit-weld-stats-v3', FRESH_MS = 15 * 60e3;
 
 // ── small helpers ─────────────────────────────────────────────────────────────────────────────────────────
@@ -471,7 +490,7 @@ function cardHtml(c) {
 }
 function paint(group, cards) { $(`[data-cards="${group}"]`).innerHTML = cards.map(cardHtml).join(''); }
 const PLACE = {
-  eth: [{ k: 'Transacted', icon: 'tk-eth' }, { k: 'Withdrawn' }, { k: 'Private now', icon: 'tk-teth' }, { k: 'Wallets' }],
+  eth: [{ k: 'Transacted', icon: 'tk-eth' }, { k: 'Withdrawn', icon: 'tk-eth' }, { k: 'Private now', icon: 'tk-teth' }, { k: 'Wallets' }],
   btc: [{ k: 'BTC locked', icon: 'tk-btc' }, { k: 'cBTC minted', icon: 'tk-cbtc' }, { k: 'Bonds' }, { k: 'cUSD borrowed', icon: 'tk-cusd' }],
   tac: [{ k: 'TAC ERC-20', icon: 'tk-tac' }, { k: 'TAC transacted' }, { k: 'TAC made public' }, { k: 'Airdrop claimed' }, { k: 'Others transacted' }],
   pts: [{ k: 'Participants' }, { k: 'Points' }, { k: 'TAC allocated' }, { k: 'TAC claimed' }],
@@ -564,9 +583,9 @@ function showPrivate() {
   // In the order the ETH goes: transacted, withdrawn, and what is private now.
   paint('eth', [
     { k: 'Transacted', icon: 'tk-eth', v: fmt(t.inWei, 18, 4), u: 'ETH', m: `${int(t.deposits)} deposit${t.deposits === 1 ? '' : 's'}${today ? ` · ${int(today)} in the past day` : t.lastAt ? ` · latest ${ago(t.lastAt)}` : ''}${left(t.unread.flow)}` },
-    { k: 'Withdrawn', v: fmt(t.outWei, 18, 4), u: 'ETH', m: `including relay fees${left(t.unread.flow)}` },
+    { k: 'Withdrawn', icon: 'tk-eth', v: fmt(t.outWei, 18, 4), u: 'ETH', m: `including relay fees${left(t.unread.flow)}` },
     { k: 'Private now', icon: 'tk-teth', v: fmt(t.held, 18, 4), u: 'ETH', m: `${fmt(v1.held, 18, 4)} in ${addr(A.pool, 1, 'the Tacit pool')} · ${fmt(devHeld, 18, 4)} in device pools${left(t.unread.held)}` },
-    { k: 'Wallets', v: int(eth.wallets), m: `that made ETH private in the Tacit pool${eth.unread ? ` · ${int(eth.unread)} deposit${eth.unread === 1 ? '' : 's'} unread` : ''}` },
+    { k: 'Wallets', v: int(eth.wallets), m: `that deposited ETH in the Tacit pool${eth.unread ? ` · ${int(eth.unread)} deposit${eth.unread === 1 ? '' : 's'} unread` : ''}` },
   ]);
   $('#f-eth').hidden = false;
   const svg = ethChart(t.series.ins, t.series.flows, t.held, nowS, widthOf($('#c-eth')));
@@ -576,9 +595,9 @@ function showPrivate() {
 // Each pool's own figures, the V1 pool first (once it is read) and the device pools after, and their total.
 function showPools(t, withTotal) {
   const cell = (v, n) => (v == null ? '—' : `${fmt(v, 18, 4)}${n != null ? `<span class="n"> (${int(n)})</span>` : ''}`);
-  const pool = (p) => `<a href="${EXPLORER[p.id]}/address/${esc(A.evmPool)}" target="_blank" rel="noopener">${esc(NAME[p.id])}<span class="wide"> device pool</span> ↗</a>`;
+  const pool = (p) => `<span class="pl">${deco(p.id)}<a href="${EXPLORER[p.id]}/address/${esc(A.evmPool)}" target="_blank" rel="noopener">${esc(NAME[p.id])}<span class="wide"> device pool</span> ↗</a></span>`;
   $('#c-dev').innerHTML = `<div class="tscroll"><table class="chains num"><thead><tr><th>Pool</th><th>Transacted</th><th class="wd">Withdrawn</th><th>Private now</th><th class="moves">Moves</th></tr></thead><tbody>
-    ${t.pools.map((p) => `<tr><td>${p.id === 'v1' ? addr(A.pool, 1, 'Tacit pool') : pool(p)}</td><td>${cell(p.inWei, p.deposits)}</td><td class="wd">${cell(p.outWei, p.withdrawals)}</td><td>${p.held == null ? '—' : fmt(p.held, 18, 4)}</td><td class="moves">${p.moves == null ? '—' : int(p.moves)}</td></tr>`).join('')}
+    ${t.pools.map((p) => `<tr><td>${p.id === 'v1' ? `<span class="pl">${deco(1)}${addr(A.pool, 1, 'Tacit pool')}</span>` : pool(p)}</td><td>${cell(p.inWei, p.deposits)}</td><td class="wd">${cell(p.outWei, p.withdrawals)}</td><td>${p.held == null ? '—' : fmt(p.held, 18, 4)}</td><td class="moves">${p.moves == null ? '—' : int(p.moves)}</td></tr>`).join('')}
     ${withTotal ? `<tr><td>Total</td><td>${fmt(t.inWei, 18, 4)}</td><td class="wd">${fmt(t.outWei, 18, 4)}</td><td>${fmt(t.held, 18, 4)} ETH</td><td class="moves"></td></tr>` : ''}</tbody></table></div>`;
   $('#f-dev').hidden = false;
 }
@@ -596,7 +615,7 @@ function showBtc(r) {
 function showTac(r) {
   const other = r.others.length ? r.others.map((o) => `${o.m?.symbol || 'other'} ${fmt(o.v, o.m?.decimals ?? 18, 4)}`).join(' · ') : 'none yet';
   paint('tac', [
-    { k: 'TAC ERC-20', icon: 'tk-tac', v: fmt(r.supply, 18, 0), u: 'TAC', m: `public, on Ethereum · <a href="https://etherscan.io/token/${A.tac}" target="_blank" rel="noopener">ERC-20 ↗</a> · <a href="https://etherscan.io/token/${A.tac}#balances" target="_blank" rel="noopener">holders ↗</a>` },
+    { k: 'TAC ERC-20', icon: 'tk-tac', v: fmt(r.supply, 18, 0), u: 'TAC', m: `${mark(1)} public · <a href="https://etherscan.io/token/${A.tac}" target="_blank" rel="noopener">ERC-20 ↗</a> · <a href="https://etherscan.io/token/${A.tac}#balances" target="_blank" rel="noopener">holders ↗</a>` },
     { k: 'TAC transacted', v: fmt(r.tacIn.v, 18, 2), u: 'TAC', m: `${int(r.tacIn.n)} deposit${r.tacIn.n === 1 ? '' : 's'}` },
     // The way back out. Absent (not zero) while its history is still being read on across readings.
     r.tacOut ? { k: 'TAC made public', v: fmt(r.tacOut.v, 18, 2), u: 'TAC', m: `${int(r.tacOut.n)} mint${r.tacOut.n === 1 ? '' : 's'} · ${int(r.tacOut.who)} account${r.tacOut.who === 1 ? '' : 's'}` }
@@ -608,7 +627,7 @@ function showTac(r) {
 
 // ── borrowed against TAC: the two vaults, read here on each visit (four calls in one request; the shared reading does not carry them) ──
 const VAULTS = { usd: '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F', eth: '0x00000047bFC8cF504967049D9Cf9E1FD9651ED80' };
-const VPLACE = [{ k: 'TACD borrowed' }, { k: 'TACE borrowed' }, { k: 'TAC deposited', icon: 'tk-tac' }];
+const VPLACE = [{ k: 'TACD borrowed', icon: 'tk-tacd' }, { k: 'TACE borrowed', icon: 'tk-tace' }, { k: 'TAC deposited', icon: 'tk-tac' }];
 const word = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 const VCALLS = [[VAULTS.usd, '0xfc7b9c18'], [VAULTS.eth, '0xfc7b9c18'], [A.tac, '0x70a08231' + word(VAULTS.usd)], [A.tac, '0x70a08231' + word(VAULTS.eth)]];   // totalDebt(), balanceOf(vault)
 async function readVaults() {
@@ -627,8 +646,8 @@ function showVaults(v) {
   if (!v) return paint('vlt', VPLACE.map((c) => ({ ...c, v: '—', err: true, m: 'not read yet' })));
   const [usdDebt, ethDebt, usdTac, ethTac] = v;
   paint('vlt', [
-    { k: 'TACD borrowed', v: fmt(usdDebt, 18, 2), u: 'TACD', m: `${addr(VAULTS.usd, 1, 'dollar vault')} · <a href="/vault/">borrow →</a>` },
-    { k: 'TACE borrowed', v: fmt(ethDebt, 18, 4), u: 'TACE', m: `${addr(VAULTS.eth, 1, 'ether vault')} · <a href="/vault/">borrow →</a>` },
+    { k: 'TACD borrowed', icon: 'tk-tacd', v: fmt(usdDebt, 18, 2), u: 'TACD', m: `${addr(VAULTS.usd, 1, 'dollar vault')} · <a href="/vault/">borrow →</a>` },
+    { k: 'TACE borrowed', icon: 'tk-tace', v: fmt(ethDebt, 18, 4), u: 'TACE', m: `${addr(VAULTS.eth, 1, 'ether vault')} · <a href="/vault/">borrow →</a>` },
     { k: 'TAC deposited', icon: 'tk-tac', v: fmt(usdTac + ethTac, 18, 2), u: 'TAC', m: `${fmt(usdTac, 18, 2)} in the dollar vault · ${fmt(ethTac, 18, 2)} in the ether vault` },
   ]);
 }
@@ -652,7 +671,7 @@ function showLink(r, eth) {
     { k: 'Bitcoin headers', icon: 'tk-btc', v: int(r.tip), u: 'block', m: `${int(r.tip - r.anchorHeight)} relayed${behind == null ? '' : behind <= 0 ? ' · at the tip' : ` · ${int(behind)} behind · <a href="/weld/keeper/">advance it yourself →</a>`}` },
     { k: 'Proven to', v: int(r.attestedHeight), u: 'block', m: `${int(r.attests)} attestations${r.lastAttest ? ` · latest ${ago(Number(r.lastAttest.timeStamp))} ${tx(r.lastAttest.hash)}` : ''}` },
     { k: 'Settles', v: int(r.settles), m: `${int(r.notes)} notes made · ${int(r.spent)} spent` },
-    { k: 'Cross-chain', v: int(r.crossOuts + r.consumed + (minted ?? bridged ?? 0)), u: 'moves', m: `${int(r.crossOuts)} to Bitcoin${folded != null ? ` (${int(folded)} folded)` : ''} · ${int(r.consumed)} spent on Ethereum${bridged == null ? '' : minted == null ? ` · ${int(bridged)} bridged in` : ` · ${int(minted)} bridged in${bridged > minted ? ` (${int(bridged - minted)} more recorded, not minted yet)` : ''}`}` },
+    { k: 'Cross-chain', v: int(r.crossOuts + r.consumed + (minted ?? bridged ?? 0)), u: 'moves', m: `${int(r.crossOuts)} to ${tag('btc')}${folded != null ? ` (${int(folded)} folded)` : ''} · ${int(r.consumed)} spent on ${tag(1)}${bridged == null ? '' : minted == null ? ` · ${int(bridged)} bridged in` : ` · ${int(minted)} bridged in${bridged > minted ? ` (${int(bridged - minted)} more recorded, not minted yet)` : ''}`}` },
   ]);
   const deposits = eth ? depositTimes(eth.series.ins) : [];
   const t0 = Math.min(...[...r.times.settles, ...r.times.attests, ...deposits].filter(Boolean));
@@ -685,11 +704,11 @@ const showAll = (r) => {
 const when = (ms) => new Date(ms).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 function note(r, extra = '') {
   const bits = [`As of ${when(r.at)}`];
-  if (r.block) bits.push(`Ethereum ${int(r.block)}`);
-  if (r.link?.btcTip) bits.push(`Bitcoin ${int(r.link.btcTip)}`);
+  if (r.block) bits.push(`${mark(1, 'xs inl', 'Ethereum block')} ${int(r.block)}`);
+  if (r.link?.btcTip) bits.push(`${mark('btc', 'xs inl', 'Bitcoin block')} ${int(r.link.btcTip)}`);
   if (r.stale?.length && r.staleAt) bits.push(`some figures from ${when(r.staleAt)}`);
   if (extra) bits.push(extra);
-  $('#asof').textContent = bits.join(' · ');
+  $('#asof').innerHTML = bits.join(' · ');
 }
 // The last reading (small, in localStorage) and what the reader kept to read on from (larger, in IndexedDB). Either may
 // be unavailable; the page then reads everything afresh, as on a first visit.

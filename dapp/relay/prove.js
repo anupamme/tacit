@@ -2,8 +2,8 @@
 // account is put into the prover network within a few minutes (under 2 PROVE, at the relay's next half-hourly top-up). A visitor's wallet can send PROVE there, or pay ETH that zRouter swaps to
 // PROVE with the prover account as the recipient, in one transaction. Only the visitor's own balances are read; never the prover account's.
 import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=5078b247';
-import { UserStopped } from '/trade/wallet.js?cb=fe7a26b6';
-import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=509d6618';
+import { UserStopped } from '/trade/wallet.js?cb=6778fe25';
+import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=dcf3a4f2';
 
 const SCAN = 'https://etherscan.io/';
 const QUOTE_TTL = 60e3;                                                            // a quote older than this is read again before it is sent
@@ -75,7 +75,7 @@ export function mountProve({ el, wallet, W, connect, say }) {
   // Each send is tried with eth_call from the paying account first: a call that would revert is never put to the wallet.
   async function sendTx(tx, from) {
     try { await rpc('eth_call', [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: '0x' + tx.value.toString(16) } : {}) }, 'latest']); }
-    catch (e) { throw new Error(e?.revert ? 'It would not go through, so nothing was sent.' : 'It could not be checked, so nothing was sent. Try again in a moment.'); }
+    catch (e) { throw new Error(e?.revert ? 'It would not go through. Nothing was sent.' : 'Could not check it. Nothing was sent. Try again in a moment.'); }
     say('Confirm in your wallet…');
     return wallet.sendTx({ ...tx, from });
   }
@@ -99,7 +99,7 @@ export function mountProve({ el, wallet, W, connect, say }) {
       P.amt = ''; $('#pv-amt').value = ''; P.quote = null; P.seq++;
       const rc = await wallet.receipt(hash);
       if (rc.status !== '0x1') say(`It did not go through ${link(hash)}. Nothing was lost but its network fee.`, true);
-      else say(`<span class="ok">Landed.</span> ${link(hash)} It reaches the prover within a few minutes, or within half an hour for under 2 PROVE. Thank you.`);
+      else say(`<span class="ok">Landed.</span> ${link(hash)} It reaches the prover within a few minutes, or within half an hour for under 2 PROVE.`);
     } catch (e) { say(esc(e instanceof UserStopped || e?.userStopped ? e.message : (e?.message || 'It could not be sent.')), true); }
     finally { P.busy = false; await readBalances().catch(() => {}); render(); }
   }
