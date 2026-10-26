@@ -2,10 +2,11 @@
 
 package sp1
 
-// The Groth16 step's G1 multi-exponentiations on the Mac's GPU (Metal), while the CPU takes the G2 one: Pippenger with 16
-// windows of 16 bits. Per block of bases the CPU writes the canonical scalars' digits as, for each window, the point indices
-// sorted into their buckets; the GPU adds each bucket's points (gpu_msm.metal), keeping the bucket sums from block to block;
-// at the end the CPU folds the buckets (Σ b·B_b by running sums) and the windows. The result is the same point gnark's
+// The Groth16 step's G1 multi-exponentiations on the Mac's GPU (Metal): Pippenger with 16 windows of 16 bits. Per block of
+// bases the CPU writes the canonical scalars' digits as, for each window, the point indices sorted into their buckets, while
+// the GPU adds the block before's (gpu_msm.metal; two sets of buffers), the bucket sums carrying from block to block; at the
+// end the CPU folds the buckets (Σ b·B_b by running sums) and the windows. The CPU's part needs its cores: the G2 sum runs
+// after, not beside it (prove_lean.go). The result is the same point gnark's
 // MultiExp gives. Before the GPU is first used its sum over 4096 of the key's own bases is compared with gnark's, and any
 // mismatch turns it off; a proof made with it is also verified before it is returned (prove_lean.go).
 // SP1_GNARK_GPU=0 keeps everything on the CPU.
@@ -18,11 +19,12 @@ package sp1
 int tacit_msm_init(const char *msl, uint32_t cap, uint32_t nb, uint32_t windows, char *name, size_t name_len);
 int tacit_msm_alloc(void);
 void tacit_msm_release(void);
-void *tacit_msm_pts(void);
-void *tacit_msm_order(void);
-void *tacit_msm_start(void);
+void *tacit_msm_pts(int s);
+void *tacit_msm_order(int s);
+void *tacit_msm_start(int s);
 void *tacit_msm_out(void);
-int tacit_msm_block(uint32_t n, uint32_t first);
+int tacit_msm_wait(int s);
+int tacit_msm_send(int s, uint32_t n, uint32_t first);
 */
 import "C"
 
@@ -45,7 +47,7 @@ const (
 	gpuWindowBits = 16
 	gpuWindows    = 16 // 16 windows of 16 bits hold a canonical BN254 scalar
 	gpuBuckets    = 1<<gpuWindowBits - 1
-	gpuBlock      = 1 << 22 // bases per block: 256 MB of points and 256 MB of order on the GPU
+	gpuBlock      = 1 << 21 // bases per block: 128 MB of points and 128 MB of order, twice over
 )
 
 var (
@@ -135,11 +137,17 @@ func gpuMsmG1(dst *curve.G1Jac, bases []curve.G1Affine, scalars []fr.Element) er
 	if rc := C.tacit_msm_alloc(); rc != 0 {
 		return fmt.Errorf("the GPU's buffers could not be made (%d)", rc)
 	}
-	ptsBuf := unsafe.Slice((*curve.G1Affine)(C.tacit_msm_pts()), gpuBlock)
-	order := unsafe.Slice((*uint32)(C.tacit_msm_order()), gpuBlock*gpuWindows)
-	start := unsafe.Slice((*uint32)(C.tacit_msm_start()), (gpuBuckets+1)*gpuWindows)
 	canon := make([][4]uint64, min(gpuBlock, len(bases)))
-	for lo := 0; lo < len(bases); lo += gpuBlock {
+	// Set k%2 takes block k; before it is written again the GPU must be done with the block it last held.
+	k := 0
+	for lo := 0; lo < len(bases); lo, k = lo+gpuBlock, k+1 {
+		set := C.int(k % 2)
+		if rc := C.tacit_msm_wait(set); rc != 0 {
+			return fmt.Errorf("the GPU's bucket sums failed (%d)", rc)
+		}
+		ptsBuf := unsafe.Slice((*curve.G1Affine)(C.tacit_msm_pts(set)), gpuBlock)
+		order := unsafe.Slice((*uint32)(C.tacit_msm_order(set)), gpuBlock*gpuWindows)
+		start := unsafe.Slice((*uint32)(C.tacit_msm_start(set)), (gpuBuckets+1)*gpuWindows)
 		hi := min(lo+gpuBlock, len(bases))
 		n := hi - lo
 		copy(ptsBuf[:n], bases[lo:hi])
@@ -182,7 +190,12 @@ func gpuMsmG1(dst *curve.G1Jac, bases []curve.G1Affine, scalars []fr.Element) er
 		if lo == 0 {
 			first = 1
 		}
-		if rc := C.tacit_msm_block(C.uint32_t(n), first); rc != 0 {
+		if rc := C.tacit_msm_send(set, C.uint32_t(n), first); rc != 0 {
+			return fmt.Errorf("the GPU's bucket sums failed (%d)", rc)
+		}
+	}
+	for set := C.int(0); set < 2; set++ {
+		if rc := C.tacit_msm_wait(set); rc != 0 {
 			return fmt.Errorf("the GPU's bucket sums failed (%d)", rc)
 		}
 	}

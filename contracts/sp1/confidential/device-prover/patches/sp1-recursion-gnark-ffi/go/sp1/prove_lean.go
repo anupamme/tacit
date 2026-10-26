@@ -12,7 +12,7 @@ package sp1
 //     enough to stay in memory across the windows (SP1_GNARK_MSM_BLOCK points; 0 = one block), so a base page is read
 //     from the disk about once per proof; the block sums are added up, so the result is the same point;
 //   - every vector is dropped as soon as its last product is taken;
-//   - on a Mac the four G1 multi-exponentiations run on the GPU while the CPU takes the G2 one (gpu_msm_darwin.go).
+//   - on a Mac the four G1 multi-exponentiations run on the GPU, the CPU sorting each block for it (gpu_msm_darwin.go).
 // The proof is the same kind of proof (random r and s, as gnark's), and the caller verifies it against the verifying key.
 
 import (
@@ -177,18 +177,13 @@ func proveLean(r1cs *cs.R1CS, pk *groth16_bn254.ProvingKey, fullWitness witness.
 		return bs, err
 	}
 
-	// On a Mac the G1 sums run on the GPU while the CPU takes the G2 one; elsewhere, or with the GPU off, one after another.
+	// On a Mac the G1 sums run on the GPU, then the G2 one on the CPU: the GPU's sums need the CPU's cores to sort each block
+	// for them, so the two do not run side by side. Elsewhere, or with the GPU off, all on the CPU.
 	useGPU := gpuMsmReady() && gpuMsmCanary(pk.G1.A)
 	var bs curve.G2Jac
 	var g1err, g2err error
 	if useGPU {
-		done := make(chan struct{})
-		go func() {
-			g1err = g1("GPU", gpuMsmG1)
-			close(done)
-		}()
-		bs, g2err = g2()
-		<-done
+		g1err = g1("GPU", gpuMsmG1)
 		gpuMsmRelease()
 		if g1err != nil {
 			gpuMsmOff(g1err.Error())
@@ -196,9 +191,10 @@ func proveLean(r1cs *cs.R1CS, pk *groth16_bn254.ProvingKey, fullWitness witness.
 			g1err = g1("CPU", cpuG1)
 		}
 	} else {
-		if g1err = g1("CPU", cpuG1); g1err == nil {
-			bs, g2err = g2()
-		}
+		g1err = g1("CPU", cpuG1)
+	}
+	if g1err == nil {
+		bs, g2err = g2()
 	}
 	if g1err != nil {
 		return nil, g1err
