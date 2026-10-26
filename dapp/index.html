@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Dk5Pxk521wP1kTUZVutDjJwu1h6NtNGPJqLT9v1f6Go=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-eDUZCfrgJqzJBkFVsUIJRKsLq/oWQ7ly5Gx1z/Xg+DI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1799,16 +1799,18 @@ const TOKEN_POOLS = [
 // What this browser kept says which to show, never where they are: the pools the relay lists (SERVED) have their addresses fixed there, and
 // any other token's are derived from the token here (with the pools' creation code, loaded only when there is one).
 const SEEN_POOLS = (() => { try { return (JSON.parse(localStorage.getItem('tacit-token-pools-v1') || '[]') || []).filter((x) => /^0x[0-9a-fA-F]{40}$/.test(String(x?.token || ''))); } catch { return []; } })();
-const tokenPoolRow = ({ token, sym, dec, pool, router, maxRelayFee }) => {
+const tokenPoolRow = ({ token, sym, dec, pool, router, maxRelayFee, permit = null }) => {
   const id = keeperIdOf(token);
   if (TOKEN_POOLS.some((p) => p.pool.toLowerCase() === pool.toLowerCase() || p.slug === id.slice(2))) return null;
-  const row = { slug: id.slice(2), name: sym, sym, dec, icon: ['usdc', 'usdt'].includes(sym.toLowerCase()) ? `tk-${sym.toLowerCase()}` : 'tk-peth', chainId: 1, token: token.toLowerCase(), permit: null,
+  const row = { slug: id.slice(2), name: sym, sym, dec, icon: ['usdc', 'usdt'].includes(sym.toLowerCase()) ? `tk-${sym.toLowerCase()}` : 'tk-peth', chainId: 1, token: token.toLowerCase(), permit,
     keeper: `${POOL_KEEPERS}/${id}/evm-pool/keeper`, relayer: POOL_RELAYER, maxRelayFee, pool, router, deployBlock: 26262000,
     rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations };
   TOKEN_POOLS.push(row);
   return row;
 };
 for (const [token, v] of Object.entries(SERVED_POOLS)) tokenPoolRow({ token, ...v });          // the pools the relay serves: always listed
+// and wstETH's, open on Ethereum since (served too; /pay/eth and anon.wei list it), its permit signed under the token's name
+tokenPoolRow({ token: ADDR.wsteth, sym: 'wstETH', dec: 18, pool: '0x0a83Fb67EE2708F10BCdd8FE23Fa3B30A0247Aac', router: '0x9416C7BFb7f8d1f164E50f4e055Bd2D8542d60DA', maxRelayFee: 5n * 10n ** 16n, permit: 'Wrapped liquid staked Ether 2.0' });
 const OTHER_POOLS = SEEN_POOLS.filter((x) => !SERVED_POOLS[x.token.toLowerCase()] && !TOKEN_POOLS.some((p) => p.token.toLowerCase() === x.token.toLowerCase())).slice(0, 20);
 if (OTHER_POOLS.length) (async () => {
   const tp = makeTokenPools({ code: await fetch('/evm-pool/token-pool-code.json').then((r) => r.json()), keccak256: keccak_256 });

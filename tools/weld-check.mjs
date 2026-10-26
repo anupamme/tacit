@@ -1309,6 +1309,7 @@ await step('devtokpool', async () => {
     await until(p, () => /^\d/.test(document.querySelector('.bal .v')?.textContent || ''), null, 240000);
     ok((await shown()) === '0' && /USDC, private on this device/.test(await text(p, '.bal .u')) && await p.$(`[data-chain="${slug}"][aria-selected="true"]`), `devtokpool: the sheet lists the USDC pool a swap went through, in USDC (${await shown()})`);
     ok(!!(await p.$(`[data-chain="${DAI_TP.id.slice(2)}"]`)), 'devtokpool: and the DAI pool a swap went through (its addresses derived on the page from DAI, not the ones the browser kept)');
+    ok(!!(await p.$('[data-chain="x7f39c581f5"]')), 'devtokpool: and wstETH\'s pool, listed whether or not a swap went through it');
     await p.fill('#d-amt', '25');
     await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
     const held = await usdcOf(USDC_TP.pool);

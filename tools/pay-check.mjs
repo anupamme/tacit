@@ -11,6 +11,8 @@
 //          Activity rebuilt from the key
 //   tokens an anvil fork of Ethereum: the USDC pool's deposit by permit, a private send and a withdrawal through a stubbed relay, a payment link in
 //          USDC paid from a wallet with no Tacit key, and the recipient's key finding it
+//   tokbase the same on an anvil fork of Base, for Base's USDC pool: each chain's pools in the asset row, the permit signed for Base, the
+//          relay's send and withdrawal, and a payment link that names the chain (&chain=base)
 //   poolact with KEY (the canary): its real take-out that a payment through the pool recorded (sold for 3,300 sats) shows in Activity
 //          as "Paid through the pool", not as a send from its own Bitcoin address
 //   poolpay read-only against mainnet with KEY (a key holding shielded TAC): BTC Send to a bc1… address switched to the shielded
@@ -1113,6 +1115,145 @@ try {
     await p.click('#assets [data-tok="usdc"]');
     await p.waitForFunction(() => /^125$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 180e3 }).catch(() => {});
     ok(/^125$/.test((await p.textContent('#bal .v')).trim()), `the recipient's key finds the 100 sent and the 25 paid: ${await p.textContent('#bal .v')} USDC`);
+    ok(!errors.filter((e) => !/status of (404|503)/.test(e)).length, `no page errors ${errors.join(' | ').slice(0, 200)}`);
+    await ctx.close();
+    anvil.kill('SIGKILL');
+  }
+
+  if (ONLY.has('tokbase')) {
+    // A token pool on another chain than Ethereum (Base's USDC, on an anvil fork of Base): picked on Base beside its ETH, a deposit by a permit
+    // signed for Base (one transaction, no approval), a private send and a withdrawal through a stubbed relay (Base's keeper address), a payment
+    // link that names the chain, paid from a wallet with no Tacit key, and the recipient's key finding what it was paid.
+    console.log('tokbase (Base fork, USDC pool)');
+    const { calldata } = await import(new URL('../dapp/evm-pool-gateway.js', import.meta.url));
+    const PAIR = { tuple: ['uint256', 'uint256'] }, B = (x) => BigInt(x);
+    const TX_TYPES = [PAIR, { tuple: [PAIR, PAIR] }, PAIR, { tuple: Array(11).fill('uint256') }, 'address', 'uint256', 'address', 'uint256', 'bytes', 'bytes'];
+    const TX_SIG = '(uint256[2],uint256[2][2],uint256[2],uint256[11],address,int256,address,uint256,bytes,bytes)';
+    const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, [t.pA.map(B), t.pB.map((r) => r.map(B)), t.pC.map(B), t.publicInputs.map(B), t.recipient, BigInt.asUintN(256, B(t.extAmount)), t.relayer, B(t.fee), t.memo0, t.memo1]);
+    const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', POOLU = '0xCAf6BE2e337AEcAB4a4eA183452f78800fD1616D', RELAYER = '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec';
+    const PORT = WEB + 5, ANVIL = `http://127.0.0.1:${PORT}`, hosts = /mainnet\.base\.org|base\.gateway\.tenderly\.co|base\.drpc\.org|base\.rpc\.blxrbdn\.com/;
+    // forked from a node that answers 5,000-block log reads (mainnet.base.org limits them when busy)
+    const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', process.env.BASE_RPC || 'https://base-rpc.publicnode.com', '--chain-id', '8453', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
+    process.on('exit', () => anvil.kill('SIGKILL'));
+    const rpc = async (method, params = []) => { const r = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (r.error) throw new Error(r.error.message); return r.result; };
+    for (let i = 0; ; i++) { try { await rpc('eth_chainId'); break; } catch { if (i > 120) throw new Error('anvil did not start'); await sleep(500); } }
+    const ACCT = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
+    await rpc('anvil_setCode', [ACCT, '0x']);
+    for (const a of [ACCT, RELAYER]) await rpc('anvil_setBalance', [a, '0x' + (10n ** 18n).toString(16)]);
+    await rpc('anvil_dealERC20', [ACCT, USDC, '0x' + (1000n * 10n ** 6n).toString(16)]);
+    await rpc('anvil_autoImpersonateAccount', [true]);
+    const usdcOf = async (a) => BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
+    const nonceOf = async (a) => Number(BigInt(await rpc('eth_getTransactionCount', [a, 'latest'])));
+    const relays = [];
+    const route = async (ctx) => {
+      await ctx.route(hosts, async (r) => {
+        const body = r.request().postData();
+        let text;
+        try { text = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text(); }
+        catch (e) { text = JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(body || '{}').id ?? 1, error: { code: -32000, message: `fork: ${e.message}` } }); }
+        await r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: text }).catch(() => {});
+      });
+      await ctx.route(/tacit-evm-pool-keeper/, async (r) => {
+        const u = new URL(r.request().url()), H = { 'access-control-allow-origin': '*' };
+        if (!/^\/8453-x833589fcd6\//.test(u.pathname)) return r.fulfill({ status: 503, contentType: 'application/json', headers: H, body: '{"error":"stubbed"}' });
+        if (/\/quote$/.test(u.pathname)) return r.fulfill({ status: 200, contentType: 'application/json', headers: H, body: JSON.stringify({ chainId: 8453, pool: POOLU, relayer: RELAYER, asset: USDC, fee: '20000', gas: '450000', sweepFee: '20000', receiveMin: '4000000' }) });
+        if (/\/relay$/.test(u.pathname) && r.request().method() === 'POST') {
+          const b = JSON.parse(r.request().postData() || '{}');
+          const txHash = await rpc('eth_sendTransaction', [{ from: RELAYER, to: POOLU, data: transactData(b.tx), gas: '0x1e8480' }]);
+          relays.push(txHash);
+          return r.fulfill({ status: 200, contentType: 'application/json', headers: H, body: JSON.stringify({ txHash }) });
+        }
+        return r.fulfill({ status: 404, contentType: 'application/json', headers: H, body: '{"error":"no such route"}' });
+      });
+      await ctx.route(/api\.tacit\.finance\/(points|claim|stats)/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' }));
+    };
+    const init = `(() => {
+      const ANVIL = 'https://mainnet.base.org', ACCT = ${JSON.stringify(ACCT)};
+      let chain = '0x1';
+      const call = async (method, params) => { const r = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (r.error) throw Object.assign(new Error(r.error.message), r.error); return r.result; };
+      window.__chains = [];
+      window.ethereum = { isMetaMask: true, on() {}, removeListener() {}, request: async ({ method, params }) => {
+        if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [ACCT];
+        if (method === 'eth_chainId') return chain;
+        if (method === 'wallet_switchEthereumChain') { chain = params[0].chainId; window.__chains.push(chain); return null; }
+        if (method === 'wallet_getCapabilities') throw Object.assign(new Error('not supported'), { code: -32601 });
+        if (method === 'eth_sendTransaction') { if (chain !== '0x2105' || params[0].chainId !== '0x2105') throw new Error('sent on chain ' + chain + ' for ' + params[0].chainId); return call('eth_sendTransaction', [{ ...params[0], from: ACCT }]); }
+        if (method === 'eth_signTypedData_v4' && JSON.parse(params[1]).domain.chainId !== 8453) throw new Error('a permit for another chain');
+        return call(method, params || []);
+      } };
+      localStorage.setItem('tacit-pay-chain-v1', '8453');
+    })();`;
+    const { ctx, p, errors } = await page(browser, { init, route });
+    await p.goto(URL_);
+    const key = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const other = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await p.waitForSelector('#g-in');
+    const toks = () => p.$$eval('#assets:not([hidden]) [data-tok]', (bs) => bs.map((b) => b.dataset.tok).join(','));
+    ok(await toks() === ',usdc,usdt,wsteth', `on Base the page offers ETH and Base's USDC, USDT and wstETH pools (${await toks()})`);
+    await p.click('#chain-4663');
+    ok(await toks() === ',usdg,usde', `on Robinhood Chain, USDG and USDe (${await toks()})`);
+    await p.click('#chain-4326');
+    ok(await toks() === '', 'on MegaETH, none: the asset row is hidden');
+    await p.click('#chain-1');
+    ok(await toks() === ',usdc,usdt,tac,wsteth', `on Ethereum, USDC, USDT, TAC and wstETH (${await toks()})`);
+    await p.click('#chain-8453');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.click('#tabs [data-tab="receive"]');
+    await p.click('#f-acopy');
+    const otherTacit = await p.evaluate(() => navigator.clipboard.readText());
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await openKey(p, key);
+    await p.evaluate(() => document.querySelector('#wallet-label').click()); await p.click('#w-conn'); await p.click('#sheet-wallet [data-close]');
+    await p.click('#assets [data-tok="usdc"]');
+    ok(/USDC, private on Base/.test(await p.textContent('#bal')) && /#base\/usdc\//.test(await p.evaluate(() => location.hash)), `Base's USDC is picked (${(await p.textContent('#bal')).replace(/\s+/g, ' ').trim().slice(0, 50)}, ${await p.evaluate(() => location.hash)})`);
+    await p.click('#tabs [data-tab="deposit"]');
+    await p.waitForFunction(() => /1,000/.test(document.querySelector('#f-wb')?.textContent || ''), null, { timeout: 60e3 }).catch(() => {});
+    ok(/1,000/.test(await p.textContent('#f-wb')), `the wallet's USDC is read on Base (${await p.textContent('#f-wb')})`);
+    await p.fill('#f-amt', '300');
+    const t0 = Date.now(), u0 = await usdcOf(ACCT), n0 = await nonceOf(ACCT);
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Deposited/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Deposited 300 USDC/.test(await p.textContent('#status')) && u0 - (await usdcOf(ACCT)) === 300n * 10n ** 6n, `deposit of 300 USDC on Base, proved here (${Math.round((Date.now() - t0) / 1000)} s): ${(await p.textContent('#status')).trim()}`);
+    ok(await nonceOf(ACCT) - n0 === 1, `one transaction: the permit was signed for Base, so no approval went first (${await nonceOf(ACCT) - n0} sent)`);
+    await p.waitForFunction(() => /^300$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 120e3 }).catch(() => {});
+    ok(/^300$/.test((await p.textContent('#bal .v')).trim()), `private balance: ${await p.textContent('#bal .v')} USDC`);
+    await p.click('#tabs [data-tab="send"]');
+    await p.fill('#f-to', otherTacit); await p.fill('#f-amt', '100');
+    await p.waitForFunction(() => /Relay fee/.test(document.querySelector('#f-rcpt')?.textContent || '') && !document.querySelector('#f-go').disabled, null, { timeout: 60e3 }).catch(() => {});
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Sent/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Sent 100 USDC privately/.test(await p.textContent('#status')) && relays.length === 1, `a private send of 100 USDC through Base's relay: ${(await p.textContent('#status')).trim()}`);
+    await p.click('#tabs [data-tab="withdraw"]');
+    const before3 = await usdcOf('0x' + '33'.repeat(20));
+    await p.fill('#f-to', '0x' + '33'.repeat(20)); await p.fill('#f-amt', '50');
+    await p.waitForFunction(() => !document.querySelector('#f-go').disabled, null, { timeout: 60e3 }).catch(() => {});
+    await p.click('#f-go');
+    await p.waitForFunction(() => /Withdrew/.test(document.querySelector('#status').textContent) || document.querySelector('#status .err'), null, { timeout: 600e3 });
+    ok(/Withdrew 50 USDC/.test(await p.textContent('#status')) && (await usdcOf('0x' + '33'.repeat(20))) - before3 === 50n * 10n ** 6n && relays.length === 2, `a withdrawal of exactly 50 USDC on Base, sent by the relay: ${(await p.textContent('#status')).trim()}`);
+    // a request for 25 USDC on Base, from the other key, paid from a wallet by someone with no Tacit key
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.click('#tabs [data-tab="receive"]');
+    await p.fill('#f-ramt', '25'); await sleep(300);
+    await p.click('#f-rcopy');
+    const link = await p.evaluate(() => navigator.clipboard.readText());
+    ok(/#pay=tacit1.+asset=usdc.+amount=25.+chain=base/.test(link), `the payment link names USDC, the amount and Base (…${link.slice(-40)})`);
+    await p.click('#wallet'); await p.click('#w-lock'); await p.click('#sheet-wallet [data-close]');
+    await p.click('#chain-1');
+    await p.goto(link.replace(/^https?:\/\/[^/]+/, new URL(URL_).origin));
+    await p.waitForSelector('#req-wallet');
+    ok(/25 USDC.*in USDC on Base/.test((await p.textContent('#req')).replace(/\s+/g, ' ')), `the request reads 25 USDC on Base (${(await p.textContent('#req .req-m')).replace(/\s+/g, ' ').trim().slice(-30)})`);
+    await p.click('#req-wallet');
+    await p.waitForFunction(() => /now in their private balance|You paid/.test(document.querySelector('#req').textContent) || document.querySelector('#req .err'), null, { timeout: 600e3 });
+    ok(/Paid 25 USDC, now in their private balance/.test(await p.textContent('#req')), `paid from a wallet on Base, no Tacit key: ${(await p.textContent('#req')).replace(/\s+/g, ' ').trim().slice(0, 120)}`);
+    await p.click('#req-x');
+    await openKey(p, other);
+    await p.click('#assets [data-tok="usdc"]');
+    await p.waitForFunction(() => /^125$/.test(document.querySelector('#bal .v')?.textContent.trim() || ''), null, { timeout: 180e3 }).catch(() => {});
+    ok(/^125$/.test((await p.textContent('#bal .v')).trim()), `the recipient's key finds the 100 sent and the 25 paid on Base: ${await p.textContent('#bal .v')} USDC`);
+    ok((await p.evaluate(() => window.__chains)).every((c) => c === '0x2105'), `the wallet was only ever asked for Base (${[...new Set(await p.evaluate(() => window.__chains))].join(', ')})`);
     ok(!errors.filter((e) => !/status of (404|503)/.test(e)).length, `no page errors ${errors.join(' | ').slice(0, 200)}`);
     await ctx.close();
     anvil.kill('SIGKILL');

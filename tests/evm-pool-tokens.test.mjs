@@ -166,3 +166,20 @@ test("a chain's constants must name a verifier and four addresses", () => {
   assert.throws(() => makeTokenPools({ code, keccak256: keccak_256, chain: { ...TOKEN_POOL_CHAINS[8453], v1: undefined } }), /V1/);
   assert.throws(() => makeTokenPools({ code, keccak256: keccak_256, chain: { chainId: 0 } }), /chain id/);
 });
+
+// /pay/eth's token pools (TOKEN_POOLS in its page, the pools anon.wei opens too): each where the salts put it on its chain, and every pool
+// opened there (TAC, the served ones and the kits') among them, so a note made on either page shows on the other.
+test('the pools /pay/eth opens are where the salts put them on their chains, and every pool opened is among them', () => {
+  const src = readFileSync(new URL('../dapp/pay/eth/index.html', import.meta.url), 'utf8');
+  const m = /\nconst TOKEN_POOLS = (\{\n[\s\S]*?\n\});\n/.exec(src);
+  assert.ok(m, 'the page lists its token pools');
+  const pools = Object.entries(new Function(`return ${m[1]};`)()).flatMap(([c, list]) => list.map((p) => ({ ...p, chainId: Number(c) })));
+  for (const p of pools) {
+    const t = makeTokenPools({ code, keccak256: keccak_256, chain: TOKEN_POOL_CHAINS[p.chainId] }), q = t.poolOf(p.token);
+    assert.deepStrictEqual([p.token, p.pool, p.router], [q.token, q.pool, q.router], `${p.chainId} ${p.sym}`);
+    assert.ok(Number.isSafeInteger(p.from) && p.from > 0 && typeof p.maxRelayFee === 'bigint' && p.maxRelayFee > 0n, `${p.chainId} ${p.sym}: its first block and relay fee ceiling`);
+  }
+  const listed = (c, token) => pools.some((p) => p.chainId === c && p.token.toLowerCase() === token.toLowerCase());
+  for (const [c, token] of [[1, TAC], ...Object.keys(SERVED).map((t) => [1, t]), ...OPENED]) assert.ok(listed(c, token), `${c} ${token} is listed`);
+  assert.strictEqual(new Set(pools.map((p) => `${p.chainId}:${p.sym.toLowerCase()}`)).size, pools.length, 'one pool a symbol on each chain');
+});
