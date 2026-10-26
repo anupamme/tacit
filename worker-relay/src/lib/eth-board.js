@@ -8,7 +8,7 @@
 // network, as before, having cost at most the wait. Every dependency is injected (lib/prover.js wires them), so this is tested
 // without the binary, the API or the chain.
 //
-//   capable()          → whether a worker that proves 'eth-state' has polled the board lately
+//   capable()          → whether a worker that proves 'eth-state' has polled the board lately (lib/prover.js: within two minutes)
 //   buildInput()       → { stdin: Uint8Array, expectPv: hex without 0x } (eth_prove SP1_PROVER=stdin)
 //   lane               the board lane (lib/board-prover.js makeBoardProver)
 //   finish(proofB64)   → true (accepted and written), false (refused: counts against the worker) or 'unchecked'

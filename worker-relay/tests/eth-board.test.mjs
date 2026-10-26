@@ -105,6 +105,7 @@ test('boardProves: a worker that proves the program and polled within the window
   assert.equal(boardProves(sum([{ name: 'a', lastSeenSeconds: 31, programs: ['eth-state'] }]), 'eth-state'), false, 'not seen lately');
   assert.equal(boardProves(sum([{ name: 'a', lastSeenSeconds: null, programs: ['eth-state'] }]), 'eth-state'), false);
   assert.equal(boardProves(null, 'eth-state'), false);
+  assert.equal(boardProves(sum([{ name: 'a', lastSeenSeconds: 75, programs: ['eth-state'] }]), 'eth-state', 120), true, 'a worker mid-proof, with a wider window');
 });
 
 test('finishVerdict: FINISH_OK with exit 0 is accepted, FINISH_REFUSED with exit 3 refused, anything else unchecked', () => {

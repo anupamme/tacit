@@ -242,7 +242,9 @@ function ethBoardLane() {
   if (!CFG.ethStateBoard) return null;
   const dir = CFG.ethProveOutDir;
   ethBoard ||= makeEthBoard({
-    capable: async () => (await ethProveModes()).includes('stdin') && boardProves(await within(boardSummary(), 15_000, 'the board summary'), 'eth-state'),
+    // Seen within two minutes: a worker does not poll while it proves (a settle takes 35-45 s), and one that has really gone costs
+    // at most the board wait.
+    capable: async () => (await ethProveModes()).includes('stdin') && boardProves(await within(boardSummary(), 15_000, 'the board summary'), 'eth-state', 120),
     buildInput: async () => {
       await Promise.all(['eth_stdin.bin', 'eth_candidate.json'].map((f) => rm(path.join(dir, f), { force: true })));
       const { code, out, err } = await run(CFG.ethProveBin, { env: ethProveEnv('stdin', await ethProveRpcs()), cwd: dir, timeoutMs: CFG.ethStateStdinTimeoutSecs * 1000, tag: 'eth_prove:stdin' });
