@@ -271,9 +271,10 @@ test('a miner hands back a job it cannot prove: it goes back for someone else, c
   assert.equal(h.calls, 0);
 });
 
-test('house: a job younger than minAgeMs is left for the miners; Tacit\'s own prover takes what has waited, and its proof is kept but earns nothing and is in no tally', async () => {
-  const h = harness();
+test('house: while miners are about, a job younger than minAgeMs is left for them; Tacit\'s own prover takes what has waited, and its proof is kept but earns nothing and is in no tally', async () => {
+  const h = harness({ cfg: { minerIdleMs: 60 * 60_000 } });
   const a = wrapJob(0), b = wrapJob(1);
+  assert.equal((await h.pool.lease({ client: 'm1', miner: MINER })).status, 204, 'a miner asks, with nothing queued yet');
   await h.pool.request({ type: 'wrap', stdin: a.stdin, expect: a.expect, client: 'page' });
   h.t += 10 * 60_000;
   await h.pool.request({ type: 'wrap', stdin: b.stdin, expect: b.expect, client: 'page' });
@@ -289,6 +290,20 @@ test('house: a job younger than minAgeMs is left for the miners; Tacit\'s own pr
   assert.deepEqual([day.done, day.house, day.points, Object.keys(day.miners)], [1, 1, 0, []]);
   assert.deepEqual((await h.pool.credits(DAY0)).body.miners, [], 'no house row for the campaign to pay');
   assert.equal((await h.pool.stats()).body.minersToday, 0);
+});
+
+test('house: with no miner asking for work lately, Tacit\'s own prover takes a page\'s job at once; one asking again brings the wait back', async () => {
+  const h = harness();
+  const a = wrapJob(0), b = wrapJob(1);
+  await h.pool.request({ type: 'wrap', stdin: a.stdin, expect: a.expect, client: 'page' });
+  const l = (await h.pool.lease({ client: 'house:a5000', house: 'a5000', minAgeMs: 10 * 60_000 })).body;
+  assert.equal(l.id, a.id, 'nobody mining: the new job is proved at once');
+  assert.equal((await h.pool.lease({ client: 'm1', miner: MINER })).status, 204, 'a miner turns up');
+  await h.pool.request({ type: 'wrap', stdin: b.stdin, expect: b.expect, client: 'page' });
+  h.t += 60_000;
+  assert.equal((await h.pool.lease({ client: 'house:b', house: 'b', minAgeMs: 10 * 60_000 })).status, 204, 'with a miner about, the house waits for the job to age');
+  h.t += 6 * 60_000;
+  assert.equal((await h.pool.lease({ client: 'house:b', house: 'b', minAgeMs: 10 * 60_000 })).body.id, b.id, 'the miner gone quiet for over five minutes: the house takes it');
 });
 
 test('routes: open to any origin; a page requests, a miner leases and submits (the verifier asked over eth_call), the page reads the proof', async () => {

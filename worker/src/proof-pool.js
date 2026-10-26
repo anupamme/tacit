@@ -40,6 +40,7 @@ export const PROOF_POOL = Object.freeze({
   proofsPerMinerDay: 30,             // POINTS_MINE_DAILY_CAP: proofs an address is credited for in a UTC day
   strikesPerDay: 3,
   leasesPerClient: 4,                // open leases one client may hold, one per address (a household's few machines)
+  minerIdleMs: 5 * 60_000,           // POOL_MINER_IDLE_MS: a house prover's wait for the miners holds only while one has asked this recently
   maxTries: 3,
   maxResultIds: 32,
   top: 20,
@@ -58,6 +59,7 @@ export function proofPoolConfig(env = {}) {
     reqPerClientDay: n(env.POOL_REQ_IP_DAILY, PROOF_POOL.reqPerClientDay, 0, 100_000),
     maxPending: n(env.POOL_MAX_PENDING, PROOF_POOL.maxPending, 1, 100_000),
     leaseMs: n(env.POOL_LEASE_MS, PROOF_POOL.leaseMs, 60_000, 86_400_000),
+    minerIdleMs: n(env.POOL_MINER_IDLE_MS, PROOF_POOL.minerIdleMs, 0, 86_400_000),
     keepMs: n(env.POOL_KEEP_MS, PROOF_POOL.keepMs, 60_000, 30 * 86_400_000),
     pointsPerProof: n(env.POINTS_MINE_PER_PROOF, PROOF_POOL.pointsPerProof, 0, 100_000),
     proofsPerMinerDay: n(env.POINTS_MINE_DAILY_CAP, PROOF_POOL.proofsPerMinerDay, 0, 100_000),
@@ -192,7 +194,7 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
   const clock = now || (() => Date.now());
   const exclusive = lock || makeLock();
   const token = random || (() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
-  const K = { queue: 'pp:queue', leases: 'pp:leases', job: (id) => `pp:job:${id}`, day: (d) => `pp:day:${d}`, req: (d, c) => `pp:req:${d}:${c}` };
+  const K = { queue: 'pp:queue', leases: 'pp:leases', job: (id) => `pp:job:${id}`, day: (d) => `pp:day:${d}`, req: (d, c) => `pp:req:${d}:${c}`, minerSeen: 'pp:miner-seen' };
   const read = async (key, dflt) => { const s = await kv.get(key); if (s == null) return dflt; try { return JSON.parse(s); } catch { return dflt; } };
   const write = (key, v, ttlSecs) => kv.put(key, JSON.stringify(v), ttlSecs ? { expirationTtl: ttlSecs } : undefined);
   const dayRec = async (d) => { const r = await read(K.day(d), null); return { done: 0, points: 0, miners: {}, clients: {}, ...(r && typeof r === 'object' ? r : {}) }; };
@@ -265,14 +267,19 @@ export function makeProofPool({ kv, cfg = PROOF_POOL, verify, now, lock, random 
   // A miner takes the oldest job its client has not had before, and holds it for the lease: one open lease per address on a client,
   // and a few on a client in all. `minAgeMs`: only a job that has waited at least that long. `house`: one of Tacit's own provers (a
   // board worker, by its token), which takes what has waited and earns nothing: its proofs are kept for the pages but never enter
-  // the day's tally, so the miners' share is never paid to Tacit.
+  // the day's tally, so the miners' share is never paid to Tacit. A house prover's wait is for the miners: it holds only while a
+  // miner has asked for work within `minerIdleMs`; with none about, a page's proofs are made at once.
   // `points`: what the proof would earn if it passed now (0 once the address has its proofs for the day: the work is still welcome).
   async function lease({ miner, client = 'anon', minAgeMs = 0, house = null } = {}) {
     if (!house && (typeof miner !== 'string' || !ADDR.test(miner))) return reply(400, { ok: false, code: 'bad_miner', error: 'miner must be the 0x address the points go to' });
     const m = house ? `house:${house}` : miner.toLowerCase();
-    const minAge = Number.isSafeInteger(minAgeMs) && minAgeMs > 0 ? minAgeMs : 0;
+    let minAge = Number.isSafeInteger(minAgeMs) && minAgeMs > 0 ? minAgeMs : 0;
     return exclusive(async () => {
       const t = clock();
+      // a miner asking (with work or without) keeps the house waiting; its time is written at most once a minute
+      const seen = Number(await read(K.minerSeen, 0)) || 0;
+      if (!house && t - seen > 60_000) await write(K.minerSeen, t, 86400);
+      if (house && minAge && t - seen > cfg.minerIdleMs) minAge = 0;
       const q = await read(K.queue, []), L = await read(K.leases, {});
       let changed = await reclaim(q, L, t);
       const save = async () => { if (changed) { await write(K.queue, q); await write(K.leases, L); } };

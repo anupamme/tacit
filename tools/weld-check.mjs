@@ -10905,7 +10905,7 @@ await step('poolkeep', async () => {
     ok(/proved free by the community/.test(await text(r.page, '#sp-keep')), `poolkeep: with no prover of your own the sizes are kept by the community pool (${await text(r.page, '#sp-keep')})`);
     const pressed = await r.page.$$eval('[data-keep]', (bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.keep).join());
     ok(pressed === 'cETH:1000000000000000,cETH:10000000000000000,cETH:100000000000000000,cETH:1000000000000000000', `poolkeep: 0.001, 0.01, 0.1 and 1 ETH are kept ready for a key nobody has chosen for (${pressed})`);
-    // nothing pressed: the default sizes are asked of the pool by themselves, the smaller first
+    // nothing pressed: the default sizes are asked of the pool by themselves, the ones the cards offer first (0.1, 0.01, 1, then 0.001)
     const ethReq = (b) => { const o = b && wrapOpFromStdin(b.stdin, STUB_CETH); return o && o.value === String(10n ** 16n / 10n ** 10n) ? o : null; };
     await chainUntil(async () => poolReqs.slice(q0).some(ethReq), 150000);
     const req = poolReqs.slice(q0).find(ethReq), op = req && ethReq(req);
@@ -11256,6 +11256,12 @@ await step('selfdevice', async () => {
     await chainUntil(async () => submits.length > s2, 120000);
     ok(/This computer proves only what can wait while it works, so Tacit’s relay proves this one\./.test(await text(r.page, '#toast-container')) && submits.length > s2 && dev.asked.length === d2,
       `selfdevice: a swap goes to the relay with a note, and nothing to this computer (${submits.slice(s2).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')})`);
+    // (z) The Swap card's Private in, with this computer proving: its receipt says the proof is made here, and how long that takes
+    await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); window.scrollTo(0, 0); });
+    await move(r.page, 'shield:ether:defi', '0.02');
+    await until(r.page, () => /Proof/.test(document.querySelector('#hx-swap')?.textContent || ''), null, 120000).catch(() => {});
+    const rcp = (await text(r.page, '#hx-swap')).replace(/\s+/g, ' ');
+    ok(/Proof\s*on this computer, a few minutes/.test(rcp), `selfdevice: the Swap card's Private in says its proof is made on this computer, a few minutes (${(rcp.match(/Proof.{0,60}/) || [''])[0]})`);
     if (r.errors.length) { fails++; console.log('FAIL selfdevice page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; if (restore) await restore(); await r.browser.close(); }
 });

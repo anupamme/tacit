@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cSXVQwi4Fa2DiP9eqwEZCw8FRpwIZXIi932N12fs0Bo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+h5X7fhIUIw1USb9VgXdB5Nu5eD8eClSjgGN7U/tswQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3014,7 +3014,12 @@ function spApply() {
   if (S.key && VOUCH.keep !== S.key.pubHex) {
     VOUCH.keep = S.key.pubHex;
     resumeVouchers().catch(() => {});
-    if (!VOUCH.timer) VOUCH.timer = setInterval(() => { poolCollect().catch(() => {}).then(readyMarks); keepReady().catch(() => {}); }, 60e3);
+    if (!VOUCH.timer) {
+      // at once as the key opens (a first deposit soon after signing in finds its sizes already asked for), then each minute
+      const tick = () => { poolCollect().catch(() => {}).then(readyMarks); keepReady().catch(() => {}); };
+      VOUCH.timer = setInterval(tick, 60e3);
+      setTimeout(tick, 2000);
+    }
   }
   if (devOn()) {
     r.useProver(LOCAL.found && LOCAL.prover ? LOCAL.prover.prove : null);
@@ -8335,7 +8340,7 @@ const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
 // The sizes that can be kept ready, by pool ticker. ETH's are kept for every key until its holder turns them off (an empty choice is
 // stored as such): a wrap of a common size then goes out with no proving wait, and asking for one costs nothing.
 const KEEP_READY = {
-  cETH: { sizes: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], sym: 'ETH', dp: 3 },
+  cETH: { sizes: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 17n, 10n ** 16n, 10n ** 18n, 10n ** 15n], sym: 'ETH', dp: 3 },
   TAC: { sizes: [100n * 10n ** 18n, 1000n * 10n ** 18n, 10000n * 10n ** 18n], dflt: [], sym: 'TAC', dp: 0 },
 };
 const keepKey = (tk) => KEEP_PREF + (tk === 'cETH' ? '' : `${tk}:`) + S.key.pubHex;
@@ -8404,6 +8409,7 @@ async function resumeVouchers() {
 // costs, now, between 97% of the amount entered and that amount plus 2%.
 const POOL_PER_TICK = 6;
 const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], LP_DRIFT = 25n;   // per thousand
+const KEEP_FIRST = [10n ** 17n, 10n ** 16n, 10n ** 18n, 10n ** 15n];        // asked in the order people press them (the cards offer 0.1, 0.01 and 1)
 const lpTicker = (poolId) => `lp:${String(poolId).toLowerCase()}`;
 // the pools whose zap this key opened, and (through the community pool, not this computer's prover) every farm pool the zap goes into:
 // tETH paired with TAC, cUSD or cBTC
@@ -8496,7 +8502,7 @@ async function keepReady() {
       if (await next(() => lpPoolRequest(poolId, BigInt(stale.size), stale.index), () => lpProve(poolId, { size: BigInt(stale.size), at: stale.index }))) return;
       continue;
     }
-    for (const want of LP_KEEP_ETH.filter((e) => !mine.some((x) => x.size === String(e)))) {
+    for (const want of KEEP_FIRST.filter((e) => !mine.some((x) => x.size === String(e)))) {
       if (await next(() => lpPoolRequest(poolId, want), () => lpProve(poolId, { size: want }))) return;
     }
   }
@@ -9035,7 +9041,7 @@ function fzPaintQ() {
   if (z.err || !z.plan) { mount(rc, html`<div class="kv"><span>${z.err ? 'Not read' : 'Too small'}</span><b class="err">${z.err ? errText(z.err) : 'This is too little to make a share of the pool.'}</b></div>`); return; }
   const day = farmDay(cur.p, Number(z.wei) / 1e18), usd = day ? hxUsd('tac', day) : '', fee = Number(z.res?.feeBps ?? 30) / 100;
   const rows = [FZ.mode === 'lp' ? ['You earn', `the pool’s ${fee}% fee on every swap`] : ['You earn', day ? `about ${sig(day)} TAC a day${usd ? ` (≈ ${usd})` : ''}` : 'TAC once the next reward period starts'],
-    ['Proof', z.ready ? 'made already: no wait' : 'about a minute, then it goes', z.ready ? 'ok' : ''],
+    proofRow(z.ready),
     z.impact >= 1 ? ['Price impact', pctFmt(z.impact), z.impact >= 5 ? 'err' : ''] : null,
     ['Network fee', `about ${fmt(z.ready ? ZAP_SETTLE_GAS * z.gp * 3n / 2n : z.gas, 18, 5)} ETH`],
     ['Chain sees', 'ETH in, private after']].filter(Boolean);
@@ -12312,9 +12318,13 @@ const hxWrapMode = () => HX.mode === 'private';
 // What a wrap's receipt says: the relay's tip for settling it, and what the chain sees (what arrives is in the field above, one for one)
 // and, with a key, whether its proof is made already (wraps kept ready that add up to it: one transaction, no proving wait)
 const hxWrapReady = (units) => !!(units && S.key && VOUCH.mod?.pick(S.key.pubHex, 'cETH', units * E10));
+// A wrap's or a zap's Proof row: made already (one kept ready fits it), or who makes it now and about how long it takes
+const proofRow = (ready) => (ready ? ['Proof', 'made already: no wait', 'ok']
+  : ownNow(['wrap']) ? ['Proof', devOn() ? 'on this computer, a few minutes' : 'with your own credit, about a minute']
+  : ['Proof', 'the relay’s, about a minute, before anything is sent']);
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap', tip,
   rc: units ? [ownNow(['wrap']) ? ['Relay tip', 'none: your own proof'] : ['Relay tip', tip ? `${fmt(tip, 18, 6)} ETH` : tip === undefined ? 'shown next' : tip == null ? '…' : 'none', '', 'Paid on top, to the relay that settles the deposit'],
-    S.key && !ownNow(['wrap']) ? (hxWrapReady(units) ? ['Proof', 'made already: no wait', 'ok'] : ['Proof', 'about a minute, before anything is sent']) : null,
+    S.key ? proofRow(hxWrapReady(units)) : null,
     ['Chain sees', `your ${fmt(units, 8, 6)} ETH going in`]] : [] });
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
 const hxWarmWrap = () => { if (!S.key || Date.now() - (HX.warmWrap || 0) < 60e3) return; HX.warmWrap = Date.now(); getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); };
@@ -12986,7 +12996,7 @@ async function hxQuote() {
         go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? 'Zap into the farm' : two ? 'Make ETH private' : 'Farm privately',
         rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction' : 'half swapped inside the pool'],
           pub ? null : ['Chain sees', zap ? 'ETH in, private after' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null,
-          HX.zq ? ['Proof', HX.zq.ready ? 'made already: no wait' : 'about a minute, then it goes', HX.zq.ready ? 'ok' : ''] : null,
+          HX.zq ? proofRow(HX.zq.ready) : null,
           HX.zq ? ['Network fee', `about ${fmt(HX.zq.ready ? ZAP_SETTLE_GAS * HX.zq.gp * 3n / 2n : HX.zq.gas, 18, 5)} ETH`] : null,
           !pub && (HX.zq ? HX.zq.impact >= 5 : pick.impact >= 0.05) ? ['Price impact', pctFmt(HX.zq ? HX.zq.impact : pick.impact * 100), 'err'] : null],
         // the two ways in from the wallet's ETH: the zap, or making it private first (more private, and a wrap earns points)
