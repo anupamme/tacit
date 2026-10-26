@@ -4047,6 +4047,11 @@ async function handleConfidentialSubmit(req, env, cors) {
   // budgets below do not apply, and only the board's own allowance for the day bounds it (PROVE_MODE_BOARD_DAILY_CAP, 600 by
   // default: a worker's day). A board that goes quiet mid-job sends that one to the network, which the relay's own floor still holds.
   const onBoard = submitMode === 'prove' && !paidProve && await boardLive(env);
+  // A proof asked for ahead (`ahead`: a form that has settled, before its press) is made only on the board: one the holder then
+  // never sends must not spend the relay's credit.
+  if (submitMode === 'prove' && body.ahead === true && !paidProve && !onBoard) {
+    return jsonResponse({ ok: false, error: 'proofs are made ahead only while the prover board is up', code: 'not_now' }, 429, { ...cors, 'Cache-Control': 'no-store' });
+  }
   if (onBoard) {
     const bb = await dailyBudget(env, 'prove:board', Number(env.PROVE_MODE_BOARD_DAILY_CAP || 600));
     if (!bb.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${bb.used}/${bb.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget', hint: body.type === 'wrap' ? 'tip' : 'relay' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });

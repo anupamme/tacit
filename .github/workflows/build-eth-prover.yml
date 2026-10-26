@@ -106,6 +106,13 @@ jobs:
             grep '^FINISH_REFUSED' finish-$d.log; [ $code = 3 ] && ! test -e $d/eth_pv.hex
           done
           echo "finish accepts the network's proof and refuses an altered one and another candidate's"
+      # The comparison executes both guests at once (so both read the same finalized head), more than the runner's 16 GB holds: the
+      # step was ended with exit 143, nothing logged. Swap on the runner's temp disk gives them room.
+      - name: Swap for two guests executing at once
+        run: |
+          set -eu
+          sudo fallocate -l 24G /mnt/swap-guests && sudo chmod 600 /mnt/swap-guests && sudo mkswap /mnt/swap-guests >/dev/null && sudo swapon /mnt/swap-guests
+          free -g
       - name: The same input and public values as the baseline's eth_prove on live data
         env:
           BASELINE: '${{ github.event.inputs.baseline }}'
@@ -136,6 +143,7 @@ jobs:
             wait $a || { tail -30 run-base.log; return 1; }
             wait $b || { tail -30 run-new.log; return 1; }
             for who in base new; do echo "$who: $(head_of $who)"; grep -aE '^(EXECUTE_OK|EXPECTED_PV_MATCH)' run-$who.log || true; done
+            free -g | sed -n 2,3p
             [ -n "$(head_of base)" ] && [ "$(head_of base)" = "$(head_of new)" ] || { echo "the two runs reached different finalized heads"; return 1; }
             cmp run-base/dbg/ethprove-ethr.cbor run-new/dbg/ethprove-ethr.cbor && [ -n "$(grep -a '^RAWPV' run-new.log)" ] \
               && [ "$(grep -a '^RAWPV' run-base.log)" = "$(grep -a '^RAWPV' run-new.log)" ]

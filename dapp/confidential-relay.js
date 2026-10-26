@@ -63,7 +63,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   }
 
   // `exit`: a relayed unwrap's ConfidentialRouter ExitRecipe, which the relay activates once the settle has paid its escrow (never sealed).
-  async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null, exit = null } = {}, waitOpts) {
+  // `ahead`: a prove-only job asked for before its press, which the API takes only while the prover board is up (it costs no credit)
+  async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null, exit = null, ahead = false } = {}, waitOpts) {
     const onJob = waitOpts && waitOpts.onJob;
     const sealedMemos = sealFor({ leaves, outputs, ephRand, memos, lockMemos });
     const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
@@ -84,7 +85,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(sealedIn
         ? { type, mode: 'sealed', sealed: sealedIn, memos: sealedMemos, ...(feeAsset ? { feeAsset } : {}) }
-        : { type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}), ...(exit ? { exit } : {}) }, bigintSafe),
+        : { type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}), ...(exit ? { exit } : {}), ...(ahead ? { ahead: true } : {}) }, bigintSafe),
     });
     const body = await asJson(res);
     if (body && body.jobId) {

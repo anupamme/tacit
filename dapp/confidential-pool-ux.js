@@ -2977,13 +2977,49 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { ...built, jobId: sub.jobId, status: st.status, txHash: st.txHash };
   }
 
+  // An exit proved before its press: the op the relayed exit sends (its fee bound in), proved now as a prove-only job the relay makes only
+  // on its board (`ahead`: refused, 'not_now', while the board is down), then posted at the press for the relay to send from the open
+  // board, where a proof whose tETH fee covers its settle is sent at once. A proof nobody posts costs nothing but a board minute.
+  // → what exitAheadSend takes: { type, note, amount, recipient, fee, proven, leaves, memos, out }
+  async function exitAhead({ note, walletPriv, recipient, amount, feeOpts, waitOpts } = {}) {
+    if (!note) throw new Error('exitAhead: note required');
+    amount = BigInt(amount);
+    const ticker = poolTickerOf(note.asset) || 'cETH', opts = { ...waitOpts, viaRelay: true };
+    if (_exitKind(note, amount) === 'unwrap') {
+      const minFee = (feeOpts && feeOpts.minFee != null) ? feeOpts.minFee : await gasAwareMinFee(ticker, 'unwrap');
+      const built = buildUnwrap({ note, walletPriv, recipient, feeOpts: { ...feeOpts, minFee } });
+      const proven = await relay.prove({ type: 'unwrap', op: built.op, memos: [], ahead: true }, opts);
+      if (!proven || !proven.publicValues) throw new Error(proven && proven.error || 'exitAhead: no proof');
+      return { type: 'unwrap', note, amount, recipient, fee: built.fee, proven, leaves: [], memos: [], out: built };
+    }
+    const x = await _sendUnwrapExit({ note, walletPriv, recipient, amount, feeOpts });
+    const proven = await relay.prove({ type: 'sendunwrap', op: x.op, leaves: [x.changeLeaf], outputs: x.changeOut, ephRand: x.ephRand, ahead: true }, opts);
+    if (!proven || !proven.publicValues) throw new Error(proven && proven.error || 'exitAhead: no proof');
+    return { type: 'sendunwrap', note, amount, recipient, fee: x.out.fee, proven, leaves: [x.changeLeaf], memos: proven.memos, out: x.out };
+  }
+  // The press: the proof made ahead is posted for the relay to send, then waited for as a relayed exit is, the change note's memo checked.
+  async function exitAheadSend(a, { walletPriv, waitOpts } = {}) {
+    const memos = a.proven.memos || a.memos || [];
+    const posted = await relay.postProof({ type: a.type, publicValues: a.proven.publicValues, proof: a.proven.proof, memos });
+    if (!posted || !posted.jobId) throw new Error((posted && posted.error) || 'the relay would not take the proof made ahead');
+    const st = await waitForExit({ walletPriv, note: a.note, jobId: posted.jobId, waitOpts });
+    let landed = st;
+    if (!landed.txHash && landed.status === 'settled') {
+      try { const rs = await relay.status(posted.jobId); if (rs && rs.txHash) landed = { ...landed, txHash: rs.txHash }; } catch { }
+    }
+    const checked = a.leaves.length ? await relay.verifyEmittedMemos(landed, a.leaves, memos) : landed;
+    return { ...a.out, jobId: posted.jobId, status: checked.status || landed.status, txHash: checked.txHash || landed.txHash, ...(checked.memoCheck ? { memoCheck: checked.memoCheck } : {}) };
+  }
+
   // A note of exactly the amount leaves by plain unwrap, whose floor is lower than send-and-unwrap's (no change note to make).
   const _exitKind = (note, amount) => (BigInt(note.value) === BigInt(amount) ? 'unwrap' : 'sendunwrap');
   async function sendUnwrap(args = {}) {
     if (!args.note || args.selfSettle || (args.feeOpts && args.feeOpts.minFee != null)) return _sendUnwrapOnce(args);
     return _withFloorRetry(poolTickerOf(args.note.asset) || 'cETH', _exitKind(args.note, args.amount), args.feeOpts, (feeOpts) => _sendUnwrapOnce({ ...args, feeOpts }));
   }
-  async function _sendUnwrapOnce({ note, walletPriv, recipient, amount, feeOpts, wait = true, waitOpts, selfSettle = null } = {}) {
+  // A send-and-unwrap's op, its change note and what the exit says it is: the same for a relayed exit, one proved first and an exit proved
+  // ahead. `{ exact: true }` for a note of exactly the amount, which leaves by plain unwrap.
+  async function _sendUnwrapExit({ note, walletPriv, recipient, amount, feeOpts, selfSettle = null } = {}) {
     if (!note) throw new Error('sendUnwrap: note required');
     const ticker = poolTickerOf(note.asset) || 'cETH';
     amount = BigInt(amount);
@@ -2993,7 +3029,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const payout = amount - fee;
     if (payout <= 0n) throw new Error('sendUnwrap: amount too small for the relay fee');
     const change = noteValue - amount;
-    if (change === 0n) return unwrap({ note, walletPriv, recipient, feeOpts, wait, waitOpts, selfSettle });
+    if (change === 0n) return { exact: true };
     const id = identity(walletPriv);
     const to = _evmAddr(recipient, 'sendUnwrap: recipient');
     const beHex = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
@@ -3017,6 +3053,12 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       rangeProof: built.rangeProof, kernel: { R: built.kernelR, z: built.kernelZ },
     };
     const out = { ...built, fee, payout, change, recipient: to, ticker };
+    return { op, changeLeaf, changeOut, ephRand, out };
+  }
+  async function _sendUnwrapOnce({ note, walletPriv, recipient, amount, feeOpts, wait = true, waitOpts, selfSettle = null } = {}) {
+    const x = await _sendUnwrapExit({ note, walletPriv, recipient, amount, feeOpts, selfSettle });
+    if (x.exact) return unwrap({ note, walletPriv, recipient, feeOpts, wait, waitOpts, selfSettle });
+    const { op, changeLeaf, changeOut, ephRand, out } = x;
     if (selfSettle) {
       const spec = { type: 'sendunwrap', op, leaves: [changeLeaf], outputs: changeOut };
       const sealed = guard.sealMemosForOutputs({ outputs: changeOut, ephRand });
@@ -3213,7 +3255,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, exitAhead, exitAheadSend, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

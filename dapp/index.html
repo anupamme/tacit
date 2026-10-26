@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wKu84kv4tEANv0tWWWp3wb3aOdeOxUp1qgEQhGNJ5+4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+8lejjppbFLYova8P5uuaKswL4a7tWHiGVvZEbxSVyM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1654,7 +1654,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=0489bbdd","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=3538c9d2","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4304,7 +4304,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=0489bbdd'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=3538c9d2'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -4694,7 +4694,7 @@ function v1Wrap(el, status) {
       if (my !== seq || !input.isConnected) return;
       // the relay's sponsored proof of this amount, asked for once it has stood a moment (one at a time, a few a page)
       clearTimeout(VOUCH.typing);
-      if (!own && !ready && S.key) VOUCH.typing = setTimeout(() => { if (input.isConnected && parseUnits(input.value) === wei) proveAhead('cETH', wei, { relay: true }); }, 1500);
+      if (!own && !ready && S.key) VOUCH.typing = setTimeout(async () => { if (input.isConnected && parseUnits(input.value) === wei && (await relayProving())) proveAhead('cETH', wei, { relay: true }); }, 1500);
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} tETH</b></div>
         <div class="kv"><span>Relay tip</span><b>${own ? `none: ${devOn() ? 'proved on this computer' : 'you prove it with your own credit'}` : `${fmt(tip, 18, 6)} ETH`}</b></div>
@@ -5084,6 +5084,8 @@ function v1Out(el, status) {
       else if (!raw) rc.insertAdjacentHTML('beforeend', html`<p class="note">Enter the address to send it to.</p>`.s);
       else if (bad) rc.insertAdjacentHTML('beforeend', html`<p class="note">An address is 0x and 40 letters or digits.</p>`.s);
       else if (!bad && !dev && ownAccount(raw)) rc.insertAdjacentHTML('beforeend', linkNote());
+      clearTimeout(EXIT_AHEAD.typing);
+      if (!own && !bad && raw && !dev && !sealOn() && units + size <= held && units > fee) EXIT_AHEAD.typing = setTimeout(() => { if (q?.units === units && to.value.trim() === raw) exitAheadFor(units, raw, minFee); }, 1500);
       if (!own && !bad && raw && units + size <= held && units > fee) {
         // A larger note leaves change; change under the relay fee could not be withdrawn later, so the whole note is offered.
         const fit = freeNotes(P.scan?.eth.notes).map((n) => BigInt(n.value)).filter((v) => v >= units).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
@@ -5110,6 +5112,18 @@ function v1Out(el, status) {
         if (fee > x.fee) throw Object.assign(new Error(`The relay fee is now ${fmt(fee, 8, 8)} ETH, up from ${fmt(x.fee, 8, 8)}. Your note is ready: check the new fee and press again.`), { said: true, feeMoved: true });
         feeOpts = { minFee };
       }
+      // Proved already (asked as the form settled): the proof is posted and the relay sends it, if it is for this note, this amount and
+      // this address and its fee still covers the relay's floor. Once posted it is waited for; before, anything amiss exits as before.
+      const ahead = !x.own && !sealOn() ? await exitAheadReady(x.units, raw, note) : null;
+      if (ahead && ahead.fee >= (feeOpts ? t.quoteUnwrapFee(x.units, 'cETH', feeOpts).fee : x.fee)) {
+        run.say(status, 'Proved already. The relay is sending it…');
+        await t.exitAheadSend(ahead, { walletPriv: priv, waitOpts: run.wait(null, 15 * 60e3, { exit: { to: recipient, units: String(x.units), note: kNote(note), from: 'eth', sheet: 'eth' } }) });
+        EXIT_AHEAD.key = null;
+        run.say(status, html`<span class="ok">Done.</span>`); toast(`${run.to.label}: done`);
+        await scanPrivate(true).catch(() => {});
+        rerender('eth');
+        return;
+      }
       run.say(status, 'The relay is proving your withdrawal…');
       await proveOr({ run, types: ['sendunwrap', 'unwrap'], exit: true, go: exitGo(note, recipient, x.units), label: `Withdraw ${fmt(x.units, 8, 6)} ETH to ${short(raw, 6)}`, sheet: 'eth', status: () => $('#v1-status'),
         relayed: () => t.sendUnwrap({ note, walletPriv: priv, recipient, amount: x.units, ...(feeOpts ? { feeOpts } : {}), waitOpts: run.wait(null, 15 * 60e3, { exit: { to: recipient, units: String(x.units), note: kNote(note), from: 'eth', sheet: 'eth' } }) }) });
@@ -5117,6 +5131,28 @@ function v1Out(el, status) {
       rerender('eth');
     } catch (e) { run.fail(status, e); if (e?.feeMoved) amt.dispatchEvent(new Event('input')); }
   });
+}
+
+// A withdrawal proved ahead: once the form has settled (an address, an amount a single note covers, the relay's lane, not sealed) the
+// relay's board proves the exit it would send (its fee bound in), so the press only posts the proof for the relay to send. The board
+// makes it only while it is up (`ahead`), so one never sent costs no credit; at most EXIT_AHEAD_MAX a page.
+const EXIT_AHEAD = { key: null, note: null, p: null, asked: 0, typing: 0 }, EXIT_AHEAD_MAX = 4;
+const exitKey = (units, raw) => `${S.key?.pubHex}:${units}:${String(raw).toLowerCase()}`;
+async function exitAheadFor(units, raw, minFee) {
+  const key = exitKey(units, raw);
+  if (!S.key || EXIT_AHEAD.key === key || EXIT_AHEAD.asked >= EXIT_AHEAD_MAX) return;
+  const note = freeNotes(P.scan?.eth.notes).filter((n) => BigInt(n.value) >= units).sort(byValue)[0];
+  if (!note) return;
+  // only of a relay that is proving and sending: it is the one that sends this proof
+  const t = await getUx(), st = await t.relay.state().catch(() => null);
+  if (!st?.proving || !st.settling || EXIT_AHEAD.key === key) return;
+  EXIT_AHEAD.asked++;
+  Object.assign(EXIT_AHEAD, { key, note, p: t.exitAhead({ note, walletPriv: walletPriv(), recipient: recipientOf(raw), amount: units, feeOpts: { minFee } }).catch(() => null) });
+}
+// The proof made ahead for this withdrawal of this note, waited for a little if it is still being made; null otherwise.
+async function exitAheadReady(units, raw, note) {
+  if (EXIT_AHEAD.key !== exitKey(units, raw) || !EXIT_AHEAD.p || String(EXIT_AHEAD.note?.leaf).toLowerCase() !== String(note.leaf).toLowerCase()) return null;
+  return Promise.race([EXIT_AHEAD.p, sleep(20e3).then(() => null)]);
 }
 
 // The assets that live on both chains, by the one id both name them with (cxfer-core, lower case, no 0x): the pool on Ethereum and the notes
@@ -8260,6 +8296,8 @@ const keepSizes = (tk = 'cETH') => { if (!S.key) return []; const v = store.get(
 // asking before the deposit costs it nothing more), when your own prover is not on. It answers in about a minute, so asking once an
 // amount has settled in the form is cheap: Send then finds the proof made, or nearly. At most RELAY_AHEAD a page, one at a time.
 const RELAY_AHEAD = 4;
+// Tacit's relay is proving now: a proof asked of one that is paused or down would only wait.
+const relayProving = async () => !!(await (await getUx()).relay.state().catch(() => null))?.proving;
 function proveAhead(ticker, wei, { relay = false, now = false } = {}) {
   if (!S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
   if (relay ? ownOn() || (!now && (VOUCH.relayAsked || 0) >= RELAY_AHEAD) : !devOn() || !LOCAL.found) return null;
@@ -10090,7 +10128,7 @@ function farmZap(el, p, status, has, top) {
         if (my !== seq || !go.isConnected) return;
         if (ready) rc.insertAdjacentHTML('beforeend', html`<div class="kv"><span>Proof</span><b>ready now: one transaction, ${fmt(ready.plan.value, 18, 6)} ETH and about ${fmt(ZAP_SETTLE_GAS * gp * 3n / 2n, 18, 5)} ETH in network fees</b></div>`.s);
         clearTimeout(VOUCH.zapTyping);
-        if (!ready && !ownNow(['wrap'])) VOUCH.zapTyping = setTimeout(() => { if (q?.wei === wei && aIn.isConnected) lpProve(p.poolId, { shares: plan.shares, relay: true }); }, 1500);
+        if (!ready && !ownNow(['wrap'])) VOUCH.zapTyping = setTimeout(async () => { if (q?.wei === wei && aIn.isConnected && (await relayProving())) lpProve(p.poolId, { shares: plan.shares, relay: true }); }, 1500);
       }
       if (q.over) warn(rc, have != null && (have === 0n || plan.value <= have) ? lowEth() : 'More ETH than you hold, with the network fee. Try Max.');
     } catch (e) { if (my === seq) quoteErr(rc, e); }
@@ -13187,7 +13225,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=0b094832').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=2ad14887').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

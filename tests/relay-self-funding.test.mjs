@@ -421,6 +421,18 @@ test('while a prover-board worker is proving, a free prove-only job passes the c
   ok(d.status === 503 && d.body.code === 'prove_reserved', `with no worker seen lately the reserve holds, got ${d.status} ${d.body.code}`);
 });
 
+test('a proof asked for ahead of its press is made only on the board, never on the credit', async () => {
+  let n = 0;
+  const on = loadSubmit({ submitJob: async () => ({ jobId: 'a' + ++n, status: 'pending' }), boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 3 }] });
+  const a = await on.call({ type: 'sendunwrap', op: { a: 1 }, mode: 'prove', ahead: true });
+  ok(a.status === 200 && a.body.jobId === 'a1', `with a worker proving, a withdrawal is proved ahead, got ${a.status} ${a.body.code}`);
+  const off = loadSubmit({ submitJob: async () => ({ jobId: 'b' + ++n, status: 'pending' }), boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 400 }] });
+  const b = await off.call({ type: 'sendunwrap', op: { a: 2 }, mode: 'prove', ahead: true });
+  ok(b.status === 429 && b.body.code === 'not_now', `with none, the API declines it even with credit to spare, got ${b.status} ${b.body.code}`);
+  const c = await off.call({ type: 'sendunwrap', op: { a: 3 }, mode: 'prove' });
+  ok(c.status === 200, `a proof asked for at the press still goes to the network, got ${c.status} ${c.body.code}`);
+});
+
 test('a sealed op with no fee by design is metered on the free budgets by its type; a sealed op that binds a fee is not', async () => {
   const sealed = { worker: 'tacit-a5000', epk: '0x02' + 'ab'.repeat(32), iv: 'AAAAAAAAAAAAAAAA', ct: 'QUJD'.repeat(10) };
   let n = 0;

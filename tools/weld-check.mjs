@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -266,6 +266,7 @@ const provenJobs = {};
 // are proved and held as an open job (status `open`, its proof and the memos it was sent with), as the relay holds what it cannot
 // send. `landedPosts`: the page's reports of a settle it sent itself (POST /confidential/landed), which settle an open job here.
 let refuseWith = null, refuseTypes = null, openNext = 0, pendingNext = 0;
+const postedJobs = {};                                                                  // proofs a page posted (preproven), sent by the stub relay
 const poolReqs = [];                                                                    // proof pool requests the pages posted
 let poolDone = false;                                                                   // the pool's miners have proved them
 // What GET /confidential/relay says of the relay: 'ok' unless a scenario sets 'held', 'paused', 'down' or 'busy' (null: the route is missing).
@@ -341,6 +342,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [], ...(sub.type === 'wrap' && sub.op ? { pv: wrapPv(sub.op) } : {}) };
       if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
       if (pendingNext > 0 && (sub.mode || 'settle') === 'settle') { pendingNext--; pendingJobs[jobId] = sub.type; }          // a job that stays in the relay's line
+      if (sub.mode === 'preproven') postedJobs[jobId] = { type: sub.type, txHash: '0x' + 'ad'.repeat(32) };               // the relay sends a posted proof
       return json(route, { jobId });
     }
     if (u.pathname === '/confidential/relay') {
@@ -356,6 +358,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     if (u.pathname === '/confidential/status') {
       const id = u.searchParams.get('id'), pj = provenJobs[id], oj = openJobs[id];
       if (pendingJobs[id]) return json(route, { jobId: id, type: pendingJobs[id], mode: 'settle', status: 'pending', txHash: null, error: null, createdAt: Date.now() });
+      if (postedJobs[id]) return json(route, { jobId: id, type: postedJobs[id].type, mode: 'preproven', status: 'settled', txHash: postedJobs[id].txHash, error: null });
       if (pj) return json(route, { jobId: id, mode: 'prove', status: 'proven', publicValues: pj.pv || '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: pj.memos });
       if (oj) return json(route, { jobId: id, type: oj.type, mode: 'settle', status: oj.status, txHash: oj.txHash || null, ...(oj.status === 'settled' ? {} : { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: oj.memos }) });
       return json(route, { status: 'failed', error: statusError });
@@ -10897,6 +10900,75 @@ await step('tacvoucher', async () => {
       `tacvoucher: 100 TAC goes out at once in one router transaction with its permit, nothing asked of the relay, the voucher used up (${await text(r.page, '#tac-bal-status')}; ${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
     if (r.errors.length) { fails++; console.log('FAIL tacvoucher page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { poolDone = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
+// A withdrawal proved ahead: on the relay's lane, once the form has settled (an address, an amount one note covers), the relay is asked
+// for a prove-only job flagged `ahead` (the API makes it only on the board) carrying the relay's fee; the press then only posts that
+// proof (preproven) for the relay to send, with no settle job asked and no proving wait. An amount changed before the press exits as before.
+await step('exitahead', async () => {
+  const hex = 'e417'.padEnd(64, '3');
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      let made = null;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        made ||= [['50', 0], ['40', 1]].map(([cents, index]) => {
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (BigInt(cents) * 10n ** 16n).toString(), ticker: 'cETH', index });
+          return ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        });
+        b.notes = [...b.notes, ...made];
+        for (const n of made) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.value = BigInt(g.value) + BigInt(n.value); g.notes = [...g.notes, n]; }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      return ux;
+    }` }));
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  const tab = async (m) => { for (let i = 0; i < 200; i++) { if (await r.page.$eval(`[data-v1="${m}"]`, (b) => b.getAttribute('aria-selected') === 'true').catch(() => false)) return; await r.page.click(`[data-v1="${m}"]`).catch(() => {}); await sleep(1500); } throw new Error(`the ${m} tab did not open`); };
+  try {
+    proveStub = true;
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await tab('out');
+    const s0 = submits.length;
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.3');
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    await chainUntil(async () => submits.slice(s0).some((x) => x.mode === 'prove'), 60000);
+    const asked = submits.slice(s0).find((x) => x.mode === 'prove');
+    ok(asked && asked.type === 'sendunwrap' && asked.ahead === true && BigInt(asked.op?.fee || 0) > 0n && asked.op?.recipient?.toLowerCase() === '0x000000000000000000000000000000000000dead',
+      `exitahead: once the form settles the relay is asked to prove the withdrawal ahead, on its board only, its fee bound in (${asked ? `${asked.type}/${asked.mode}/ahead ${asked.ahead}` : 'none'})`);
+    await sleep(1500);
+    const s1 = submits.length;
+    await r.page.click('#o-go');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 240000).catch(() => {});
+    const after = submits.slice(s1);
+    ok(/Done\./.test(await said()) && after.length === 1 && after[0].mode === 'preproven' && after[0].type === 'sendunwrap',
+      `exitahead: the press posts that proof for the relay to send, nothing proved or settled anew (${after.map((x) => `${x.type}/${x.mode}`)}; ${await said()})`);
+    // no proof made ahead for the next one (the board did not make it): it exits as before, a relayed settle
+    await sleep(3000);
+    const s3 = submits.length;
+    ok(s3 === s1 + 1, `exitahead: once sent, the same withdrawal is not proved ahead again (${submits.slice(s1).map((x) => `${x.type}/${x.mode}${x.ahead ? '/ahead' : ''}`)})`);
+    proveStub = false;
+    await tab('out');
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.25');
+    await until(r.page, () => !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    const s2 = submits.length;
+    await r.page.click('#o-go');
+    await chainUntil(async () => submits.slice(s2).some((x) => (x.mode || 'settle') === 'settle'), 60000);
+    ok(submits.slice(s2).some((x) => (x.mode || 'settle') === 'settle' && x.type === 'sendunwrap') && !submits.slice(s2).some((x) => x.mode === 'preproven'),
+      `exitahead: a withdrawal with no proof made ahead exits as before, the relay proving and sending it (${submits.slice(s2).map((x) => `${x.type}/${x.mode || 'settle'}`)})`);
+    if (r.errors.length) { fails++; console.log('FAIL exitahead page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; await r.browser.close(); }
 });
 
 await step('selfdevice', async () => {

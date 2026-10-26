@@ -1,7 +1,7 @@
 // Starting a bridge to Bitcoin from the bridge page, with the key opened here (mover.js): the amount, what it costs and arrives as, the
 // acknowledgement that a burn can't be undone, and the burn itself, proved by the relay. A note of exactly the amount is spent whole; if none is,
 // the relay cuts one to size first. Anything the relay will not take, and proving the burn oneself, is the front page's: the status line links there.
-import { getUx } from '/trade/poolux.js?cb=1722600f';
+import { getUx } from '/trade/poolux.js?cb=069ff20a';
 import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=dcf3a4f2';
 import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=ecf49203';
 import { notesOf, exactOf, cutPick, cutSized, ladder, feeShort } from '/farm-ops.js?cb=0933a4c8';
