@@ -1946,8 +1946,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const mine = (notes || []).filter((n) => String(n.asset).toLowerCase() === String(asset).toLowerCase());
     const exact = mine.find((n) => BigInt(n.value) === want);
     if (exact) return { note: exact, split: false };
+    // an asset with no relay fee asset (an LP share: the pool cannot pay a relay out in it) splits with no fee, as the relay's sponsored LP move
     const ticker = poolTickerOf(asset);
-    const splitFee = selfSettle ? 0n : await gasAwareMinFee(ticker, 'transfer');
+    const splitFee = selfSettle || !ticker ? 0n : await gasAwareMinFee(ticker, 'transfer');
     const src = mine.filter((n) => BigInt(n.value) >= want + splitFee).sort((x, y) => (BigInt(x.value) > BigInt(y.value) ? 1 : -1))[0];
     if (!src) throw new Error(`lp-add: no single ${ticker} note covers ${want}${splitFee ? ' plus the split fee' : ''} — consolidate first`);
     onStep?.({ status: 'splitting', asset, ticker, amount: want.toString() });

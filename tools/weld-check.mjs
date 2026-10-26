@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6611,6 +6611,51 @@ await step('farmworth', async () => {
 // A private farm's card with a key that holds positions: the position leads and the farm's facts close the card, each
 // position is named, unbond waits for a harvest while a real reward is unharvested, what is waiting (harvested rewards,
 // liquidity not bonded) sits above the farms, and what a harvest or unbond leaves points at its next step.
+// A private LP position sent privately. A key holding an unbonded share note of tETH / TAC: the dashboard's row offers Send, the card's Send
+// picker lists the position with both marks and its worth, picking it asks no amount (a part is picked next) and says there is no relay fee;
+// with a tacit1 recipient its press opens the farm sheet's form with that recipient, and Half, sent, asks the relay for the split of the
+// share note with no fee (an LP share has no token the pool could pay a relay in: tests/lp-send-fork.mjs runs the split, the lock, the
+// fee-free claim and the bond through the real guest).
+await step('lpsend', async () => {
+  const r = await openFarmKey('b05f'.padEnd(64, '6'), { notes: [[FARM_LP0, 50000000n]], positions: [] });
+  const p = r.page, to = tacit1('abe'.padEnd(64, '5'));
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); document.querySelector('#dash')?.scrollIntoView(); });
+    await until(p, () => !!document.querySelector('#dash [data-hx="send:lp0"]'), null, 240000).catch(() => {});
+    ok(!!(await p.$('#dash [data-hx="send:lp0"]')), 'lpsend: the dashboard row of the LP position offers Send');
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.click('[data-hxm="send"]');
+    await p.click('#hx [data-pk="hx-sa"]');
+    await p.waitForSelector('.pk-r[data-v="lp0"]', { timeout: 60000 }).catch(() => {});
+    const row = await p.evaluate(() => { const b = document.querySelector('.pk-r[data-v="lp0"]'); return b ? { t: b.textContent.replace(/\s+/g, ' '), marks: b.querySelectorAll('.pair .tk').length } : null; });
+    ok(row && row.marks === 2 && /tETH \/ TAC LP/.test(row.t) && /0\.0\d+/.test(row.t), `lpsend: Send's picker lists the position, both marks and its worth (${row ? `${row.t}; ${row.marks} marks` : 'none'})`);
+    await p.click('.pk-r[data-v="lp0"]');
+    await until(p, () => /no fee/.test(document.querySelector('#hx-receipt')?.textContent || '') && !document.querySelector('#hx-amt'), null, 60000).catch(() => {});
+    ok(!(await p.$('#hx-amt')) && /picked next/.test(await text(p, '#hx-panel')) && /Relay fee\s*none/.test(await text(p, '#hx-receipt')),
+      `lpsend: picked, it asks no amount (a part is picked next) and its receipt says no relay fee (${(await text(p, '#hx-receipt')).replace(/\s+/g, ' ')})`);
+    await p.fill('#hx-rcpt', to);
+    await sleep(1500);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] .lps:not([hidden]) .lps-to', { timeout: 300000 }).catch(() => {});
+    ok(await p.evaluate((x) => document.querySelector('#sheet-farm .lps:not([hidden]) .lps-to')?.value === x, to), 'lpsend: its press opens the farm sheet\'s form for the position, with the recipient in it');
+    await p.click('#sheet-farm .lps:not([hidden]) [data-lpp="h"]', { force: true });          // the sheet's streaming figures keep it from ever reading as still
+    await until(p, () => /Relay fee\s*none/.test(document.querySelector('#sheet-farm .lps:not([hidden]) .lps-rc')?.textContent || '') && !document.querySelector('#sheet-farm .lps:not([hidden]) .btn').disabled, null, 120000).catch(() => {});
+    ok(/Sends\s*.*tETH \/ TAC LP/.test(await text(p, '#sheet-farm .lps:not([hidden]) .lps-rc')) && /Relay fee\s*none/.test(await text(p, '#sheet-farm .lps:not([hidden]) .lps-rc'))
+      && await p.$eval('#sheet-farm .lps:not([hidden]) [data-lpp="h"]', (b) => b.getAttribute('aria-checked') === 'true'),
+      `lpsend: Half says what it sends and that there is no relay fee (${(await text(p, '#sheet-farm .lps:not([hidden]) .lps-rc')).replace(/\s+/g, ' ')})`);
+    // the stub's share note is not in the pool's tree, so it goes no further here; the split, the lock and the claim run for real in
+    // tests/lp-send-fork.mjs
+    // the stub's note has no secret, so the split fails at once after it is said: every line the status shows is kept to read back
+    await p.evaluate(() => { window.__fnSaid = []; new MutationObserver(() => { const t = document.querySelector('#fn-status')?.textContent || ''; if (t && window.__fnSaid.at(-1) !== t) window.__fnSaid.push(t); }).observe(document.body, { childList: true, subtree: true, characterData: true }); });
+    await p.click('#sheet-farm .lps:not([hidden]) .btn', { force: true });
+    await until(p, () => window.__fnSaid.some((t) => /Splitting your share note \(no fee\)/.test(t)) || /class="err"/.test(document.querySelector('#fn-status')?.innerHTML || ''), null, 120000).catch(() => {});
+    await sleep(500);
+    const fnSaid = await p.evaluate(() => window.__fnSaid.join(' | ').replace(/\s+/g, ' '));
+    ok(/Splitting your share note \(no fee\), then locking the part sent/.test(fnSaid), `lpsend: sent, it splits the share note with no fee and locks the part to the recipient (${fnSaid.slice(0, 200)})`);
+    if (r.errors.length) { fails++; console.log('FAIL lpsend page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('farmpos', async () => {
   const r = await openFarmKey('b05e'.padEnd(64, '6'), { notes: [[FARM_WTAC_ASSET, 1234560000n], [FARM_LP0, 50000000n]], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(8, 20000000, 50000, '0.0005')] });
   const p = r.page;
@@ -6639,6 +6684,12 @@ await step('farmpos', async () => {
     await p.click('#sf-act-0 [data-fn-go="redeem"]');
     await until(p, () => ['fn-turn', 'fn-redeem'].includes(document.activeElement?.id), null, 10000);
     ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('harvest:')), 'farmpos: a harvest says where to turn it into TAC, and the link takes you to that button');
+    // the dashboard: the pool's liquidity as one row (its share notes and its farmed positions), with the pair's marks and its worth in ETH
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); document.querySelector('#dash')?.scrollIntoView(); });
+    await until(p, () => [...document.querySelectorAll('#dash .di')].some((d) => /tETH \/ TAC LP/.test(d.textContent)), null, 120000).catch(() => {});
+    const lpRow = await p.evaluate(() => { const d = [...document.querySelectorAll('#dash .di')].find((x) => /tETH \/ TAC LP/.test(x.textContent)); return d ? { t: d.textContent.replace(/\s+/g, ' '), marks: d.querySelectorAll('.pair .tk').length, open: d.dataset.dashOpen } : null; });
+    ok(lpRow && lpRow.marks === 2 && /private, part farmed/.test(lpRow.t) && /[\d.]+ ETH/.test(lpRow.t) && lpRow.open === 'farm/private-0',
+      `farmpos: the dashboard shows the pool's liquidity as one row with both marks, its worth and that part is farmed (${lpRow ? `${lpRow.t}; ${lpRow.marks} marks; ${lpRow.open}` : 'none'})`);
     if (r.errors.length) { fails++; console.log('FAIL farmpos page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -10974,12 +11025,13 @@ await step('tacvoucher', async () => {
     await until(r.page, () => /ready now/.test(document.querySelector('#tsh-rcpt')?.textContent || '') && !document.querySelector('#tsh-go').disabled, null, 60000).catch(() => {});
     ok(/ready now/.test(await text(r.page, '#tsh-rcpt')), `tacvoucher: the receipt says the proof is ready now (${(await text(r.page, '#tsh-rcpt')).replace(/\s+/g, ' ')})`);
     const n0 = BigInt(await rpc('eth_getTransactionCount', [acct, 'latest'])), b0 = BigInt(await rpc('eth_blockNumber', [])), s0 = submits.length;
+    const tv = (await kept()).filter((v) => v.ticker === 'TAC' && v.status === 'ready').map((v) => v.depositId);
     await r.page.click('#tsh-go');
     await until(r.page, () => /Done\.|class="err"/.test(document.querySelector('#tac-bal-status')?.innerHTML || ''), null, 300000).catch(() => {});
     const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
     for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct.toLowerCase()) mine.push(tx);
     ok(/Done\./.test(await text(r.page, '#tac-bal-status')) && mine.length === 1 && String(mine[0].to).toLowerCase() === ROUTER_ADDR && mine[0].input.startsWith(PERMIT_SEL)
-      && BigInt(await rpc('eth_getTransactionCount', [acct, 'latest'])) === n0 + 1n && !submits.slice(s0).some((x) => x.type === 'wrap') && !(await kept()).some((v) => v.ticker === 'TAC'),
+      && BigInt(await rpc('eth_getTransactionCount', [acct, 'latest'])) === n0 + 1n && !submits.slice(s0).some((x) => x.type === 'wrap') && tv.length > 0 && !(await kept()).some((v) => tv.includes(v.depositId)),
       `tacvoucher: 100 TAC goes out at once in one router transaction with its permit, nothing asked of the relay, the voucher used up (${await text(r.page, '#tac-bal-status')}; ${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
     if (r.errors.length) { fails++; console.log('FAIL tacvoucher page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { poolDone = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
@@ -11057,8 +11109,9 @@ await step('exitahead', async () => {
 await step('selfdevice', async () => {
   const hex = '5e1f2'.padEnd(64, '9'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
   const r = await openPage({ account: A0, key: K0 });
-  // The prover on this computer: `up` answers, `fail` makes its next proofs fail; each input it is sent is kept.
-  const dev = { up: true, fail: false, asked: [] };
+  // The prover on this computer: `up` answers, `fail` makes its next proofs fail, `slow` polls of each job say it is in the wrap
+  // stage (step 3 of 4, 280 s left) before it is done; each input it is sent is kept.
+  const dev = { up: true, fail: false, slow: 0, asked: [], polls: {} };
   await r.page.route('http://127.0.0.1:47815/**', (route) => {
     const q = route.request(), u = new URL(q.url());
     const cors = { 'access-control-allow-origin': q.headers().origin || '*', 'access-control-allow-private-network': 'true', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET, POST' };
@@ -11068,7 +11121,9 @@ await step('selfdevice', async () => {
     if (u.pathname === '/health') return json({ ok: true, vkey: '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3', busy: false, queued: 0, gpu: 'Apple M2' });
     if (u.pathname === '/prove') { dev.asked.push(JSON.parse(q.postData() || '{}')); return json({ id: 'w' + dev.asked.length }); }
     if (u.pathname === '/job') {
-      const job = dev.asked[Number(String(u.searchParams.get('id')).slice(1)) - 1], op = job?.type === 'wrap' ? wrapOpFromStdin(job.stdin, STUB_CETH) : null;
+      const id = String(u.searchParams.get('id')), job = dev.asked[Number(id.slice(1)) - 1], op = job?.type === 'wrap' ? wrapOpFromStdin(job.stdin, STUB_CETH) : null;
+      dev.polls[id] = (dev.polls[id] || 0) + 1;
+      if (!dev.fail && dev.polls[id] <= dev.slow) return json({ status: 'proving', secs: 420 + dev.polls[id] * 3, stage: 'wrap', eta: 280 });
       return json(dev.fail ? { status: 'failed', error: 'the guest rejects this input' } : { status: 'done', secs: 240, publicValues: op ? wrapPv(op) : '0x' + '01'.repeat(32), proof: '0x' + '07'.repeat(32) });
     }
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
@@ -11131,14 +11186,14 @@ await step('selfdevice', async () => {
     await go(r.page, '#prove-self');
     await r.page.waitForSelector('#sheet-prove[open] #sp-dev', { timeout: 60000 });
     const before = dev.asked.length;
-    ok(!(await r.page.isChecked('#sp-dev')) && await r.page.isChecked('#sp-on') && /Off\. Run tacit-prover on this computer/.test(await body()),
-      `selfdevice: the switch for this computer starts off, with where to get its prover (${(await body()).match(/Prove on this computer.{0,140}/)?.[0]})`);
+    ok(!(await r.page.isChecked('#sp-dev')) && await r.page.isChecked('#sp-on') && /This computer\s*free and private, a few minutes/.test(await body()),
+      `selfdevice: the sheet asks who proves, on the key's own credit here, this computer offered as free and private (${(await body()).match(/Who proves.{0,200}/)?.[0]})`);
     await r.page.click('#sp-dev');
     await until(r.page, () => /On: this computer \(Apple M2\) proves your sends, wraps, claims and farm joins/.test(document.querySelector('#prove-body')?.textContent || ''), null, 30000).catch(() => {});
     const keys = await r.page.evaluate((p) => [localStorage.getItem('tacit-lite-prove-device-v1:' + p), localStorage.getItem('tacit-lite-prove-self-v1:' + p)], pub);
     ok(/On: this computer \(Apple M2\) proves your sends, wraps, claims and farm joins/.test(await body()) && await r.page.isChecked('#sp-dev') && !(await r.page.isChecked('#sp-on'))
-      && keys[0] === 'true' && keys[1] == null && await r.page.isDisabled('#sp-seal') && dev.asked.length === before,
-      `selfdevice: switched on, it finds the prover and names it, and the own-credit switch goes off (${keys}; ${(await body()).match(/Prove on this computer.{0,160}/)?.[0]})`);
+      && keys[0] === 'true' && keys[1] == null && !(await r.page.$('#sp-seal')) && !(await r.page.$('#prove-body .sp-get')) && dev.asked.length === before,
+      `selfdevice: chosen, it finds the prover and names it, own credit is off, and nothing to fetch is offered (${keys}; ${(await body()).match(/On: this computer.{0,160}/)?.[0]})`);
     await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await go(r.page, '#private');
     await r.page.waitForSelector('[data-v1="out"]', { timeout: 600000 });
@@ -11148,8 +11203,14 @@ await step('selfdevice', async () => {
     // (b) A whole-note withdrawal: proved on this computer from sp1-stdin.js's input, settled from the wallet with the proof it made; nothing to the relay.
     restore = await stubPoolSettle('ok');
     const s0 = submits.length, w0 = walletTxs.length, d0 = dev.asked.length;
+    dev.slow = 8;
     await withdraw('0.5');
-    const stage = await until(r.page, () => /This computer is proving it|Waiting for the prover on this computer/.test(document.querySelector('#v1-status')?.textContent || ''), null, 120000).then(() => true, () => false);
+    const stage = await until(r.page, () => /This computer is proving it: step 3 of 4, about 5 minutes left/.test(document.querySelector('#v1-status')?.textContent || ''), null, 120000).then(() => true, () => false);
+    await openActivity(r.page);
+    const bar = await until(r.page, () => { const b = document.querySelector('#act-body .actr-bar'); return !!b && Number(b.getAttribute('aria-valuenow')) > 50 && /step 3 of 4/.test(b.closest('.actr')?.textContent || ''); }, null, 30000).then(() => true, () => false);
+    ok(stage && bar, `selfdevice: while it proves, the form says the step and the time left, and its Activity row says the same with a bar (${await said()})`);
+    await r.page.evaluate(() => document.querySelectorAll('#sheet-act[open]').forEach((d) => d.close()));
+    dev.slow = 0;
     await ended();
     const one = settles(w0), sent = dev.asked.slice(d0);
     ok(stage && /Done\./.test(await said()) && submits.length === s0 && sent.length === 1 && sent[0].type === 'unwrap' && /^0x[0-9a-f]{200,}$/.test(sent[0].stdin)

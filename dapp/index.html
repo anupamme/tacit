@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-rGQgz6zlvBiP2sIfoMrrSkhYib5dWq/zMV4LUqli+oc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-y+/uAyEj2SEN04JvqTH12ghuxFMelg9SnOVBceS4vRA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -212,6 +212,13 @@ main:focus { outline: none; }
 a.di { color: inherit; text-decoration: none; }
 .di-k { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mute); letter-spacing: .02em; }
 .di-k .tk { width: 18px; height: 18px; }
+.di-k .pair { display: inline-flex; }
+.di-k .pair .tk + .tk { margin-left: -6px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--card); }
+.coin .pair, .pk-r .pair { display: inline-flex; flex: none; }
+.coin .pair .tk + .tk, .pk-r .pair .tk + .tk { margin-left: -9px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--field); }
+.lps { display: grid; gap: 8px; margin: 8px 0 4px; }
+.lps .seg { margin: 0; }
+.lps .seg button[aria-checked="true"] { background: var(--ink); color: var(--card); }
 .tk.letter { display: grid; place-items: center; color: #fff; background: var(--c, #8F8979); font: 500 10px/1 var(--mono); letter-spacing: 0; }
 .di-k .tk.letter { font-size: 8px; }
 .di-k .dot { margin-left: auto; }
@@ -243,6 +250,8 @@ a.di { color: inherit; text-decoration: none; }
 .stp .bad i { background: var(--err); border-color: var(--err); }
 @keyframes pulse { 50% { opacity: .3; } }
 .actr-f { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
+.actr-bar { height: 3px; overflow: hidden; background: var(--hair); border-radius: 2px; }
+.actr-bar i { display: block; height: 100%; background: var(--ink); border-radius: 2px; transition: width 1s linear; }
 .actr-f a { color: var(--ink); }
 .actr-f.err { color: var(--err); }
 .actr-f.err a { color: inherit; }
@@ -731,6 +740,19 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .x.share svg { width: 18px; height: 18px; }
 
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--hair-2); margin: 0 0 18px; }
+/* The Prove sheet: who proves (one choice), then only what that way needs */
+.spw { display: grid; gap: 6px; margin: 6px 0 16px; }
+.spw-o { display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; border: 1px solid var(--hair-2); border-radius: 12px; cursor: pointer; transition: border-color .15s; }
+.spw-o:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.spw-o input { flex: none; margin: 3px 0 0; accent-color: var(--ink); }
+.spw-o b { display: block; font-weight: 500; }
+.spw-o small { display: block; margin-top: 2px; font-size: 12px; color: var(--mute); }
+.spw-p { margin: 0 0 16px; }
+.sp-live { color: var(--ink); }
+.sp-get { display: grid; gap: 8px; margin-top: 12px; }
+.sp-cmd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 12px; background: var(--field); border: 1px solid var(--hair); border-radius: 10px; }
+.sp-cmd span { grid-column: 1 / -1; font-size: 12px; color: var(--mute); }
+.sp-cmd code { font: 12px/1.45 var(--mono); overflow-wrap: anywhere; }
 .seg button { min-height: var(--tap); padding: 8px 10px; background: none; border: 0; cursor: pointer; color: var(--mute); line-height: 1.25; }
 .seg button + button { border-left: 1px solid var(--hair-2); }
 .seg button small { display: block; font-size: 11px; }
@@ -1647,7 +1669,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 </dialog>
 <dialog class="sheet layer" id="sheet-prove" aria-labelledby="prove-h">
   <div class="sheet-in">
-    <div class="sheet-head"><h2 id="prove-h" tabindex="-1" autofocus>Prove it yourself</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="sheet-head"><h2 id="prove-h" tabindex="-1" autofocus>Proving</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
     <div id="prove-body"></div>
   </div>
 </dialog>
@@ -1690,7 +1712,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=7c22e7f7","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=16bb4d0d","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -2444,7 +2466,8 @@ const spStage = (st) => {
   if (st?.jobId && !OWN_JOB.test(st.jobId) && actGet('job:' + st.jobId)) actPut('job:' + st.jobId, { ahead: st.status === 'pending' ? st.ahead ?? undefined : undefined });
   const j = OWN_JOB.test(st?.jobId || '') && st.stage ? actGet('job:' + st.jobId) : null;
   if (!j) return;
-  actPut(j.id, { stage: st.stage, ...(st.inputPublic ? { inPub: true } : {}) });
+  // a proof on this computer keeps its stage, the time it has run and the prover's estimate, so its row can say where it is
+  actPut(j.id, { stage: st.stage, ...(st.phase ? { phase: st.phase, secs: st.secs ?? null, eta: st.eta ?? null, seen: Date.now() } : {}), ...(st.inputPublic ? { inPub: true } : {}) });
   if (st.inputPublic && j.in && actGet(j.in)) actPut(j.in, { inPub: true });
 };
 // entries followed to their end by /activity.js
@@ -2585,7 +2608,7 @@ const byLine = (j) => (!j.by ? '' : j.by > Date.now() ? ` It has until ${byTime(
 const WAIT_BY = { held: 'In line.', paused: 'In line: the relay isn’t proving right now.', down: 'In line: the relay has been quiet for a few minutes (a long proof, or a restart).', busy: 'In line behind another request.' };
 const jobWhere = (j) => {
   if (ownJob(j.id)) return j.status === 'proven' ? (JOBS.get(j.id.slice(4))?.run.live ? `Proved with your own credit. Sending it from ${your()}…`
-    : SEALED.has(j.id.slice(4)) ? 'Proved with your own credit, but its settle was not sent.' : 'Proved, but the page that asked for it closed before sending it. Start it again.') : spSaid(j.stage, j.status, !!j.inPub);
+    : SEALED.has(j.id.slice(4)) ? 'Proved with your own credit, but its settle was not sent.' : 'Proved, but the page that asked for it closed before sending it. Start it again.') : DEV_JOB.test(j.id) && devNow(j) ? devSaid(devNow(j)) : spSaid(j.stage, j.status, !!j.inPub);
   if (j.status === 'proving') return `The relay is proving it, then settling it on Ethereum.${byLine(j)}`;
   if (j.status === 'open') return `Proved, and waiting for a relay to send it.${byLine(j)}`;
   if (j.status === 'sending') return `Proved. A relay is sending it.${byLine(j)}`;
@@ -3078,11 +3101,24 @@ async function selfNow(spec) {
 const SP_STAGE = { uploading: 'Preparing the private input for Succinct’s prover…', requested: 'Asked Succinct’s prover…', assigned: 'A prover took it, about half a minute…', proved: 'Proved.' };
 const DEV_STAGE = { uploading: 'Handing it to the prover on this computer…', queued: 'Waiting for the prover on this computer…', device: 'This computer is proving it, a few minutes…' };
 const etaWords = (s) => (s == null ? null : s < 90 ? 'about a minute left' : `about ${Math.round(s / 60)} minutes left`);
+// Where a proof on this computer is: its stage (core, shrink, wrap, groth16: step 1 to 4), the time left (the prover's own estimate
+// from its last proof here, else this stage and the rest at an 8 GB Air's pace, less what has run) and how far along it is.
+const DEV_PHASES = ['core', 'shrink', 'wrap', 'groth16'], DEV_SECS = { core: 294, shrink: 66, wrap: 150, groth16: 288 };
+function devPlace(st) {
+  const i = DEV_PHASES.indexOf(st?.phase);
+  if (i < 0) return null;
+  const run = Number(st.secs) || 0, before = DEV_PHASES.slice(0, i).reduce((a, k) => a + DEV_SECS[k], 0), after = DEV_PHASES.slice(i + 1).reduce((a, k) => a + DEV_SECS[k], 0);
+  const left = st.eta != null ? Number(st.eta) : after + Math.max(DEV_SECS[st.phase] * 0.15, DEV_SECS[st.phase] - Math.max(0, run - before));
+  return { step: i + 1, left, pct: Math.min(99, Math.max(2, Math.round(run / (run + left) * 100))) };
+}
+// A proof on this computer, as Activity last heard it: its place now, the seconds since that update counted in
+const devNow = (it) => (it?.phase ? devPlace({ ...it, secs: (Number(it.secs) || 0) + (it.seen ? (Date.now() - it.seen) / 1000 : 0), eta: it.eta != null ? Math.max(0, it.eta - (it.seen ? (Date.now() - it.seen) / 1000 : 0)) : null }) : null);
 const SP_PUBLIC = 'Succinct’s network isn’t taking private inputs right now, so this one goes with a public input, which anyone can read…';
-const spSaid = (stage, status, pub = false, eta = null) => (pub && stage === 'uploading' && status !== 'proven' ? SP_PUBLIC
-  : `${status === 'proven' ? 'Proved.' : devOn() ? (stage === 'device' && eta != null ? `This computer is proving it, ${etaWords(eta)}…` : DEV_STAGE[stage] || DEV_STAGE.device) : SP_STAGE[stage] || 'Succinct’s prover is on it…'}${pub ? ' (public input)' : ''}`);
+const devSaid = (at) => `This computer is proving it: step ${at.step} of 4, ${etaWords(at.left)}…`;
+const spSaid = (stage, status, pub = false, eta = null, st = null) => (pub && stage === 'uploading' && status !== 'proven' ? SP_PUBLIC
+  : `${status === 'proven' ? 'Proved.' : devOn() ? (stage === 'device' && devPlace({ ...st, eta: eta ?? st?.eta }) ? devSaid(devPlace({ ...st, eta: eta ?? st?.eta })) : stage === 'device' && eta != null ? `This computer is proving it, ${etaWords(eta)}…` : DEV_STAGE[stage] || DEV_STAGE.device) : SP_STAGE[stage] || 'Succinct’s prover is on it…'}${pub ? ' (public input)' : ''}`);
 const spPublicNow = () => !!SP.prover?.privateOff?.();
-const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '') || (st && st.jobId === null && st.stage)) tell(spSaid(st.stage, st.status, !!st.inputPublic, st.eta)); } });
+const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '') || (st && st.jobId === null && st.stage)) tell(spSaid(st.stage, st.status, !!st.inputPublic, st.eta, st)); } });
 const proverSaid = (e) => e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load' || e?.code === 'device_prover';
 const relayCantProve = (e) => proveCapped(e) || relayCode(e) === 'relay_paused' || relayCode(e) === 'prove_reserved' || /prove failed:|prove timed out/i.test(String(e?.message || ''));
 const spMsg = (e) => (e?.code === 'prover_credit' ? `Your prover credit is ${proveFmt(e.have)} PROVE; this needs ${proveFmt(e.need)} on hand.`
@@ -3182,11 +3218,13 @@ function actBridgeBody(it, b) {
     ${locked ? html`<div class="brr-a"><button class="btn ghost" type="button" data-act-key>Open your Tacit wallet</button></div>`
       : due ? html`<div class="brr-a"><a class="btn ghost" href="#${xoLink(xaOf(b))}" data-link="${xoLink(xaOf(b))}">${due}</a></div>` : ''}`;
 }
+// A proof on this computer, while it runs: how far along it is
+const devBar = (row) => { const it = row.kind === 'op' ? opParts(row).find((x) => x.main)?.it : row, at = it && DEV_JOB.test(it.id) && !ended(it) && it.status !== 'proven' ? devNow(it) : null; return at ? html`<div class="actr-bar" role="progressbar" aria-label="Proving on this computer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${at.pct}"><i style="width:${at.pct}%"></i></div>` : html``; };
 const actRow = (it) => {
   const b = actBridge(it), open = !!b && b.stage !== 'minted', done = ended(it) && !open;
   return html`<li class="actr" data-act="${it.id}">
   <div class="actr-h"><b>${it.label}</b>${done ? html`<span>${ago(b?.mintedAt || it.end || it.up || it.at)}</span>` : html`<span class="num" data-since="${it.at}">${clock(Date.now() - it.at)}</span>`}</div>
-  ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made in another Tacit wallet. Open it to act on it.</div>` : ''}</li>`;
+  ${b ? actBridgeBody(it, b) : html`<ol class="stp">${actSteps(it)}</ol>${devBar(it)}${actFoot(it)}`}${otherKey(it) ? html`<div class="actr-f">Made in another Tacit wallet. Open it to act on it.</div>` : ''}</li>`;
 };
 let ACT_VIEW = '';
 // A stopped row whose same action was sent again within a day and went through is no longer news (a retried attempt keeps its own receipt: its id carries a ~), and a stopped one from days ago is not offered a retry (its own
@@ -3867,14 +3905,33 @@ function paintProve() {
   if (then) then.disabled = !ownOn();
 }
 const reProve = () => keep($('#sheet-prove'), renderProve);
-// What the switch for this computer's prover says: what it found, or where to get it.
-function devNote(dev) {
-  const get = html`<a href="${DEVICE_GET}" target="_blank" rel="noopener">tacit-prover</a>`;
-  if (!dev) return html`Off. Run ${get} on this computer to prove your sends, wraps, claims and farm joins here, with no credit or relay fee.`;
-  if (LOCAL.looking) return 'Looking for the prover on this computer…';
-  if (!LOCAL.found) return html`On, but the prover on this computer isn’t answering. Start ${get}; until then Tacit’s relay proves your actions.`;
-  return html`On: ${LOCAL.found.gpu ? `this computer (${LOCAL.found.gpu})` : 'this computer'} proves your sends, wraps, claims and farm joins, sent from ${your()}. The rest go through Tacit’s relay.`;
+// While the Prove sheet is open on This computer, the prover is asked how it is every few seconds and its line said again: one started
+// from the command there is found without a press, and one that stops answering says so.
+function devWatch() {
+  clearInterval(SP.devTick);
+  if (!devOn()) return;
+  SP.devTick = setInterval(async () => {
+    if (!$('#sheet-prove')?.open || !devOn()) { clearInterval(SP.devTick); return; }
+    const had = !!LOCAL.found;
+    await devProver({ fresh: true });
+    if (!!LOCAL.found !== had) { spApply(); paintSp(); reProve(); return; }
+    const n = $('#sp-dev-note');
+    if (n) mount(n, html`${devNote()}`);
+  }, 4000);
 }
+// The This computer panel's live line: looking, not answering, or on, with what it is proving now and what waits.
+function devNote() {
+  if (LOCAL.looking && !LOCAL.found) return 'Looking for tacit-prover on this computer…';
+  if (!LOCAL.found) return 'Not answering yet: start tacit-prover with the command below. Until it answers, Tacit’s relay proves your actions.';
+  const run = listed().find((it) => DEV_JOB.test(it.id) && !ended(it) && it.status !== 'proven'), at = run && devNow(run), q = Number(LOCAL.found.queued) || 0;
+  const now = at ? ` Proving now: step ${at.step} of 4, ${etaWords(at.left)}.` : LOCAL.found.busy ? ' Proving now.' : '';
+  return html`On: ${LOCAL.found.gpu ? `this computer (${LOCAL.found.gpu})` : 'this computer'} proves your sends, wraps, claims and farm joins, sent from ${your()}.${now}${q ? ` ${q} more waiting.` : ''}`;
+}
+// tacit-prover's builds: one command fetches and unpacks it (curl, so no download warning) and starts it at login.
+const PROVER_REL = 'https://github.com/src-company/tacit/releases/download/tacit-prover-v0.2.0/';
+const PROVER_GETS = [['macOS, Apple silicon', 'tacit-prover-macos-arm64.tar.gz'], ['Linux, x86-64', 'tacit-prover-linux-x86_64.tar.gz']];
+const proverCmd = (f) => `curl -fsSL ${PROVER_REL}${f} | tar xz -C ~ && ~/tacit-prover install`;
+const onLinux = () => /linux/i.test(navigator.userAgentData?.platform || navigator.platform || '') && !/android/i.test(navigator.userAgent);
 const SIZES = [1, 5, 20];
 const sizesNow = () => SIZES.filter((n) => proveFor(n) > (SP.credit ?? 0n));
 function sizeRow() {
@@ -3891,9 +3948,14 @@ function renderProve() {
   SP.src = src;
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
-  mount(el, html`
-    <p class="lede-s">Prove your private actions on Succinct’s network with your own credit, so nothing waits in the relay’s queue. Details go to the prover as a private input and are not kept; while the network isn’t taking private inputs they go public, and the action says so. Each costs about ${perProof()} PROVE and is sent from ${your()}, which pays its network fee.</p>
-    <ol class="steps">
+  const way = dev ? 'device' : on ? 'credit' : 'relay';
+  const wayOpt = (k, id, title, sub) => html`<label class="spw-o"><input type="radio" name="spw" id="${id}" ${way === k ? 'checked' : ''}><span><b>${title}</b><small>${sub}</small></span></label>`;
+  const panel = way === 'device' ? html`<div class="spw-p">
+      <p class="note sp-live" id="sp-dev-note" aria-live="polite">${devNote()}</p>
+      ${LOCAL.found ? '' : html`<div class="sp-get">${(onLinux() ? [...PROVER_GETS].reverse() : PROVER_GETS).map(([name, f]) => html`<div class="sp-cmd"><span>${name}</span><code>${proverCmd(f)}</code><button class="link" type="button" data-copy="${proverCmd(f)}">copy</button></div>`)}
+        <p class="note">Paste it in a terminal: it starts with your computer and idles at no CPU. The first proof also downloads SP1’s 6.2 GB circuit, once. Windows and Intel Macs: <a href="${DEVICE_GET}" target="_blank" rel="noopener">build it from source</a>.</p></div>`}
+    </div>`
+    : way === 'credit' ? html`<ol class="steps">
       <li class="step done"><span class="n">1</span><div><h3>Your prover account</h3>
         <div class="kv"><span>Tacit account</span><b class="mono">${short(a.address, 8)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
         <div class="kv"><span>Prover credit</span><b class="num" id="sp-credit"><span class="sk" style="--w:7ch"></span></b></div>
@@ -3908,97 +3970,101 @@ function renderProve() {
         <div class="rcpt" id="sp-rcpt" hidden></div>
         <button class="btn" type="button" id="sp-go" ${src !== 'acct' && !S.wallet ? '' : 'disabled'}>${src !== 'acct' && !S.wallet ? 'Connect wallet' : 'Add PROVE'}</button>
         <div class="status" role="status" id="sp-status"></div></div></li>
-      <li class="${on || dev ? 'step done' : 'step now'}"><span class="n">3</span><div><h3>Prove with your credit</h3>
-        <label class="pick"><input type="checkbox" id="sp-on" ${on ? 'checked' : ''}><span>Prove my actions with my own credit</span></label>
-        <p class="note">${on ? `On: each private action is proved with your credit (about ${perProof()} PROVE) and sent from ${your()}. One it can’t prove from here goes through Tacit’s relay, and says so.`
-          : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
-        <label class="pick"><input type="checkbox" id="sp-dev" ${dev ? 'checked' : ''}><span>Prove on this computer</span></label>
-        <p class="note" id="sp-dev-note">${devNote(dev)}</p>
-        ${S.key ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once${dev ? '' : ' (proved free by the community)'}: ${Object.entries(KEEP_READY).map(([tk, k], i) => html`${i ? ' ·' : ''}${k.sizes.map((w) => html` <button class="link" type="button" data-keep="${tk}:${w}" aria-pressed="${String(keepSizes(tk).includes(w))}">${keepSizes(tk).includes(w) ? '✓ ' : ''}${fmt(w, 18, k.dp)} ${k.sym}</button>`)}`)}</p>` : ''}
-        <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on || dev ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
-        <p class="note">${on || dev ? `Not needed while ${dev ? 'this computer' : 'your own credit'} proves: nothing of yours reaches the relay.`
-          : seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
-          : 'Off: the relay reads each action to prove it. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
-        ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on || dev ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
-    </ol>`);
+    </ol>
+    <p class="note">Each private action is proved with your credit (about ${perProof()} PROVE) and sent from ${your()}. One it can’t prove from here goes through Tacit’s relay, and says so.</p>`
+    : html`<div class="spw-p">
+      <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
+      <p class="note">${seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
+        : 'Off: the relay reads each action to prove it. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
+    </div>`;
+  mount(el, html`
+    <p class="lede-s">Who proves your private actions.</p>
+    <div class="spw" role="radiogroup" aria-label="Who proves your private actions">
+      ${wayOpt('relay', 'sp-relay', 'Tacit’s relay', 'about a minute, nothing to set up')}
+      ${wayOpt('device', 'sp-dev', 'This computer', 'free and private, a few minutes')}
+      ${wayOpt('credit', 'sp-on', 'Your own credit', 'about a minute, paid in PROVE')}
+    </div>
+    ${panel}
+    ${S.key ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once${dev ? ' (proved here while it is idle)' : ' (proved free by the community)'}: ${Object.entries(KEEP_READY).map(([tk, k], i) => html`${i ? ' ·' : ''}${k.sizes.map((w) => html` <button class="link" type="button" data-keep="${tk}:${w}" aria-pressed="${String(keepSizes(tk).includes(w))}">${keepSizes(tk).includes(w) ? '✓ ' : ''}${fmt(w, 18, k.dp)} ${k.sym}</button>`)}`)}</p>` : ''}
+    ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on || dev ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
   wireSub(el, 'sps', (v) => { SP.src = v; SP.srcChosen = true; SP.q = null; reProve(); });
   const amt = $('#sp-amt'), go = $('#sp-go'), rc = $('#sp-rcpt'), status = $('#sp-status');
-  let seq = 0;
-  $$('[data-sp-size]', el).forEach((b) => b.onclick = () => busy(b, async () => {
-    try {
-      const add = proveFor(Number(b.dataset.spSize)) - (SP.credit ?? 0n);
-      if (add <= 0n) return;
-      mount(rc, html`<div class="kv"><span>You get</span><b><span class="sk" style="--w:7ch"></span></b></div>`); rc.hidden = false;
-      const q = await (await spAbi()).ethForProve({ call: spCall, to: S.acct.address, want: add });
-      amt.value = plain(q.wei, 18); amt.dispatchEvent(new Event('input'));
-    } catch (e) { quoteErr(rc, e); }
-  }));
-  $('#sp-max').onclick = () => {
-    const v = src === 'acct' ? SP.held : src === 'prove' ? SP.wProve : SP.wEth != null ? (SP.wEth > 3n * 10n ** 15n ? SP.wEth - 3n * 10n ** 15n : 0n) : null;
-    if (v != null) { amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); }
-  };
-  onEdit([amt], go, async () => {
-    const my = ++seq, wei = parseUnits(amt.value);
-    SP.q = null; go.disabled = !(src !== 'acct' && !S.wallet);
-    if (!wei) { rc.hidden = true; return; }
-    if (src !== 'eth' && wei < (SP.mod?.MIN_DEPOSIT_WEI ?? 10n ** 16n)) { mount(rc, html``); warn(rc, 'Add at least 0.01 PROVE.'); return; }
-    if (src === 'eth') {
-      mount(rc, html`<div class="kv"><span>You get</span><b><span class="sk" style="--w:7ch"></span></b></div>`); rc.hidden = false;
+  // adding PROVE: only on the own-credit path, where its form is
+  if (amt) {
+    let seq = 0;
+    $$('[data-sp-size]', el).forEach((b) => b.onclick = () => busy(b, async () => {
       try {
-        const q = await spQuote(wei);
-        if (my !== seq || !amt.isConnected) return;
-        SP.q = q;
-        mount(rc, html`<div class="kv"><span>You get about</span><b>${proveFmt(q.amountOut)} PROVE</b></div><div class="kv"><span>At least</span><b>${proveFmt(q.amountLimit)} PROVE · 1% slippage guard</b></div>
-          <div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + q.amountLimit))}</b></div>`);
-        go.disabled = false;
-      } catch (e) { if (my === seq) quoteErr(rc, e); }
-      return;
-    }
-    mount(rc, html`<div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + wei))}</b></div>
-      <div class="kv"><span>${src === 'acct' ? 'From' : 'Paid by'}</span><b>${src === 'acct' ? 'your Tacit account, two transactions' : 'your wallet; your Tacit account signs the deposit here'}</b></div>`);
-    rc.hidden = false;
-    go.disabled = false;
-  });
-  go.onclick = () => busy(go, async () => {
-    try {
-      if (src !== 'acct' && !S.wallet) { await connect(); reProve(); spRead(true).catch(() => {}); return; }
-      const wei = parseUnits(amt.value);
-      if (!wei) throw new Error('Enter an amount.');
-      const added = await spFund(src, wei, (v) => say(status, v));
-      clearField(amt); rc.hidden = true;
-      say(status, html`<span class="ok">Added ${proveFmt(added, 4)} PROVE.</span> It shows in your prover credit a few minutes after it lands.`);
-      toast('PROVE added to your prover credit');
-      spRead(true).catch(() => {});
-    } catch (e) { sayErr(status, e); }
-  });
-  $('#sp-on').onchange = (e) => {
-    if (midAction()) { e.target.checked = !e.target.checked; return; }
-    store.set(SP_PREF + S.key.pubHex, e.target.checked ? true : null);
-    if (e.target.checked) { store.set(DEV_PREF + S.key.pubHex, null); $('#sp-dev').checked = false; }
+        const add = proveFor(Number(b.dataset.spSize)) - (SP.credit ?? 0n);
+        if (add <= 0n) return;
+        mount(rc, html`<div class="kv"><span>You get</span><b><span class="sk" style="--w:7ch"></span></b></div>`); rc.hidden = false;
+        const q = await (await spAbi()).ethForProve({ call: spCall, to: S.acct.address, want: add });
+        amt.value = plain(q.wei, 18); amt.dispatchEvent(new Event('input'));
+      } catch (e) { quoteErr(rc, e); }
+    }));
+    $('#sp-max').onclick = () => {
+      const v = src === 'acct' ? SP.held : src === 'prove' ? SP.wProve : SP.wEth != null ? (SP.wEth > 3n * 10n ** 15n ? SP.wEth - 3n * 10n ** 15n : 0n) : null;
+      if (v != null) { amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); }
+    };
+    onEdit([amt], go, async () => {
+      const my = ++seq, wei = parseUnits(amt.value);
+      SP.q = null; go.disabled = !(src !== 'acct' && !S.wallet);
+      if (!wei) { rc.hidden = true; return; }
+      if (src !== 'eth' && wei < (SP.mod?.MIN_DEPOSIT_WEI ?? 10n ** 16n)) { mount(rc, html``); warn(rc, 'Add at least 0.01 PROVE.'); return; }
+      if (src === 'eth') {
+        mount(rc, html`<div class="kv"><span>You get</span><b><span class="sk" style="--w:7ch"></span></b></div>`); rc.hidden = false;
+        try {
+          const q = await spQuote(wei);
+          if (my !== seq || !amt.isConnected) return;
+          SP.q = q;
+          mount(rc, html`<div class="kv"><span>You get about</span><b>${proveFmt(q.amountOut)} PROVE</b></div><div class="kv"><span>At least</span><b>${proveFmt(q.amountLimit)} PROVE · 1% slippage guard</b></div>
+            <div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + q.amountLimit))}</b></div>`);
+          go.disabled = false;
+        } catch (e) { if (my === seq) quoteErr(rc, e); }
+        return;
+      }
+      mount(rc, html`<div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + wei))}</b></div>
+        <div class="kv"><span>${src === 'acct' ? 'From' : 'Paid by'}</span><b>${src === 'acct' ? 'your Tacit account, two transactions' : 'your wallet; your Tacit account signs the deposit here'}</b></div>`);
+      rc.hidden = false;
+      go.disabled = false;
+    });
+    go.onclick = () => busy(go, async () => {
+      try {
+        if (src !== 'acct' && !S.wallet) { await connect(); reProve(); spRead(true).catch(() => {}); return; }
+        const wei = parseUnits(amt.value);
+        if (!wei) throw new Error('Enter an amount.');
+        const added = await spFund(src, wei, (v) => say(status, v));
+        clearField(amt); rc.hidden = true;
+        say(status, html`<span class="ok">Added ${proveFmt(added, 4)} PROVE.</span> It shows in your prover credit a few minutes after it lands.`);
+        toast('PROVE added to your prover credit');
+        spRead(true).catch(() => {});
+      } catch (e) { sayErr(status, e); }
+    });
+  }
+  // the choice: a preference for this key (the relay when neither is set); this computer is looked for as it is chosen
+  const choose = (w) => {
+    if (midAction()) { reProve(); return; }
+    store.set(SP_PREF + S.key.pubHex, w === 'credit' ? true : null);
+    store.set(DEV_PREF + S.key.pubHex, w === 'device' ? true : null);
     spApply(); paintSp(); reProve();
-    toast(e.target.checked ? 'Your private actions are proved with your own credit now.' : 'Tacit’s relay proves your actions again.');
-  };
-  $('#sp-dev').onchange = (e) => {
-    if (midAction()) { e.target.checked = !e.target.checked; return; }
-    const on_ = e.target.checked;
-    store.set(DEV_PREF + S.key.pubHex, on_ ? true : null);
-    if (on_) { store.set(SP_PREF + S.key.pubHex, null); $('#sp-on').checked = false; }
-    spApply(); paintSp(); reProve();
-    if (!on_) return toast('Tacit’s relay proves your actions again.');
+    if (w !== 'device') return toast(w === 'credit' ? 'Your private actions are proved with your own credit now.' : 'Tacit’s relay proves your actions again.');
     devProver({ fresh: true }).then((x) => {
       if (!devOn()) return;
       spApply(); paintSp(); reProve();
       toast(x ? 'Your sends, wraps and claims are proved on this computer now.' : 'The prover on this computer isn’t answering yet, so Tacit’s relay proves your actions until it does.');
     });
   };
+  $('#sp-relay').onchange = () => choose('relay');
+  $('#sp-dev').onchange = () => choose('device');
+  $('#sp-on').onchange = () => choose('credit');
+  devWatch();
   $$('[data-keep]', el).forEach((b) => b.onclick = () => {
     const [tk, ws] = b.dataset.keep.split(':'), k = KEEP_READY[tk], w = BigInt(ws), now = keepSizes(tk), next = now.includes(w) ? now.filter((x) => x !== w) : [...now, w];
     store.set(keepKey(tk), next.map(String));
     reProve();
     if (next.includes(w)) { toast(`A ${fmt(w, 18, k.dp)} ${k.sym} wrap is ${devOn() ? 'proved on this computer while it is idle' : 'asked of the community proof pool'}, ready to send at once.`); keepReady().catch(() => {}); }
   });
-  $('#sp-seal').onchange = (e) => {
+  if ($('#sp-seal')) $('#sp-seal').onchange = (e) => {
     if (midAction()) { e.target.checked = !e.target.checked; return; }
     store.set(SP_SEAL + S.key.pubHex, e.target.checked ? true : null);
     spApply(); paintSp();
@@ -4349,7 +4415,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=7c22e7f7'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=16bb4d0d'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -4412,11 +4478,19 @@ function comingPoll(sheet) {
 }
 const lockList = (kind) => (kind === 'claim' ? LK.mine : LK.back).filter((l) => !taken(kLock(l)));
 // What waits for the key, said with its amount and, for a payment to claim, how long it has: a payment not claimed by its deadline goes back to the sender.
+// A private farm pool's LP shares: notes and payments of them carry no ticker. The pool whose share asset `asset` is (the farm program read
+// first if it is not yet), and what an amount of its shares reads as: its worth in ETH where the pool is read, else the share count.
+const lpPoolOf = (asset) => (FARM.program?.pools || []).find((p) => String(p.lpAsset).toLowerCase() === String(asset).toLowerCase()) || null;
+const lpPoolFor = async (asset) => lpPoolOf(asset) || (FARM.program ? null : await loadProgram().then(() => lpPoolOf(asset), () => null));
+const lpSays = (p, shares) => { const w = sharesEth(p, shares); return w ? `${aboutEth(w).replace(/^≈ /, '')} of ${pairName(p.pair)} LP` : `${BigInt(shares).toLocaleString('en-US')} ${pairName(p.pair)} LP shares`; };
 function lockWhat(ls) {
-  const t = SP.ux, by = new Map();
+  const t = SP.ux, by = new Map(), lp = [];
   if (!t) return '';
-  for (const l of ls) { const tk = tickerOf(t, l.asset); if (tk) by.set(shownAs(tk), (by.get(shownAs(tk)) || 0n) + BigInt(l.amount)); }
-  return [...by].map(([u, v]) => `${fmt(v, 8, 6)} ${u}`).join(' and ');
+  for (const l of ls) {
+    const tk = tickerOf(t, l.asset), p = tk ? null : lpPoolOf(l.asset);
+    if (tk) by.set(shownAs(tk), (by.get(shownAs(tk)) || 0n) + BigInt(l.amount)); else if (p) lp.push(lpSays(p, l.amount));
+  }
+  return [...[...by].map(([u, v]) => `${fmt(v, 8, 6)} ${u}`), ...lp].join(' and ');
 }
 function inDays(deadline) {
   const h = Math.max(1, Math.ceil((Number(deadline) - Number(chainNow())) / 3600));
@@ -4517,7 +4591,7 @@ function loadLocks(force = false) {
     if (S.key?.pubHex !== pub) return null;
     const fees = {}, worth = async (l) => {
       const tk = tickerOf(t, l.asset);
-      if (!tk) return false;
+      if (!tk) return !!(await lpPoolFor(l.asset));          // LP shares: claimed with no fee (the relay's sponsored LP move)
       if (ownNow(['stealthclaim'])) return true;       // proved with your own credit a claim has no relay fee to be smaller than
       fees[tk] ??= await t.quoteOpFee(tk, 'stealthclaim').then(BigInt, () => null);
       return fees[tk] != null && BigInt(l.amount) > fees[tk];
@@ -4553,11 +4627,13 @@ async function settleLocks(run, kind, status) {
     tried.add(due.leaf);
     const root = kind === 'claim' ? LK.root : LK.sentRoot;
     try {
-      const tk = tickerOf(t, due.asset), types = [kind === 'claim' ? 'stealthclaim' : 'stealthrefund'], self = await proveOwn(types);
-      const fee = self ? 0n : BigInt(await t.quoteOpFee(tk, 'stealthclaim'));
+      // LP shares go with no fee: the pool cannot pay a relay in them, and the relay takes their moves as sponsored ones
+      const tk = tickerOf(t, due.asset), lpP = tk ? null : await lpPoolFor(due.asset), types = [kind === 'claim' ? 'stealthclaim' : 'stealthrefund'], self = await proveOwn(types);
+      const fee = self || lpP ? 0n : BigInt(await t.quoteOpFee(tk, 'stealthclaim'));
+      const says = lpP ? lpSays(lpP, due.amount) : `${fmt(BigInt(due.amount), 8, 6)} ${shownAs(tk)}`;
       if (!self && fee >= BigInt(due.amount)) throw new Error(`A ${fmt(BigInt(due.amount), 8, 8)} ${shownAs(tk)} payment is smaller than the relay fee to ${kind === 'claim' ? 'claim it' : 'take it back'}.`);
-      run.say(status, `${kind === 'claim' ? 'Claiming' : 'Taking back'} ${fmt(BigInt(due.amount), 8, 6)} ${shownAs(tk)}${self ? '' : ', less the relay fee'}: the relay is proving it…`);
-      const what = `${verb} ${fmt(BigInt(due.amount), 8, 6)} ${shownAs(tk)}`;
+      run.say(status, `${kind === 'claim' ? 'Claiming' : 'Taking back'} ${says}${self || lpP ? '' : ', less the relay fee'}: the relay is proving it…`);
+      const what = `${verb} ${says}`;
       const call = (f, o) => (kind === 'claim'
         ? t.stealthClaim({ walletPriv: priv, lockRecord: due, lockSetRoot: root, fee: f, ...o })
         : t.stealthRefund({ walletPriv: priv, lockRecord: due, refundPriv: due.refundPriv, lockSetRoot: root, fee: f, ...o }));
@@ -4565,7 +4641,7 @@ async function settleLocks(run, kind, status) {
         go: (x) => call(0n, { selfSettle: x.selfSettle, waitOpts: x.waitOpts }),
         relayed: async () => {
           try { await call(fee, { waitOpts: run.wait(what, 15 * 60e3) }); }
-          catch (e0) { if (/fee below the current floor/i.test(e0?.message || '') && fee * 2n < BigInt(due.amount)) await call(fee * 2n, { waitOpts: run.wait(what, 15 * 60e3) }); else throw e0; }
+          catch (e0) { if (!lpP && /fee below the current floor/i.test(e0?.message || '') && fee * 2n < BigInt(due.amount)) await call(fee * 2n, { waitOpts: run.wait(what, 15 * 60e3) }); else throw e0; }
         } });
       ok++;
     } catch (e) {
@@ -8466,7 +8542,9 @@ async function lpReady(poolId, wei, res) {
 // The sizes kept ready (the prove sheet's, and every farm's shares), checked each minute: proved on this computer one at a time while its
 // prover has nothing else to do, or else asked of the community proof pool (/prover/pool/*) a few at a time, where anyone running
 // tacit-prover, and Tacit's own prover when it is idle, proves them for TAC points, free to you.
-async function keepReady() {
+// One at a time: a size picked, the minute's tick and the key opening each ask, and two at once would each find a size missing and ask twice.
+function keepReady() { return (VOUCH.keeping ||= keepReadyOnce().finally(() => { VOUCH.keeping = null; })); }
+async function keepReadyOnce() {
   if (!S.key) return;
   const v = await vouchers(), pub = S.key.pubHex, device = devOn();
   if (device ? VOUCH.ahead : Date.now() < (VOUCH.poolCapUntil || 0)) return;
@@ -9740,6 +9818,65 @@ async function exitPosition(run, p, pos, tell, status) {
   if (!fresh.length) return 'unseen';
   return (await stepTakeOut(run, p, fresh, stepOf(tell, ++k, steps), status)) ? 'out' : 'offered';
 }
+// A part of a private LP position sent privately: to a tacit1 address or a name, a quarter, a half or all of the largest share note. The note
+// is split with no fee and the part locked to a one-time address only the recipient opens (the relay's sponsored LP moves: an LP share has no
+// token the pool could pay a relay in); the recipient claims it with no fee, and can farm it, send it on or take it out.
+// The open form, its recipient and its part, kept across the farm sheet's repaints (a read finishing redraws it) so nothing typed is lost.
+const LPS = { pid: null, to: '', part: 'all' };
+function lpSendForm(box, x) {
+  const { p, notes } = x, big = notes.map((n) => BigInt(n.value)).sort((a, b) => (a < b ? 1 : -1))[0] || 0n, status = () => $('#fn-status');
+  if (LPS.pid !== p.pid) Object.assign(LPS, { pid: p.pid, to: '', part: 'all' });
+  let who = null, part = LPS.part, seq = 0;
+  mount(box, html`
+    <div class="amt text"><input class="lps-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
+    <div class="seg sub lps-part" role="radiogroup" aria-label="How much">${[['q', 'A quarter'], ['h', 'Half'], ['all', 'All']].map(([k, t]) => html`<button type="button" role="radio" data-lpp="${k}" aria-checked="${String(k === part)}">${t}</button>`)}</div>
+    <div class="rcpt lps-rc" hidden></div>
+    <button class="btn" type="button" disabled>Send privately</button>`);
+  const to = $('.lps-to', box), rc = $('.lps-rc', box), go = $('.btn', box);
+  to.value = LPS.to;
+  const shares = () => (part === 'q' ? big / 4n : part === 'h' ? big / 2n : big);
+  const check = async () => {
+    const my = ++seq, raw = to.value.trim(), n = shares();
+    who = null; go.disabled = true;
+    mount(rc, html`<div class="kv"><span>Sends</span><b>${lpSays(p, n)}</b></div>`); rc.hidden = false;
+    if (!raw) return;
+    try {
+      const r = await resolveToM(raw);
+      if (my !== seq) return;
+      if (String(r.pubHex).replace(/^0x/, '').toLowerCase() === S.key.pubHex) throw new Error('That is your own Tacit address.');
+      who = r;
+      mount(rc, html`<div class="kv"><span>Sends</span><b>${lpSays(p, n)}</b></div>
+        ${r.name ? html`<div class="kv"><span>${r.name}</span><b>${short(r.address || '', 10)}</b></div>` : html`<div class="kv"><span>To</span><b>${short(raw, 10)}</b></div>`}
+        <div class="kv"><span>Relay fee</span><b>none</b></div>
+        <div class="kv"><span>They see</span><b>a private payment to claim</b></div>`);
+      go.disabled = !(n > 0n);
+    } catch (e) { if (my === seq) quoteErr(rc, e); }
+  };
+  const checkSoon = debounce(check, 300);
+  to.oninput = () => { LPS.to = to.value; checkSoon(); };
+  $$('[data-lpp]', box).forEach((b) => b.onclick = () => { part = LPS.part = b.dataset.lpp; $$('[data-lpp]', box).forEach((y) => y.setAttribute('aria-checked', String(y === b))); check(); });
+  check();
+  go.onclick = () => busy(go, async (run) => {
+    const w = who, raw = to.value.trim(), n = shares();
+    if (!w || !(n > 0n)) return;
+    const label = `Send ${lpSays(p, n)} privately to ${w.name || short(raw, 8)}`;
+    run.go({ label, status, clear: () => { LPS.pid = null; box.hidden = true; } });
+    try {
+      await pinned(w, () => resolveToM(raw, null, true), to);
+      const t = await getUx(), priv = walletPriv(), note = freeNotes(P.scan?.notes).filter(isLp(p)).filter((y) => BigInt(y.value) >= n).sort(byValue)[0];
+      if (!note) throw new Error('That share note is in an action still going through. Try again once it is done.');
+      run.take(kNote(note));
+      run.say(status(), n === BigInt(note.value) ? 'Locking it to a one-time address only they can open…' : 'Splitting your share note (no fee), then locking the part sent to a one-time address only they can open…');
+      const sendArgs = { t, priv, note, who: w, units: n, ticker: null };
+      await proveOr({ run, types: ['transfer', 'stealthlock'], label, sheet: 'farm', status,
+        go: (y) => lockSend({ ...sendArgs, selfSettle: y.selfSettle, waitOpts: y.waitOpts }),
+        relayed: () => lockSend({ ...sendArgs, waitOpts: run.wait(null, 15 * 60e3) }) });
+      LPS.pid = null;
+      say(status(), html`<span class="ok">Sent.</span> They claim it from their Tacit wallet, with no fee.`); toast(`${label}: done`);
+      await Promise.allSettled([scanPrivate(true)]); rerender('farm');
+    } catch (e) { run.fail(status(), e); }
+  });
+}
 function renderFarmNotes(el) {
   const prog = FARM.program, notes = S.key ? freeNotes(P.scan?.notes) : null;
   const rid = String(prog?.rewardAsset || '').toLowerCase();
@@ -9763,11 +9900,21 @@ function renderFarmNotes(el) {
       ${FARM.left && Date.now() - FARM.left.at < 10 * 60e3 ? html`<p class="note" id="fn-left">${FARM.left.n} earned reward${FARM.left.n === 1 ? ' is' : 's are'} not yet worth turning into TAC (the unwrap costs more than ${FARM.left.n === 1 ? 'it returns' : 'they return'}): ${FARM.left.n === 1 ? 'it keeps' : 'they keep'} growing, and Claim rewards takes ${FARM.left.n === 1 ? 'it' : 'them'} once worth it.</p>` : ''}
       ${lps.map(({ p, notes: ns }) => { const n = ns.reduce((a, x) => a + BigInt(x.value), 0n); return html`<div class="kv"><span>${pairName(p.pair)} liquidity, not bonded</span><b>${lpWorth(p, n) || `${n.toLocaleString('en-US')} shares`}</b></div>
         <button class="btn ghost" type="button" data-lpbond="${p.pid}">Farm it</button>
-        <button class="btn ghost" type="button" data-lprm="${p.pid}">Take it out as ${pairName(p.pair)}</button>`; })}
-      ${inNotes || inAccount || lps.length ? html`<p class="note">wTAC is the farms’ reward token, one for one with TAC: it becomes TAC in ${your()}. Liquidity that is not bonded earns nothing: farm it, or take it out as both assets in private notes.</p>` : ''}
+        <button class="btn ghost" type="button" data-lprm="${p.pid}">Take it out as ${pairName(p.pair)}</button>
+        <button class="btn ghost" type="button" data-lpsend="${p.pid}" aria-expanded="false">Send privately</button>
+        <div class="lps" id="lps-${p.pid}" hidden></div>`; })}
+      ${inNotes || inAccount || lps.length ? html`<p class="note">wTAC is the farms’ reward token, one for one with TAC: it becomes TAC in ${your()}. Liquidity that is not bonded earns only the pool’s swap fees: farm it for TAC too, or take it out as both assets in private notes.</p>` : ''}
       <div class="status" role="status" id="fn-status"></div>
     </div>`);
   const status = $('#fn-status', el), done = async (msg) => { say(status, html`<span class="ok">${msg}</span>`); await Promise.allSettled([scanPrivate(true), loadFarms(true, { private: true })]); rerender('farm'); };
+  const openLps = (x) => { const box = $(`#lps-${x.p.pid}`); box.hidden = false; $(`[data-lpsend="${x.p.pid}"]`, el).setAttribute('aria-expanded', 'true'); lpSendForm(box, x); };
+  $$('[data-lpsend]', el).forEach((b) => b.onclick = () => {
+    const x = lps.find((y) => String(y.p.pid) === b.dataset.lpsend), box = $(`#lps-${b.dataset.lpsend}`);
+    if (box.hidden) openLps(x); else { box.hidden = true; b.setAttribute('aria-expanded', 'false'); LPS.pid = null; }
+  });
+  // from the card's Send: the position's form, opened with the recipient in it
+  { const d = hxLive('lpsend'); const x = d && lps.find((y) => String(y.p.pid) === String(d.pid)); if (x) { HX.draft = null; Object.assign(LPS, { pid: x.p.pid, to: d.to || '', part: d.part || 'all' }); } }
+  { const x = LPS.pid != null && lps.find((y) => y.p.pid === LPS.pid); if (x) openLps(x); }
   for (const [id, harvest] of [['#fn-redeem', true], ['#fn-turn', false]]) {
     const rd = $(id, el);
     if (rd) rd.onclick = () => busy(rd, async (run) => {
@@ -11977,6 +12124,18 @@ function dashItems() {
     out.push({ key: 'pts', icon: 'i-pts', label: 'Points', num: true, v: rows ? rows.reduce((a, r) => a + r.points, 0) : null, err: !!rows && rows.every((r) => !r.read), live: owed > 0n, open: 'pts', core: true,
       meta: !rows ? '' : owed > 0n ? `${tacShort(owed)} TAC to claim` : share > 0 ? `${sharePct(share)} of today · about ${fmt(day, 18, 2)} TAC` : 'none yet today' });
   }
+  // each private pool's liquidity the key holds, one row a pool: its share notes not in the farm and its farmed positions, at their worth
+  // in ETH now (from the scan and the farm program already read: nothing more is asked for)
+  if (k && FARM.program?.pools) {
+    for (const p of FARM.program.pools) {
+      const loose = (s ? freeNotes(s.notes).filter(isLp(p)) : []).reduce((a, n) => a + BigInt(n.value), 0n);
+      const farmed = (FARM.positions ?? s?.farmPositions ?? []).filter((y) => Number(y.pid) === Number(p.pid)).reduce((a, y) => a + (big(y.shares) || 0n), 0n);
+      if (!loose && !farmed) continue;
+      out.push({ key: `lp-${p.pid}`, icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'], label: `${pairName(p.pair)} LP`, unit: 'ETH', dec: 18, max: 4,
+        v: sharesEth(p, loose + farmed) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: farmed && loose ? 'private, part farmed' : farmed ? 'private, farming' : 'private, not farmed',
+        send: loose > 0n ? `lp${p.pid}` : null });
+    }
+  }
   const x = FARM.precision && FARM.precision.who === S.address ? FARM.precision : null, pos = S.key ? FARM.positions || [] : [];
   if (x?.staked > 0n || x?.earned > 0n || pos.length) {
     const scale = big(FARM.program?.unitScale) || E10, earned = (x ? earnedNow(x) : 0n) + pos.reduce((a, p) => a + (big(p.pendingUnits) || 0n) * scale, 0n);
@@ -11998,13 +12157,13 @@ function dashWorth(items) {
   const usd = { eth: v.usdBtc / v.ethBtc, btc: v.usdBtc, usd: 1, tac: v.mid ? v.mid * v.usdBtc / v.ethBtc : null };
   let all = 0, priv = 0;
   for (const it of items) {
-    const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : DASH_PX[it.key];
+    const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : it.key.startsWith('lp-') ? 'eth' : DASH_PX[it.key];
     if (!kind || it.v == null) continue;
     if (usd[kind] == null) { if (it.v > 0n || it.priv > 0n) return null; continue; }
     const n = Number(it.v) / 10 ** it.dec * usd[kind];
     all += n;
     if (it.key === 'tac') priv += Number(it.priv ?? 0n) / 1e18 * usd.tac;
-    else if (DASH_PRIV.has(it.key) || it.key.startsWith('sats-')) priv += n;
+    else if (DASH_PRIV.has(it.key) || it.key.startsWith('sats-') || it.key.startsWith('lp-')) priv += n;
   }
   return { all, priv };
 }
@@ -12026,7 +12185,7 @@ function paintDash() {
     if (it.v != null) DASH.cur[it.key] = it.num ? String(Math.round(it.v)) : String(it.v);
     const value = it.v != null ? html`${show(it.v)}${it.unit ? html` <small>${it.unit}</small>` : ''}` : prev != null && !it.err ? html`<span class="stale">${show(prev)}</span>`
       : it.err || it.lazy ? '—' : html`<span class="sk" style="--w:7ch"></span>`;
-    const body = html`<span class="di-k">${it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
+    const body = html`<span class="di-k">${it.icons ? html`<span class="pair">${it.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>` : it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
       <span class="di-v num">${value}</span><span class="di-m${it.err || it.wrap ? ' wrap' : ''}">${delta}${it.err ? 'could not read · open to retry' : it.meta || (it.v == null ? html`<span class="sk" style="--w:12ch"></span>` : '')}</span>`;
     const send = it.send ? html`<button class="di-send" type="button" data-hx="send:${it.send}" aria-label="Send ${it.label}">Send</button>` : '';
     return it.href ? html`<li><a class="di" href="${it.href}">${body}</a>${send}</li>`
@@ -12247,6 +12406,8 @@ function hxNorm() {
   } else if (t === 'earn') { HX.mode = 'earn'; HX.from = HX.ern; }
   else HX.mode = t;
   if (HX.send === 'wtac') HX.ask = false;
+  if (hxIsLp(HX.send) && P.scan && FARM.program && !hxLpSends().some(([k]) => k === HX.send)) HX.send = 'eth';     // a position since spent, or another key's
+  if (hxIsLp(HX.send)) HX.ask = false;
 }
 const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 'cUSD', 'cusd', 2], ['cbtc', 'cBTC', 'cbtc', 6], ['wtac', 'TAC', 'tac', 2], ['tacb', 'TAC', 'tac', 2], ['btc', 'BTC', 'btc', 8],
   ['pp', 'ETH', 'peth', 6], ['ptac', 'TAC', 'tac', 2], ['usdc', 'USDC', 'usdc', 2], ['usdt', 'USDT', 'usdt', 2]];
@@ -12261,7 +12422,15 @@ const hxPp = () => { const c = hxChain(); return { slug: c.chainId, keeper: c.ke
 const hxPayP = (k = HX.send) => hxDev(k) || (HX.tab === 'send' && k === 'pp' ? hxPp() : null);
 const hxDec = () => hxPayP()?.dec ?? 8;
 const HX_SEND_G = [['Private on Ethereum', HX_SEND.slice(0, 4)], ['In your wallet', HX_SEND.slice(4, 5)], ['On Bitcoin', HX_SEND.slice(5)]];
-const hxSendOf = (k = HX.send) => HX_SEND.find(([x]) => x === k) || HX_SEND[0];
+// The private LP positions a key holds in share notes (not farmed), as Send's further coins: `lp<pid>`, the pair's two marks, worth in ETH.
+// One is sent as a quarter, a half or all of it, picked in the farm sheet's form, with no relay fee.
+const hxIsLp = (k = HX.send) => /^lp\d+$/.test(String(k));
+const hxLpPool = (k = HX.send) => (hxIsLp(k) ? (FARM.program?.pools || []).find((p) => `lp${p.pid}` === k) || null : null);
+const hxLpSends = () => (S.key && P.scan && FARM.program?.pools ? FARM.program.pools.filter((p) => freeNotes(P.scan.notes).some(isLp(p)))
+  .map((p) => [`lp${p.pid}`, `${pairName(p.pair)} LP`, `teth+${String(LOGO[zapTkB(p)] || 'tk-tac').replace(/^tk-/, '')}`, 4]) : []);
+const hxSendList = () => [...HX_SEND, ...hxLpSends()];
+const hxSendOf = (k = HX.send) => hxSendList().find(([x]) => x === k) || HX_SEND[0];
+const hxIco = (ic, cls = 'tk') => (String(ic).includes('+') ? html`<span class="pair">${String(ic).split('+').map((i) => html`<svg class="${cls}" aria-hidden="true"><use href="#tk-${i}"/></svg>`)}</span>` : html`<svg class="${cls}" aria-hidden="true"><use href="#tk-${ic}"/></svg>`);
 const hxSendBtc = (k = HX.send) => k === 'tacb' || k === 'btc';
 const hxSendWallet = (k = HX.send) => k === 'wtac';
 const hxSendHeld = () => (hxSendWallet() ? hxWalletTac() : hxPayP() ? hxHeldOf(HX.send)?.[0] ?? null : S.key && P.scan && !hxSendBtc() ? spendable(HX.send) : null);
@@ -12519,6 +12688,13 @@ function hxRcptChanged() {
 }
 function hxSendGo() {
   if (HX.ask) return hxAskGo();
+  if (hxIsLp()) {
+    const p = hxLpPool();
+    if (!p || HX.rcBad) return;
+    if (!HX.rcpt) { $('#hx-rcpt')?.focus(); return; }
+    hxRecentAdd(HX.rcpt); hxDraft({ mode: 'lpsend', pid: p.pid, to: HX.rcpt });
+    return openLink(`farm/private-${p.pid}`);
+  }
   if (hxSendFit() || HX.rcBad) return;
   if (!hxUnits() && (!HX.rcpt || !hxSendBtc())) return hxAskAmt();
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, hxDec()) : HX.amt, to = HX.rcpt;
@@ -12892,7 +13068,7 @@ function hxPreset(spec, amt, inCard = false, route = null) {
   route ||= r === 'private' || r === 'public' ? r : null;
   // TAC for sats is the Bitcoin market's: its book is on TAC's page
   if (tab === 'swap' && (a === 'sats' || b === 'sats')) { location.href = a === 'sats' ? '/trade/tac/#btc=buy' : TAC_BOOK; return; }
-  if (!(tab === 'shield' ? !!HX_SH[a] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? HX_SEND.some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
+  if (!(tab === 'shield' ? !!HX_SH[a] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? hxSendList().some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
   hxKeepAmt(() => {
     HX.q = null;
     if (tab === 'shield') { HX.tab = 'swap'; SWC.ask = hxMoveAsk(a, b, amt); }
@@ -12925,6 +13101,7 @@ async function hxQuote() {
   HX.held = hxHeld(); HX.heldTac = hxHeldTac(); HX.heldSend = hxSendHeld();
   if (m === 'send') HX.rk = hxRcptKind() + (hxSendFit() ? '!' : '');
   if (m === 'send' && HX.ask) return done({ rc: hxAskSays() });
+  if (m === 'send' && hxIsLp()) return done({ go: 'Send privately', rc: [['Sends', 'a quarter, half or all, picked next'], ['Relay fee', 'none'], ['They get', 'a private payment to claim, with no fee']] });
   if (m === 'send' && hxSendFit()) return done({ warn: true, line: hxSendFit() });
   if (m === 'send' && hxSendBtc()) return done({ rc: hxSendSees() });
   if (m === 'btc' && HX.dir === 'in' && S.key) loadBridge().then(() => paintHxQ(), () => paintHxQ());
@@ -13143,6 +13320,7 @@ function hxWalletEth(cid = hxWalletChain()) {
 }
 const hxWalletTac = (who) => hxWalletRead('tac', 1, (w) => ethCall(ADDR.tac, SEL.balanceOf + addrWord(w)).then((r) => wordAt(r, 0)), who);
 function hxHeldOf(k, cid) {
+  if (hxIsLp(k)) { const p = hxLpPool(k), n = p && P.scan ? freeNotes(P.scan.notes).filter(isLp(p)).reduce((a, x) => a + BigInt(x.value), 0n) : 0n, w = p ? sharesEth(p, n) : null; return w == null ? null : [w, 18]; }
   if (k === 'ether') { const v = hxWalletEth(cid); return v == null ? null : [v, 18, 'ETH']; }
   // a TAC vault takes TAC from the browser's wallet (the vault page signs with it), not the Tacit account
   if (k === 'wtac') { const v = hxWalletTac(HX.tab === 'borrow' ? S.wallet || '' : undefined); return v == null ? null : [v, 18, 'TAC']; }
@@ -13203,6 +13381,7 @@ function hxBalPaint() {
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `for payments on ${chainFull(hxChain().chainId)}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
   // under the picker's headers (where each is held), what sets each apart
+  if (id === 'hx-sa' && hxIsLp(k)) return 'LP shares, a part or all of them';
   if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'public ERC-20', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', pp: `pays on ${chainFull(hxChain().chainId)}`, ptac: 'pays on Ethereum', usdc: 'a dollar, pays on Ethereum', usdt: 'a dollar, pays on Ethereum' }[k] || '';
   if (HX.tab === 'borrow') return k === 'btc' ? 'locked for cUSD or cBTC' : 'in a vault, for TACD or TACE';
   return { ether: 'zapped in, one transaction', wtac: 'public ERC-20', eth: 'ETH, made private', tac: 'Tacit’s token' }[k] || '';
@@ -13212,7 +13391,7 @@ const HX_PLACE = { wallet: 'Wallet', private: 'Private', bitcoin: 'Bitcoin' };
 const hxPlaceOf = (tab, k) => (tab === 'borrow' ? (k === 'wtac' ? 'wallet' : 'bitcoin') : ['btc', 'tb', 'tacb'].includes(k) ? 'bitcoin' : ['ether', 'wtac'].includes(k) ? 'wallet' : 'private');
 // The coins a tab takes in, by where they are held: [name, coins, place]
 function hxGroups(tab) {
-  const list = tab === 'private' ? hxSources().map((k) => { const s = HX_SH[k]; return [k, s.u, s.ic, 6, s.name]; }) : tab === 'send' ? HX_SEND : tab === 'borrow' ? [['btc', 'BTC', 'btc', 8], HX_WTAC] : [HX_ETHER, HX_WTAC, HX_TETH, HX_TACOUT];
+  const list = tab === 'private' ? hxSources().map((k) => { const s = HX_SH[k]; return [k, s.u, s.ic, 6, s.name]; }) : tab === 'send' ? hxSendList() : tab === 'borrow' ? [['btc', 'BTC', 'btc', 8], HX_WTAC] : [HX_ETHER, HX_WTAC, HX_TETH, HX_TACOUT];
   return Object.entries(HX_PLACE).map(([p, name]) => [name, list.filter(([k]) => hxPlaceOf(tab, k) === p), p]).filter(([, l]) => l.length);
 }
 // A tile opened on a coin that holds nothing moves to the first that does, until a coin is picked (a remembered choice is the one before the move)
@@ -13236,7 +13415,7 @@ function hxPick(sel, opener) {
   const os = [...sel.options];
   if (os.length < 2 || !panel) return;
   const held = (o) => (sel.id === 'hx-to' ? null : hxHeldOf(o.value));
-  const row = (o) => { const h = held(o); return html`<button type="button" class="pk-r${h && h[0] === 0n ? ' off' : ''}" data-v="${o.value}" aria-current="${o.selected}"><svg class="tk" aria-hidden="true"><use href="#tk-${o.dataset.ic}"/></svg><span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span><em class="num">${h ? fmt(h[0], h[1], h[1] === 18 ? 4 : 6) : ''}</em></button>`; };
+  const row = (o) => { const h = held(o); return html`<button type="button" class="pk-r${h && h[0] === 0n ? ' off' : ''}" data-v="${o.value}" aria-current="${o.selected}">${hxIco(o.dataset.ic)}<span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span><em class="num">${h ? fmt(h[0], h[1], h[1] === 18 ? 4 : 6) : ''}</em></button>`; };
   const title = opener.getAttribute('aria-label').split(':')[0], box = document.createElement('div');
   box.className = 'pk';
   const many = sel.querySelectorAll('optgroup').length > 1;
@@ -13498,7 +13677,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=e723a880').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=18a22f94').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -13542,9 +13721,9 @@ function paintHx() {
   const coin = (id, label, groups, cur) => {
     const all = groups.flatMap(([, l]) => l), [, u, ic] = all.find(([x]) => x === cur) || all[0];
     const opt = ([x, u2, ic2, , n]) => html`<option value="${x}" data-u="${u2}" data-ic="${ic2}" data-sub="${hxSubOf(id, x)}"${x === cur ? ' selected' : ''}>${n || u2}</option>`;
-    if (all.length < 2) return html`<span class="coin one"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}</span>`;
+    if (all.length < 2) return html`<span class="coin one">${hxIco(ic)}${u}</span>`;
     const at = groups.length > 1 ? groups.find(([, l]) => l.some(([x]) => x === cur))?.[0] : null;
-    return html`<span class="coin" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${label}: ${u}${at ? `, ${at}` : ''}. Change" data-pk="${id}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}<span class="car" aria-hidden="true">▾</span><select id="${id}" tabindex="-1" aria-hidden="true">${groups.map(([g, l, p]) => html`<optgroup label="${g}" data-place="${p}">${l.map(opt)}</optgroup>`)}</select></span>`;
+    return html`<span class="coin" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${label}: ${u}${at ? `, ${at}` : ''}. Change" data-pk="${id}">${hxIco(ic)}${u}<span class="car" aria-hidden="true">▾</span><select id="${id}" tabindex="-1" aria-hidden="true">${groups.map(([g, l, p]) => html`<optgroup label="${g}" data-place="${p}">${l.map(opt)}</optgroup>`)}</select></span>`;
   };
   const heldAt = (place) => html`<span class="where${place === 'private' ? ' priv' : ''}">${HX_PLACE[place]}</span>`;
   const field = (lbl, where, main, side = '', ff = true, priv = false, more = '') => html`<div class="f${priv ? ' priv' : ''}"><div class="fh"><span>${lbl}</span>${where}</div><div class="fm">${main}${side}</div>${ff ? html`<div class="ff"><span class="num" id="hx-sub"></span><span id="hx-bal"></span></div>` : ''}${more}</div>`;
@@ -13594,7 +13773,7 @@ function paintHx() {
       ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
   } else {
     const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', groups = hxGroups('send'), place = hxPlaceOf('send', HX.send);
-    const what = (lbl, label) => field(lbl, heldAt(place), amt(`${unit} ${lbl === 'You ask for' ? 'to ask for' : 'to send'}`), coin('hx-sa', label, groups, HX.send), true, place === 'private');
+    const what = (lbl, label) => field(lbl, heldAt(place), hxIsLp() && lbl === 'You send' ? html`<span class="say">a quarter, half or all of it, picked next</span>` : amt(`${unit} ${lbl === 'You ask for' ? 'to ask for' : 'to send'}`), coin('hx-sa', label, groups, HX.send), true, place === 'private');
     HX.askFor = S.key?.tacit || '';
     body = HX.ask ? html`${what('You ask for', 'Asset to ask for')}
       ${mid()}

@@ -293,7 +293,9 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
         if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null, ...(u.public ? { inputPublic: true } : {}) }); } catch { } }
         return;
       }
-      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}), ...(u.eta != null ? { eta: u.eta } : {}) };
+      // a prover on this machine says its stage (core, shrink, wrap, groth16) and how long it has run, besides its estimate of the rest
+      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}), ...(u.eta != null ? { eta: u.eta } : {}),
+        ...(u.phase ? { phase: u.phase } : {}), ...(u.secs != null ? { secs: u.secs } : {}) };
       ownJobs.set(jobId, st);
       announce(st);
       if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { } }

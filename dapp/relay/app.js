@@ -5,7 +5,7 @@
 // Two things a visitor can do with a wallet: send a settle the relay has proved and holds for a sender (#open, open.js), and pay for proofs by
 // sending PROVE, or ETH swapped to PROVE, to the prover account (#prove, prove.js). Only the visitor's own balances are read for those.
 import { makeConnect } from '/trade/connect.js?cb=6058a172';
-import { mountOpen } from '/relay/open.js?cb=2164b690';
+import { mountOpen } from '/relay/open.js?cb=ea497839';
 import { mountProve } from '/relay/prove.js?cb=f6b08c9a';
 
 const API = 'https://api.tacit.finance';
