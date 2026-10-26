@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6653,6 +6653,55 @@ await step('lpsend', async () => {
     const fnSaid = await p.evaluate(() => window.__fnSaid.join(' | ').replace(/\s+/g, ' '));
     ok(/Splitting your share note \(no fee\), then locking the part sent/.test(fnSaid), `lpsend: sent, it splits the share note with no fee and locks the part to the recipient (${fnSaid.slice(0, 200)})`);
     if (r.errors.length) { fails++; console.log('FAIL lpsend page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// Harvested farm rewards sent on as wTAC. A key holding a private wTAC note: the dashboard's wTAC row offers Send, the card's Send picker lists it
+// as farm rewards, a Tacit address and an amount hand it to the farm sheet's form with both in it, quoted as private TAC is (the claim's fee
+// in wTAC), an Ethereum address is quoted as arriving there as wTAC, the sheet's Send wTAC opens the same form, and a press splits the note
+// to the amount first (tests/farm-reward-send-fork.mjs runs the harvest, the split, the lock, the claim and the send out through the real guest).
+await step('rsend', async () => {
+  const r = await openFarmKey('b05d'.padEnd(64, '6'), { notes: [[FARM_WTAC_ASSET, 1234560000n]], positions: [] });
+  const p = r.page, to = tacit1('abd'.padEnd(64, '5'));
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); document.querySelector('#dash')?.scrollIntoView(); });
+    await until(p, () => !!document.querySelector('#dash [data-hx="send:rtac"]'), null, 240000).catch(() => {});
+    ok(/wTAC/.test(await text(p, '#dash').catch(() => '')) && !!(await p.$('#dash [data-hx="send:rtac"]')), 'rsend: the dashboard has a wTAC row, private farm rewards, that offers Send');
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.click('[data-hxm="send"]');
+    await p.click('#hx [data-pk="hx-sa"]');
+    await p.waitForSelector('.pk-r[data-v="rtac"]', { timeout: 60000 }).catch(() => {});
+    const row = await p.evaluate(() => document.querySelector('.pk-r[data-v="rtac"]')?.textContent.replace(/\s+/g, ' ') || '');
+    ok(/wTAC/.test(row) && /farm rewards/.test(row) && /12\.3/.test(row), `rsend: Send's picker lists wTAC as farm rewards, with what is held (${row})`);
+    await p.click('.pk-r[data-v="rtac"]');
+    await p.fill('#hx-amt', '5');
+    await p.fill('#hx-rcpt', to);
+    await until(p, () => /They get/.test(document.querySelector('#hx-receipt')?.textContent || ''), null, 120000).catch(() => {});
+    const rc = (await text(p, '#hx-receipt')).replace(/\s+/g, ' ');
+    ok(/They get\s*about [\d.]+ wTAC/.test(rc) && /Claim fee\s*[\d.]+ wTAC/.test(rc), `rsend: to a Tacit address it is quoted as private TAC is, in wTAC (${rc})`);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #rs-to', { timeout: 300000 }).catch(() => {});
+    await until(p, () => /They get about/.test(document.querySelector('#rs-rcpt')?.textContent || ''), null, 120000).catch(() => {});
+    const form = await p.evaluate(() => ({ to: document.querySelector('#rs-to')?.value, amt: document.querySelector('#rs-amt')?.value, rc: (document.querySelector('#rs-rcpt')?.textContent || '').replace(/\s+/g, ' ') }));
+    ok(form.to === to && form.amt === '5' && /They get about\s*[\d.]+ wTAC/.test(form.rc), `rsend: its press opens the farm sheet's form with the address and the amount, quoted (${form.rc})`);
+    await p.fill('#rs-to', '0x000000000000000000000000000000000000dEaD');
+    await until(p, () => /Arrives/.test(document.querySelector('#rs-rcpt')?.textContent || ''), null, 120000).catch(() => {});
+    const out = (await text(p, '#rs-rcpt')).replace(/\s+/g, ' ');
+    ok(/Relay fee\s*[\d.]+ wTAC/.test(out) && /Arrives\s*[\d.]+ wTAC/.test(out), `rsend: to an Ethereum address it arrives there as wTAC, the relay fee out of it (${out})`);
+    await p.click('#fn-rsend', { force: true });
+    const shut = await p.$eval('#rsend', (b) => b.hidden);
+    await p.click('#fn-rsend', { force: true });
+    ok(shut && !(await p.$eval('#rsend', (b) => b.hidden)) && /wTAC/.test(await text(p, '#fn-rsend')), 'rsend: the sheet\'s Send wTAC closes and opens the form');
+    await p.fill('#rs-to', to);
+    await p.fill('#rs-amt', '5');
+    await until(p, () => /They get about/.test(document.querySelector('#rs-rcpt')?.textContent || '') && !document.querySelector('#rs-go')?.disabled, null, 120000).catch(() => {});
+    // the stub's note has no secret, so the split fails at once after it is said: every line the status shows is kept to read back
+    await p.evaluate(() => { window.__fnSaid = []; new MutationObserver(() => { const t = document.querySelector('#fn-status')?.textContent || ''; if (t && window.__fnSaid.at(-1) !== t) window.__fnSaid.push(t); }).observe(document.body, { childList: true, subtree: true, characterData: true }); });
+    await p.click('#rs-go', { force: true });
+    await until(p, () => window.__fnSaid.some((t) => /Splitting a note to 5 wTAC first/.test(t)) || /class="err"/.test(document.querySelector('#fn-status')?.innerHTML || ''), null, 120000).catch(() => {});
+    await sleep(500);
+    const said = await p.evaluate(() => window.__fnSaid.join(' | ').replace(/\s+/g, ' '));
+    ok(/Splitting a note to 5 wTAC first/.test(said), `rsend: sent, it splits the note to 5 wTAC first (${said.slice(0, 200)})`);
+    if (r.errors.length) { fails++; console.log('FAIL rsend page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
