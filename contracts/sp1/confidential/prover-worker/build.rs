@@ -9,26 +9,34 @@
 //
 // Rotating the guest means updating PINNED_ELF_SHA256 and the on-chain program_vkey together;
 // changing this constant alone is never correct.
+//
+// The worker also proves the Ethereum-state guest (eth-reflection/elf/eth_reflection) for eth_prove. Its key's recursion digest
+// is fixed inside the Bitcoin reflection guest (reflect.rs ETH_REFLECTION_VKEY), which is fixed on chain, so that ELF is pinned
+// the same way: a different one would prove inputs whose proofs the Bitcoin guest refuses.
 
 use std::path::PathBuf;
 
 const PINNED_ELF_SHA256: &str = "f7bc327d232ec8d1f693d5a44024c1ee732dc42196d079c5be5e3f3668b922c7";
+const PINNED_ETH_ELF_SHA256: &str = "5fb193b5c463af186d35dfcedc21c089f21c010055e96daffff47800d8ff43ae";
 
 fn main() {
-    let elf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../elf/cxfer-guest");
-    println!("cargo:rerun-if-changed={}", elf.display());
     println!("cargo:rerun-if-changed=build.rs");
+    pin("../elf/cxfer-guest", PINNED_ELF_SHA256, "the on-chain program_vkey");
+    pin("../../eth-reflection/elf/eth_reflection", PINNED_ETH_ELF_SHA256, "reflect.rs ETH_REFLECTION_VKEY (and so the Bitcoin guest)");
+}
 
+fn pin(rel: &str, want: &str, with: &str) {
+    let elf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
+    println!("cargo:rerun-if-changed={}", elf.display());
     let bytes = match std::fs::read(&elf) {
         Ok(b) => b,
         Err(e) => panic!("cannot read guest ELF at {}: {e}", elf.display()),
     };
     let got = hex(&sha256(&bytes));
-    if got != PINNED_ELF_SHA256 {
+    if got != want {
         panic!(
-            "guest ELF mismatch at {}\n  expected {PINNED_ELF_SHA256}\n  found    {got}\n\
-             Refresh the checkout's elf/cxfer-guest to the pinned guest, or rotate the pin and the \
-             on-chain program_vkey together.",
+            "guest ELF mismatch at {}\n  expected {want}\n  found    {got}\n\
+             Refresh the checkout's ELF to the pinned guest, or rotate the pin and {with} together.",
             elf.display()
         );
     }

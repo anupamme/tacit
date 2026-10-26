@@ -15,6 +15,11 @@
 // with this worker's token, which the API credits nothing; a lease is asked for at most every POOL_EVERY_SECS (default 30).
 //   POST {BOARD_URL}/prover/pool/lease  { minAgeMs }  → { id, stdin (0x bincode SP1Stdin), lease } | 204
 //   POST {BOARD_URL}/prover/pool/submit { id, lease, publicValues, proof } | { id, lease, error }
+// ETH_STATE (default 1): the worker also proves the Ethereum-state input eth_prove posts (program 'eth-state', class 'eth-state',
+// which the API offers only to a token trusted with 'private' or 'eth-state' work): the eth-reflection guest (pinned in build.rs),
+// proved compressed (the form the Bitcoin reflection guest verifies inside itself) and sent back as the base64 of the bincode
+// SP1ProofWithPublicValues, which eth_prove's finish mode checks before it is used. Its proving key is set up on the first such
+// job and refused (and the program dropped from the claims) unless its recursion digest is ETH_REFLECTION_VKEY.
 // RELOAD_FLAG (default /workspace/worker.reload): when that file exists and no job is in hand, the worker removes it and
 // exits 0, so the loop around it starts a fresh worker (and GPU server) with whatever binary and env are now in place,
 // never in the middle of a proof.
@@ -34,6 +39,10 @@ use sp1_sdk::{
 };
 
 const ELF: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../elf/cxfer-guest"));
+const ETH_ELF: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../eth-reflection/elf/eth_reflection"));
+// The recursion digest of the eth-reflection guest's key, as the Bitcoin reflection guest checks it (reflect.rs).
+const ETH_REFLECTION_VKEY: [u32; 8] =
+    [1698740370, 761725306, 1843717690, 1218893588, 786585592, 423901230, 1310805602, 795535986];
 
 #[derive(Deserialize)]
 struct Claim {
@@ -49,6 +58,8 @@ struct Job {
     cycle_limit: Option<f64>,
     deadline: Option<f64>,
     label: Option<String>,
+    // 'confidential' (absent from an older API) or 'eth-state'.
+    program: Option<String>,
 }
 
 // An input the page encrypted to this worker alone (dapp/sealed-input.js): `epk` the page's one-time secp256k1 public key
@@ -219,6 +230,9 @@ fn main() {
     let pool_min_age_ms = env_or("POOL_MIN_AGE_SECS", "600").parse::<u64>().unwrap_or(600) * 1000;
     let pool_every = Duration::from_secs(env_or("POOL_EVERY_SECS", "30").parse::<u64>().unwrap_or(30));
     let mut pool_last: Option<Instant> = None;
+    // The Ethereum-state program: claimed while ETH_STATE is on and its key has not been refused (set up on the first job).
+    let eth_on = env_or("ETH_STATE", "1") == "1";
+    let mut eth_key: Option<Result<_, String>> = None;
     // A proof that never ends (a GPU kernel that hangs leaves the server alive and silent, and the client waiting on it for ever) is
     // ended from outside: a watchdog thread sees a job in hand for longer than JOB_TIMEOUT_SECS (15 minutes by default, three times a
     // long op) and exits the process, so the loop around it starts a fresh worker and GPU server and the job goes back to the board.
@@ -250,10 +264,12 @@ fn main() {
             println!("[{name}] reload asked for; exiting between jobs");
             return;
         }
+        let eth_claims = eth_on && !matches!(eth_key, Some(Err(_)));
+        let (claim_classes, programs) = claim_scope(&classes, eth_claims);
         let claimed: Result<Claim, String> = agent
             .post(&claim_url)
             .set("Authorization", &auth)
-            .send_json(serde_json::json!({ "worker": name, "classes": classes, "pubkey": my_pub_hex }))
+            .send_json(serde_json::json!({ "worker": name, "classes": claim_classes, "programs": programs, "pubkey": my_pub_hex }))
             .map_err(|e| e.to_string())
             .and_then(|r| r.into_json::<Claim>().map_err(|e| e.to_string()));
         let job = match claimed {
@@ -306,8 +322,9 @@ fn main() {
         println!("[{name}] job {} {label}: proving", &job.job_id[..job.job_id.len().min(12)]);
         let t = Instant::now();
         job_since.store(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1).max(1), std::sync::atomic::Ordering::Relaxed);
-        // The job: its input decoded, proved as groth16 within its cycle limit → (public values, proof bytes as settle() takes them).
-        let outcome: Result<(Vec<u8>, Vec<u8>), String> = (|| {
+        // The job: its input decoded, proved within its cycle limit → (public values, the proof as the board takes it: the hex of the
+        // bytes settle() takes for the pool's guest, the base64 of the saved compressed proof for the Ethereum-state guest).
+        let outcome: Result<(Vec<u8>, String), String> = (|| {
             let bytes = match (&job.sealed, &job.stdin) {
                 (Some(s), _) => unseal(&sk, &my_pub, s)?,
                 (None, Some(b)) => base64::engine::general_purpose::STANDARD.decode(b).map_err(|e| format!("stdin is not base64: {e}"))?,
@@ -319,14 +336,19 @@ fn main() {
                 if now > dl { return Err("the job's deadline has passed".to_string()); }
             }
             let cycles = job.cycle_limit.map(|c| c as u64).filter(|c| *c > 0).unwrap_or(512_000_000);
+            match job.program.as_deref() {
+                None | Some("confidential") => {}
+                Some("eth-state") => return eth_state_proof(&client, &mut eth_key, stdin, cycles),
+                Some(other) => return Err(format!("this worker does not prove the {other} program")),
+            }
             let proof = client.prove(&pk, stdin).groth16().cycle_limit(cycles).run().map_err(|e| format!("groth16 proof failed: {e}"))?;
-            Ok((proof.public_values.as_slice().to_vec(), proof.bytes()))
+            Ok((proof.public_values.as_slice().to_vec(), format!("0x{}", hex::encode(proof.bytes()))))
         })();
         job_since.store(0, std::sync::atomic::Ordering::Relaxed);
         let body = match &outcome {
             Ok((pv, proof)) => {
                 println!("[{name}] job {} {label}: proved in {:.1} s", &job.job_id[..job.job_id.len().min(12)], t.elapsed().as_secs_f64());
-                serde_json::json!({ "jobId": job.job_id, "publicValues": format!("0x{}", hex::encode(pv)), "proof": format!("0x{}", hex::encode(proof)) })
+                serde_json::json!({ "jobId": job.job_id, "publicValues": format!("0x{}", hex::encode(pv)), "proof": proof })
             }
             Err(e) => {
                 println!("[{name}] job {} {label}: failed after {:.1} s: {e}", &job.job_id[..job.job_id.len().min(12)], t.elapsed().as_secs_f64());
@@ -364,6 +386,48 @@ fn main() {
             std::process::exit(4);
         }
     }
+}
+
+// The classes and programs a claim asks for: with the Ethereum-state program on, its class and program are added to the
+// configured ones (CLASSES), so a worker.env written before it needs no change.
+fn claim_scope(classes: &[String], eth: bool) -> (Vec<String>, Vec<&'static str>) {
+    let mut cls = classes.to_vec();
+    if eth && !cls.iter().any(|c| c == "eth-state") {
+        cls.push("eth-state".to_string());
+    }
+    (cls, if eth { vec!["confidential", "eth-state"] } else { vec!["confidential"] })
+}
+
+// One Ethereum-state job: the eth-reflection guest proved compressed on the same GPU server as the pool's guest. Its key is set up
+// on the first job (about as long as the pool guest's at start) and kept; a key whose recursion digest is not the one the Bitcoin
+// guest verifies is refused for good, and `eth_key` then keeps the reason, which drops the program from the claims.
+// → (public values, base64 of the bincode SP1ProofWithPublicValues)
+fn eth_state_proof<P: Prover>(
+    client: &P,
+    eth_key: &mut Option<Result<P::ProvingKey, String>>,
+    stdin: SP1Stdin,
+    cycles: u64,
+) -> Result<(Vec<u8>, String), String> {
+    if eth_key.is_none() {
+        let t = Instant::now();
+        let k = client.setup(Elf::Static(ETH_ELF)).map_err(|e| format!("eth-state setup failed: {e}"))?;
+        let digest = k.verifying_key().hash_u32();
+        *eth_key = Some(if digest == ETH_REFLECTION_VKEY {
+            println!("eth-state key set up in {:.1} s ({})", t.elapsed().as_secs_f64(), k.verifying_key().bytes32());
+            Ok(k)
+        } else {
+            Err(format!("the eth-state guest's key digest {digest:?} is not the one the Bitcoin reflection verifies; eth-state jobs are off"))
+        });
+    }
+    let pk = match eth_key.as_ref() {
+        Some(Ok(k)) => k,
+        Some(Err(why)) => return Err(why.clone()),
+        None => unreachable!(),
+    };
+    let proof = client.prove(pk, stdin).compressed().cycle_limit(cycles).run().map_err(|e| format!("compressed proof failed: {e}"))?;
+    let pv = proof.public_values.as_slice().to_vec();
+    let bytes = bincode::serialize(&proof).map_err(|e| format!("the proof did not serialize: {e}"))?;
+    Ok((pv, base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
 // The client's errors when the GPU server is gone rather than one input failing.
