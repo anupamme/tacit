@@ -48,7 +48,7 @@
 <link rel="modulepreload" href="/points-note.js?cb=dc44d257">
 <link rel="modulepreload" href="/evm-pool-tokens.js?cb=e1ab5d24">
 <!-- preload:end -->
-<link rel="stylesheet" href="/swap/card.css?cb=841c8656">
+<link rel="stylesheet" href="/swap/card.css?cb=746aac61">
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
@@ -63,7 +63,8 @@
   --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d; --eth: #627eea;
   --scrim: rgba(26,26,26,.36); --lift: 0 22px 44px -28px rgba(26,26,26,.45);
   --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
-  --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
+  --soft: color-mix(in srgb, #fff 40%, var(--card));
+  --float: 0 1px 2px rgba(26,26,26,.05), 0 26px 50px -34px rgba(26,26,26,.38);
   --skel: rgba(26,26,26,.08);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: 'Instrument Serif', 'Instrument Serif Fallback', 'Instrument Serif Fallback T', 'Instrument Serif Fallback N', Georgia, serif;
@@ -79,6 +80,7 @@
     --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
     --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c; --eth: #8ea2f4;
     --scrim: rgba(0,0,0,.6); --lift: 0 22px 44px -28px rgba(0,0,0,.9);
+    --soft: color-mix(in srgb, var(--ink) 4.5%, var(--card));
     --float: 0 0 0 1px rgba(237,229,207,.04), 0 34px 70px -30px rgba(0,0,0,.95);
     --skel: rgba(237,229,207,.07);
     color-scheme: dark;
@@ -128,7 +130,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 
 
 /* the card: the front page's console, two verbs */
-.sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
+.sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; box-shadow: var(--float); }
 .sw-h { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
 .sw-h::after { content: ''; position: absolute; bottom: -1px; left: calc(8px + (100% - 16px) / 2 * var(--i, 0) + (100% - 16px) / 2 * .22); width: calc((100% - 16px) / 2 * .56); height: 2px; border-radius: 2px; background: var(--ink); transition: left .3s var(--ease); }
 .sw-h button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; padding: 13px 0 12px; background: none; border: 0; cursor: pointer; font: italic 400 22px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }

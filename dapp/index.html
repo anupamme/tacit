@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=841c8656" as="style">
+<link rel="preload" href="/swap/card.css?cb=746aac61" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -324,17 +324,6 @@ a.di { color: inherit; text-decoration: none; }
 
 /* ── the hero's console: a card that takes a verb, an amount and a way, and hands the rest to the sheet that does it ── */
 .hx { position: relative; width: 100%; max-width: 480px; min-width: 0; margin: 0 auto; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; box-shadow: var(--float); }
-/* The card's fields sit a shade off its surface instead of being outlined boxes. No dashes either: a shielded side is told by its lock mark and its
-   dashed token ring, not by its edge. Chips and rings are hairlines, and the primary button is a little dimmer on dark. */
-.hx .swc { --field: var(--soft); }
-.hx .swc .f, .hx .swc .rows { border-color: transparent; }
-.hx .swc .f.priv { border-style: solid; border-color: transparent; }
-.hx .swc .f:focus-within { border-color: var(--hair-2); }
-.hx .swc .coin, .hx .swc .flip { border-color: var(--hair); }
-.hx .swc .quick button { border-color: var(--hair); color: var(--mute); }
-.hx .swc .go.priv, .hx .swc .later.on { border-style: solid; }
-.hx .swc .rcpt div::after { border-bottom-color: var(--hair); }
-@media (prefers-color-scheme: dark) { .hx .swc .go:not(.priv) { background: color-mix(in srgb, var(--ink) 86%, var(--card)); border-color: transparent; } .hx .swc .go.priv { border-color: var(--hair-2); } }
 /* The card is filled by script, so until it is, it holds the height it settles at (measured at each width): what is below it does not move when it appears. */
 .hx:has(#hx-body:empty) { min-height: 448px; }
 @media (max-width: 640px) { .hx:has(#hx-body:empty) { min-height: 477px; } }
@@ -529,7 +518,7 @@ a.di { color: inherit; text-decoration: none; }
 .fz-pairs { display: grid; gap: 6px; }
 .fz-pairs button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 8px; color: var(--ink); text-align: left; background: var(--soft); border: 1px solid transparent; border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
 .fz-pairs button .pair .tk { width: 26px; height: 26px; }
-.fz-pairs button .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 1.5px var(--field); }
+.fz-pairs button .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 1.5px var(--soft); }
 .fz-pairs button span:not(.pair) { flex: 1; font-size: 14px; }
 .fz-pairs button small { display: block; font-size: 11px; color: var(--warn); }
 .fz-pairs button b { font: 500 13px var(--mono); }
@@ -1107,7 +1096,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=841c8656">
+<link rel="stylesheet" href="/swap/card.css?cb=746aac61">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped

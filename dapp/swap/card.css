@@ -1,6 +1,9 @@
 /* The swap card (swap/card.js), on /swap/ and in the front page's Swap tab: every rule is under the card's .swc, so it reaches nothing else on
    the page. It reads the page's tokens (--paper --card --field --ink --mute --hair --hair-2 --orange --ok --warn --err --mono --serif --tap
-   --ease --spring). /swap/ links it before its own styles, so a rule of the page's own of equal weight wins; the front page adds it after. */
+   --ease --spring, and --soft: a field's surface, a shade off --card). /swap/ links it before its own styles, so a rule of the page's own of equal weight wins; the front page adds it after.
+   The card's fields are that shade off its surface rather than outlined boxes, and its edges are hairlines, never dashes (a shielded side is told by its lock mark and
+   its dashed token ring). */
+.swc { --field: var(--soft, color-mix(in srgb, var(--ink) 4.5%, var(--card))); }
 .swc img.tk { object-fit: contain; }
 .swc .tk.letter { display: grid; place-items: center; font: 500 13px/1 var(--mono); color: #fff; background: var(--c, #8F8979); }
 .swc .mode { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
@@ -24,9 +27,8 @@
 @media (prefers-reduced-motion: reduce) { .swc .snt .wait .dot { animation: none; } }
 .swc .snt button.link { padding: 0 2px; font: 14px/1 var(--mono); color: var(--mute); background: none; border: 0; cursor: pointer; }
 @media (pointer: coarse) { .swc .mode button { min-height: 38px; } }
-.swc .f { padding: 12px 14px 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
-.swc .f:focus-within { border-color: var(--ink); }
-.swc .f.priv { border-style: dashed; border-color: var(--hair-2); }
+.swc .f { padding: 12px 14px 10px; background: var(--field); border: 1px solid transparent; border-radius: 12px; transition: border-color .15s; }
+.swc .f:focus-within { border-color: color-mix(in srgb, var(--ink) 55%, transparent); }
 .swc .fh, .swc .ff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 22px; font-size: 12px; color: var(--mute); }
 .swc .ff { min-height: 28px; }                                              /* the quick amounts' row, drawn by the script */
 .swc .fh .where { display: inline-flex; align-items: center; gap: 6px; }
@@ -56,7 +58,7 @@
 .swc .fm .amt::placeholder { color: var(--hair-2); opacity: 1; } .swc .fm .big.ph { color: var(--hair-2); }
 .swc .fm .big.busy { opacity: .45; transition: opacity .15s; }
 .swc .rows.stale, .swc .rcpt.stale { opacity: .5; transition: opacity .15s; }
-.swc .coin { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 44px; padding: 0 12px 0 6px; font-size: 15px; font-weight: 500; background: var(--card); border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s, transform .15s; }
+.swc .coin { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 44px; padding: 0 12px 0 6px; font-size: 15px; font-weight: 500; background: var(--card); border: 1px solid var(--hair); border-radius: 999px; cursor: pointer; transition: border-color .15s, transform .15s; }
 .swc .coin .tk { width: 32px; height: 32px; transition: transform .4s var(--spring); }
 .swc .coin .car { font-size: 10px; color: var(--mute); }
 @media (hover: hover) { .swc .coin:hover { border-color: var(--ink); } .swc .coin:hover .tk { transform: rotate(-8deg); } }
@@ -65,17 +67,17 @@
 .swc .ff button.over { color: var(--warn); }
 @media (hover: hover) { .swc .ff button:hover { color: var(--ink); } }
 .swc .quick { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.swc .quick button { padding: 3px 10px; font: 12px var(--mono); color: var(--ink); text-decoration: none; background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
+.swc .quick button { padding: 3px 10px; font: 12px var(--mono); color: var(--mute); text-decoration: none; background: none; border: 1px solid var(--hair); border-radius: 999px; cursor: pointer; }
 @media (hover: hover) { .swc .quick button:hover { border-color: var(--ink); } }
 @media (pointer: coarse) { .swc .quick button { padding: 7px 13px; } }
 .swc .mid { position: relative; z-index: 1; height: 8px; }
-.swc .flip { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; padding: 0; display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; color: var(--ink); cursor: pointer; transition: transform .3s var(--spring), border-color .15s; }
+.swc .flip { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; padding: 0; display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair); border-radius: 50%; color: var(--ink); cursor: pointer; transition: transform .3s var(--spring), border-color .15s; }
 .swc .flip svg { width: 16px; height: 16px; }
 @media (hover: hover) { .swc .flip:hover { transform: rotate(180deg); border-color: var(--ink); } }
 .swc .flip:disabled { opacity: .4; cursor: default; transform: none; }
 
 /* the ways to fill it, one to choose */
-.swc .rows { margin-top: 8px; overflow: hidden; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
+.swc .rows { margin-top: 8px; overflow: hidden; background: var(--field); border: 1px solid transparent; border-radius: 12px; }
 .swc .rows-h { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px 1px; font-size: 12px; color: var(--mute); }
 .swc .rows button { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 8px 14px 9px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
 .swc .rows-h + button { border-top: 0; }
@@ -102,7 +104,7 @@
 /* the receipt: dotted rows */
 .swc .rcpt { margin: 10px 2px 0; display: grid; gap: 2px; font-size: 12.5px; }
 .swc .rcpt div { display: flex; align-items: baseline; gap: 8px; color: var(--mute); }
-.swc .rcpt div::after { content: ''; order: 1; flex: 1; min-width: 12px; border-bottom: 1px dotted var(--hair-2); transform: translateY(-4px); }
+.swc .rcpt div::after { content: ''; order: 1; flex: 1; min-width: 12px; border-bottom: 1px dotted var(--hair); transform: translateY(-4px); }
 .swc .rcpt dt { order: 0; flex: none; white-space: nowrap; } .swc .rcpt dd { order: 2; margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .swc .rcpt dd.warn { color: var(--warn); } .swc .rcpt dd.ok { color: var(--ok); } .swc .rcpt dd.err { color: var(--err); }
 .swc .ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
@@ -113,7 +115,8 @@
 .swc .go { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; margin-top: 14px; padding: 10px 16px; font-size: 15px; font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s, opacity .15s; text-decoration: none; }
 .swc .go:hover:not(:disabled) { background: transparent; color: var(--ink); }
 .swc .go:disabled { opacity: .4; cursor: not-allowed; }
-.swc .go.priv { background: transparent; color: var(--ink); border-style: dashed; }
+.swc .go.priv { background: transparent; color: var(--ink); }
+@media (prefers-color-scheme: dark) { .swc .go:not(.priv) { background: color-mix(in srgb, var(--ink) 86%, var(--card)); border-color: transparent; } .swc .go.priv { border-color: var(--hair-2); } }
 .swc .go.priv:hover:not(:disabled) { background: var(--ink); color: var(--card); border-style: solid; }
 .swc .q { min-height: 20px; margin: 10px 2px 0; font-size: 12px; line-height: 1.55; color: var(--mute); overflow-wrap: anywhere; }
 .swc .q a, .swc .q button.link { color: var(--ink); }
@@ -124,7 +127,7 @@
 .swc .sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
 /* Swap privately: one row that switches it, the buffer and the three steps it takes while it is on; and the swaps in progress, as the same steps */
 .swc .later { margin: 10px 2px 0; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
-.swc .later.on { border-style: dashed; border-color: var(--hair-2); }
+.swc .later.on { border-color: var(--hair-2); }
 .swc .later .tgl { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 28px; padding: 0; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; font-size: 13.5px; }
 .swc .later .tgl b { flex: 1; font-weight: 500; }
 .swc .later .tgl .tg-t { flex: 1; display: grid; line-height: 1.25; }
@@ -186,7 +189,7 @@
 .swc .steps header small { flex: 1; min-width: 0; overflow: hidden; color: var(--mute); text-overflow: ellipsis; white-space: nowrap; }
 .swc .steps header .x { flex: none; width: 28px; height: 28px; margin: -4px -6px -4px auto; font-size: 20px; line-height: 1; color: var(--mute); background: none; border: 0; border-radius: 50%; cursor: pointer; }
 @media (hover: hover) { .swc .steps header .x:hover { color: var(--ink); background: var(--hair); } }
-.swc .steps .offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 14px 0 0; padding: 10px 12px; border: 1px dashed var(--hair-2); border-radius: 10px; }
+.swc .steps .offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 14px 0 0; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 10px; }
 .swc .steps .offer b { display: block; font: 400 19px/1.15 var(--serif); letter-spacing: -.01em; }
 .swc .steps .offer small { color: var(--mute); }
 .swc .steps .acts { display: flex; gap: 6px; }
