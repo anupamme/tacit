@@ -28,7 +28,8 @@ supply there), every hourly reading *at a block* (reserves, price, the ETH feed'
 the credits. `GET /lp/day/<n>` (with `?farm=<name>` for a farm) returns it.
 
 ```
-node tools/lp-verify.mjs <day> [--farm <name>] [--rpc <archive node>] [--reference]
+node tools/lp-verify.mjs <day> [--farm <name>] [--rpc <archive node>] [--reference] [--allow-unpinned]
+                         [--from-block <pool>=<block> ...] [--log-chunk <blocks>] [--gap-ms <ms>]
 ```
 
 reads all of it again from the chain: each reading at its block (and the block's hash), the pool's logs replayed to the replay point, which
@@ -45,6 +46,12 @@ does not:
   not the chain's. The check lists the addresses never paid and compares the pools and terms with what `/lp` publishes now. The record's hash
   is the service's own and shows only that it was not altered in transit.
 - An opening bonus is a ledger credit of its own, not part of a day's record.
+
+A day long past needs an archive node. On a free public endpoint the check is slow, not hard: the tool makes one request at a time, a pause
+apart (`--gap-ms`), and asks again after a growing pause when the endpoint says it is rate limited. `https://eth.drpc.org` serves old state and
+log ranges up to 10,000 blocks (use `--log-chunk 9000`); `--from-block <pool>=<a block before it was created>` skips the search for each pool's
+first block. A day with four pools took about 3,500 requests and 40 minutes; a paid archive key makes it minutes. The tool prints its request
+count and, for each pool, what it is reading.
 
 ## Starting a farm
 
