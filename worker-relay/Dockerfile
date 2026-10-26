@@ -32,10 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 # bitcoin_prove from v12: v8's with REFLECT_MAX_PRICE_PER_PGU read (the lane's price cap), built by build-reflection-prover from the
 # same pinned guests and checked to execute the reflection fixture exactly as v8's does.
 ARG PROVER_REFLECT_RELEASE=prover-bins-v12
-# eth_prove from its own release: v8's until a build-eth-prover build (the stdin and finish modes the prover board's lane uses,
-# lib/eth-board.js) is released; then this tag and eth_prove's line in SHA256SUMS move together. The relay asks the binary which
-# modes it has before it uses the board, so v8 here simply keeps the network lane.
-ARG PROVER_ETH_RELEASE=prover-bins-v8
+# eth_prove from its own release: v13, built by build-eth-prover (run 40340478253), with the stdin and finish modes the prover board's
+# lane uses (lib/eth-board.js): checked against the network's proof of request 0x9e732826 and against v8's eth_prove on live data (same
+# input, same public values). This tag and eth_prove's line in SHA256SUMS move together. The relay asks the binary which
+# modes it has before it uses the board (one without them keeps to the network lane).
+ARG PROVER_ETH_RELEASE=prover-bins-v13
 # Every exec-* comes from v11: the same pinned guest, built so a network request carries its input as a private artifact
 # when PRIVATE_STDIN=1 is set and goes only to the provers PROVER_WHITELIST names (with neither set it behaves as v8/v9).
 # The reflection provers (public chain data) come from the two releases above.
