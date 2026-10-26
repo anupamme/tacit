@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3dBzes2zedp0mtDS2+KCNOMEeVkxILbnFQug3+22VW0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Ns9SwP83pU9IhzELmtK/kU+5atoRbufwvS6F6q5LEyE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8279,6 +8279,68 @@ async function resumeVouchers() {
       () => v.drop(pub, x.depositId));
   }
 }
+// LP vouchers: a farm pool's share notes proved ahead. A share note's OP_WRAP binds only the pool's share asset, the share count and the
+// commitment, so it is proved like any wrap; at the zap the ETH legs are sized at the reserves then to mint exactly that share count
+// (lp-zap.js zapPlanFor), and the zap and the settle that makes the note go in one confirmation, the bond after. A pool's sizes (about
+// LP_KEEP_ETH of shares, counted at the reserves when asked for) are kept once its zap has been opened with this key; a zap uses a voucher
+// whose share count costs, now, between 97% of the amount entered and that amount plus 2%.
+const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [5n * 10n ** 16n, 10n ** 17n];
+const lpTicker = (poolId) => `lp:${String(poolId).toLowerCase()}`;
+const lpKept = () => (S.key ? store.get(LP_KEEP_PREF + S.key.pubHex) || [] : []);
+const lpKeep = (poolId) => { if (S.key && !lpKept().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpKept(), poolId].slice(-4)); };
+// A share note of `shares` in pool `poolId`, at an index no note, zap or voucher of this key holds.
+async function lpBuild(t, priv, poolId, shares) {
+  const pub = S.key.pubHex, used = [...zapsKept().filter((x) => x.pub === pub && x.poolId === poolId), ...(await vouchers()).list(pub, lpTicker(poolId))].map((x) => x.index);
+  const index = t.nextShareIndex({ walletPriv: priv, poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used });
+  return t.buildShareWrap({ walletPriv: priv, poolId, shares, index });
+}
+const lpRec = (poolId, b, extra) => ({ ticker: lpTicker(poolId), poolId, amount: String(b.amount), index: b.index, commit: b.commit, depositId: b.depositId, leaf: b.leaf,
+  assetId: b.wrapArgs.assetId, memos: b.memos, at: Date.now(), status: 'proving', ...extra });
+// The shares about `eth` buys in the pool now.
+async function lpSharesFor(t, poolId, eth) {
+  const res = await t.poolReserves(poolId);
+  return res && res.totalShares > 0n ? zapPlan({ eth, ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps: BigInt(res.feeBps ?? 30) })?.shares || null : null;
+}
+async function lpPoolRequest(poolId, size) {
+  const pub = S.key.pubHex, v = await vouchers(), t = await getUx(), priv = walletPriv(), shares = await lpSharesFor(t, poolId, size);
+  if (!shares) return;
+  const b = await lpBuild(t, priv, poolId, shares);
+  try { v.put(pub, lpRec(poolId, b, { size: String(size), by: 'pool', job: await poolPost(b) })); }
+  catch { t.releaseShareIndex({ walletPriv: priv, poolId, index: b.index }); }
+}
+// A share note proved on this computer (`size`, kept ready) or asked of the relay as a zap's amount settles (`shares`, `relay`).
+function lpProve(poolId, { size = null, shares = null, relay = false } = {}) {
+  if (!S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
+  if (relay ? (VOUCH.relayAsked || 0) >= RELAY_AHEAD : !devOn() || !LOCAL.found) return null;
+  if (relay) VOUCH.relayAsked = (VOUCH.relayAsked || 0) + 1;
+  const pub = S.key.pubHex, me = { poolId, relay };
+  me.p = (async () => {
+    const v = await vouchers(), t = await getUx(), priv = walletPriv();
+    const n = shares || await lpSharesFor(t, poolId, size);
+    if (!n) return;
+    const b = await lpBuild(t, priv, poolId, n), rec = lpRec(poolId, b, { size: size == null ? null : String(size), by: relay ? 'relay' : 'device' });
+    try {
+      const keep = (jobId) => { if (!rec.job && jobId) { rec.job = jobId; v.put(pub, rec); } };
+      const proven = await t.relay.prove({ type: 'wrap', op: b.wrapOp, leaves: [b.leaf], outputs: b.outputs, memos: b.memos, ephRand: b.ephRand },
+        { ...(relay ? { viaRelay: true, timeoutMs: 10 * 60e3 } : {}), onJob: keep, onUpdate: (st) => keep(st?.jobId) });
+      if (!t.wrapProofFits(b, proven)) throw new Error('not this share');
+      v.put(pub, { ...rec, status: 'ready', publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || b.memos });
+    } catch { v.drop(pub, b.depositId); t.releaseShareIndex({ walletPriv: priv, poolId, index: b.index }); }
+  })().finally(() => { if (VOUCH.ahead === me) VOUCH.ahead = null; });
+  VOUCH.ahead = me;
+  return me.p;
+}
+// The ready LP voucher of pool `poolId` whose share count costs nearest `wei` now, with its plan at reserves `res`, or null.
+async function lpReady(poolId, wei, res) {
+  if (!S.key || !res || !(res.totalShares > 0n)) return null;
+  const v = await vouchers(), feeBps = BigInt(res.feeBps ?? 30), maxEth = wei + wei / 50n, gap = (x) => (x > wei ? x - wei : wei - x);
+  let best = null;
+  for (const x of v.list(S.key.pubHex, lpTicker(poolId), 'ready')) {
+    const plan = zapPlanFor({ shares: BigInt(x.amount), ra: res.reserveA, rb: res.reserveB, total: res.totalShares, feeBps, maxEth });
+    if (plan && plan.value * 100n >= wei * 97n && (!best || gap(plan.value) < gap(best.plan.value))) best = { x, plan };
+  }
+  return best;
+}
 // The sizes picked in the prove sheet, kept ready: one missing at a time, while the prover has nothing else to do.
 // Without a prover of your own, the sizes are asked of the community proof pool instead (/prover/pool/*): anyone running
 // tacit-prover, and Tacit's own prover when it is idle, proves them for TAC points, free to you.
@@ -8294,6 +8356,14 @@ async function keepReady() {
     if (!h || h.busy || h.queued) return;
     return proveAhead(tk, want);
   }
+  for (const poolId of lpKept()) {
+    const have = v.list(S.key.pubHex, lpTicker(poolId)).map((x) => x.size), size = LP_KEEP_ETH.find((e) => !have.includes(String(e)));
+    if (size == null) continue;
+    if (!devOn()) return lpPoolRequest(poolId, size);
+    const h = await LOCAL.prover?.health?.().catch(() => null);
+    if (!h || h.busy || h.queued) return;
+    return lpProve(poolId, { size });
+  }
 }
 // A wrap asked of the proof pool: the note is made here from the key, and only its program input (no secret in it: the asset,
 // the amount and the note's commitment) and what its proof must show (this deposit, this leaf) are posted. The proof is
@@ -8303,15 +8373,23 @@ async function poolRequest(ticker, wei) {
   const index = await t.nextWrapIndex({ walletPriv: priv, ticker });
   try {
     const b = t.buildWrap({ walletPriv: priv, amountWei: wei, ticker, index });
-    const [sp] = await sealMods();
-    const memoHashes = b.memos.map((m) => '0x' + bytesToHex(keccak_256(hexToBytes(strip(m)))));
-    const stdin = '0x' + bytesToHex(sp.stdinFor('wrap', { ...b.wrapOp, memoHashes }));
-    const r = await fetch(`${API}/prover/pool/request`, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'wrap', stdin, expect: { depositId: b.depositId, leaf: b.leaf } }) }).then((x) => x.json());
-    if (!r?.ok || !r.id) throw new Error(r?.error || 'not taken');
+    const job = await poolPost(b);
     v.put(pub, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, leaf: b.leaf, assetId: b.wrapArgs.assetId,
-      memos: b.memos, at: Date.now(), status: 'proving', by: 'pool', job: r.id });
+      memos: b.memos, at: Date.now(), status: 'proving', by: 'pool', job });
   } catch { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
+}
+// A built wrap's program input posted to the proof pool → its job id. One answered with the pool's cap for the day holds further
+// requests from this page off for an hour.
+async function poolPost(b) {
+  if (Date.now() < (VOUCH.poolCapUntil || 0)) throw new Error('pool_cap');
+  const [sp] = await sealMods();
+  const memoHashes = b.memos.map((m) => '0x' + bytesToHex(keccak_256(hexToBytes(strip(m)))));
+  const stdin = '0x' + bytesToHex(sp.stdinFor('wrap', { ...b.wrapOp, memoHashes }));
+  const r = await fetch(`${API}/prover/pool/request`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'wrap', stdin, expect: { depositId: b.depositId, leaf: b.leaf } }) }).then((x) => x.json());
+  if (r?.code === 'pool_cap' || r?.code === 'pool_full') VOUCH.poolCapUntil = Date.now() + 3600e3;
+  if (!r?.ok || !r.id) throw new Error(r?.error || 'not taken');
+  return r.id;
 }
 // The pool's finished proofs, collected into ready vouchers; one the pool gave up on is dropped (its size is asked again).
 async function poolCollect() {
@@ -9914,6 +9992,9 @@ function farmZap(el, p, status, has, top) {
     <p class="note">The chain sees your ETH go into ${label}: the swap and what is added. From there it is private: the farm, its rewards and your exit.</p>`);
   const aIn = $(`#sz-a-${pid}`), go = $(`#sz-go-${pid}`), rc = $(`#sz-rcpt-${pid}`), ackBox = $(`#sz-ack-${pid}`), balEl = $(`#sz-bal-${pid}`);
   let q = null, seq = 0, bal = null;
+  if (S.key) lpKeep(p.poolId);
+  // a zap that can go out as one confirmation: from the Tacit account, or a wallet that batches the zap and the settle
+  const oneGo = async () => payer() === 'tacit' || ownNow(['wrap']) || (await canBatch());
   const gateOk = () => { go.disabled = !q || q.over || !lossOk(ackBox, q.impact || 0); };
   ethBalance().then((b) => { bal = b; if (balEl.isConnected) balEl.textContent = b == null ? '' : `${payName()} ${fmt(b, 18, 4)}`; noEthYet($(`#sz-fund-${pid}`), b, '', 'zap it into the farm'); });
   const requote = debounce(async () => {
@@ -9947,6 +10028,13 @@ function farmZap(el, p, status, has, top) {
         <div class="kv"><span>Then</span><b>${ownNow(['farmbond']) && devOn() ? 'the relay makes your share private, then this computer puts it in the farm' : 'the relay makes your share private and farms it, a few minutes'}</b></div>`);
       mount(ackBox, lossGate(`sz-ackv-${pid}`, q.impact, 'deposit'));
       wireAck(ackBox, `sz-ackv-${pid}`, q.impact, gateOk);
+      if (!sp && S.key) {
+        const ready = await lpReady(p.poolId, wei, res);
+        if (my !== seq || !go.isConnected) return;
+        if (ready) rc.insertAdjacentHTML('beforeend', html`<div class="kv"><span>Proof</span><b>ready now: sends ${fmt(ready.plan.value, 18, 6)} ETH</b></div>`.s);
+        clearTimeout(VOUCH.zapTyping);
+        if (!ready && !ownNow(['wrap'])) VOUCH.zapTyping = setTimeout(async () => { if (q?.wei === wei && aIn.isConnected && (await oneGo())) lpProve(p.poolId, { shares: plan.shares, relay: true }); }, 1500);
+      }
       if (q.over) warn(rc, have != null && (have === 0n || plan.value <= have) ? lowEth() : 'More ETH than you hold, with the network fee. Try Max.');
     } catch (e) { if (my === seq) quoteErr(rc, e); }
     gateOk();
@@ -9970,8 +10058,29 @@ function farmZap(el, p, status, has, top) {
       const gp = await rpc('eth_gasPrice', []).then(BigInt).catch(() => 0n), { plan, sp } = res ? await zapRoute({ tkB: top.tkB, res, wei: z.wei, gp, account: from }) : {};
       // priced again as it is sent: the same shares (a split's other venue may give a little less, within half a percent), or quoted afresh
       if (!plan || !!sp !== !!z.sp || (sp ? plan.shares * 1000n < z.plan.shares * 995n : plan.shares !== z.plan.shares || plan.value !== z.plan.value)) { requote(); throw Object.assign(new Error('The pool moved since this was quoted. Check the new amounts and press again.'), { said: true }); }
-      // an index no note of this key has used: not one it holds, has spent (bonded) or has a zap waiting on
-      const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used: zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId).map((x) => x.index) });
+      // A share proved already (kept ready, or asked of the relay as the amount settled): the zap and the settle that makes the note go in
+      // one confirmation at once, the bond after; a share still being proved for this amount is waited for.
+      if (!sp && S.key && (await oneGo())) {
+        if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved…'); await Promise.race([VOUCH.ahead.p, sleep(30e3)]); }
+        const ready = await lpReady(p.poolId, z.wei, res), v = await vouchers();
+        if (ready && wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(ready.x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) v.drop(pub, ready.x.depositId);
+        else if (ready) {
+          const x = ready.x, shares = BigInt(x.amount), kept = { ...t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares, index: x.index }), memos: x.memos };
+          run.go({ label: `Zap ${fmt(ready.plan.value, 18, 6)} ETH into ${label}`, status: () => status, clear: () => clearField(aIn) });
+          run.take(kDep(kept));
+          ZAP_LIVE++; guarded = true;
+          const r = await zapShareFirst({ run, t, p, built: kept, index: x.index, shares, maxEth: z.wei + z.wei / 50n, tokenB, from, tell, status,
+            proven: { publicValues: x.publicValues, proof: x.proof, memos: x.memos } });
+          v.drop(pub, x.depositId);
+          hash = r.hash; landed = true; built = kept;
+          if ((await zapFinish(run, p, r.rec, kept, tell, status)) === 'landing') throw Object.assign(new Error('Your zap landed, but the pool does not show it yet. Press Finish it in a minute to put its share in the farm.'), { said: true });
+          clearField(aIn);
+          return;
+        }
+      }
+      // an index no note of this key has used: not one it holds, has spent (bonded), has a zap waiting on or a voucher keeps
+      const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])],
+        used: [...zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId), ...(await vouchers()).list(pub, lpTicker(p.poolId))].map((x) => x.index) });
       built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
       // Proved here or with your own credit (a single-pool zap): the share note first, then the zap and its settle together.
       if (!sp && ownNow(['wrap']) && (await proveOwn(['wrap']))) {
@@ -10022,10 +10131,12 @@ function farmZap(el, p, status, has, top) {
 // the pool moving meanwhile costs a little more or less ETH (never over `maxEth`) instead of the proof. The zap and the settle that makes
 // the note then go together: one wallet confirmation where the wallet batches calls (both land or neither), else back to back, so no
 // relay step and no deposit is left waiting. → { hash, rec }
-async function zapShareFirst({ run, t, p, built, index, shares, maxEth, tokenB, from, tell, status }) {
-  const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
-  tell(spSaid('uploading', null));
-  const proven = await t.relay.prove(spec, spTell(run.wait(null, 60 * 60e3, { deps: [kDep(built)] }), tell));
+async function zapShareFirst({ run, t, p, built, index, shares, maxEth, tokenB, from, tell, status, proven = null }) {
+  if (!proven) {
+    const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
+    tell(spSaid('uploading', null));
+    proven = await t.relay.prove(spec, spTell(run.wait(null, 60 * 60e3, { deps: [kDep(built)] }), tell));
+  }
   if (!t.wrapProofFits(built, proven)) throw Object.assign(new Error('The proof that came back is not for this share, so nothing was sent. Press again.'), { said: true });
   run.check();
   const res = await t.poolReserves(p.poolId);

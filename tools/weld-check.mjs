@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -221,9 +221,10 @@ function wrapOpFromStdin(stdin, asset) {
   const f = () => { p += 32; const x = '0x' + h.slice(p, p + 64); p += 64; return x; };
   return { asset: '0x' + a, value: value.toString(), cx: f(), cy: f(), owner: f() };
 }
-function wrapPv(op) {
+function wrapPv(op) { return wrapPvOf(STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner), depositIdOf(op)); }
+// A wrap's public values as the pool reads them: one leaf inserted, one deposit consumed.
+function wrapPvOf(leaf, dep) {
   const w = (v) => BigInt(v).toString(16).padStart(64, '0'), head = Array(40).fill(w(0));
-  const leaf = STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner), dep = depositIdOf(op);
   head[4] = w(40 * 32); head[5] = w(42 * 32); head[3] = w(44 * 32); head[7] = w(45 * 32);
   return '0x' + w(32) + head.join('') + w(1) + leaf.replace(/^0x/, '') + w(1) + dep.replace(/^0x/, '') + w(0) + w(0);
 }
@@ -329,8 +330,9 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     if (u.pathname === '/prover/pool/result') {
       const results = {};
       for (const id of String(u.searchParams.get('ids') || '').split(',').filter(Boolean)) {
-        const b = poolReqs[Number(id.slice(5)) - 1], op = b && (wrapOpFromStdin(b.stdin, STUB_CETH) || wrapOpFromStdin(b.stdin, STUB_CTAC));
-        results[id] = !b ? { status: 'gone' } : poolDone && op ? { status: 'done', publicValues: wrapPv(op), proof: '0x' + '0b'.repeat(32) } : { status: 'queued' };
+        // any asset's wrap: its proof shows the deposit and leaf the request said it must (the API checks those against the input)
+        const b = poolReqs[Number(id.slice(5)) - 1];
+        results[id] = !b ? { status: 'gone' } : poolDone ? { status: 'done', publicValues: wrapPvOf(b.expect.leaf, b.expect.depositId), proof: '0x' + '0b'.repeat(32) } : { status: 'queued' };
       }
       return json(route, { results });
     }
@@ -7439,6 +7441,65 @@ await step('farmzapeth', async () => {
     ok(w?.depositId?.toLowerCase() === dep.toLowerCase() && (await q.page.evaluate(() => window.__farmCalls)).join().startsWith('wrap:'), `farmzapeth: and Finish it settles that same deposit into its note and farms it (${await text(q.page, '#sf-status-0')})`);
     if (q.errors.length) { fails++; console.log('FAIL farmzapeth page errors: ' + q.errors.slice(0, 3).join(' | ')); }
   } finally { await q.browser.close(); }
+});
+
+// LP vouchers: the farm's share notes proved ahead. On the relay lane the share for the amount typed is asked of the relay once the amount
+// settles, and opening the farm's zap keeps its sizes ready through the community pool; a zap whose amount a ready share costs then goes
+// out at once, the zap and the settle that makes its note from the paying account with that share's proof, nothing asked of the relay at
+// the press, and the bond after. The pool's settle is answered here (no real proof): the share note is then made by the relay stub.
+await step('lpvoucher', async () => {
+  const hex = '1b0c'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00';
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
+  const LP = `lp:${POOL0}`, ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992';
+  const restore = await stubPoolSettle('ok');
+  const r = await openFarmKey(hex, { notes: [], positions: [], zap: true }, { width: 1280, height: 900 });
+  const p = r.page, kept = () => p.evaluate((k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]'), pub);
+  const lpOf = async (by) => (await kept()).filter((v) => v.ticker === LP && v.by === by);
+  try {
+    poolDone = false; proveStub = true;
+    const q0 = poolReqs.length, s0 = submits.length;
+    await p.evaluate((k) => { localStorage.setItem('tacit-lite-keep-ready-v1:' + k, '[]'); document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); }, pub);
+    await p.click('[data-hxm="earn"]');
+    await p.fill('#hx-amt', '0.02');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || ''), null, 420000);
+    // (1) the relay lane: the share for 0.02 ETH is asked of the relay as the amount settles, and the receipt says it is ready
+    await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'relay' && v.status === 'ready'), pub, 120000).catch(() => {});
+    const relayed = await lpOf('relay');
+    ok(relayed.length === 1 && relayed[0].status === 'ready' && submits.slice(s0).filter((x) => x.mode === 'prove' && x.type === 'wrap').length === 1,
+      `lpvoucher: on the relay lane the share for the amount typed is proved by the relay before the press (${relayed.map((v) => v.status)})`);
+    await p.fill('#sz-a-0', '0.021');
+    await p.fill('#sz-a-0', '0.02');
+    await until(p, () => /ready now/.test(document.querySelector('#sz-rcpt-0')?.textContent || ''), null, 120000).catch(() => {});
+    ok(/Proof\s*ready now: sends 0\.0\d+ ETH/.test(await text(p, '#sz-rcpt-0')), `lpvoucher: and the receipt says the proof is ready (${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ').slice(-80)})`);
+    // (2) kept ready: the farm's 0.05 ETH size is asked of the pool, and its proof collected into a voucher
+    await chainUntil(async () => poolReqs.slice(q0).some((b) => b.type === 'wrap' && !wrapOpFromStdin(b.stdin, STUB_CETH) && !wrapOpFromStdin(b.stdin, STUB_CTAC)), 200000);
+    const lpReqs = poolReqs.slice(q0).filter((b) => !wrapOpFromStdin(b.stdin, STUB_CETH) && !wrapOpFromStdin(b.stdin, STUB_CTAC));
+    ok(lpReqs.length >= 1 && /^0x[0-9a-f]{64}$/.test(lpReqs[0].expect.depositId), `lpvoucher: opening the farm's zap keeps a share of about 0.05 ETH ready, asked of the pool (${lpReqs.length})`);
+    poolDone = true;
+    await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'pool' && v.size === '50000000000000000' && v.status === 'ready'), pub, 200000).catch(() => {});
+    const pooled = (await lpOf('pool')).find((v) => v.size === '50000000000000000');
+    ok(pooled?.status === 'ready', `lpvoucher: and the pool's proof is kept as a ready share (${(await lpOf('pool')).map((v) => `${v.size}/${v.status}`)})`);
+    // (3) a zap of 0.05 ETH goes out from that share: the zap, then the settle with its proof, from the Tacit account; nothing new asked of the relay
+    await p.fill('#sz-a-0', '0.05');
+    await until(p, () => /ready now/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 240000).catch(() => {});
+    const b0 = BigInt(await rpc('eth_blockNumber', [])), s1 = submits.length;
+    await p.click('#sz-go-0');
+    await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /class="err"/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000).catch(() => {});
+    const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
+    for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct) mine.push(tx);
+    const zapTx = mine.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), settleTx = mine.find((x) => String(x.to).toLowerCase() === POOL_ADDR && x.input.startsWith('0x' + SETTLE_SEL));
+    const zr = zapTx && await rpc('eth_getTransactionReceipt', [zapTx.hash]);
+    ok(zr?.status === '0x1' && zapTx.input.includes(pooled.commit.slice(2).toLowerCase()) && settleTx?.input.includes('0b'.repeat(32)) && mine.indexOf(zapTx) < mine.indexOf(settleTx)
+      && !submits.slice(s1).some((x) => x.mode === 'prove') && !(await kept()).some((v) => v.depositId === pooled.depositId),
+      `lpvoucher: a zap of 0.05 ETH goes out from that share, the zap and then its settle with the share's proof from the Tacit account, nothing asked of the relay, the voucher used up (${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
+    ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')), `lpvoucher: and the share goes on into the farm (${(await p.evaluate(() => window.__farmCalls)).join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL lpvoucher page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { poolDone = false; proveStub = false; await restore(); await r.browser.close(); }
 });
 
 // A zap into tETH/TAC large enough to move the pool: its swap is split with the Precision pool when that keeps more of the deposit, the
