@@ -15,6 +15,7 @@
 //   --allow-unpinned    accept readings made before they were pinned to blocks (only the day of the upgrade has them)
 //   --from-block        the block a pool was created at, to skip the search for it
 //   --gap-ms            the pause between requests (default 150); a public endpoint that says it is rate limited is asked again after a growing pause
+//   --log-chunk         blocks of a pool's transfer logs asked for at a time (default 2000; drpc's free plan allows 10,000, so 9000 is far fewer requests)
 //
 // Archive endpoints that worked for a two-day-old day on free plans: https://eth.drpc.org (logs in ranges up to 10,000 blocks). publicnode refuses old
 // state, llamarpc and ankr need a key, blastapi allows only 10 blocks of logs a call.
@@ -29,12 +30,12 @@ const { createPublicClient, http } = require('viem');
 const { mainnet } = require('viem/chains');
 
 const args = process.argv.slice(2);
-const VALUE_FLAGS = new Set(['--farm', '--service', '--rpc', '--from-block', '--gap-ms']);
+const VALUE_FLAGS = new Set(['--farm', '--service', '--rpc', '--from-block', '--gap-ms', '--log-chunk']);
 const flag = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 const all = (name) => args.flatMap((a, i) => (a === name ? [args[i + 1]] : []));
 const positional = args.filter((a, i) => !a.startsWith('--') && !VALUE_FLAGS.has(args[i - 1]));
 const day = positional.length === 1 && /^\d+$/.test(positional[0]) ? Number(positional[0]) : null;
-if (!day) { console.error('usage: node tools/lp-verify.mjs <day> [--farm <name>] [--service <url>] [--rpc <url>] [--from-block <pool>=<block>] [--allow-unpinned] [--reference] [--json]'); process.exit(2); }
+if (!day) { console.error('usage: node tools/lp-verify.mjs <day> [--farm <name>] [--service <url>] [--rpc <url>] [--from-block <pool>=<block>] [--allow-unpinned] [--reference] [--log-chunk <blocks>] [--gap-ms <ms>] [--json]'); process.exit(2); }
 const service = (flag('--service') || 'https://tacit-points.onrender.com').replace(/\/$/, '');
 const rpc = flag('--rpc') || process.env.LP_VERIFY_RPC || 'https://ethereum-rpc.publicnode.com';
 const farm = flag('--farm');
@@ -51,8 +52,8 @@ const get = async (path) => {
 let result;
 try {
   // A free public endpoint refuses a burst: one request at a time, a pause apart, asked again when it says it is rate limited.
-  const client = throttledClient(createPublicClient({ chain: mainnet, transport: http(rpc) }), { gapMs: Number(flag('--gap-ms') ?? 150) });
-  result = await verifyServiceDay({ get, day, farm, client, usdc: USDC, ethUsdFeed: FEED, fromBlocks, allowUnpinned: args.includes('--allow-unpinned'), reference: args.includes('--reference') });
+  const client = throttledClient(createPublicClient({ chain: mainnet, transport: http(rpc) }), { gapMs: Number(flag('--gap-ms') ?? 150), onRequest: (n) => { if (n % 50 === 0) console.error(`  … ${n} requests`); } });
+  result = await verifyServiceDay({ get, day, farm, client, usdc: USDC, ethUsdFeed: FEED, fromBlocks, allowUnpinned: args.includes('--allow-unpinned'), reference: args.includes('--reference'), chunk: Number(flag('--log-chunk') ?? 2000), progress: (m) => console.error(`  ${m}`) });
 } catch (e) {
   // viem's short message ("RPC Request failed.") hides what the node said: print its answer, the method asked and the HTTP status.
   const said = [e?.details, e?.status ? `HTTP ${e.status}` : null, e?.body?.method ? `in ${e.body.method}` : null, e?.cause?.details].filter(Boolean).join(' · ');

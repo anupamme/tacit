@@ -53,15 +53,15 @@ export const hashRecord = (record) => createHash('sha256').update(canonical(reco
 
 // A client for a public endpoint: one request at a time, `gapMs` apart, and a request the endpoint refuses for its rate limit (or that times out) is asked
 // again after a pause that doubles (1 s, 2 s, 4 s … at most 30 s), up to `tries` times. Any other error, such as a range of logs that is too wide, is
-// passed on at once so that the caller can ask for less. Only the four calls checkDayRecord makes are given.
-export function throttledClient(client, { gapMs = 150, tries = 8, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-  let tail = Promise.resolve();
+// passed on at once so that the caller can ask for less. Only the four calls checkDayRecord makes are given. `onRequest(n)` is told after each answer.
+export function throttledClient(client, { gapMs = 150, tries = 8, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), onRequest = null } = {}) {
+  let tail = Promise.resolve(), made = 0;
   const refused = (e) => [429, 502, 503, 504].includes(e?.status)
     || /rate limit|too many requests|\b429\b|limit exceeded|timed out|timeout|ETIMEDOUT|ECONNRESET|fetch failed|temporarily/i.test([e?.shortMessage, e?.message, e?.details, e?.cause?.message].filter(Boolean).join(' '));
   const run = (fn) => {
     const next = tail.then(async () => {
       for (let i = 0; ; i++) {
-        try { const r = await fn(); await sleep(gapMs); return r; } catch (e) {
+        try { const r = await fn(); made++; onRequest?.(made); await sleep(gapMs); return r; } catch (e) {
           if (i + 1 >= tries || !refused(e)) throw e;
           await sleep(Math.min(30_000, 1000 * 2 ** i));
         }
@@ -108,7 +108,7 @@ async function firstBlockWithCode(client, pool, last) {
 //   the credits to, or null; sha256: the hash the service kept with the record, or null;
 //   allowUnpinned: accept readings made before they were pinned (only the day of the upgrade has them);
 //   reference: also read each hour's first block itself and compare the median (an archive node), tolerating `referenceTolerance` (a fraction).
-export async function checkDayRecord({ record, sha256 = null, client, usdc, ethUsdFeed, fromBlocks = {}, adjustments = null, chunk = 2000, allowUnpinned = false, reference = false, referenceTolerance = 0.1 }) {
+export async function checkDayRecord({ record, sha256 = null, client, usdc, ethUsdFeed, fromBlocks = {}, adjustments = null, chunk = 2000, allowUnpinned = false, reference = false, referenceTolerance = 0.1, progress = () => {} }) {
   const problems = [], notes = [];
   const bad = (m) => problems.push(m);
   if (!record || record.v !== RECORD_VERSION) return { ok: false, problems: [`the record is of version ${record?.v}, not ${RECORD_VERSION}`], notes };
@@ -156,7 +156,9 @@ export async function checkDayRecord({ record, sha256 = null, client, usdc, ethU
     if (rp.cursor.ts < end) bad(`${p}: the replay point is at ${rp.cursor.ts}, before the end of the day`);
     eq(`${p} replay point time`, rp.cursor.ts, await timeOf(upto));
     const first = fromBlocks[p] ?? await firstBlockWithCode(client, p, upto);
+    progress(`${p.slice(0, 8)}: reading its transfers from block ${first} to ${upto}`);
     const events = await transfersOf(client, p, first, upto, chunk);
+    progress(`${p.slice(0, 8)}: ${events.length} transfers in ${new Set(events.map((e) => e.block)).size} blocks; reading those blocks' times`);
     let replay = 0n;
     for (const e of events) { if (e.from === ZERO) replay += e.value; if (e.to === ZERO) replay -= e.value; }
     const code = await client.getCode({ address: p, blockNumber: BigInt(upto) });
@@ -170,6 +172,7 @@ export async function checkDayRecord({ record, sha256 = null, client, usdc, ethU
     eq(`${p} supply at the replay point`, rp.cursor.supply, replay);
 
     // The readings, each again at its block.
+    progress(`${p.slice(0, 8)}: replay point and transfers read; checking its readings`);
     const samples = Array.isArray(rp.samples) ? rp.samples : [];
     const hours = new Set(), vpsList = [];
     let unpinned = 0;
