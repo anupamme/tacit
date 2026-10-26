@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-y+/uAyEj2SEN04JvqTH12ghuxFMelg9SnOVBceS4vRA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NmPC4c6Wy+NnWapPU2/CnXZw512po51dD88lfos7upc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -182,6 +182,13 @@ main:focus { outline: none; }
 @media (hover: hover) { .fms a:hover { border-color: var(--hair-2); } .fms a:hover small { color: var(--ink); } }
 .fms a:active { transform: scale(.98); }
 @media (max-width: 640px) { .fms { margin: 0 -16px 8px; padding: 1px 16px; scroll-padding: 0 16px; } }          /* runs to the screen's edge, so a chip cut off there reads as more to scroll to */
+/* Where both fit on one line, the prices sit left and the farms right, under the brand and the menu they line up with. Narrower, they stack. */
+.strip { display: contents; }
+@media (min-width: 900px) {
+  .strip { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin: -10px 0 8px; }
+  .pxs, .fms { margin: 0; }
+  .pxs { flex: none; flex-wrap: nowrap; }
+}
 .chip.act svg { width: 18px; height: 18px; flex: none; }
 .chip.act.busy { color: var(--warn); }
 .chip.act #act-n { position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
@@ -490,19 +497,20 @@ a.di { color: inherit; text-decoration: none; }
 #kept-v { min-height: 148px; }
 
 
-/* Earn: the private farms' card, then the public farm and the vault pools as two slim rows. */
-.fm-y { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
-.fz { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 32px; padding: 26px 28px 24px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 22px; }
-.fz-l { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.fz-l .pair .tk { width: 40px; height: 40px; }
-.fz-l .pair .tk + .tk { margin-left: -11px; box-shadow: 0 0 0 2px var(--card); }
-.fz-l h3 { margin: 10px 0 0; font: 400 26px/1.1 var(--serif); }
-.fz-l .fm-apr { margin-top: 26px; }
+/* Earn: one column like the card above it. The private farms' card, then the public farm and the vault pools as two slim rows. */
+.fm-c { max-width: 600px; margin: 0 auto; }
+.fm-y { display: grid; gap: 12px; margin-top: 12px; }
+.fm .sx-h p { max-width: 72ch; }
+.fz { display: grid; gap: 22px; padding: 24px 24px 22px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; }
+/* The pool picked, as one slim reading over its form: its pair, its name and what it pays a day, its rate at the right. */
+.fz-l { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr"; align-items: center; gap: 2px 14px; min-width: 0; }
+.fz-l .pair { grid-area: pair; }
+.fz-l .pair .tk { width: 36px; height: 36px; }
+.fz-l .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
+.fz-l h3 { grid-area: h; margin: 0; font: 400 24px/1.1 var(--serif); }
+.fz-l .fm-apr { grid-area: apr; margin: 0; font-size: 52px; text-align: right; }
 .fz.lp .fz-l .fm-apr { color: var(--mute); }
-.fz-l #priv-day { margin: 4px 0 0; font-size: 13px; color: var(--mute); }
-.fz-facts { display: grid; gap: 7px; margin: 22px 0 0; padding: 0; list-style: none; font-size: 13px; }
-.fz-facts li { display: flex; gap: 9px; align-items: baseline; }
-.fz-facts li::before { content: ''; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); transform: translateY(-2px); }
+.fz-l #priv-day { grid-area: p; margin: 0; font-size: 13px; color: var(--mute); }
 .fz-r { display: flex; flex-direction: column; min-width: 0; }
 .fz-pairs { display: grid; gap: 6px; }
 .fz-pairs button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 8px; color: var(--ink); text-align: left; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
@@ -550,7 +558,7 @@ a.di { color: inherit; text-decoration: none; }
 .ptsline .tk { width: 24px; height: 24px; box-shadow: none; transition: transform .4s var(--spring); }
 .ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; color: var(--mute); }
 .ptsline .fig b { font: 400 28px/1 var(--serif); color: var(--ink); }
-.ptsline .you { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--mute); }
+.ptsline .you { display: inline-flex; align-items: center; gap: 8px; flex-basis: 100%; padding-left: 38px; color: var(--mute); }
 .ptsline .go { transition: transform .3s var(--spring); }
 @media (hover: hover) { .ptsline:hover .go { transform: translateX(4px); } .ptsline:hover > .tk { transform: scale(1.18) rotate(90deg); } .ptsline:hover .you { color: var(--ink); } }
 .boost { padding: 1px 5px; font: 500 10.5px var(--mono); font-style: normal; letter-spacing: .04em; color: var(--ink); background: color-mix(in srgb, var(--orange) 26%, transparent); }
@@ -610,7 +618,7 @@ a.di { color: inherit; text-decoration: none; }
 .tp-flow b { font: 400 19px/1.1 var(--serif); }
 .tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
 /* What holding it does: four short lines under a rule. */
-.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 1040px; margin: 40px 0 0; padding: 0; }
+.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 36px; width: 100%; max-width: 880px; margin: 40px 0 0; padding: 0; }
 .tc-do li { display: grid; align-content: start; gap: 4px; }
 .tc-do b { font: 400 18px/1.15 var(--serif); }
 .tc-do span { font-size: 12px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
@@ -1017,12 +1025,10 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr); }
   .wd-top { padding: 20px 16px 18px; }
   .wd-end { padding: 16px; }
-  .fz { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .tc-do { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; }
 }
 @media (max-width: 640px) {
   .proof-f .tl { display: none; }
-  .ptsline .you { margin-left: 0; flex-basis: 100%; }
   .news .w { display: none; }
   .proof { gap: 12px 26px; }
   .proof b { font-size: 26px; }
@@ -1048,13 +1054,16 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd-end small { font-size: 11px; line-height: 1.35; text-wrap: balance; }
   .wd-wire span { display: none; }
   .wd-wl { left: 6px; right: 6px; }
-  .fm-y { grid-template-columns: minmax(0, 1fr); }
   .fm-way { padding: 12px 14px; gap: 2px 12px; }
   .fm-way .fm-apr { font-size: 26px; }
-  .fz { padding: 20px 16px 18px; border-radius: 18px; }
+  .fz { padding: 20px 16px 18px; }
   .fz-row > * { flex: 1 1 100%; }
   .fz-mode button { flex: 1; }
-  .fz-facts { display: none; }
+  .fz-l { gap: 2px 12px; }
+  .fz-l .pair .tk { width: 32px; height: 32px; }
+  .fz-l .pair .tk + .tk { margin-left: -9px; }
+  .fz-l h3 { font-size: 22px; }
+  .fz-l .fm-apr { font-size: 40px; }
   .kept { padding: 12px 12px 10px; }
   .tc-stage { height: 150px; }
   .tc-tilt { scale: .54; }
@@ -1068,6 +1077,10 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-pay { margin-top: 36px; }
   .tp-flow small { font-size: 11px; }
   .tc-do { gap: 16px 20px; margin-top: 32px; }
+}
+@media (max-width: 360px) {
+  .fz-l { grid-template-areas: "h apr" "p apr"; grid-template-columns: minmax(0, 1fr) auto; }
+  .fz-l .pair { display: none; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
@@ -1274,8 +1287,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <button class="chip" id="wallet" type="button"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Sign in</span></button>
     </div>
   </header>
-  <div class="pxs" id="pxs" role="group" aria-label="Prices in dollars"></div>
-  <div class="fms" id="fms" role="group" aria-label="Farms and their APR now; each opens its ETH zap"></div>
+  <div class="strip">
+    <div class="pxs" id="pxs" role="group" aria-label="Prices in dollars"></div>
+    <div class="fms" id="fms" role="group" aria-label="Farms and their APR now; each opens its ETH zap"></div>
+  </div>
 
   <main id="main" tabindex="-1">
   <section class="hero" aria-labelledby="hero-h">
@@ -1311,22 +1326,23 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="sx fm" aria-labelledby="fm-h">
-    <div class="sx-h"><h2 id="fm-h">Earn on ETH, <em>privately</em>.</h2><p>One transaction turns ETH into a private LP position. Farm it for TAC, streamed by the second; leave whenever you like.</p></div>
-    <div class="fz" id="fz">
-      <div class="fz-l">
-        <span class="pair" id="fz-icons"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg></span>
-        <h3 id="fz-name">Private farms</h3>
-        <span class="fm-apr num" id="fz-apr"><span class="sk" style="--w:4ch"></span></span>
-        <p id="priv-day"></p>
-        <ul class="fz-facts"><li>One transaction from ETH</li><li>Your position, rewards and exit stay private</li><li>Harvest, add or leave any time</li></ul>
+    <div class="sx-h"><h2 id="fm-h">Earn on ETH, <em>privately</em>.</h2><p>One transaction in. TAC streams by the second; leave whenever you like.</p></div>
+    <div class="fm-c">
+      <div class="fz" id="fz">
+        <div class="fz-l">
+          <span class="pair" id="fz-icons"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg></span>
+          <h3 id="fz-name">Private farms</h3>
+          <span class="fm-apr num" id="fz-apr"><span class="sk" style="--w:4ch"></span></span>
+          <p id="priv-day"></p>
+        </div>
+        <div class="fz-r" id="fz-r"></div>
       </div>
-      <div class="fz-r" id="fz-r"></div>
+      <div class="fm-y">
+        <a class="fm-way" href="#farm/public" data-hx="earn:ether:public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+        <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
+      </div>
+      <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
     </div>
-    <div class="fm-y">
-      <a class="fm-way" href="#farm/public" data-hx="earn:ether:public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-      <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
-    </div>
-    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
   </section>
 
   <section class="sx" id="how" aria-labelledby="how-h">
@@ -12346,7 +12362,7 @@ function paintTape(d, rec) {
   if (key === TAPE.key) { for (const el of $$('time[data-t]', run)) el.textContent = ago(Number(el.dataset.t) * 1000); return; }
   TAPE.key = key;
   const coin = (id) => html`<svg class="tk" aria-hidden="true"><use href="#${id}"/></svg>`;
-  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}${e.n > 1 ? ` ×${e.n}` : ''}</b>${e.amt ? html`<span>${e.amt}${e.chain ? html` ${chainMark(e.chain)}` : ''}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
+  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}</b>${e.amt || e.n > 1 ? html`<span>${e.amt || ''}${e.chain ? html` ${chainMark(e.chain)}` : ''}${e.n > 1 ? ` ×${e.n}` : ''}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
   const fill = (reps) => { const set = (copy) => Array.from({ length: reps }, () => ev.map((e) => item(e, copy))).flat(); mount(run, html`${set(false)}${set(true)}`); box.hidden = false; };
   fill(1);
   const half = run.scrollWidth / 2, strip = run.parentElement.clientWidth;
