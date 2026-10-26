@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-M8IwuaBYOpFTyKiZ9GGVW4dDKOBEMKfXXnA2P4/sppc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mY0cBFRKFJXFyDyL2CW341QDzy9Ac/nW+8GNJGuF3cE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=9f1ce965" as="style">
+<link rel="preload" href="/swap/card.css?cb=d9cf2eb2" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -1015,7 +1015,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=9f1ce965">
+<link rel="stylesheet" href="/swap/card.css?cb=d9cf2eb2">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -12719,7 +12719,6 @@ function hxBalPaint() {
   const el = $('#hx-bal');
   if (!el) return;
   if (hxPlaceAuto()) { paintHx(); return; }
-  hxPlaceMarks();
   const src = hxAmtSrc(), h = src && !(HX.tab === 'send' && HX.ask) ? hxHeldOf(src) : null;
   if (!h) {
     const l = HX.amt ? null : HX_QUICK[hxAmtKind()];
@@ -12741,10 +12740,12 @@ function hxBalPaint() {
 }
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `for payments on ${hxChain().name}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
-  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'ERC-20 in your wallet', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', pp: `pays on ${hxChain().name}`, ptac: 'pays on Ethereum', usdc: 'a dollar, pays on Ethereum', usdt: 'a dollar, pays on Ethereum' }[k] || '';
-  return k === 'ether' || k === 'wtac' ? 'in your wallet' : 'private on Ethereum';
+  // under the picker's headers (where each is held), what sets each apart
+  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'public ERC-20', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay', pp: `pays on ${hxChain().name}`, ptac: 'pays on Ethereum', usdc: 'a dollar, pays on Ethereum', usdt: 'a dollar, pays on Ethereum' }[k] || '';
+  if (HX.tab === 'borrow') return k === 'btc' ? 'locked for cUSD or cBTC' : 'in a vault, for TACD or TACE';
+  return { ether: 'zapped in, one transaction', wtac: 'public ERC-20', eth: 'ETH, made private', tac: 'Tacit’s token' }[k] || '';
 }
-// Where a coin is held, as each field's switch names it: the wallet, private (Tacit's pool, or the payments pool), or Bitcoin
+// Where a coin is held, as the picker groups it and the field's corner names it: the wallet, private (Tacit's pool, or the payments pool), or Bitcoin
 const HX_PLACE = { wallet: 'Wallet', private: 'Private', bitcoin: 'Bitcoin' };
 const hxPlaceOf = (tab, k) => (tab === 'borrow' ? (k === 'wtac' ? 'wallet' : 'bitcoin') : ['btc', 'tb', 'tacb'].includes(k) ? 'bitcoin' : ['ether', 'wtac'].includes(k) ? 'wallet' : 'private');
 // The coins a tab takes in, by where they are held: [name, coins, place]
@@ -12752,26 +12753,7 @@ function hxGroups(tab) {
   const list = tab === 'private' ? hxSources().map((k) => { const s = HX_SH[k]; return [k, s.u, s.ic, 6, s.name]; }) : tab === 'send' ? HX_SEND : tab === 'borrow' ? [['btc', 'BTC', 'btc', 8], HX_WTAC] : [HX_ETHER, HX_WTAC, HX_TETH, HX_TACOUT];
   return Object.entries(HX_PLACE).map(([p, name]) => [name, list.filter(([k]) => hxPlaceOf(tab, k) === p), p]).filter(([, l]) => l.length);
 }
-// A place chosen for what goes in: the same coin held there when there is one (ETH and tETH, TAC wherever it is), else the first held there
-function hxPlace(place) {
-  const tab = HX.tab, cur = tab === 'private' ? HX.sf : tab === 'send' ? HX.send : tab === 'borrow' ? (HX.bsrc === 'tac' ? 'wtac' : 'btc') : HX.ern, sel = $(tab === 'send' ? '#hx-sa' : '#hx-from');
-  const asset = (k) => (tab === 'private' && k === 'btc' ? 'tac' : ['ether', 'eth', 'pp', 'tb'].includes(k) ? 'eth' : ['wtac', 'tac', 'tacb', 'ptac'].includes(k) ? 'tac' : k);
-  const coins = hxGroups(tab).find(([, , p]) => p === place)?.[1].map(([k]) => k) || [], k = coins.find((x) => asset(x) === asset(cur)) || coins[0];
-  if (!k || !sel || sel.value === k) return;
-  sel.value = k; sel.dispatchEvent(new Event('change'));
-}
-// The places that hold something are marked on the switch; a tile opened on a place that holds nothing moves to the first place that does, until
-// a place is chosen (a remembered choice is the one before the move)
-function hxPlaceMarks() {
-  const tab = HX.tab;
-  if (!['private', 'send', 'earn'].includes(tab)) return;
-  const have = new Set(hxGroups(tab).filter(([, l]) => l.some(([k]) => hxHeldOf(k)?.[0] > 0n)).map(([, , p]) => p));
-  for (const b of $$('[data-hxp] [data-place]')) {
-    const on = have.has(b.dataset.place);
-    b.toggleAttribute('data-held', on);
-    if (on) b.setAttribute('aria-description', 'You hold some here'); else b.removeAttribute('aria-description');
-  }
-}
+// A tile opened on a coin that holds nothing moves to the first that does, until a coin is picked (a remembered choice is the one before the move)
 function hxPlaceAuto() {
   const tab = HX.tab;
   if (!['private', 'earn'].includes(tab) || HX.placePick || HX.amt) return false;
@@ -12784,19 +12766,20 @@ function hxPlaceAuto() {
   HX.q = null;
   return true;
 }
-// The coin picker: the swap card's sheet, rising inside the tile, with what is held where the field's switch says
+// The coin picker: the swap card's sheet, rising inside the tile, with what is held of each coin, under where it is held (a private send's
+// under the pool it is held in: the DeFi pool's, then the payments pools')
 function hxPick(sel, opener) {
-  const card = $('#hx'), panel = $('#hx-panel'), place = opener.dataset.place || '';
+  const card = $('#hx'), panel = $('#hx-panel');
   card.__pkClose?.();
-  const gs = [...sel.querySelectorAll('optgroup')].filter((g) => !place || g.dataset.place === place), os = gs.length ? gs.flatMap((g) => [...g.children]) : [...sel.options];
+  const os = [...sel.options];
   if (os.length < 2 || !panel) return;
   const held = (o) => (sel.id === 'hx-to' ? null : hxHeldOf(o.value));
   const row = (o) => { const h = held(o); return html`<button type="button" class="pk-r${h && h[0] === 0n ? ' off' : ''}" data-v="${o.value}" aria-current="${o.selected}"><svg class="tk" aria-hidden="true"><use href="#tk-${o.dataset.ic}"/></svg><span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span><em class="num">${h ? fmt(h[0], h[1], h[1] === 18 ? 4 : 6) : ''}</em></button>`; };
   const title = opener.getAttribute('aria-label').split(':')[0], box = document.createElement('div');
   box.className = 'pk';
-  // a private send's coins under the pool they are held in (the DeFi pool's, then the payments pools'), as the swap card lists them
-  const poolOf = (o) => (sel.id === 'hx-sa' && place === 'private' ? (o.value === 'pp' || hxDev(o.value) ? 'Pay pool' : 'DeFi pool') : null);
-  const rows = os.map((o, i) => { const g = poolOf(o); return html`${g && (i === 0 || g !== poolOf(os[i - 1])) ? html`<div class="pk-g">${g}</div>` : ''}${row(o)}`; });
+  const many = sel.querySelectorAll('optgroup').length > 1;
+  const groupOf = (o) => { const g = o.parentElement, p = g?.dataset?.place; return !many || !p ? null : p === 'private' && sel.id === 'hx-sa' ? `Private · ${o.value === 'pp' || hxDev(o.value) ? 'Pay pool' : 'DeFi pool'}` : g.label; };
+  const rows = os.map((o, i) => { const g = groupOf(o); return html`${g && (i === 0 || g !== groupOf(os[i - 1])) ? html`<div class="pk-g${o.parentElement.dataset.place === 'private' ? ' priv' : ''}">${g}</div>` : ''}${row(o)}`; });
   box.innerHTML = html`<div class="pk-s" role="dialog" aria-modal="true" aria-label="${title}"><div class="pk-h"><b>${title}</b><button type="button" class="pk-x" aria-label="Close">×</button></div><div class="pk-l">${rows}</div></div>`.s;
   panel.append(box);
   const id = sel.id, back = () => $(`[data-pk="${id}"]`)?.focus();
@@ -13050,22 +13033,21 @@ function paintHx() {
   if (HX.tab === 'swap' && SWC.el && el.contains(SWC.el)) { hxRemember(); swcAsk(); return; }
   $('#hx').__pkClose?.(); SWC.card?.closePicker();
   hxNorm(); HX.goNext = false; hxSendAuto(); if (hxPlaceAuto()) hxNorm(); hxRemember();
-  const act = document.activeElement, focus = el.contains(act) ? { id: act.id, hxd: act.dataset.hxd, hxm: act.dataset.hxm, pk: act.dataset.pk, place: act.closest('[data-hxp]') && act.dataset.place } : null;
+  const act = document.activeElement, focus = el.contains(act) ? { id: act.id, hxd: act.dataset.hxd, hxm: act.dataset.hxm, pk: act.dataset.pk } : null;
   const due = hxBwDue();
   const tab = ([k, label, ic]) => html`<button type="button" role="tab" id="hx-tab-${k}" aria-controls="hx-panel" data-hxm="${k}" aria-selected="${HX.tab === k}" tabindex="${HX.tab === k ? 0 : -1}"${k === 'borrow' && due ? html` data-due aria-description="A step of your lock waits for you"` : ''}><svg aria-hidden="true"><use href="#g-${ic}"/></svg>${label}</button>`;
   const head = html`<div class="hx-h" role="tablist" aria-label="What to do" style="--i: ${HX_TABS.findIndex(([k]) => k === HX.tab)}">${HX_TABS.map(tab)}</div>`;
   // Every tab is drawn with the swap card's parts (swap/card.css): a field for what goes in, with where it is held and its coin; the rows to
-  // choose between; the receipt; one button. What a field holds is a coin and a place, as on the swap card's sides.
-  const coin = (id, label, groups, cur, place = '') => {
+  // choose between; the receipt; one button. What a field holds is a coin, and where it is held goes with the coin: the picker lists them by
+  // place (Wallet, Private, Bitcoin), and the field's corner names the place of the one picked.
+  const coin = (id, label, groups, cur) => {
     const all = groups.flatMap(([, l]) => l), [, u, ic] = all.find(([x]) => x === cur) || all[0];
     const opt = ([x, u2, ic2, , n]) => html`<option value="${x}" data-u="${u2}" data-ic="${ic2}" data-sub="${hxSubOf(id, x)}"${x === cur ? ' selected' : ''}>${n || u2}</option>`;
     if (all.length < 2) return html`<span class="coin one"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}</span>`;
-    const pick = (groups.find(([, , p]) => p === place)?.[1] || all).length > 1;
-    return html`<span class="coin${pick ? '' : ' one'}" role="button" tabindex="${pick ? 0 : -1}" aria-haspopup="dialog" aria-label="${label}: ${u}. Change" data-pk="${id}" data-place="${place}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}${pick ? html`<span class="car" aria-hidden="true">▾</span>` : ''}<select id="${id}" tabindex="-1" aria-hidden="true">${groups.map(([g, l, p]) => html`<optgroup label="${g}" data-place="${p}">${l.map(opt)}</optgroup>`)}</select></span>`;
+    const at = groups.length > 1 ? groups.find(([, l]) => l.some(([x]) => x === cur))?.[0] : null;
+    return html`<span class="coin" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${label}: ${u}${at ? `, ${at}` : ''}. Change" data-pk="${id}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}<span class="car" aria-hidden="true">▾</span><select id="${id}" tabindex="-1" aria-hidden="true">${groups.map(([g, l, p]) => html`<optgroup label="${g}" data-place="${p}">${l.map(opt)}</optgroup>`)}</select></span>`;
   };
-  // where what goes in is held: a switch when it can be in more than one place, after the word that says it is the source
-  const held = (groups, place, from = 'from') => (groups.length < 2 ? html`<span class="where">${HX_PLACE[place]}</span>`
-    : html`<span class="held">${from ? html`<span class="from">${from}</span>` : ''}<span class="sides" role="radiogroup" aria-label="Held in" data-hxp>${groups.map(([, , p]) => html`<button type="button" role="radio" data-place="${p}" aria-checked="${String(p === place)}" tabindex="${p === place ? 0 : -1}">${p === 'private' ? html`<i class="lock" aria-hidden="true"></i>Private` : p === 'bitcoin' ? html`<svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin` : 'Wallet'}</button>`)}</span></span>`);
+  const heldAt = (place) => html`<span class="where${place === 'private' ? ' priv' : ''}">${HX_PLACE[place]}</span>`;
   const field = (lbl, where, main, side = '', ff = true, priv = false, more = '') => html`<div class="f${priv ? ' priv' : ''}"><div class="fh"><span>${lbl}</span>${where}</div><div class="fm">${main}${side}</div>${ff ? html`<div class="ff"><span class="num" id="hx-sub"></span><span id="hx-bal"></span></div>` : ''}${more}</div>`;
   const mid = (flip) => html`<div class="mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : html`<span class="arr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`}</div>`;
@@ -13091,7 +13073,7 @@ function paintHx() {
     body = html`<div class="hx-swap" id="hx-swap"></div>`;
   } else if (m === 'earn') {
     const groups = hxGroups('earn'), place = hxPlaceOf('earn', HX.from);
-    body = html`${field('You put in', held(groups, place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from, place), true, place === 'private')}
+    body = html`${field('You put in', heldAt(place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from), true, place === 'private')}
       ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}${tail}
       <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>`;
   } else if (m === 'borrow' && HX.bsrc !== 'tac' && (HX.bwKey = S.key?.pubHex || '', HX.bwFace = (S.key && hxBwLoad(), hxBwMode())) === 'track') {
@@ -13102,17 +13084,17 @@ function paintHx() {
     const ways = tacSide ? [['tacd', 'Borrow TACD', 'a dollar', 'tacd', 'TACD', 'to your wallet'], ['tace', 'Borrow TACE', 'worth one ETH', 'tace', 'TACE', 'to your wallet']]
       : [['cusd', 'Borrow cUSD', 'a private dollar', 'cusd', 'cUSD', 'private'], ['cbtc', 'Mint cBTC only', 'private BTC, free', 'cbtc', 'cBTC', 'private']];
     const way = ([k, t, p, ic, u, where]) => { const on = HX.bm === k; return html`<button type="button" role="radio" class="c" aria-checked="${String(on)}" data-hxd="${k}" tabindex="${on ? 0 : -1}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span class="rt"><b>${t}</b><small>${hxNb(p)}</small></span><span class="ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0</output>` : ''} ${u}</span><small>${where}</small></span><span class="rd" aria-hidden="true"></span></button>`; };
-    body = tacSide ? html`${field('You deposit', held(groups, 'wallet'), amt('TAC to deposit'), coin('hx-from', 'You deposit', groups, 'wtac', 'wallet'))}
+    body = tacSide ? html`${field('You deposit', heldAt('wallet'), amt('TAC to deposit'), coin('hx-from', 'You deposit', groups, 'wtac'))}
       ${mid()}
       ${rowsOf('You borrow', true, ways.map(way))}${tail}
       <p class="q"><a href="/vault/#pools">Where TACD and TACE trade →</a></p>`
-      : html`${field('You lock', held(groups, 'bitcoin'), amt('BTC to lock'), coin('hx-from', 'You lock', groups, 'btc', 'bitcoin'))}
+      : html`${field('You lock', heldAt('bitcoin'), amt('BTC to lock'), coin('hx-from', 'You lock', groups, 'btc'))}
       ${mid()}
       ${rowsOf('You get', true, ways.map(way))}${tail}
       ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
   } else {
     const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', groups = hxGroups('send'), place = hxPlaceOf('send', HX.send);
-    const what = (lbl, label) => field(lbl, held(groups, place, lbl === 'You ask for' ? '' : 'from'), amt(`${unit} ${lbl === 'You ask for' ? 'to ask for' : 'to send'}`), coin('hx-sa', label, groups, HX.send, place), true, place === 'private');
+    const what = (lbl, label) => field(lbl, heldAt(place), amt(`${unit} ${lbl === 'You ask for' ? 'to ask for' : 'to send'}`), coin('hx-sa', label, groups, HX.send), true, place === 'private');
     HX.askFor = S.key?.tacit || '';
     body = HX.ask ? html`${what('You ask for', 'Asset to ask for')}
       ${mid()}
@@ -13135,15 +13117,6 @@ function paintHx() {
     c.onclick = (e) => { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); };
     c.onkeydown = (e) => { if (['Enter', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); } };
   }
-  for (const g of $$('[data-hxp]', el)) {
-    g.onclick = (e) => { const b = e.target.closest('[data-place]'); if (b) hxPlace(b.dataset.place); };
-    g.onkeydown = (e) => {
-      const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key], bs = $$('[data-place]', g), i = bs.indexOf(document.activeElement);
-      if (!d || i < 0) return;
-      const k = bs[(i + d + bs.length) % bs.length].dataset.place;
-      e.preventDefault(); hxPlace(k); $(`[data-hxp] [data-place="${k}"]`)?.focus();
-    };
-  }
   const pickTab = (k, focusIt) => { if (HX.tab === k) return; hxKeepAmt(() => { HX.tab = k; HX.q = null; }); paintHx(); if (focusIt) $(`[data-hxm="${k}"]`)?.focus(); };
   for (const b of $$('[data-hxm]', el)) b.onclick = () => pickTab(b.dataset.hxm);
   for (const b of $$('[data-hxm="send"]', el)) for (const ev of ['pointerenter', 'pointerdown', 'focus']) b.addEventListener(ev, hxWarm, { once: true });
@@ -13154,7 +13127,7 @@ function paintHx() {
     if (j == null) return;
     e.preventDefault(); pickTab(HX_TABS[(j + HX_TABS.length) % HX_TABS.length][0], true);
   };
-  if (focus) { const f = (focus.id && document.getElementById(focus.id)) || (focus.place && $(`[data-hxp] [data-place="${focus.place}"]`, el)) || (focus.pk && $(`.coin[data-pk="${focus.pk}"]`, el)) || (focus.hxd && $(`[data-hxd="${focus.hxd}"]`, el)) || (focus.hxm && $(`[data-hxm="${focus.hxm}"]`, el)); if (f && f !== document.activeElement) f.focus(); }
+  if (focus) { const f = (focus.id && document.getElementById(focus.id)) || (focus.pk && $(`.coin[data-pk="${focus.pk}"]`, el)) || (focus.hxd && $(`[data-hxd="${focus.hxd}"]`, el)) || (focus.hxm && $(`[data-hxm="${focus.hxm}"]`, el)); if (f && f !== document.activeElement) f.focus(); }
   // the Swap card paints itself; the page's own links inside it (its line on what a place holds) still go where they say
   if (m === 'swap') { el.onclick = (e) => { const g = e.target.closest?.('[data-hxin]'); if (g) hxPreset(g.dataset.hxin, undefined, true); }; hxSwap(); return; }
   if (m === 'borrow' && HX.bsrc !== 'tac' && HX.bwFace === 'track') { hxBwPaint(); return; }

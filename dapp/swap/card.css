@@ -216,6 +216,8 @@
 .swc .pk-l { display: flex; flex-direction: column; overflow: auto; padding: 0 10px 14px; }
 .swc .pk-l > [hidden] { display: none; }
 .swc .pk-g { margin: 10px 8px 4px; font-size: 12px; color: var(--mute); }
+.swc .pk-g.priv { display: flex; align-items: center; gap: 6px; }
+.swc .pk-g.priv::before { content: ''; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
 .swc .pk-r { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; text-align: left; color: inherit; background: none; border: 0; border-radius: 12px; cursor: pointer; transition: background .12s; }
 .swc .pk-r .tk { width: 34px; height: 34px; }
 .swc .pk-r { content-visibility: auto; contain-intrinsic-size: auto 52px; }
