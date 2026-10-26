@@ -112,7 +112,7 @@ export function makeAssocPanel(ctx) {
   const recentTo = () => new Set(S.takes.filter((t) => Date.now() - t.at < 6 * 3600e3).map((t) => String(t.to).toLowerCase()));
   const say = (view) => { S.status = view; const el = host?.querySelector('#p-status'); if (el) mount(el, view || html``); };
   const age = (block) => { const s = Math.max(0, (S.head - block) * 12); return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
-  const errText = (e) => String(e?.message || e || 'Something went wrong').replace(/^Error:\s*/, '');
+  const errText = (e) => String(e?.message || e || 'Something went wrong').replace(/^Error:\s*/, '').replace(/\brelayer/gi, 'relay').replace(/^[a-z]/, (c) => c.toUpperCase());
 
   async function refresh({ full = false, quiet = false } = {}) {
     if (!quiet) { S.phase = S.notes.length ? S.phase : 'loading'; S.err = null; paint(); }
@@ -156,7 +156,7 @@ export function makeAssocPanel(ctx) {
     const w = ctx.wallet();
     const mine = S.notes.filter((n) => n.status !== 'foreign');
     return html`
-      <div class="blk"><div class="lbl"><span>Through a pool<a class="mk" href="${ctx.appUrl}" target="_blank" rel="noopener" aria-label="Privacy Pools" title="Privacy Pools"><svg aria-hidden="true"><use href="#i-pp"/></svg></a></span><span>Ethereum · approval takes a while</span></div>
+      <div class="blk"><div class="lbl"><span>Through a pool<a class="mk" href="${ctx.appUrl}" target="_blank" rel="noopener" aria-label="Privacy Pools" title="Privacy Pools"><svg aria-hidden="true"><use href="#i-pp"/></svg></a></span><span><span class="cs"><svg class="tk xs" role="img" aria-label="Ethereum"><title>Ethereum</title><use href="#c-eth"/></svg></span> · approval takes a while</span></div>
         <p class="note lead">Deposit into the pool, wait for its approval, then take it into your private balance. Nothing links the two once it is taken in.</p></div>
       <div class="blk"><div class="lbl"><span>Your pool key</span><span>pays your deposits</span></div>
         <div class="addr"><code>${key.address}</code><button class="link" type="button" data-copy="${key.address}">copy</button></div>
@@ -244,7 +244,7 @@ export function makeAssocPanel(ctx) {
       try {
         const q = await session.quote(amt);
         if (S.quote?.amt !== amt) return;
-        S.quote = q.relayable ? { label: n.label, amt, q } : { label: n.label, amt, err: `Too small to relay at today’s gas: take in at least ${eth(q.minWei ?? 0n)} ETH.` };
+        S.quote = q.relayable ? { label: n.label, amt, q } : { label: n.label, amt, err: `Too small to relay at today’s network fee: take in at least ${eth(q.minWei ?? 0n)} ETH.` };
       } catch (e) { S.quote = { label: n.label, amt, err: errText(e) }; }
       patchSheet(n);
     }, 350);

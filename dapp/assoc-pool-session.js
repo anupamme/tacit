@@ -49,7 +49,7 @@ export function makeAssocSession({ pool, net, rpc, tacitPriv, prover, sender, ta
     let deposits, withdrawals, ragequits;
     if (full) {
       const all = await net.allDeposits();
-      if (!all.complete) throw new Error(`the explorer returned ${all.events.length} of the pool's ${all.expected} deposits: try again`);
+      if (!all.complete) throw new Error(`the explorer returned ${all.events.length} of the pool’s ${all.expected} deposits: try again`);
       const mine = pool.scan({ keys: k, scope: target.scope, deposits: all.events });
       deposits = all.events.filter((d) => mine.some((m) => m.label === BigInt(d.label)));
       const from = deposits.length ? Math.min(...deposits.map((d) => d.block)) : null;
@@ -128,7 +128,7 @@ export function makeAssocSession({ pool, net, rpc, tacitPriv, prover, sender, ta
     for (let round = 0; ; round++) {
       onStep('lists');
       const [lists, r] = await Promise.all([net.leaves(), net.pickRelayer(wei)]);
-      if (r.bps == null) throw new Error('That amount is too small to relay at today’s gas.');
+      if (r.bps == null) throw new Error('That amount is too small to relay at today’s network fee.');
       if (!lists.aspLeaves.includes(acct.label)) throw new Error('This deposit is approved but not on the posted list yet. Try again in a few minutes.');
       onStep('proving');
       const out = await prover.withdraw({ keys: k, acct, amount: wei, recipient, feeRecipient: r.feeReceiver, feeBps: Number(r.bps), stateLeaves: lists.stateLeaves, aspLeaves: lists.aspLeaves, scope: target.scope, entrypoint: target.entrypoint });

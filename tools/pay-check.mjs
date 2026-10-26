@@ -155,6 +155,7 @@ try {
       await p.waitForFunction(() => document.querySelectorAll('#chains small .sk').length === 0, null, { timeout: 180e3 });
       const bals = await p.$$eval('#chains small', (x) => x.map((e) => e.textContent));
       ok(bals.length === 4 && bals.every((b) => /ETH|—/.test(b)), `four chain balances read: ${bals.join(' · ')}`);
+      ok(await p.evaluate(() => [...document.querySelectorAll('#chains [data-chain]')].every((b) => { const u = b.querySelector('svg use'); return !!u && !!document.querySelector(u.getAttribute('href')); })), 'each chain tab shows its mark');
       await p.waitForFunction(() => !/rebuilding/.test(document.querySelector('#recover-at').textContent), null, { timeout: 300e3 });
       const sums = await p.$$eval('.chainsum li', (x) => x.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
       console.log('    ' + sums.join('\n    '));
