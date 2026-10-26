@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-eDUZCfrgJqzJBkFVsUIJRKsLq/oWQ7ly5Gx1z/Xg+DI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cSXVQwi4Fa2DiP9eqwEZCw8FRpwIZXIi932N12fs0Bo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8916,6 +8916,16 @@ function paintFarmChips(pools) {
   if (el.__h !== view.s) { el.__h = view.s; mount(el, view); }        // written only when it changed, so a pressed chip is never replaced under a pointer
   el.classList.toggle('on', chips.length > 0);
 }
+// What a zap of `eth` ETH into private pool p gives up, as a share: its swap of about half moves the pool's price (on its ETH side, with the
+// Precision pool's too where a TAC zap splits its swap with it, `split`), and where the pool prices its other asset off the market the
+// half swapped loses that against the market as well: the larger of the two, as the zap's own quote counts it.
+function zapImpact(p, eth, { split = true } = {}) {
+  const x = FARM.precision, half = eth / 2, side = Number(p.reserves?.reserveA || 0) / 1e8 + (split && zapTkB(p) === 'TAC' && x?.value ? Number(x.value) / 2e18 : 0);
+  if (!(half > 0)) return 0;
+  if (!(side > 0)) return 1;
+  const d = half / (side + half), pm = poolVsMarket(p);
+  return pm ? Math.max(d, 0.5 * (1 - (1 - d) / pm.ratio)) : d;
+}
 // The TAC a day `eth` of ETH farmed in private pool p earns now: its share of what the pool streams, against what is farmed there already.
 function farmDay(p, eth) {
   const r = p.reserves || {}, staked = (poolWorth(p) ?? 0) * Number(p.totalShares) / Number(r.lpTotalShares);
@@ -8933,10 +8943,8 @@ const fzIco = (ics) => html`${ics.map((i) => html`<svg class="tk" aria-hidden="t
 function paintFz(pools, apr) {
   const el = $('#fz');
   if (!el) return;
-  // what half the size swapped moves each pool's price by (with the Precision pool's ETH side where a TAC zap splits its swap with it)
-  const eth = Number(FZ.size), x = FARM.precision, tacEth = x?.tacEth || 0;
-  const imp = (p) => { const side = Number(p.reserves?.reserveA || 0) / 1e8 + (zapTkB(p) === 'TAC' && x?.value ? Number(x.value) / 2e18 : 0), half = eth / 2; return side > 0 ? half / (side + half) : 1; };
-  FZ.list = pools.filter(({ p }) => !p.idle && String(p.reserves?.assetA).toLowerCase() === CETH_ID && Number(p.reserves?.lpTotalShares) && ZAP_TOKEN[zapTkB(p)]).map((o) => ({ ...o, imp: imp(o.p) }));
+  const eth = Number(FZ.size), tacEth = FARM.precision?.tacEth || 0;
+  FZ.list = pools.filter(({ p }) => !p.idle && String(p.reserves?.assetA).toLowerCase() === CETH_ID && Number(p.reserves?.lpTotalShares) && ZAP_TOKEN[zapTkB(p)]).map((o) => ({ ...o, imp: zapImpact(o.p, eth) }));
   el.classList.toggle('off', !FZ.list.length);
   if (!FZ.list.length) return;
   // until a pool is pressed, the one leaving the most after a week at this size (its TAC a day for 7 days, less what its swap gives up once)
@@ -12324,10 +12332,8 @@ async function hxFarms(amt) {
     const r = p.reserves || {};
     if (p.idle || String(r.assetA).toLowerCase() !== CETH_ID || !Number(r.lpTotalShares)) continue;
     if (src === 'wtac' || (src === 'tac' && !String(p.pair).split('/').includes('TAC'))) continue;
-    // about half goes through the pool's swap: what that moves its price by, against the side it is sold into (with the Precision pool's
-    // ETH side too where the zap splits TAC's swap with it: the wallet's ETH zapped in, not tETH already private)
-    const split = zapping && String(p.pair).split('/').includes('TAC') && x?.value ? Number(x.value) / 2e18 : 0;
-    const half = amt / 2, side = Number((tacSrc ? r.reserveB : r.reserveA) || 0) / 1e8 + split, impact = half > 0 && side > 0 ? half / (side + half) : 0;
+    // about half goes through the pool's swap: what that gives up (zapImpact), or for TAC put in, what it moves the pool's TAC side by
+    const half = amt / 2, impact = tacSrc ? (half > 0 && Number(r.reserveB) > 0 ? half / (Number(r.reserveB) / 1e8 + half) : 0) : zapImpact(p, amt, { split: zapping });
     out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'], dry: !live, apr: live ? shieldedApr(p) : null, day: live ? farmDay(p, eth) : 0, impact });
   }
   return out;
