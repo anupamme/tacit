@@ -106,6 +106,27 @@ impl Packable for KoalaBear {}
 impl AbstractField for KoalaBear {
     type F = Self;
 
+    /// The degree-4 extension's product (x⁴ = 3) with the reductions put off: two products of canonical values stay under
+    /// P·2³² (P < 2³¹), so each Montgomery reduction takes a pair of them, and the factor 3 is two additions. 16
+    /// multiplications and 10 reductions where the schoolbook does 22 of each; the same canonical elements.
+    #[inline]
+    fn binomial_mul_4(a: &[Self; 4], b: &[Self; 4], w: Self) -> [Self; 4] {
+        if w != Self::new(3) {
+            return generic_binomial_mul_4(a, b, w);
+        }
+        let p = |i: usize, j: usize| a[i].value as u64 * b[j].value as u64;
+        let r = |x: u64| Self { value: monty_reduce(x) };
+        let three = |x: Self| x.double() + x;
+        let lo0 = r(p(0, 0));
+        let lo1 = r(p(0, 1) + p(1, 0));
+        let lo2 = r(p(0, 2) + p(1, 1)) + r(p(2, 0));
+        let lo3 = r(p(0, 3) + p(1, 2)) + r(p(2, 1) + p(3, 0));
+        let hi0 = r(p(1, 3) + p(2, 2)) + r(p(3, 1));
+        let hi1 = r(p(2, 3) + p(3, 2));
+        let hi2 = r(p(3, 3));
+        [lo0 + three(hi0), lo1 + three(hi1), lo2 + three(hi2), lo3]
+    }
+
     fn zero() -> Self {
         Self { value: MONTY_ZERO }
     }
@@ -439,6 +460,23 @@ const fn to_monty_64(x: u64) -> u32 {
 #[must_use]
 const fn from_monty(x: u32) -> u32 {
     monty_reduce(x as u64)
+}
+
+/// The schoolbook degree-4 product, as `AbstractField::binomial_mul_4` does it by default: KoalaBear's own falls back to it
+/// for any w but 3, and `tacit-prover check` compares the two.
+#[inline]
+pub fn generic_binomial_mul_4(a: &[KoalaBear; 4], b: &[KoalaBear; 4], w: KoalaBear) -> [KoalaBear; 4] {
+    let mut res = [KoalaBear::zero(); 4];
+    for i in 0..4 {
+        for j in 0..4 {
+            if i + j >= 4 {
+                res[i + j - 4] += a[i] * w * b[j];
+            } else {
+                res[i + j] += a[i] * b[j];
+            }
+        }
+    }
+    res
 }
 
 /// Montgomery reduction of a value in `0..P << MONTY_BITS`.

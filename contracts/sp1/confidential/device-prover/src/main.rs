@@ -565,10 +565,53 @@ fn handle(mut conn: TcpStream, state: &Arc<(Mutex<State>, Condvar)>, origins: &[
 
 // The GPU leaf hash against SP1's own outer hasher on random rows of several widths, with timings.
 fn check() -> bool {
-    let cpu = check_inner_perm();
+    let ext = check_ext_mul();
+    let cpu = check_inner_perm() && ext;
     let gpu = check_gpu();
     let g16 = check_groth16();
     check_grind() && gpu && cpu && g16
+}
+
+// The quartic extension's product (p3-koala-bear's binomial_mul_4, through p3-field's BinomialExtensionField Mul) against
+// the schoolbook it replaces, on random elements and on 0, 1 and p - 1 in every coefficient, and the two timed.
+fn check_ext_mul() -> bool {
+    use rand::Rng;
+    use slop_algebra::extension::{BinomialExtensionField, BinomiallyExtendable};
+    use slop_algebra::{AbstractExtensionField, AbstractField};
+    use slop_koala_bear::{generic_binomial_mul_4, KoalaBear};
+    type E = BinomialExtensionField<KoalaBear, 4>;
+    let w = <KoalaBear as BinomiallyExtendable<4>>::w();
+    let mut rng = rand::thread_rng();
+    let edge = [0u32, 1, 0x7f000000];
+    let mut pairs: Vec<([KoalaBear; 4], [KoalaBear; 4])> = (0..1 << 20)
+        .map(|_| {
+            let f = |rng: &mut rand::rngs::ThreadRng| core::array::from_fn(|_| KoalaBear::from_canonical_u32(rng.gen_range(0..0x7f000001)));
+            (f(&mut rng), f(&mut rng))
+        })
+        .collect();
+    for x in edge {
+        for y in edge {
+            pairs.push(([KoalaBear::from_canonical_u32(x); 4], [KoalaBear::from_canonical_u32(y); 4]));
+        }
+    }
+    let t = Instant::now();
+    let slow: Vec<[KoalaBear; 4]> = pairs.iter().map(|(a, b)| generic_binomial_mul_4(a, b, w)).collect();
+    let ts = t.elapsed();
+    let t = Instant::now();
+    let fast: Vec<[KoalaBear; 4]> = pairs.iter().map(|(a, b)| KoalaBear::binomial_mul_4(a, b, w)).collect();
+    let tf = t.elapsed();
+    let ext = |v: &[KoalaBear; 4]| <E as AbstractExtensionField<KoalaBear>>::from_base_slice(v);
+    let via_mul: Vec<E> = pairs.iter().map(|(a, b)| ext(a) * ext(b)).collect();
+    let ok = fast == slow && via_mul.iter().zip(&slow).all(|(e, s)| <E as AbstractExtensionField<KoalaBear>>::as_base_slice(e) == &s[..]);
+    let n = pairs.len() as f64;
+    println!(
+        "KoalaBear quartic extension product, {} pairs: {}  schoolbook {:.1} ns, this one {:.1} ns",
+        pairs.len(),
+        if ok { "equal" } else { "DIFFERENT" },
+        ts.as_nanos() as f64 / n,
+        tf.as_nanos() as f64 / n
+    );
+    ok
 }
 
 // The Groth16 step's lean prover (patches/sp1-recursion-gnark-ffi go/sp1/prove_lean.go): a circuit with a commitment
