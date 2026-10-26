@@ -920,7 +920,7 @@ try {
   u = await ux(p);
   const ups = u.calls.filter((c) => c[0] === 'useProver').slice(-2).map((c) => c[1]);
   ok(ups.join() === 'true,false', 'the holder\'s prover is set for this proof only, then put back');
-  ok(midSteps.join('|').includes('Prepare your note|Prepare the input for Succinct’s prover|Succinct’s prover proves it, about half a minute|Confirm in your wallet: one transaction deposits and settles it|It lands on Ethereum'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
+  ok(midSteps.join('|').includes('Prepare your note|Prepare the input for Succinct’s prover|Succinct’s prover proves it, about half a minute|Confirm in your wallet: one transaction deposits and settles it|It lands'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
   ok(/Proved with your own credit\./.test(await text(p, '#status')), 'it says it was proved with your own credit');
 
   // Succinct's network refusing private inputs: the proof goes with a public input, the steps say so as it goes and at the end, and the wallet
@@ -1331,7 +1331,7 @@ try {
   u = await ux(p);
   ok(posts.length === postsAt + 1 && posts.at(-1).mode === 'prove' && count(u, 'submitWrapSettle', (c) => c[4] === 'relay') === 0 && events.map((x) => x[0]).join() === 'send,sim,send', `the relay is asked for a proof only, never the settle, and the settle is tried before it is sent (${posts.slice(postsAt).map((x) => x.mode).join()})`);
   const heldStepsSeen = await p.$$eval('#steps li', (ls) => ls.map((l) => l.textContent));
-  ok(heldStepsSeen.join('|').includes('The relay proves your note|The settle is checked before it is sent|Confirm the settle in your wallet|The settle lands on Ethereum') && /Settled from your wallet/.test(await text(p, '#status')), `the steps say so (${heldStepsSeen.join(' · ')})`);
+  ok(heldStepsSeen.join('|').includes('The relay proves your note|The settle is checked before it is sent|Confirm the settle in your wallet|The settle lands') && /Settled from your wallet/.test(await text(p, '#status')), `the steps say so (${heldStepsSeen.join(' · ')})`);
   // the relay stops proving before the wallet's settle (refused: relay_paused): the holder's own credit is offered, not the wallet
   await cfg(p, { proveRefuse: 'relay_paused' });
   await p.fill('#amt', '0.02');

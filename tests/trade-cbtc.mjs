@@ -228,7 +228,7 @@ try {
   const tethPerCbtc = 63593972 / 730828, usdCbtc = tethPerCbtc * ETH_USD;
   ok(!(await p.$('#pl-table')), 'no pools table: the farms list the pools, and the dropdown prices them');
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /cBTC in the tETH pool/.test(lanes[1]) && lanes[1].includes(`$${Math.round(usdCbtc).toLocaleString('en-US')}`) && /1 cBTC = [\d.]+ tETH/.test(lanes[1]) && /1\d\d% above BTC · \$[\d.,]+k? deep/.test(lanes[1]) && /too small to price/.test(lanes[2]), `the dropdown: bitcoin's price, cBTC's price in the tETH pool from its reserves and how far that is from bitcoin's, and the dust pool unpriced (${lanes.join(' | ').slice(0, 200)})`);
+  ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /cBTC \/ tETH/.test(lanes[1]) && lanes[1].includes(`$${Math.round(usdCbtc).toLocaleString('en-US')}`) && /1 cBTC = [\d.]+ tETH/.test(lanes[1]) && /1\d\d% above BTC · \$[\d.,]+k? deep/.test(lanes[1]) && /too small to price/.test(lanes[2]), `the dropdown: bitcoin's price, cBTC's price in the tETH pool from its reserves and how far that is from bitcoin's, and the dust pool unpriced (${lanes.join(' | ').slice(0, 200)})`);
   const sum = await text(p, '#hints-sum');
   ok(/Bitcoin \$[\d,]+/.test(sum) && /cBTC in pools \$[\d,]+/.test(sum) && /1\d\d% over BTC/.test(sum) && !/off|under|apart/.test(sum), `the line above the dropdown says what the second price is and which way it is skewed: the pool is over bitcoin (${sum})`);
   ok(/sit far from BTC/.test(await text(p, '#gapnote')), 'and the note names the skew');

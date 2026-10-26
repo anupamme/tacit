@@ -26,28 +26,28 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/cbtc/app.js?cb=0951fe38">
+<link rel="modulepreload" href="/cbtc/app.js?cb=0c3cb78e">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
-<link rel="modulepreload" href="/trade/chart.js?cb=deafdf6c">
-<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/trade/connect.js?cb=5ca12f8f">
+<link rel="modulepreload" href="/trade/chart.js?cb=13ad4a30">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
+<link rel="modulepreload" href="/trade/connect.js?cb=6058a172">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
-<link rel="modulepreload" href="/trade/wallet.js?cb=fe7a26b6">
+<link rel="modulepreload" href="/trade/wallet.js?cb=6778fe25">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
-<link rel="modulepreload" href="/trade/util.js?cb=509d6618">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
-<link rel="modulepreload" href="/trade/key.js?cb=149c5b79">
+<link rel="modulepreload" href="/trade/key.js?cb=88028d84">
 <link rel="modulepreload" href="/prf-wallet.js">
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/evm-wallet.js?cb=c3c99d5c">
 <link rel="modulepreload" href="/identity-message.js">
 <link rel="modulepreload" href="/trade/poolux.js?cb=1722600f">
-<link rel="modulepreload" href="/teth/read.js?cb=b2a110d0">
+<link rel="modulepreload" href="/teth/read.js?cb=f00ab10f">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
-<link rel="modulepreload" href="/cbtc/read.js?cb=c51b1e58">
+<link rel="modulepreload" href="/cbtc/read.js?cb=2974f9cc">
 <!-- preload:end -->
 <!-- style:shared:begin -->
 <style>
@@ -481,6 +481,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .steps li[data-s="done"] { color: var(--ink); } .steps li[data-s="done"]::before { content: '✓'; color: var(--ok); }
 .steps li[data-s="now"] { color: var(--ink); } .steps li[data-s="now"]::before { content: '●'; color: var(--orange); animation: blink 1.2s ease-in-out infinite; }
 .steps li[data-s="fail"] { color: var(--err); } .steps li[data-s="fail"]::before { content: '✕'; }
+#get-steps li { align-items: flex-start; } #get-steps li::before { display: none; } #get-steps .tk { margin-top: 3px; }
 @keyframes blink { 50% { opacity: .35; } }
 .callout { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 10px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
 .callout .btn { width: auto; min-height: 30px; margin: 0; padding: 2px 14px; font-size: 12.5px; }
@@ -488,10 +489,11 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .held b { font: 500 22px/1.2 var(--mono); letter-spacing: -.02em; } .held .u { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); font-size: 12.5px; }
 .held .linkbtn { margin-left: auto; }
 .uses { display: grid; grid-template-columns: minmax(0, 1fr); margin: 8px 0 0; }
-.use { display: grid; grid-template-columns: minmax(0, 1fr) 14px; gap: 1px 10px; align-items: center; padding: 12px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; }
+.use { display: grid; grid-template-columns: 18px minmax(0, 1fr) 14px; gap: 1px 10px; align-items: center; padding: 12px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; }
 .use:first-child { border-top: 0; }
-.use b { font-weight: 500; font-size: 13.5px; } .use span { grid-column: 1; font-size: 12px; color: var(--mute); }
-.use i { grid-column: 2; grid-row: 1 / 3; font-style: normal; color: var(--mute); }
+.use .tk { grid-column: 1; grid-row: 1 / 3; }
+.use b { grid-column: 2; font-weight: 500; font-size: 13.5px; } .use span { grid-column: 2; font-size: 12px; color: var(--mute); }
+.use i { grid-column: 3; grid-row: 1 / 3; font-style: normal; color: var(--mute); }
 @media (hover: hover) { .use:hover { background: var(--field); } .use:hover i { color: var(--ink); } }
 .pf { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; align-items: center; gap: 1px 10px; padding: 11px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; }
 .pf .nm { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
@@ -500,7 +502,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .pf .sb { grid-column: 1 / 3; font-size: 11.5px; color: var(--mute); } .pf .sb.mine { color: var(--ink); }
 @media (hover: hover) { .pf:hover { background: var(--field); } .pf:hover i { color: var(--ink); } }
 #pools:empty { display: none; }
-.lane .g.dev { color: var(--warn); }
+.lane .g.dev { color: var(--warn); } .lane .k .tk { margin-top: -1px; }
 .moves td.in { color: var(--up); } .moves td.out { color: var(--down); }
 .p-depth .table td:first-child { color: var(--mute); white-space: nowrap; }
 .tn { text-transform: none; }
@@ -646,6 +648,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-teth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#627eea" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#627eea" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#627eea" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -703,7 +707,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
   <div class="grid">
     <section class="panel p-chart" id="backing" aria-labelledby="chart-h">
-      <h2 class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg></span><span id="chart-name">BTC locked</span></h2>
+      <h2 class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span><span id="chart-name">BTC locked</span></h2>
       <div class="bar">
         <div class="seg" id="lane-seg" role="group" aria-label="What the chart draws"></div>
         <div class="bar-r"><div class="seg" id="range-seg" role="group" aria-label="How far back"></div></div>
@@ -726,10 +730,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <div id="get">
         <ol class="steps" id="get-steps">
-          <li data-s="todo"><span><b>Lock BTC</b> at your own address. It never leaves.</span></li>
-          <li data-s="todo"><span><b>Post an ETH bond</b> of at least 1.5×. It keeps earning as wstETH.</span></li>
-          <li data-s="todo"><span><b>Mint cBTC</b> 1:1, about 4 hours later.</span></li>
-          <li data-s="todo"><span><b>Borrow cUSD</b> against it, if you want.</span></li>
+          <li data-s="todo"><svg class="tk xs" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Lock BTC</b> at your own address. It never leaves.</span></li>
+          <li data-s="todo"><svg class="tk xs" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>Post an ETH bond</b> of at least 1.5×. It keeps earning as wstETH.</span></li>
+          <li data-s="todo"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg><span><b>Mint cBTC</b> 1:1, about 4 hours later.</span></li>
+          <li data-s="todo"><svg class="tk xs" aria-hidden="true"><use href="#tk-cusd"/></svg><span><b>Borrow cUSD</b> against it, if you want.</span></li>
         </ol>
         <div class="lbl"><span>BTC to lock</span></div>
         <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="BTC to lock"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>BTC</span></div>
@@ -788,6 +792,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/cbtc/app.js?cb=0951fe38"></script>
+<script type="module" src="/cbtc/app.js?cb=0c3cb78e"></script>
 </body>
 </html>

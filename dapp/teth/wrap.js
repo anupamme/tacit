@@ -1,6 +1,6 @@
 import { getUx, forgetUx } from '/trade/poolux.js?cb=1722600f';
-import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/teth/read.js?cb=b2a110d0';
-import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=509d6618';
+import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/teth/read.js?cb=f00ab10f';
+import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=dcf3a4f2';
 
 export { getUx, forgetUx };
 
@@ -147,12 +147,18 @@ const proveAmt = (wei) => (Number(wei) / 1e18).toFixed(2);
 export function ownWords(e) {
   if (e?.code === 'prover_credit') return `Your prover credit is ${proveAmt(e.have ?? 0n)} PROVE, and a proof needs about ${proveAmt(e.need ?? 0n)} PROVE on hand.`;
   if (e?.code === 'not_proved') return 'Succinct’s prover did not take it in time. Nothing was sent. The network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.';
+  if (e?.code === 'upload') return 'Could not send the input to Succinct’s prover. Try again in a moment.';
+  if (e?.code === 'download') return 'Could not fetch the proof from Succinct’s prover. Try again in a moment.';
+  if (e?.code === 'rpc') return 'Could not reach Succinct’s prover network. Try again in a moment.';
   return relayWords(e);
 }
 export const ownable = (e) => e?.code === 'prove_budget' || e?.code === 'relay_paused' || /prove (failed|timed out)|prove capacity/i.test(String(e?.message || ''));
 export function deviceWords(e) {
   if (/failed to fetch|networkerror|load failed/i.test(String(e?.message || ''))) return 'The prover on this computer stopped answering. Start tacit-prover again and press once more.';
-  if (e?.code === 'device_prover') return `The prover on this computer: ${String(e.message || '').replace(/^Error:\s*/, '')}.`.replace(/\.\.$/, '.');
+  if (e?.code === 'device_prover') {
+    const m = String(e.message || '').replace(/^Error:\s*/, '');
+    return /^this computer/i.test(m) ? `${m[0].toUpperCase()}${m.slice(1)}.`.replace(/\.\.$/, '.') : `The prover on this computer: ${m}.`.replace(/\.\.$/, '.');
+  }
   return relayWords(e);
 }
 
