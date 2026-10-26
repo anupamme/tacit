@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mY0cBFRKFJXFyDyL2CW341QDzy9Ac/nW+8GNJGuF3cE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3dBzes2zedp0mtDS2+KCNOMEeVkxILbnFQug3+22VW0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3845,7 +3845,7 @@ function renderProve() {
           : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
         <label class="pick"><input type="checkbox" id="sp-dev" ${dev ? 'checked' : ''}><span>Prove on this computer</span></label>
         <p class="note" id="sp-dev-note">${devNote(dev)}</p>
-        ${S.key ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once${dev ? '' : ' (proved free by the community)'}: ${KEEP_SIZES.map((w) => html` <button class="link" type="button" data-keep="${w}" aria-pressed="${String(keepSizes().includes(w))}">${keepSizes().includes(w) ? '✓ ' : ''}${fmt(w, 18, 2)} ETH</button>`)}</p>` : ''}
+        ${S.key ? html`<p class="note" id="sp-keep">Keep wraps ready to send at once${dev ? '' : ' (proved free by the community)'}: ${Object.entries(KEEP_READY).map(([tk, k], i) => html`${i ? ' ·' : ''}${k.sizes.map((w) => html` <button class="link" type="button" data-keep="${tk}:${w}" aria-pressed="${String(keepSizes(tk).includes(w))}">${keepSizes(tk).includes(w) ? '✓ ' : ''}${fmt(w, 18, k.dp)} ${k.sym}</button>`)}`)}</p>` : ''}
         <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on || dev ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
         <p class="note">${on || dev ? `Not needed while ${dev ? 'this computer' : 'your own credit'} proves: nothing of yours reaches the relay.`
           : seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
@@ -3924,10 +3924,10 @@ function renderProve() {
     });
   };
   $$('[data-keep]', el).forEach((b) => b.onclick = () => {
-    const w = BigInt(b.dataset.keep), now = keepSizes(), next = now.includes(w) ? now.filter((x) => x !== w) : [...now, w];
-    store.set(KEEP_PREF + S.key.pubHex, next.length ? next.map(String) : null);
+    const [tk, ws] = b.dataset.keep.split(':'), k = KEEP_READY[tk], w = BigInt(ws), now = keepSizes(tk), next = now.includes(w) ? now.filter((x) => x !== w) : [...now, w];
+    store.set(keepKey(tk), next.map(String));
     reProve();
-    if (next.includes(w)) { toast(`A ${fmt(w, 18, 2)} ETH wrap is ${devOn() ? 'proved on this computer while it is idle' : 'asked of the community proof pool'}, ready to send at once.`); keepReady().catch(() => {}); }
+    if (next.includes(w)) { toast(`A ${fmt(w, 18, k.dp)} ${k.sym} wrap is ${devOn() ? 'proved on this computer while it is idle' : 'asked of the community proof pool'}, ready to send at once.`); keepReady().catch(() => {}); }
   });
   $('#sp-seal').onchange = (e) => {
     if (midAction()) { e.target.checked = !e.target.checked; return; }
@@ -8221,8 +8221,14 @@ function renderTacBal(el) {
 const VOUCH = { mod: null, ahead: null, keep: 0 };
 const vouchers = async () => (VOUCH.mod ||= (await import('/wrap-vouchers.js?cb=1b01bab7')).makeVouchers());
 const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
-const KEEP_SIZES = [10n ** 16n, 10n ** 17n, 10n ** 18n];
-const keepSizes = () => (S.key ? (store.get(KEEP_PREF + S.key.pubHex) || []).map(BigInt) : []);
+// The sizes that can be kept ready, by pool ticker. ETH's two smaller ones are kept for every key until its holder turns them off
+// (an empty choice is stored as such): a wrap of a common size then goes out with no proving wait, and asking for one costs nothing.
+const KEEP_READY = {
+  cETH: { sizes: [10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 16n, 10n ** 17n], sym: 'ETH', dp: 2 },
+  TAC: { sizes: [100n * 10n ** 18n, 1000n * 10n ** 18n, 10000n * 10n ** 18n], dflt: [], sym: 'TAC', dp: 0 },
+};
+const keepKey = (tk) => KEEP_PREF + (tk === 'cETH' ? '' : `${tk}:`) + S.key.pubHex;
+const keepSizes = (tk = 'cETH') => { if (!S.key) return []; const v = store.get(keepKey(tk)); return (Array.isArray(v) ? v : KEEP_READY[tk].dflt).map(BigInt); };
 // One wrap of `wei` proved on this computer and kept as a voucher; its job is kept with it, so a reload picks it up.
 // `relay`: asked of Tacit's relay as its sponsored proof (the relay proves wraps from its own budget; a wrap's proof pins nothing, so
 // asking before the deposit costs it nothing more), when your own prover is not on. It answers in about a minute, so asking once an
@@ -8277,14 +8283,17 @@ async function resumeVouchers() {
 // Without a prover of your own, the sizes are asked of the community proof pool instead (/prover/pool/*): anyone running
 // tacit-prover, and Tacit's own prover when it is idle, proves them for TAC points, free to you.
 async function keepReady() {
-  if (VOUCH.ahead || !S.key || !keepSizes().length) return;
-  const have = (await vouchers()).list(S.key.pubHex, 'cETH').map((x) => x.amount);
-  const want = keepSizes().find((w) => !have.includes(String(w)));
-  if (!want) return;
-  if (!devOn()) return poolRequest('cETH', want);
-  const h = await LOCAL.prover?.health?.().catch(() => null);
-  if (!h || h.busy || h.queued) return;
-  proveAhead('cETH', want);
+  if (VOUCH.ahead || !S.key) return;
+  const v = await vouchers();
+  for (const tk of Object.keys(KEEP_READY)) {
+    const have = v.list(S.key.pubHex, tk).map((x) => x.amount);
+    const want = keepSizes(tk).find((w) => !have.includes(String(w)));
+    if (!want) continue;
+    if (!devOn()) return poolRequest(tk, want);
+    const h = await LOCAL.prover?.health?.().catch(() => null);
+    if (!h || h.busy || h.queued) return;
+    return proveAhead(tk, want);
+  }
 }
 // A wrap asked of the proof pool: the note is made here from the key, and only its program input (no secret in it: the asset,
 // the amount and the note's commitment) and what its proof must show (this deposit, this leaf) are posted. The proof is
@@ -8319,7 +8328,7 @@ async function poolCollect() {
 }
 // Ready vouchers sent: each deposits and settles through the router, together in one wallet confirmation where the wallet
 // batches calls. One whose deposit is in the pool already was sent elsewhere: it is dropped and nothing is sent.
-async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip = null }) {
+async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip = null, token = null }) {
   const pub = S.key.pubHex, v = await vouchers(), tell = (m) => run.say(status, m), from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
   for (const x of list) {
     if (wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) {
@@ -8327,8 +8336,13 @@ async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip 
       throw Object.assign(new Error('A wrap kept ready here had been sent already, so nothing was sent. Press again.'), { said: true });
     }
   }
-  // The relay's quoted tip rides on the first call, paid through the router to the same splitter the deposit's tip goes to.
-  const calls = list.map((x, i) => t.wrapSettleCall({ ...v.call(x), ...(i === 0 && tip?.wei ? { ethFeeWei: tip.wei, feeRecipient: tip.to } : {}) }));
+  // The relay's quoted tip rides on the first call, paid through the router to the same splitter the deposit's tip goes to. A token's
+  // wrap carries the permit for its amount, signed now.
+  const calls = [];
+  for (const [i, x] of list.entries()) {
+    calls.push(t.wrapSettleCall({ ...v.call(x), ...(i === 0 && tip?.wei ? { ethFeeWei: tip.wei, feeRecipient: tip.to } : {}),
+      ...(token ? { permit: await wrapPermit({ t, via, token, value: BigInt(x.amount), status }) } : {}) }));
+  }
   for (const c of calls) {
     try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: c.to, data: c.data, value: '0x' + c.value.toString(16) }, 'latest']); }
     catch (e) { throw Object.assign(new Error(`Nothing was sent: the router refuses a wrap kept ready here. ${revertText(e) || ''}`.trim()), { said: true }); }
@@ -8355,6 +8369,14 @@ async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip 
 // the paying account through the router: native ETH as the call's value, a token through a permit signed once the proof exists (so a
 // slow proof never runs out the permit). Nothing waits in the pool while the proof takes minutes, and a page closed mid-proof leaves
 // nothing behind. `token`: { address, permit (its EIP-2612 name), sym } for a token wrap.
+// The router's permit for `value` of `token` from the sending account: the Tacit account signs its own here, a wallet in the wallet.
+async function wrapPermit({ t, via, token, value, status }) {
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800), owner = via === 'tacit' ? S.acct?.address : S.wallet || S.address, spender = t.cfg.router;
+  const p = via === 'tacit'
+    ? permitFromTacit({ token: token.address, name: token.permit, version: '1', owner, spender, value, nonce: wordAt(await ethCall(token.address, '7ecebe00' + addrWord(owner)), 0), deadline })
+    : await permitSig({ token: token.address, name: token.permit, what: token.sym, spender, value, deadline, status });
+  return { v: p.v, r: p.r, s: p.s, deadline };
+}
 async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 'cETH', token = null, pop = null }) {
   const tell = (v) => run.say(status, v);
   tell(spSaid('uploading', null));
@@ -8363,13 +8385,9 @@ async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 
   try {
     r = await t.proveWrap({ walletPriv: priv, amountWei: wei, ticker, index, waitOpts: spTell(run.wait(null, 60 * 60e3), tell), onBuilt: (b) => run.take(kDep(b)) });
     run.check();
-    // The permit is the sending account's: the Tacit account signs its own here, a wallet in the wallet.
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800), from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
-    const value = BigInt(r.built.amount), spender = t.cfg.router;
-    const permit = !token ? null : via === 'tacit'
-      ? permitFromTacit({ token: token.address, name: token.permit, version: '1', owner: from, spender, value, nonce: wordAt(await ethCall(token.address, '7ecebe00' + addrWord(from)), 0), deadline })
-      : await permitSig({ token: token.address, name: token.permit, what: token.sym, spender, value, deadline, status });
-    const call = t.wrapSettleCall({ built: r.built, proven: r.proven, permit: permit && { v: permit.v, r: permit.r, s: permit.s, deadline } });
+    const from = via === 'tacit' ? S.acct?.address : S.wallet || S.address;
+    const permit = token ? await wrapPermit({ t, via, token, value: BigInt(r.built.amount), status }) : null;
+    const call = t.wrapSettleCall({ built: r.built, proven: r.proven, permit });
     try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: call.to, data: call.data, value: '0x' + call.value.toString(16) }, 'latest']); }
     catch (e) { throw Object.assign(new Error(`Nothing was sent: the router refuses this as it stands. ${revertText(e) || ''}`.trim()), { said: true }); }
     tell(`Sending it from ${your()}…`);
@@ -8388,14 +8406,15 @@ async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 
     if (e?.code === 'device_prover') throw Object.assign(new Error(`The prover on this computer could not prove it (${String(e.message || '').replace(/\.$/, '')}). Nothing was sent: press again, or switch it off to let the relay wrap it.`), { said: true });
     throw e;
   } finally {
-    // A proof made and then not sent is kept as a voucher (an ETH wrap needs nothing more to send it), so pressing again sends it at once.
-    if (!sent && r && !token && S.key) {
+    // A proof made and then not sent is kept as a voucher (a token's permit is signed when it is sent), so pressing again sends it at once.
+    if (!sent && r && S.key) {
       const b = r.built;
       (await vouchers()).put(S.key.pubHex, { ticker, amount: String(b.amount), index, commit: b.commit, depositId: b.depositId, leaf: b.leaf, assetId: b.wrapArgs.assetId,
         at: Date.now(), status: 'ready', publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos });
     } else if (!sent) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker, index }); } catch { } }
   }
 }
+const TAC_TOKEN = { address: ADDR.tac, permit: 'Tacit Token', sym: 'TAC' };
 async function tacWrapFromWallet(t, priv, wei, status) {
   const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'TAC' });
   const w = t.buildWrap({ walletPriv: priv, amountWei: wei.toString(), ticker: 'TAC', index });
@@ -8432,6 +8451,7 @@ function tacShield(el, status, acctBal, walletBal) {
     q = { wei };
     mount(rc, html`<div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} TAC, private</b></div>`);
     rc.hidden = false;
+    if (S.key) vouchers().then((v) => { if (q?.wei === wei && v.pick(S.key.pubHex, 'TAC', wei)?.length === 1) rc.insertAdjacentHTML('beforeend', html`<div class="kv"><span>Proof</span><b>ready now</b></div>`.s); }).catch(() => {});
     const over = wei > balance;
     go.disabled = over;
     if (over) warn(rc, `More than the ${fmt(balance, 18, 4)} TAC in ${from}.`);
@@ -8444,10 +8464,17 @@ function tacShield(el, status, acctBal, walletBal) {
     let sent = false, landed = false;
     try {
       const t = await getUx(), priv = walletPriv();
+      // A TAC wrap of exactly this amount kept ready goes out at once on any lane: its proof is made, its permit is signed as it is sent.
+      const ready = S.key ? (await vouchers()).pick(S.key.pubHex, 'TAC', x.wei) : null;
+      if (ready?.length === 1) {
+        await sendVouchers({ run, t, via: src, list: ready, status, sheet: 'tac', token: TAC_TOKEN });
+        await loadTacHoldings(true).catch(() => {}); rerender('tac');
+        return;
+      }
       // Proved here or with your own credit: the proof first, then one transaction deposits and settles it.
       if (ownNow(['wrap']) && (await proveOwn(['wrap']))) {
         await ownReady('wrap');
-        await proveFirstWrap({ run, t, priv, via: src, wei: x.wei, status, sheet: 'tac', ticker: 'TAC', token: { address: ADDR.tac, permit: 'Tacit Token', sym: 'TAC' } });
+        await proveFirstWrap({ run, t, priv, via: src, wei: x.wei, status, sheet: 'tac', ticker: 'TAC', token: TAC_TOKEN });
         await loadTacHoldings(true).catch(() => {}); rerender('tac');
         return;
       }

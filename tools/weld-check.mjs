@@ -188,7 +188,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmzapeth,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -210,6 +210,7 @@ function typedDigest(d) {
 // A stand-in proof's public values for a wrap op: the layout of ConfidentialPool's PublicValues as far as a page reads it, consuming the
 // op's own deposit and inserting its own leaf (the pages check a wrap proof is for their note before they use it).
 const STUB_POOL = makePoolForStubs({ secp, keccak256: keccak_256, sha256 }), STUB_CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+const STUB_CTAC = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 // A wrap op read back from its program input (sp1-stdin.js): the asset, then the value (an 8-byte entry), then cx, cy and owner, each a
 // 32-byte entry under its own length.
 function wrapOpFromStdin(stdin, asset) {
@@ -328,7 +329,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     if (u.pathname === '/prover/pool/result') {
       const results = {};
       for (const id of String(u.searchParams.get('ids') || '').split(',').filter(Boolean)) {
-        const b = poolReqs[Number(id.slice(5)) - 1], op = b && wrapOpFromStdin(b.stdin, STUB_CETH);
+        const b = poolReqs[Number(id.slice(5)) - 1], op = b && (wrapOpFromStdin(b.stdin, STUB_CETH) || wrapOpFromStdin(b.stdin, STUB_CTAC));
         results[id] = !b ? { status: 'gone' } : poolDone && op ? { status: 'done', publicValues: wrapPv(op), proof: '0x' + '0b'.repeat(32) } : { status: 'queued' };
       }
       return json(route, { results });
@@ -10724,6 +10725,7 @@ await step('poolkeep', async () => {
   try {
     await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
     poolDone = false;
+    const q0 = poolReqs.length;
     await r.page.goto(r.url);
     await r.page.waitForSelector('#hx-body .hx-h');
     await pasteKey(r.page, hex);
@@ -10732,12 +10734,14 @@ await step('poolkeep', async () => {
     await r.page.click('[data-pay="wallet"]');
     await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await go(r.page, '#prove-self');
-    await r.page.waitForSelector('#sheet-prove[open] [data-keep="10000000000000000"]', { timeout: 60000 });
+    await r.page.waitForSelector('#sheet-prove[open] [data-keep="cETH:10000000000000000"]', { timeout: 60000 });
     ok(/proved free by the community/.test(await text(r.page, '#sp-keep')), `poolkeep: with no prover of your own the sizes are kept by the community pool (${await text(r.page, '#sp-keep')})`);
-    const q0 = poolReqs.length;
-    await r.page.click('[data-keep="10000000000000000"]');
-    await chainUntil(async () => poolReqs.length > q0, 60000);
-    const req = poolReqs[q0], op = req && wrapOpFromStdin(req.stdin, STUB_CETH);
+    const pressed = await r.page.$$eval('[data-keep]', (bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.keep).join());
+    ok(pressed === 'cETH:10000000000000000,cETH:100000000000000000', `poolkeep: 0.01 and 0.1 ETH are kept ready for a key nobody has chosen for (${pressed})`);
+    // nothing pressed: the default sizes are asked of the pool by themselves, the smaller first
+    const ethReq = (b) => { const o = b && wrapOpFromStdin(b.stdin, STUB_CETH); return o && o.value === String(10n ** 16n / 10n ** 10n) ? o : null; };
+    await chainUntil(async () => poolReqs.slice(q0).some(ethReq), 150000);
+    const req = poolReqs.slice(q0).find(ethReq), op = req && ethReq(req);
     ok(req && req.type === 'wrap' && /^0x[0-9a-f]+$/.test(req.stdin) && op && op.value === String(10n ** 16n / 10n ** 10n) && STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner) === req.expect.leaf && depositIdOf(op) === req.expect.depositId,
       `poolkeep: the pool is asked for a 0.01 ETH wrap: its program input and the deposit and leaf its proof must show (${req ? req.type : 'none'})`);
     poolDone = true;
@@ -10758,6 +10762,59 @@ await step('poolkeep', async () => {
       && !submits.slice(s0).some((x) => x.type === 'wrap'),
       `poolkeep: a wrap of that size goes out at once from the pool's proof, nothing asked of the relay (${await text(r.page, '#v1-status')})`);
     if (r.errors.length) { fails++; console.log('FAIL poolkeep page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { poolDone = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
+// TAC kept ready: a size picked in the prove sheet is asked of the pool as a TAC wrap, collected into a voucher once its proof
+// shows exactly that wrap, and a TAC wrap of that size then goes out at once from the Tacit account: one router transaction with the
+// permit signed as it is sent (wrapAndSettleWithPermit), nothing asked of the relay, the voucher used up.
+await step('tacvoucher', async () => {
+  const hex = '7ac0'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+  const PERMIT_SEL = '0x' + Buffer.from(keccak_256(new TextEncoder().encode('wrapAndSettleWithPermit(address,uint256,bytes32,uint256,uint8,bytes32,bytes32,bytes,bytes,bytes[],address)'))).toString('hex').slice(0, 8);
+  const HUNDRED = 100n * 10n ** 18n;
+  await fundTac(acct, 150n * 10n ** 18n);
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 17n).toString(16)]);
+  const r = await openPage({ account: A0, key: K0 });
+  const kept = () => r.page.evaluate((p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]'), pub);
+  const tacReq = (b) => { const o = b && wrapOpFromStdin(b.stdin, STUB_CTAC); return o && o.value === String(HUNDRED / 10n ** 10n) ? o : null; };
+  try {
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
+    poolDone = false;
+    const q0 = poolReqs.length;
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate((p) => localStorage.setItem('tacit-lite-keep-ready-v1:' + p, '[]'), pub);   // only the TAC size is kept here
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] [data-keep="TAC:100000000000000000000"]', { timeout: 60000 });
+    await r.page.click('[data-keep="TAC:100000000000000000000"]');
+    await chainUntil(async () => poolReqs.slice(q0).some(tacReq), 120000);
+    const req = poolReqs.slice(q0).find(tacReq), op = req && tacReq(req);
+    ok(!!op && STUB_POOL.leaf(op.asset, op.cx, op.cy, op.owner) === req.expect.leaf && depositIdOf(op) === req.expect.depositId,
+      `tacvoucher: 100 TAC kept ready is asked of the pool as a TAC wrap, with the deposit and leaf its proof must show (${req ? req.type : 'none'})`);
+    poolDone = true;
+    await until(r.page, (p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]').some((v) => v.ticker === 'TAC' && v.status === 'ready'), pub, 150000).catch(() => {});
+    ok((await kept()).some((v) => v.ticker === 'TAC' && v.status === 'ready' && v.amount === String(HUNDRED)), `tacvoucher: the pool's proof is kept as a ready TAC voucher (${(await kept()).map((v) => `${v.ticker}/${v.status}`)})`);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
+    await r.page.waitForSelector('#tac-shield #tsh-go', { timeout: 240000 });
+    await r.page.fill('#tsh-amt', '100');
+    await until(r.page, () => /ready now/.test(document.querySelector('#tsh-rcpt')?.textContent || '') && !document.querySelector('#tsh-go').disabled, null, 60000).catch(() => {});
+    ok(/ready now/.test(await text(r.page, '#tsh-rcpt')), `tacvoucher: the receipt says the proof is ready now (${(await text(r.page, '#tsh-rcpt')).replace(/\s+/g, ' ')})`);
+    const n0 = BigInt(await rpc('eth_getTransactionCount', [acct, 'latest'])), b0 = BigInt(await rpc('eth_blockNumber', [])), s0 = submits.length;
+    await r.page.click('#tsh-go');
+    await until(r.page, () => /Done\.|class="err"/.test(document.querySelector('#tac-bal-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
+    for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct.toLowerCase()) mine.push(tx);
+    ok(/Done\./.test(await text(r.page, '#tac-bal-status')) && mine.length === 1 && String(mine[0].to).toLowerCase() === ROUTER_ADDR && mine[0].input.startsWith(PERMIT_SEL)
+      && BigInt(await rpc('eth_getTransactionCount', [acct, 'latest'])) === n0 + 1n && !submits.slice(s0).some((x) => x.type === 'wrap') && !(await kept()).some((v) => v.ticker === 'TAC'),
+      `tacvoucher: 100 TAC goes out at once in one router transaction with its permit, nothing asked of the relay, the voucher used up (${await text(r.page, '#tac-bal-status')}; ${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
+    if (r.errors.length) { fails++; console.log('FAIL tacvoucher page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { poolDone = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
 });
 
@@ -10826,7 +10883,8 @@ await step('selfdevice', async () => {
     await r.page.goto(r.url);
     await r.page.waitForSelector('#hx-body .hx-h');
     await pasteKey(r.page, hex);
-    await r.page.evaluate((p) => localStorage.setItem('tacit-lite-prove-self-v1:' + p, 'true'), pub);
+    // nothing kept ready until (b3) picks a size, so each step counts only the proofs it asks for
+    await r.page.evaluate((p) => { localStorage.setItem('tacit-lite-prove-self-v1:' + p, 'true'); localStorage.setItem('tacit-lite-keep-ready-v1:' + p, '[]'); }, pub);
     await toWallet(r.page);
     await r.page.waitForSelector('[data-pay="wallet"]');
     await r.page.click('[data-pay="wallet"]');
@@ -10892,9 +10950,9 @@ await step('selfdevice', async () => {
     const kept = () => r.page.evaluate((p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]'), pub);
     await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await go(r.page, '#prove-self');
-    await r.page.waitForSelector('#sheet-prove[open] [data-keep="10000000000000000"]', { timeout: 30000 });
+    await r.page.waitForSelector('#sheet-prove[open] [data-keep="cETH:10000000000000000"]', { timeout: 30000 });
     const dK = dev.asked.length;
-    await r.page.click('[data-keep="10000000000000000"]');
+    await r.page.click('[data-keep="cETH:10000000000000000"]');
     await until(r.page, (p) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + p) || '[]').some((v) => v.status === 'ready' && v.amount === '10000000000000000'), pub, 60000).catch(() => {});
     ok((await kept()).some((v) => v.status === 'ready' && v.amount === '10000000000000000') && dev.asked.length === dK + 1 && dev.asked[dK].type === 'wrap',
       `selfdevice: a size picked to keep ready is proved here and kept (${(await kept()).map((v) => `${v.amount}/${v.status}`)})`);
