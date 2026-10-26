@@ -6524,6 +6524,7 @@ dependencies = [
  "alloy-sol-types 0.8.26",
  "alloy-trie",
  "anyhow",
+ "bincode",
  "cxfer-core",
  "helios-consensus-core",
  "helios-ethereum",

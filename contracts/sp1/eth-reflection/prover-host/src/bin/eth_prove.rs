@@ -19,6 +19,17 @@
 //   SOURCE_EXECUTION_RPC=https://sepolia.example/<key> POOL=0x<ConfidentialPool> \
 //   DEPLOY_BLOCK=<pool deploy block, first run only> \
 //   cargo +stable run --release --bin eth_prove   (needs a running sp1-gpu-server)
+//
+// Proving elsewhere (the prover board's GPU worker; worker-relay/src/lib/eth-board.js): SP1_PROVER=stdin builds the input the
+// same way and stops before proving, writing out/eth_stdin.bin (the bincode SP1Stdin) and out/eth_candidate.json (the
+// candidate's cumulative sets, its block, and the public values the guest will commit for that input, computed here by
+// prover_host::eth_pv); it writes no pending state. SP1_PROVER=finish then takes the compressed proof made from that input
+// (ETH_PROOF_IN, a saved SP1ProofWithPublicValues), refuses it unless it is compressed, its public values are the candidate's
+// byte for byte, the guest's key is the one the Bitcoin guest pins (ETH_REFLECTION_VKEY) and it verifies, and writes exactly
+// what a network run writes (eth_compressed.bin, eth_pv.hex, eth_set.json, eth_set_state.pending.json). Exit 3 with a
+// FINISH_REFUSED line is a refusal; nothing is written then.
+// ETH_STDIN_IN=<file> runs a saved input instead of building one (no RPC, no state): SP1_PROVER=expect prints the public
+// values computed for it (EXPECT_PV), SP1_PROVER=execute runs the guest on it (RAWPV). Both are the CI checks.
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Filter;
 use alloy_primitives::{keccak256, Address, B256};
@@ -29,13 +40,14 @@ use cxfer_core::eth_reflection::{
 };
 use cxfer_core::{imt_leaf, imt_root, KeccakTreeAccumulator, KECCAK_TREE_DEPTH};
 use helios_ethereum::rpc::ConsensusRpc;
+use prover_host::eth_pv::expected_public_values;
 use prover_host::{get_client, get_updates};
 use serde::{Deserialize, Serialize};
 use sp1_helios_primitives::types::{ContractStorage, ProofInputs, StorageSlotWithProof};
 use sp1_helios_primitives::verify_storage_slot_proofs;
 use sp1_sdk::{
     blocking::{ProveRequest, Prover, ProverClient},
-    Elf, HashableKey, SP1Stdin,
+    Elf, HashableKey, ProvingKey, SP1Proof, SP1ProofWithPublicValues, SP1Stdin,
 };
 
 const ETH_ELF: &[u8] = include_bytes!(
@@ -65,6 +77,14 @@ fn pending_state_path() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::Path::new(&out_dir()).join("eth_set_state.pending.json"))
 }
+// SP1_PROVER=stdin's record of the candidate it built an input for, read by SP1_PROVER=finish.
+fn candidate_path() -> std::path::PathBuf {
+    std::path::Path::new(&out_dir()).join("eth_candidate.json")
+}
+// The recursion digest of this ELF's key: the constant the Bitcoin guest's verify_sp1_proof checks (reflect.rs
+// ETH_REFLECTION_VKEY, bitcoin_prove.rs). A proof made elsewhere is used only under this key.
+const ETH_REFLECTION_VKEY: [u32; 8] =
+    [1698740370, 761725306, 1843717690, 1218893588, 786585592, 423901230, 1310805602, 795535986];
 
 // Mirrors the guest's cxfer-core EthReflInputs (serde_cbor matches by field NAME).
 #[derive(Serialize, Deserialize)]
@@ -125,6 +145,15 @@ struct EthSetState {
     // sync committee the Bitcoin reflection now expects.
     #[serde(default)]
     bootstrap_slot: Option<u64>,
+}
+// A candidate whose input was built (SP1_PROVER=stdin) and whose proof is made elsewhere: what SP1_PROVER=finish needs to write
+// the same outputs a network run writes. `expect_pv`: hex of the public values the guest commits for that input.
+#[derive(Serialize, Deserialize)]
+struct Candidate {
+    last_block: u64,
+    crossouts: Vec<CoRecord>,
+    consumeds: Vec<CnRecord>,
+    expect_pv: String,
 }
 #[derive(Serialize, Deserialize, Clone)]
 struct CoRecord {
@@ -297,6 +326,20 @@ fn verify_storage_slot_proofs_allow_zero(
 }
 
 fn main() -> anyhow::Result<()> {
+    // ETH_PROVE_MODES: which modes this build has, for the relay to ask before it relies on one. A build without this answers
+    // nothing and, run with no SOURCE_CONSENSUS_RPC, stops at once on its missing variable.
+    if std::env::var("ETH_PROVE_MODES").is_ok() {
+        println!("ETH_PROVE_MODES cpu cuda network execute stdin finish expect");
+        return Ok(());
+    }
+    // Modes that build no input: finishing a proof made elsewhere, and running a saved input.
+    let mode = std::env::var("SP1_PROVER").unwrap_or_else(|_| "cpu".into());
+    if mode == "finish" {
+        return finish();
+    }
+    if let Ok(saved) = std::env::var("ETH_STDIN_IN") {
+        return replay(&saved, &mode);
+    }
     let rpc = std::env::var("SOURCE_CONSENSUS_RPC")?;
     let chain_id: u64 = std::env::var("SOURCE_CHAIN_ID")?.parse()?;
     // The EthCallOutbox this cycle proves messages from. Surfaced in the PV and gated in the Bitcoin guest
@@ -659,9 +702,25 @@ fn main() -> anyhow::Result<()> {
     std::fs::write(format!("{dbg}/ethprove-ethr.cbor"), &ethr_bytes).ok();
     eprintln!("DUMPED lc_bytes={} ethr_bytes={} to {dbg}/ethprove-*.cbor", lc_bytes.len(), ethr_bytes.len());
 
+    // The public values the guest will commit for this input. Needed to accept a proof made elsewhere (stdin mode); on a
+    // network run it is compared with the proof the network returns, which keeps the computation checked on every cycle.
+    let expect_pv = expected_public_values(&lc_bytes, &ethr_bytes);
     let mut stdin = SP1Stdin::new();
     stdin.write_vec(lc_bytes);
     stdin.write_vec(ethr_bytes);
+    if mode == "stdin" {
+        let expect = expect_pv.map_err(|e| anyhow::anyhow!("the public values for this input could not be computed: {e}"))?;
+        let out = out_dir();
+        std::fs::create_dir_all(&out)?;
+        let bytes = bincode::serialize(&stdin)?;
+        std::fs::write(format!("{out}/eth_stdin.bin"), &bytes)?;
+        let cand = Candidate { last_block: exec_block, crossouts: full_co, consumeds: full_cn, expect_pv: hex::encode(&expect) };
+        std::fs::write(candidate_path(), serde_json::to_string(&cand)?)?;
+        println!("STDIN_OK bytes={} exec_block={exec_block} expect_pv={}", bytes.len(), hex::encode(&expect));
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+        std::process::exit(0);
+    }
 
     // sp1-cuda's session/client Drop impls call tokio::spawn during teardown. The RPC runtime above was
     // scoped and already dropped, so without an ambient reactor those drops abort the process ("no reactor
@@ -677,7 +736,7 @@ fn main() -> anyhow::Result<()> {
     // self-contained with no external service to drift, so it is the safe default; set SP1_PROVER=cuda or
     // network for throughput once the backend version is matched. Each arm keeps its own concrete prover
     // type (they do not unify), so the setup+prove is inlined per backend.
-    let backend = std::env::var("SP1_PROVER").unwrap_or_else(|_| "cpu".into());
+    let backend = mode.clone();
     println!("proving compressed ({backend})...");
     if backend == "execute" {
         // Free local diagnostic: run the guest once (no STARK proof) to check the witness is correct
@@ -688,6 +747,10 @@ fn main() -> anyhow::Result<()> {
         let (out, rep) = c.execute(Elf::Static(ETH_ELF), stdin).run().expect("execute failed");
         println!("EXECUTE_OK cycles={} pv_bytes={}", rep.total_instruction_count(), out.as_slice().len());
         println!("RAWPV {}", hex::encode(out.as_slice()));
+        match &expect_pv {
+            Ok(e) => println!("EXPECTED_PV_MATCH {}", if e.as_slice() == out.as_slice() { "yes" } else { "NO" }),
+            Err(e) => println!("EXPECTED_PV_MATCH unknown: {e}"),
+        }
         std::process::exit(0);
     }
     let proof = if backend == "network" {
@@ -720,6 +783,26 @@ fn main() -> anyhow::Result<()> {
         let pk = c.setup(Elf::Static(ETH_ELF)).expect("setup");
         c.prove(&pk, stdin).compressed().run().expect("compressed proof failed")
     };
+    match &expect_pv {
+        Ok(e) if e.as_slice() == proof.public_values.as_slice() => println!("EXPECTED_PV_MATCH yes"),
+        Ok(e) => println!("EXPECTED_PV_MATCH NO: computed 0x{} for this input; a proof made elsewhere would be refused", hex::encode(e)),
+        Err(e) => println!("EXPECTED_PV_MATCH unknown: {e}"),
+    }
+    write_outputs(&proof, exec_block, full_co, full_cn)?;
+    use std::io::Write;
+    std::io::stdout().flush().ok();
+    std::process::exit(0); // skip the sp1-cuda client Drop (it spawns on a missing runtime and aborts)
+}
+
+// What a proved candidate leaves behind, the same whether the network or the board proved it: the proof, its public values,
+// the candidate cumulative state (pending until the sidecar sees its Bitcoin batch land) and the bundle the Bitcoin fixture
+// builder reads.
+fn write_outputs(
+    proof: &SP1ProofWithPublicValues,
+    exec_block: u64,
+    full_co: Vec<CoRecord>,
+    full_cn: Vec<CnRecord>,
+) -> anyhow::Result<()> {
     let pv = proof.public_values.as_slice().to_vec();
     println!("eth pv_bytes={}", pv.len());
     assert!(
@@ -785,7 +868,70 @@ fn main() -> anyhow::Result<()> {
         new_state.crossouts.len(),
         new_state.consumeds.len()
     );
+    Ok(())
+}
+
+// SP1_PROVER=finish: the proof of the input SP1_PROVER=stdin built, made somewhere else. Refused (exit 3, nothing written)
+// unless it is a compressed proof whose public values are the candidate's, under the key the Bitcoin guest pins, and it
+// verifies; then the outputs are written exactly as a network run writes them.
+fn finish() -> anyhow::Result<()> {
+    use std::io::Write;
+    let refuse = |why: String| -> ! {
+        println!("FINISH_REFUSED {why}");
+        std::io::stdout().flush().ok();
+        std::process::exit(3);
+    };
+    let cand: Candidate = serde_json::from_str(&std::fs::read_to_string(candidate_path())?)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", candidate_path().display()))?;
+    let path = std::env::var("ETH_PROOF_IN").map_err(|_| anyhow::anyhow!("ETH_PROOF_IN (the proof file) is required"))?;
+    let proof = match SP1ProofWithPublicValues::load(&path) {
+        Ok(p) => p,
+        Err(e) => refuse(format!("not a saved SP1 proof: {e}")),
+    };
+    if !matches!(proof.proof, SP1Proof::Compressed(_)) {
+        refuse("not a compressed proof".into());
+    }
+    let expect = hex::decode(&cand.expect_pv)?;
+    let pv = proof.public_values.as_slice();
+    if pv != expect.as_slice() {
+        refuse(format!("its public values ({} bytes, 0x{}…) are not this candidate's (0x{}…)", pv.len(), hex::encode(&pv[..pv.len().min(32)]), hex::encode(&expect[..expect.len().min(32)])));
+    }
+    // The light prover: setup gives the key, verify is the full check (the compressed shard proof, the recursion key set,
+    // the program key digest and the committed public-values digest); it proves nothing, so it fits the relay's container.
+    let client = ProverClient::builder().light().build();
+    let pk = client.setup(Elf::Static(ETH_ELF)).map_err(|e| anyhow::anyhow!("setup: {e}"))?;
+    let vk = pk.verifying_key();
+    // This build's fault, not the proof's: an error (the relay reads it as unchecked), not a refusal.
+    anyhow::ensure!(vk.hash_u32() == ETH_REFLECTION_VKEY, "this build's eth guest key {:?} is not the one the Bitcoin guest verifies", vk.hash_u32());
+    if let Err(e) = client.verify(&proof, vk, None) {
+        refuse(format!("the proof does not verify: {e}"));
+    }
+    println!("FINISH_CHECKED sp1_version={} vkey={}", proof.sp1_version, vk.bytes32());
+    write_outputs(&proof, cand.last_block, cand.crossouts, cand.consumeds)?;
+    println!("FINISH_OK");
+    std::io::stdout().flush().ok();
+    std::process::exit(0);
+}
+
+// ETH_STDIN_IN: a saved input (eth_stdin.bin, or a network request's stdin artifact) run without RPC or state.
+// SP1_PROVER=expect prints the public values computed for it; SP1_PROVER=execute runs the guest on it.
+fn replay(saved: &str, mode: &str) -> anyhow::Result<()> {
+    let stdin: SP1Stdin = bincode::deserialize(&std::fs::read(saved)?).map_err(|e| anyhow::anyhow!("{saved}: not a bincode SP1Stdin: {e}"))?;
+    anyhow::ensure!(stdin.buffer.len() == 2, "{saved}: an eth_prove input has two buffers, this has {}", stdin.buffer.len());
+    match mode {
+        "expect" => {
+            let pv = expected_public_values(&stdin.buffer[0], &stdin.buffer[1])?;
+            println!("EXPECT_PV {}", hex::encode(&pv));
+        }
+        "execute" => {
+            let c = ProverClient::builder().light().build();
+            let (out, rep) = c.execute(Elf::Static(ETH_ELF), stdin).run().map_err(|e| anyhow::anyhow!("execute: {e}"))?;
+            println!("EXECUTE_OK cycles={} pv_bytes={}", rep.total_instruction_count(), out.as_slice().len());
+            println!("RAWPV {}", hex::encode(out.as_slice()));
+        }
+        _ => anyhow::bail!("ETH_STDIN_IN runs with SP1_PROVER=expect or execute, not {mode}"),
+    }
     use std::io::Write;
     std::io::stdout().flush().ok();
-    std::process::exit(0); // skip the sp1-cuda client Drop (it spawns on a missing runtime and aborts)
+    std::process::exit(0);
 }

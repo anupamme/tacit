@@ -47,6 +47,8 @@ sp1-curves = "=6.2.4"
 sp1-derive = "=6.2.4"
 sp1-build = "=6.2.4"
 hex = "0.4"
+# eth_prove writes and reads the bincode SP1Stdin it hands to a prover elsewhere (SP1_PROVER=stdin, ETH_STDIN_IN).
+bincode = "1"
 alloy-sol-types = "0.8"
 serde_json = "1"
 anyhow = "1"

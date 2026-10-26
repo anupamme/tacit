@@ -116,3 +116,6 @@ pub fn assert_vkey(actual: &str, field: &str) {
         "VKEY DRIFT: derived {act} != pinned {field} {exp} — this ELF won't verify against the deployed contract; rebuild from the committed source so the box runs the pinned bytes before proving"
     );
 }
+
+// The eth-reflection guest's public values, computed on the host from its input (how a proof made elsewhere is checked).
+pub mod eth_pv;
