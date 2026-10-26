@@ -9,7 +9,8 @@ package sp1
 // after, not beside it (prove_lean.go). The result is the same point gnark's
 // MultiExp gives. Before the GPU is first used its sum over 4096 of the key's own bases is compared with gnark's, and any
 // mismatch turns it off; a proof made with it is also verified before it is returned (prove_lean.go).
-// SP1_GNARK_GPU=0 keeps everything on the CPU.
+// Off unless SP1_GNARK_GPU=1: on a machine that was busy the whole step ran slower this way than on the lean CPU path (440 s against
+// 259 s), so it stays a choice until it is timed on an idle one.
 
 /*
 #cgo CFLAGS: -fobjc-arc
@@ -59,7 +60,7 @@ var (
 
 // gpuMsmReady says whether the GPU path may be used, setting it up once.
 func gpuMsmReady() bool {
-	if os.Getenv("SP1_GNARK_GPU") == "0" {
+	if os.Getenv("SP1_GNARK_GPU") != "1" {
 		return false
 	}
 	gpuOnce.Do(func() {

@@ -56,7 +56,7 @@ start loads in seconds.
 | `TACIT_METAL` | on, on macOS | `0` keeps all hashing and proof-of-work on the CPU |
 | `TACIT_MINE` | unset | an address: mine the proof pool while idle, for TAC points to it |
 | `TACIT_POOL_API` | `https://api.tacit.finance` | where the proof pool is |
-| `SP1_GNARK_GPU` | on, on macOS | `0` keeps the Groth16 step's G1 multi-exponentiations on the CPU |
+| `SP1_GNARK_GPU` | off | `1` puts the Groth16 step's G1 multi-exponentiations on the Mac's GPU (Metal): faster per sum, but slower than the lean CPU path in the one busy-machine timing so far |
 | `SP1_GNARK_MSM_BLOCK` | `4194304` | bases per block of a CPU multi-exponentiation; `0` scans each in one piece |
 | `SP1_GNARK_LEAN` | on | `0` loads the Groth16 key and circuit, and proves, as stock SP1 does |
 | `SP1_WORKER_NUM_*_WORKERS` | 1 per stage under 16 GB of RAM | the SDK's own concurrency settings |
