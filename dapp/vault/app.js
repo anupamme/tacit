@@ -8,7 +8,7 @@ import { makeFeed, RECORD_GAS, PER_TX, GAS_ROOM, encBatch, MULTICALL3 } from '/v
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=91c83890';
 import { makePools } from '/vault/pools.js?cb=ee3f072b';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=6058a172';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=de979716';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

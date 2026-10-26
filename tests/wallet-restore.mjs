@@ -260,7 +260,7 @@ try {
     ok(await showing(rw.page, 'rewards', SHORT_B), 'rewards: a wallet app pairs');
     ok((await remembered(rw.page)) === 'com.walletconnect', 'and WalletConnect is the wallet recorded');
     const asked = await rw.page.evaluate(() => window.__wcfake.opts.optionalChains);
-    ok([1, 8453, 4663, 4326].every((id) => asked.includes(id)), `it was asked for every chain the site works on (${asked.join(', ')})`);
+    ok([1, 8453, 4663].every((id) => asked.includes(id)), `it was asked for every chain the site works on (${asked.join(', ')})`);
     await rw.page.close();
     for (const k of ['front', 'hub', 'eth', 'keeper']) {
       const { page } = await open(c.ctx, PAGES[k].path);

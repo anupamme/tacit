@@ -792,7 +792,6 @@ try {
     const F = {
       ethereum: { id: 1, name: 'Ethereum', key: 'ethereum', other: 8453, row: 1, rpc: process.env.ETH_RPC || 'https://mainnet.gateway.tenderly.co', url: 'https://ethereum-rpc.publicnode.com', hosts: /ethereum-rpc\.publicnode\.com|mainnet\.gateway\.tenderly\.co|eth\.drpc\.org|rpc\.flashbots\.net|1rpc\.io/ },
       base: { id: 8453, name: 'Base', key: 'base', other: 1, row: 2, rpc: process.env.BASE_RPC || 'https://mainnet.base.org', url: 'https://mainnet.base.org', hosts: /mainnet\.base\.org|base\.drpc\.org/ },
-      megaeth: { id: 4326, name: 'MegaETH', key: 'megaeth', other: 8453, row: 4, rpc: process.env.MEGA_RPC || 'https://mainnet.megaeth.com/rpc', url: 'https://mainnet.megaeth.com/rpc', hosts: /mainnet\.megaeth\.com|megaeth\.drpc\.org/ },
       robinhood: { id: 4663, name: 'Robinhood Chain', key: 'robinhood', other: 8453, row: 3, rpc: process.env.RH_RPC || 'https://rpc.mainnet.chain.robinhood.com', url: 'https://rpc.mainnet.chain.robinhood.com', hosts: /rpc\.mainnet\.chain\.robinhood\.com|robinhood\.drpc\.org/ },
     }[process.env.CHAIN || 'base'];
     console.log(`fork (${F.name})`);
@@ -1192,8 +1191,6 @@ try {
     ok(await toks() === ',usdc,usdt,wsteth', `on Base the page offers ETH and Base's USDC, USDT and wstETH pools (${await toks()})`);
     await p.click('#chain-4663');
     ok(await toks() === ',usdg,usde', `on Robinhood Chain, USDG and USDe (${await toks()})`);
-    await p.click('#chain-4326');
-    ok(await toks() === '', 'on MegaETH, none: the asset row is hidden');
     await p.click('#chain-1');
     ok(await toks() === ',usdc,usdt,tac,wsteth', `on Ethereum, USDC, USDT, TAC and wstETH (${await toks()})`);
     await p.click('#chain-8453');

@@ -45980,8 +45980,8 @@ function _ensureWalletConnect() {
     const m = await import('./walletconnect.js');
     const sheets = m.wcSheets(m.overlayHost());
     m.announceWalletConnect({
-      projectId: m.WC_PROJECT_ID, chains: [1, 8453, 4663, 4326],
-      rpcMap: { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com', 4326: 'https://mainnet.megaeth.com/rpc' },
+      projectId: m.WC_PROJECT_ID, chains: [1, 8453, 4663],
+      rpcMap: { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com' },
       metadata: { name: 'tacit', description: 'Confidential crosschain DeFi', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
       onPair: sheets.onPair, onAsk: sheets.onAsk,
     });

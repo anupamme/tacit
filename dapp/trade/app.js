@@ -9,7 +9,7 @@ import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, cand
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=13ad4a30';
 import { mountDepth } from '/trade/depth.js?cb=07d4ee1c';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=e8d21aec';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=6058a172';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=de979716';
 import { takeEarly } from '/trade/rpc.js?cb=63f04503';
 import { mountFarm } from '/trade/farm.js?cb=1a2388b9';
 import { grp, sig, group, satsFmt, day as dayFmt, warm as warmFormatters } from '/trade/fmt.js?cb=32b1744b';
@@ -635,7 +635,7 @@ function notify(msg, kind = '', ms = 5000) {
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=9e2d0a67').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=71d6f4c3').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));

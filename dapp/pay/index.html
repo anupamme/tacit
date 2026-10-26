@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-R4/uP1fNaRIDgw9KCw+dt9TnfRtEvKhORycnQA00H2Q=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-id9fkM8lCiY82/zUthmUg8LJWTVcILboIGWM9LwB8MU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Pay BTC, TAC and ETH privately from one key and one tacit1 address. Every payment is made on your device.">
@@ -27,7 +27,7 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/evm-wallet.js?cb=c3c99d5c">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
+<link rel="modulepreload" href="/walletconnect.js?cb=e0b29a34">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
@@ -265,6 +265,8 @@ details.fold > summary small { margin-left: auto; font-size: 12px; color: var(--
 @media (hover: hover) { .opt:hover:not(:disabled) { border-color: var(--ink); } }
 .opt:disabled { opacity: .5; cursor: progress; }
 .opt.main { border-color: var(--ink); background: var(--card); }
+.opt.off { background: none; border-color: var(--hair); }
+.opt.off .opt-t { color: var(--mute); }
 .opt-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
 .opt-t b { font-weight: 500; }
 .opt-m { font-size: 12px; color: var(--mute); padding-left: 30px; }
@@ -414,6 +416,15 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 .modes .cs { vertical-align: middle; }
 .modes .cs .tk { width: 13px; height: 13px; }
 @media (max-width: 480px) { .modes a { justify-content: center; gap: 6px; padding: 10px 4px; } .modes .tk { width: 22px; height: 22px; } .modes small { display: none; } }
+/* what only a signed-in wallet has: Activity (nothing to say before), and the privacy notes one press away */
+body:not(.in) #activity { display: none; }
+details.card > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--tap); margin: -10px 0; cursor: pointer; list-style: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::after { content: '+'; flex: none; font-size: 18px; line-height: 1; color: var(--mute); }
+details.card[open] > summary::after { content: '−'; }
+details.card[open] > summary { margin-bottom: 8px; }
+details.card > summary h2 { font: 400 28px/1.05 var(--serif); letter-spacing: -.01em; margin: 0; }
+@media (hover: hover) { details.card > summary:hover::after { color: var(--ink); } }
 .how { display: grid; gap: 14px; }
 .how b { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .how p { margin: 4px 0 0; font-size: 12.5px; color: var(--mute); }
@@ -546,7 +557,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
     <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
     <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
-    <symbol id="c-mega" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M10.4 21.2V11.4L16 17.4L21.6 11.4V21.2" fill="none" stroke="#ff8fb4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 
@@ -603,7 +613,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <nav class="modes" id="modes" aria-label="What to pay in">
         <a href="/pay/#btc" data-mode="btc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>BTC</b><small>silent</small></span></a>
         <a href="/pay/#tac" data-mode="tac"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span><b>TAC</b><small>shielded</small></span></a>
-        <a href="/pay/eth/" data-mode="eth"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>ETH</b><small><span class="cs" role="img" aria-label="Ethereum, Base, Robinhood Chain and MegaETH" title="Ethereum, Base, Robinhood Chain and MegaETH"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk" aria-hidden="true"><use href="#c-rh"/></svg><svg class="tk" aria-hidden="true"><use href="#c-mega"/></svg></span></small></span></a>
+        <a href="/pay/eth/" data-mode="eth"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span><b>ETH</b><small><span class="cs" role="img" aria-label="Ethereum, Base and Robinhood Chain" title="Ethereum, Base and Robinhood Chain"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk" aria-hidden="true"><use href="#c-rh"/></svg></span></small></span></a>
         <a href="/#card=send:eth" data-mode="teth"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span><b>tETH</b><small>Tacit pool</small></span></a>
       </nav>
       <div class="req" id="found" hidden><div id="found-body"></div><div class="status" role="status" id="fd-status"></div></div>
@@ -619,14 +629,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div id="act-body"></div>
     </section>
 
-    <section class="card" id="how" aria-labelledby="how-h">
-      <div class="card-h"><h2 id="how-h">How each one stays private</h2></div>
+    <details class="card" id="how">
+      <summary><h2 id="how-h">How each one stays private</h2></summary>
       <div class="how">
         <div><b><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>BTC</b><p>Sent as a silent payment (BIP‑352): each one lands at a fresh address only the recipient’s key can find. The amount and your Bitcoin address show.</p></div>
         <div><b><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</b><p>Paid inside the shielded pool, proved on this device. Who paid, who was paid and how much stay hidden; posted from your own Bitcoin address instead, it shows as the sender.</p></div>
-        <div><b><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</b><p>Paid inside the private pool on <span class="nw"><span class="cs" role="img" aria-label="Ethereum, Base, Robinhood Chain and MegaETH" title="Ethereum, Base, Robinhood Chain and MegaETH"><svg class="tk xs" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk xs" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk xs" aria-hidden="true"><use href="#c-rh"/></svg><svg class="tk xs" aria-hidden="true"><use href="#c-mega"/></svg></span>,</span> proved on this device, with no network fee. Nothing on chain links payer and payee; deposits and withdrawals show.</p></div>
+        <div><b><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</b><p>Paid inside the private pool on <span class="nw"><span class="cs" role="img" aria-label="Ethereum, Base and Robinhood Chain" title="Ethereum, Base and Robinhood Chain"><svg class="tk xs" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk xs" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk xs" aria-hidden="true"><use href="#c-rh"/></svg></span>,</span> proved on this device, with no network fee. Nothing on chain links payer and payee; deposits and withdrawals show.</p></div>
       </div>
-    </section>
+    </details>
   </main>
 
   <nav class="sf-x" aria-label="Backup">
@@ -682,7 +692,7 @@ if (forwardOld(location.hash)) await new Promise(() => {});
 const [{ secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes }, { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable }, { knownWallets },
   { makeEvmWallet }, { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID }, { makeTacitAddress }, { bip352TaggedHash }, { addressId }] = await Promise.all([
   import('/vendor/tacit-deps.min.js'), import('/prf-wallet.js'), import('/tacit-wallet-known.js?cb=ed4c75b7'),
-  import('/evm-wallet.js?cb=c3c99d5c'), import('/walletconnect.js?cb=2dd7ae09'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
+  import('/evm-wallet.js?cb=c3c99d5c'), import('/walletconnect.js?cb=e0b29a34'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // preload-later:begin
@@ -890,7 +900,7 @@ function otherWallet() { return knownWallets(KNOWN_IDS).other; }
 const viaText = (k) => ({ eth: `Ethereum ${short(k.address || '')}`, btc: `Bitcoin ${short(k.address || '', 6)}`, ext: `a key funded by ${short(k.address || '', 6)}`,
   passkey: `passkey “${k.label || 'Tacit'}”`, local: 'the key saved in this browser', key: 'a pasted key' })[k.mode] || 'your wallet';
 
-const TACIT_URL = '/tacit.js?cb=70d2b030';
+const TACIT_URL = '/tacit.js?cb=c8afb432';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-pay-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -1075,7 +1085,7 @@ function signIn(id) {
     ${other ? opt('other', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${other.tacit ? html`Continue as <b>${short(other.tacit, 7)}</b>` : 'Your other Tacit wallet'}`, html`A different wallet, opened here before with ${viaText(other)}.`) : ''}
     ${bare ? opt('new', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Create a wallet`, 'Touch ID, Face ID or Windows Hello. Nothing to install.', 'main') : ''}
     ${bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Open a passkey wallet`, 'One you made before, with a passkey on this device or in your password manager.') : ''}
-    ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
+    ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.', hasBtc || !bare ? '' : 'off')}
     ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
     ${pk && !bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Passkey`, 'Touch ID, Windows Hello or a security key.') : ''}
     <p class="opts-err" id="${id}-err" role="alert" hidden></p>
@@ -1266,7 +1276,7 @@ const btcAvail = (b) => (b?.got === 3 ? b.sats + b.silent : null);
 function btcBal() {
   const b = BTC.pub === S.key.pubHex ? BTC : null, more = (!b || b.got === 3 ? '' : b.part ? ' · still checking…' : ' · could not finish checking') + (b && BTC.err && !b.part ? ' · could not refresh' : '');
   return html`<svg class="tk md" aria-hidden="true"><use href="#tk-btc"/></svg>
-    <div>${!b && BTC.err ? '' : html`<div class="v num">${b ? fmt(b.sats + b.silent, 8, 8) : html`<span class="sk" style="--w:9ch"></span>`}</div>`}
+    <div>${!b && BTC.err ? '' : html`<div class="v num${b && b.got !== 3 ? ' stale' : ''}">${b ? fmt(b.sats + b.silent, 8, 8) : html`<span class="sk" style="--w:9ch"></span>`}</div>`}
       <div class="u">${!b && BTC.err ? html`<span class="err">Could not read your BTC: ${errText(BTC.err)}</span>` : html`BTC${b?.pending ? ` · ${fmt(b.pending, 8, 8)} arriving` : ''}${b?.silent ? ` · ${fmt(b.silent, 8, 8)} by silent payment` : ''}${more}`}</div></div>
     <div class="side">${b || BTC.err ? html`<button class="link" type="button" id="bal-re">${b ? 'refresh' : 'retry'}</button>` : 'loading…'}</div>`;
 }
@@ -1442,7 +1452,7 @@ function wirePoolJobs(root) {
   $$('[data-pool-done]', root).forEach((b) => b.onclick = () => { dropPoolJob(S.key.pubHex, b.dataset.poolDone); render(); });
 }
 const BTC_NOTE = {
-  direct: 'Sent from your Bitcoin address, plus the Bitcoin fee. To a Tacit or silent-payment address it lands at a fresh address only they can find.',
+  direct: 'Sent from your Bitcoin address, plus the Bitcoin fee.',
   pool: 'Paid from your shielded TAC and sold to them on Bitcoin’s TAC market. Your Bitcoin address pays nothing and does not appear.',
 };
 function btcSend(f) {
@@ -2781,8 +2791,7 @@ function render() {
   paintModes(); paintFound(); paintReq(); paintActivity();
   const f = $('#form'), bal = $('#bal'), tabs = $('#tabs');
   if (!S.key) {
-    mount(bal, html`<svg class="tk md" aria-hidden="true"><use href="#tk-${S.mode}"/></svg>
-      <div><div class="v t">${S.mode === 'tac' ? 'Shielded TAC' : 'Silent BTC'}</div><div class="u">yours shows once your Tacit wallet is open</div></div>`);
+    bal.hidden = true;
     tabs.hidden = true; S.drawn = S.reads = S.tabs = null;
     f.removeAttribute('role'); f.removeAttribute('aria-labelledby');
     if (S.gate && $('#g-err', f) && (signing || !$('#g-err', f).hidden)) return;
@@ -2791,6 +2800,7 @@ function render() {
     return wireSignIn(f, 'g');
   }
   S.gate = false;
+  bal.hidden = false;
   paintBal();
   const tab = S.tab[S.mode], drawn = `${S.mode}:${tab}`, reads = formReads();
   tabs.hidden = false;

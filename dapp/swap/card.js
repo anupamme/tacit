@@ -272,7 +272,7 @@ function setHome(home) {
   S.q = null; S.mq = null; changed(); paint(); requote(true);
 }
 // The chains the Pay pool pays on, as a row of their marks (named in its label and title); a chain with no mark here is counted instead
-const CHAIN_MARK = { 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh', 4326: 'c-mega' }, CHAIN_NAME = { 4663: 'Robinhood Chain' };
+const CHAIN_MARK = { 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh' }, CHAIN_NAME = { 4663: 'Robinhood Chain' };
 function chainMarks(cs) {
   if (!cs.every((c) => CHAIN_MARK[c.id])) return `${cs.length} chains`;
   const names = esc(cs.map((c) => CHAIN_NAME[c.id] || c.name).join(', '));
@@ -1805,7 +1805,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=a20d5d72')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=72c2a2a7')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">Could not load the Bitcoin lane: ${esc(e?.message || e)}</p>`; lane = null; }
 }

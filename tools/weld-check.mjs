@@ -130,8 +130,8 @@
 //   hxlink   the same button with no key open: the Bridge tab asks for one, still addressed as the way out, and opens on that side with the amount
 //   pxsback  the price strip on a return visit: prices kept less than an hour ago show at once and the reading replaces them; older ones are not drawn
 //   fmchips  the farms under the prices: the public pool and each private pool as a pair and its APR, best first, the row's height kept so the hero never moves, a press opening the Earn tab on that pool (the same APR in its row), and between reward periods only the public pool is left
-//   hxways  the card's Shield by what is held: each source lists its own ways, the chain picker shows for the ETH-only pools alone (MegaETH scores no
-//            points), payments ETH goes to its own chain's Deposit form with the amount, Borrow hands its BTC to the lock form
+//   hxways  the card's Shield by what is held: each source lists its own ways, the chain picker shows for the ETH-only pools alone,
+//            payments ETH goes to its own chain's Deposit form with the amount, Borrow hands its BTC to the lock form
 //   activity relayed jobs (dispatched as tacit:job, as the relay client does) move Queued → Proving → Done or Failed, with
 //            toasts and Etherscan links; a transaction the page sends is followed to its receipt; after a reload the list
 //            is still there, a job left proving is followed to its settle, a failure from the last six hours is asked
@@ -389,7 +389,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return json(route, { txHash: b.txHash });
     }
     // A quote names its chain and pool, which the wallet checks before it signs anything (its host says which chain).
-    if (/\/quote$/.test(p)) return json(route, { chainId: /-base\./.test(route.request().url()) ? 8453 : /-robinhood\./.test(route.request().url()) ? 4663 : /-megaeth\./.test(route.request().url()) ? 4326 : 1, pool: EVM_POOL,
+    if (/\/quote$/.test(p)) return json(route, { chainId: /-base\./.test(route.request().url()) ? 8453 : /-robinhood\./.test(route.request().url()) ? 4663 : 1, pool: EVM_POOL,
       relayer: '0x0000000000000000000000000000000000000001', fee: '329000000000000', sweepFee: '439000000000000', receiveMin: '175600000000000000' });
     if (/\/(head|reserve)$/.test(p)) return route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' });
     if (/\/relay$/.test(p)) {
@@ -8679,7 +8679,7 @@ await step('fmchips', async () => {
 });
 
 // The card's Shield by what is held: each source has its own ways (a way that moves ETH into the Tacit pool needs Ethereum, so a pool on
-// another chain does not offer it), the chain picker appears only for the ETH-only pools, MegaETH says it scores no points, ETH kept
+// another chain does not offer it), the chain picker appears only for the ETH-only pools, ETH kept
 // private on a chain goes to that chain's Deposit form with the amount, and Borrow hands its BTC to the lock form.
 await step('hxways', async () => {
   const r = await openPage({ account: A0, key: K0, viewport: { width: 1280, height: 1000 } });
@@ -8704,9 +8704,6 @@ await step('hxways', async () => {
     await move(p, 'shield:ether:defi');
     ok(await p.$eval('#hx-swap #chain', (e) => e.hidden), 'hxways: the DeFi pool has no chain to pick');
     await move(p, 'shield:ether:pay');
-    await p.selectOption('#hx-swap #chain-sel', '4326'); await p.fill(MV.amt, '0.02');
-    await until(p, () => /Points: none on MegaETH/.test(window.__said()) && document.querySelector('#hx-pts')?.hidden, null, 60000);
-    ok(true, 'hxways: on MegaETH the card says it scores no points, and shows none');
     await p.selectOption('#hx-swap #chain-sel', '8453'); await p.fill(MV.amt, '0.03');
     await until(p, () => document.querySelector('#hx-swap #out')?.textContent === '0.03' && /Fee: the network fee only/.test(window.__said()), null, 60000);
     await pasteKey(p, 'ab12'.padEnd(64, '7'));

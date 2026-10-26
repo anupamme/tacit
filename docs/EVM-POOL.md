@@ -27,8 +27,8 @@ exit/entry (["Moving between V1 and this pool"](#moving-between-v1-and-this-pool
 | Your own app | The contracts are at the same addresses on every chain they are on ([build one](#megaeth-and-building-an-app-on-another-chain)). | Any chain with the suite |
 
 **MegaETH** has the core: the pool, router, verifier, deposit addresses, a relay and withdraw-and-call. It has no token
-swaps, because zRouter, zQuoter and the token list are not deployed there; the tacit.finance pages offer none, so
-MegaETH is complete on them. anon.wei, which has the token forms, lists the other three chains. See
+swaps, because zRouter, zQuoter and the token list are not deployed there. The standalone wallet knows it; the
+tacit.finance pages and anon.wei list the other three chains. See
 [Swaps and zaps](#swaps-and-zaps) and [MegaETH](#megaeth-and-building-an-app-on-another-chain).
 
 ## Addresses
@@ -501,8 +501,7 @@ the pool; each piece is optional and a chain without it still has the full pool.
 - **A chain without them (MegaETH today).** The pool, router, deposit addresses and withdraw-and-call to any target work.
   The zap cannot be deployed until zRouter exists on the chain (its constructor requires code there), and the router on
   MegaETH was deployed with zRouter set to zero, so its own zap functions stay off. A page for such a chain is the
-  simplified one: shield, send, withdraw, a deposit address and payment links, with no token forms (this is what
-  tacit.finance's pay page offers on MegaETH). An app that wants swaps there can build them against that chain's own
+  simplified one: shield, send, withdraw, a deposit address and payment links, with no token forms. An app that wants swaps there can build them against that chain's own
   aggregator through withdraw-and-call, or deploy the zap when zRouter arrives.
 
 ## What it costs
@@ -830,11 +829,10 @@ The pool, router, verifier and PoseidonT5 are live on MegaETH (chain 4326) at th
 The code is the same as on the other chains: the verifier and PoseidonT5 are byte-identical, and the pool and router differ
 only in their immutables. A relay runs at `https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper`.
 
-**Where it is supported.** tacit.finance lists MegaETH on its pay page ([`/pay/eth/`](https://tacit.finance/pay/eth/)) and
-in the front page's "On this device" sheet: shield, send, withdraw, a deposit address, payment links and the relay, with
-reads in 100,000-block ranges. It is the simplified pool: no token swaps or token forms, since zRouter, zQuoter, the token
-list and the zap are not on the chain ([Swaps and zaps](#swaps-and-zaps)), and no move from Ethereum. The anon.wei page,
-which has those forms, lists the other three chains; an app of your own can use MegaETH now.
+**Where it is supported.** The standalone wallet knows it ([below](#standalone-wallet)): shield, send, withdraw, a deposit
+address, payment links and the relay, with reads in 100,000-block ranges. The tacit.finance pages and anon.wei do not list
+it. It is the simplified pool: no token swaps or token forms, since zRouter, zQuoter, the token list and the zap are not
+on the chain ([Swaps and zaps](#swaps-and-zaps)), and no move from Ethereum. An app of your own can use MegaETH now.
 
 | On MegaETH | |
 |---|---|

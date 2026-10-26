@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-TFOZRWcD+08/SVP6C4kw9WgbPUX4rAOal2URV4JolcE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0w1cR6BwXwNj9c2LYLlAH01KjWVov/cIIHr/fexzjGQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -38,7 +38,7 @@
 <link rel="modulepreload" href="/bip352.js">
 <link rel="modulepreload" href="/evm-wallet.js?cb=c3c99d5c">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
+<link rel="modulepreload" href="/walletconnect.js?cb=e0b29a34">
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=6a6bb45f">
@@ -1250,7 +1250,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
     <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
     <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
-    <symbol id="c-mega" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M10.4 21.2V11.4L16 17.4L21.6 11.4V21.2" fill="none" stroke="#ff8fb4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="lg-zfi" viewBox="0 0 400 400"><rect width="400" height="400" fill="#000"/><path fill="#fff" d="M-60-20H460V90L80 310H460V420H-60V310L320 90H-60Z"/></symbol>
     <symbol id="lg-wns" viewBox="0 0 64 64"><rect width="64" height="64" fill="#0A0A0A"/><defs><path id="wns-t" d="M4,4H60"/><path id="wns-r" d="M60,4V60"/><path id="wns-b" d="M60,60H4"/><path id="wns-l" d="M4,60V4"/></defs><g font-family="'Courier New',monospace" font-size="4.2" fill="#2D5FE8" fill-opacity=".6" letter-spacing="-.3"><text><textPath href="#wns-t">//////////////////////////////</textPath></text><text><textPath href="#wns-r">//////////////////////////////</textPath></text><text><textPath href="#wns-b">//////////////////////////////</textPath></text><text><textPath href="#wns-l">//////////////////////////////</textPath></text></g><path d="M16,16V48H22L32,32L42,48H48V16H42V38L32,22L22,38V16Z" fill="#2D5FE8"/></symbol>
     <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
@@ -1751,7 +1750,7 @@ import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeTacitAddress } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
 import { makeEvmWallet } from '/evm-wallet.js?cb=c3c99d5c';
-import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=2dd7ae09';
+import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=e0b29a34';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
@@ -1817,7 +1816,6 @@ const DEVICE_CHAINS = [
   { chainId: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org'], explorer: 'https://etherscan.io', keeper: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper', deployBlock: 26069245, confirmations: 3 },
   { chainId: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'], explorer: 'https://basescan.org', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', deployBlock: 51864014, confirmations: 10 },
   { chainId: 4663, name: 'Robinhood', rpc: ['https://rpc.mainnet.chain.robinhood.com'], explorer: 'https://robinhoodchain.blockscout.com', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', deployBlock: 73991661, confirmations: 10 },
-  { chainId: 4326, name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'], explorer: 'https://mega.etherscan.io', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', deployBlock: 28397750, confirmations: 30, logChunk: 100000, bridge: false, points: false },
 ];
 const EVM_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', EVM_ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 // The same pool contract with an ERC-20 asset (the device sheet's token pools, beside the ETH pools above). No relay serves them: the
@@ -1911,8 +1909,8 @@ function runCount(el) {
 }
 const tacitShort = (a) => `${a.slice(0, 16)}…${a.slice(-6)}`;
 // A chain's mark (c-*), named for assistive tech and on hover; chainTag adds the name where the mark alone would not be read.
-const CHAIN_MARK = { btc: 'c-btc', 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh', 4326: 'c-mega' };
-const CHAIN_FULL = { btc: 'Bitcoin', 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain', 4326: 'MegaETH' };
+const CHAIN_MARK = { btc: 'c-btc', 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh' };
+const CHAIN_FULL = { btc: 'Bitcoin', 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain' };
 const chainFull = (id) => CHAIN_FULL[id] || 'Ethereum';
 const chainMark = (id) => html`<span class="cmk" role="img" aria-label="${chainFull(id)}" title="${chainFull(id)}"><svg class="tk" aria-hidden="true"><use href="#${CHAIN_MARK[id] || 'c-eth'}"/></svg></span>`;
 const chainTag = (id) => html`${chainMark(id)}${chainFull(id)}`;
@@ -3454,7 +3452,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=70d2b030';
+const TACIT_URL = '/tacit.js?cb=c8afb432';
 let T = null;
 // tacit.js under this page's key, one call at a time (/tacit-session.js)
 const TS = makeTacitSession({ url: TACIT_URL, key: () => S.key, secp, bytesToHex, hexToBytes, onLoad: (m) => { T = m; } });
@@ -3614,7 +3612,6 @@ const CHAIN_META = {
   1: { chainName: 'Ethereum', rpcUrls: ['https://ethereum-rpc.publicnode.com'], blockExplorerUrls: ['https://etherscan.io'] },
   8453: { chainName: 'Base', rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'] },
   4663: { chainName: 'Robinhood Chain', rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'], blockExplorerUrls: ['https://robinhoodchain.blockscout.com'] },
-  4326: { chainName: 'MegaETH', rpcUrls: ['https://mainnet.megaeth.com/rpc'], blockExplorerUrls: ['https://mega.etherscan.io'] },
 };
 async function ensureChain(id) {
   const want = '0x' + id.toString(16);
@@ -3842,7 +3839,7 @@ render.wallet = () => {
   if (WAL.mode === 'add') {
     mount(f, html`
       <div class="kv"><span>Address</span><b class="mono">${short(a.address, 10)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
-      <p class="note">Send ETH to it from any wallet or exchange. On Ethereum it pays for everything here; on ${chainMarks([8453, 4663, 4326])}, for the private pool there.${S.wallet ? ' Or add some from your wallet here; that links the two on chain.' : html` Or <button class="link" type="button" id="ac-connect">connect a wallet</button> to add from it.`}</p>
+      <p class="note">Send ETH to it from any wallet or exchange. On Ethereum it pays for everything here; on ${chainMarks([8453, 4663])}, for the private pool there.${S.wallet ? ' Or add some from your wallet here; that links the two on chain.' : html` Or <button class="link" type="button" id="ac-connect">connect a wallet</button> to add from it.`}</p>
       ${S.wallet ? html`${amountField()}<button class="btn" type="button" id="ac-go">Add from wallet</button>` : ''}`);
     const cn = $('#ac-connect');
     if (cn) cn.onclick = () => busy(cn, async () => { try { await connect(); setPayer('tacit'); } catch (e) { sayErr(status, e); } });
@@ -4780,10 +4777,9 @@ document.addEventListener('click', (e) => {
   for (const n of $$('[data-ptsnote]')) n.hidden = !PTSINFO;
 });
 function pointsRow(wei, kind, chain) {
-  if (chain?.points === false) return html`<p class="note mute">No TAC points on ${chainTag(chain.chainId)}. They count on ${chainMarks([1, 8453, 4663])}.</p>`;
   readOutlook();
   const v1 = kind === 'v1', dev = Object.values(OUT.dev);
-  const known = v1 ? !!OUT.v1 : dev.length === DEVICE_CHAINS.filter((c) => c.points !== false).length, n = v1 ? OUT.v1?.deposits ?? 0 : dev.reduce((a, x) => a + x.deposits, 0);
+  const known = v1 ? !!OUT.v1 : dev.length === DEVICE_CHAINS.length, n = v1 ? OUT.v1?.deposits ?? 0 : dev.reduce((a, x) => a + x.deposits, 0);
   const early = known ? 1 + (PGM.early.max - 1) / (1 + n / PGM.early.half) : 1, tier = holderTier(S.address), hold = tier.held;
   const why = [known ? `${early.toFixed(1)}× early` : '', v1 ? `${PGM.wrapBoost}× tETH` : '', hold > 1 ? `${hold}× TAC holder` : '', tier.now > hold ? `${tier.now}× once your TAC is held a day` : ''].filter(Boolean).join(' · ');
   const pts = Math.round((Number(wei) / 1e18) * (v1 ? PGM.rates.wrap ?? ethBase() * PGM.wrapBoost : ethBase()) * early * hold).toLocaleString('en-US');
@@ -6342,7 +6338,7 @@ function privacyView(c, amount, to, self) {
 
 function renderDevice(el) {
   if (DEV.tok) return renderTokenPool(el);
-  if (!needKey(el, html`Keep ETH private on ${chainMarks([1, 8453, 4663, 4326])}, proved in your browser.`)) return;
+  if (!needKey(el, html`Keep ETH private on ${chainMarks([1, 8453, 4663])}, proved in your browser.`)) return;
   const c = DEV.chain, W = DEV.W && DEV.key === S.key.pubHex + c.chainId ? DEV.W : null;
   const last = DEV.bal == null ? devBal(c.chainId, S.key.pubHex) : null;
   mount(el, html`
@@ -6469,7 +6465,7 @@ function renderDevice(el) {
         const W2 = await deviceWallet();
         await payingAccount(); W2.connect(payFrom(c.chainId, `Deposit ${fmt(amount, 18, 6)} ETH${to ? ' to someone else’s private balance' : ''} on this device${c.chainId === 1 ? '' : `, on ${chainFull(c.chainId)}`}`));
         const h = to ? await W2.depositTo({ to, amount, onStep: step }) : await W2.deposit({ amount, onStep: step });
-        if (c.points !== false) rewardPop(go, { pts: hxPts('dev', Number(amount) / 1e18)?.pts });
+        rewardPop(go, { pts: hxPts('dev', Number(amount) / 1e18)?.pts });
         await waitTx(h, { timeoutMs: 20e3, chainId: c.chainId });
         clearField(amt); rc.hidden = true;
         afterAction(html`<span class="ok">${to ? 'Deposited into their private balance.' : 'Deposited.'}</span> ${explorer(h)}`);
@@ -6488,7 +6484,7 @@ function renderDevice(el) {
     </div>`);
   } else if (DEV.mode === 'out') {
     const dest = c.chainId === 1 ? DEV.dest : 'addr', l2 = DEVICE_CHAINS.find((x) => String(x.chainId) === dest);
-    mount(f, html`${c.chainId === 1 ? segSub('dest', dest, [['addr', 'Address'], ['v1', 'Tacit pool'], ...DEVICE_CHAINS.filter((x) => x.chainId !== 1 && x.bridge !== false).map((x) => [String(x.chainId), chainTab(x.chainId, x.name)])]) : ''}
+    mount(f, html`${c.chainId === 1 ? segSub('dest', dest, [['addr', 'Address'], ['v1', 'Tacit pool'], ...DEVICE_CHAINS.filter((x) => x.chainId !== 1).map((x) => [String(x.chainId), chainTab(x.chainId, x.name)])]) : ''}
       ${dest === 'addr' ? html`<div class="lbl"><span>To</span><button type="button" id="d-me">${mine()}</button></div>
         <div class="amt text"><input id="d-to" placeholder="0x… (a fresh address keeps it unlinked)" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient address"></div>` : ''}
       ${amountField('d-amt', 'Amount', maxPriv)}
@@ -6580,7 +6576,7 @@ function renderDevice(el) {
         <p class="note">For private sends within this pool, from another Tacit user’s device. Nothing on chain links a payment to it.</p></div>
       <div class="blk"><div class="kv"><span>Deposit address</span><b class="mono">${short(W.receiveBox, 8)}</b><button class="link" type="button" data-copy="${W.receiveBox}">copy</button></div>
         <p class="note">Send ETH here from any wallet or exchange, choosing ${chainTag(c.chainId)} as the network. It moves into your private balance within minutes, less at most 0.25%.${min ? html` The relay takes it in from ${fmt(min, 18, 4)} ETH, a floor that moves with network fees${c.chainId === 1 ? '; for less, pick Base' : ''}. Less waits there for more, or you sweep it in yourself.` : ''}</p>
-        <p class="note">Send only ETH, and only on ${chainMarks([1, 8453, 4663, 4326])}: anything else can’t be collected.</p></div>
+        <p class="note">Send only ETH, and only on ${chainMarks([1, 8453, 4663])}: anything else can’t be collected.</p></div>
       <div id="d-wait"></div>
       <p class="note">To ask for an amount, <a href="/pay/eth/#receive&chain=${c.chainId}">get paid by link or QR</a> in tacit pay: each link has a deposit address of its own.</p>` : html`<p class="note">Reading your addresses…</p>`);
     $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy));
@@ -12084,7 +12080,7 @@ async function paintPrivateFeet() {
     if (!bits.length) {
       let dev = 0n;
       for (const c of DEVICE_CHAINS) dev += devBal(c.chainId, S.key.pubHex) ?? 0n;
-      bits.push(dev > 0n ? 'Private ETH on this device too' : 'Ethereum, Base, Robinhood Chain and MegaETH');
+      bits.push(dev > 0n ? 'Private ETH on this device too' : 'Ethereum, Base and Robinhood Chain');
     }
     setFoot('eth', bits.join(' · '), s.eth.value > 0n || lockList('claim').length ? 'on' : '');
   };
@@ -12595,7 +12591,7 @@ function hxSub() {
 function hxHandoff(m, units) {
   const amt = units ? fmt(units, 8, 6) : null, ch = hxChain(), n = (u) => `${amt ? `${amt} ` : ''}${u}`;
   const deposit = (u, on) => [['Arrives', n(`${u}, for payments`)], ['Fee', 'the network fee only', '', `Proved on this device and sent from ${your()}`], ['Chain sees', `a deposit on ${on}, not whose`]];
-  if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: ch.points === false ? null : 'dev', rc: [...deposit('ETH', chainFull(ch.chainId)), ch.points === false ? ['Points', `none on ${chainFull(ch.chainId)}`] : null] };
+  if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: 'dev', rc: deposit('ETH', chainFull(ch.chainId)) };
   if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', rc: [['Arrives', 'shielded TAC on Bitcoin'], ['Chain sees', 'a deposit, not who holds it'], ['Sells', 'for sats, on the book']] };
   if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', rc: [['Arrives', 'ETH, one for one'], ['Relay fee', 'out of it, shown next']] };
   if (m === 'paytac') return { out: amt, go: 'Deposit privately', rc: deposit('TAC', 'Ethereum') };
@@ -13282,7 +13278,7 @@ function hxPts(pk, eth, outTac = 0) {
   const today = utcDay(now()), sc = scheduled(PGM.weights, today), wtOf = (a) => (sc && !sc.from ? sc.e.weights[a] ?? 1 : 1), wt = wtOf(act);
   if (!wt) return null;
   const devs = Object.values(OUT.dev), n = pk === 'wrap' ? OUT.v1?.deposits ?? 0 : devs.reduce((a, x) => a + x.deposits, 0);
-  const known = pk === 'wrap' ? !!OUT.v1 : pk === 'dev' && devs.length === DEVICE_CHAINS.filter((c) => c.points !== false).length, early = known ? 1 + (PGM.early.max - 1) / (1 + n / PGM.early.half) : 1;
+  const known = pk === 'wrap' ? !!OUT.v1 : pk === 'dev' && devs.length === DEVICE_CHAINS.length, early = known ? 1 + (PGM.early.max - 1) / (1 + n / PGM.early.half) : 1;
   const tier = holderTier(S.address), hold = tier.held, pts = eth * rate * wt * early * hold;
   const up = PGM.tiers.filter(([, m]) => m > hold), hit = outTac ? [...up].reverse().find(([min]) => outTac >= min) : null, nx = up[0];
   const tips = [tier.now > hold ? `${tier.now}× on this once your TAC has been held a day.`
@@ -13737,7 +13733,7 @@ function swcKey() {
   });
 }
 const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=18a22f94').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=81c5f2ce').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -13748,8 +13744,7 @@ function hxSwap() {
       for (const ev of ['pointerdown', 'keydown']) SWC.el.addEventListener(ev, () => { SWC.touched = true; }, { once: true });
       SWC.card = m.mountSwapCard(SWC.el, {
         wallet: swcWallet, W: swcW, connect: () => connect().catch((e) => { if (e?.code !== 4001 && !/cancel/i.test(e?.message || '')) toast(errText(e), true); }), getUx, lane: false, recent: false, moves: hxMoves,
-        // the Pay pool earns none on some chains
-        points: (act, eth) => { if (act === 'dev' && hxChain().points === false) return null; hxWantPoints(); const p = hxPts(act, eth); return p ? { pts: p.pts, floor: !p.known, why: p.why } : null; },
+        points: (act, eth) => { hxWantPoints(); const p = hxPts(act, eth); return p ? { pts: p.pts, floor: !p.known, why: p.why } : null; },
         key: { session: { get unlocked() { return !!S.key; }, get key() { return S.key; }, priv: walletPriv }, openKey: swcKey, wait: swcWait },
         // the pair and its sides are kept in this browser, the amount for the visit only, as the other tabs keep theirs
         onChange: () => { if (SWC.auto) return; const p = SWC.card.params(), amt = p.get('amt') || ''; p.delete('amt'); HX.swq = p.toString(); hxRemember(); try { sessionStorage.setItem(HX_AMT, JSON.stringify({ sig: 'swap', amt })); } catch { } },

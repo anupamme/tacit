@@ -98,7 +98,7 @@ const rpc = (plan, o = {}) => { const x = nodes(plan); return hedgedRpc(HOSTS, '
   assert.equal(bodyType('https://ethereum-rpc.publicnode.com'), 'text/plain;charset=UTF-8'); assert.equal(bodyType('https://eth.drpc.org'), 'text/plain;charset=UTF-8'); assert.equal(bodyType('https://mainnet.gateway.tenderly.co'), 'text/plain;charset=UTF-8');
   assert.equal(bodyType('https://1rpc.io/eth'), 'application/json', 'a node that refuses text/plain is sent JSON'); assert.equal(bodyType('not a url'), 'application/json');
   for (const u of ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.drpc.org']) assert.equal(bodyType(u), 'text/plain;charset=UTF-8', `${u} takes a plain body`);
-  for (const u of ['https://rpc.mainnet.chain.robinhood.com', 'https://mainnet.megaeth.com/rpc']) assert.equal(bodyType(u), 'application/json', `${u} wants JSON`);
+  assert.equal(bodyType('https://rpc.mainnet.chain.robinhood.com'), 'application/json', 'https://rpc.mainnet.chain.robinhood.com wants JSON');
   const { log } = await rpc({ 'https://a': { throws: 'down' } });
   assert.equal(log.types['https://a'], 'application/json', 'an unknown node is sent JSON, as before');
   ok('the nodes that take a plain-text body are sent one (no preflight request); the rest are sent JSON');
