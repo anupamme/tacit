@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+h5X7fhIUIw1USb9VgXdB5Nu5eD8eClSjgGN7U/tswQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-5D7EQQBKD+jDS5XgAPkTUGOdPCmSR7H5k0afmd8dfb0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -426,7 +426,7 @@ a.di { color: inherit; text-decoration: none; }
 #pts-lb { scroll-margin-top: 18px; }
 
 /* ── the sections under the hero: one idea each, a centred title, then its picture ── */
-.sx { padding: 96px 0 0; }
+.sx { padding: 80px 0 0; }
 .sx-h { display: grid; justify-items: center; gap: 10px; margin: 0 0 32px; text-align: center; }
 .sx-h h2 { font: 400 clamp(28px, 3.2vw, 34px)/1.1 var(--serif); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
 .sx-h h2 em { font-style: italic; }
@@ -474,22 +474,14 @@ a.di { color: inherit; text-decoration: none; }
 .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-delay: -.7s; }
 .wd-wire span { position: relative; z-index: 1; padding: 2px 10px; font: 400 12px var(--mono); letter-spacing: .04em; color: var(--mute); background: var(--card); border-radius: 999px; transition: color .15s; }
 .wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--ink); }
-.wd-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hair); }
-.wd-foot button { display: flex; align-items: center; gap: 12px; padding: 14px 24px; font-size: 13px; text-align: left; color: var(--mute); background: none; border: 0; cursor: pointer; transition: background .15s, color .15s; }
-.wd-foot button + button { justify-content: flex-end; text-align: right; border-left: 1px solid var(--hair); }
-@media (hover: hover) { .wd-foot button:hover { color: var(--ink); background: var(--field); } }
-.wd-foot .tk { width: 24px; height: 24px; }
-.wd-foot .chs .tk { width: 18px; height: 18px; }
-.wd-foot .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
-.wd-foot b { font-weight: 500; color: var(--ink); }
-/* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
-.kept { margin: 56px 0 0; }
-.kept-h { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 14px; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; text-align: center; }
+/* The picture of the two chains: what is passing between them now, and over the last day; the bridge card's last band. */
+.kept { padding: 16px 24px 12px; border-top: 1px solid var(--hair); }
+.kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 6px; font: 400 17px/1.2 var(--serif); letter-spacing: -.01em; }
 .kept-h a { font: 500 12px var(--mono); letter-spacing: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
 #kept-v { min-height: 148px; }
 
 
-/* Farm TAC: three ways in, each a card that leads with its rate. */
+/* Earn: the private farms' card, then the public farm and the vault pools as two slim rows. */
 .fm-y { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .fz { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 32px; padding: 26px 28px 24px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 22px; }
 .fz-l { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -499,7 +491,7 @@ a.di { color: inherit; text-decoration: none; }
 .fz-l .fm-apr { margin-top: 26px; }
 .fz.lp .fz-l .fm-apr { color: var(--mute); }
 .fz-l #priv-day { margin: 4px 0 0; font-size: 13px; color: var(--mute); }
-.fz-facts { display: grid; gap: 7px; margin: auto 0 0; padding: 18px 0 0; list-style: none; font-size: 13px; }
+.fz-facts { display: grid; gap: 7px; margin: 22px 0 0; padding: 0; list-style: none; font-size: 13px; }
 .fz-facts li { display: flex; gap: 9px; align-items: baseline; }
 .fz-facts li::before { content: ''; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); transform: translateY(-2px); }
 .fz-r { display: flex; flex-direction: column; min-width: 0; }
@@ -524,18 +516,21 @@ a.di { color: inherit; text-decoration: none; }
 .fz-r .btn { margin-top: 14px; border-radius: 12px; }
 .fz-r .q { min-height: 1.4em; margin: 10px 0 0; font-size: 13px; color: var(--mute); }
 .fz.off .fz-r { display: none; } .fz.off { grid-template-columns: minmax(0, 1fr); }
-.fm-way { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 22px 24px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; transition: background .15s; }
+.fm-way { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr" "pair go apr"; align-items: center; gap: 2px 14px; padding: 14px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; transition: background .15s; }
 @media (hover: hover) { a.fm-way:hover { background: var(--field); } a.fm-way:hover .go { transform: translateX(4px); } }
-.fm-way .pair { position: absolute; top: 22px; right: 24px; }
-.fm-way .pair .tk { width: 36px; height: 36px; }
+.fm-way .pair { grid-area: pair; }
+.fm-way .pair .tk { width: 30px; height: 30px; }
 .fm-way .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
 .fm-apr { position: relative; margin-top: 18px; font: 400 clamp(44px, 4.8vw, 60px)/.9 var(--serif); letter-spacing: -.03em; white-space: nowrap; }
 .fm-apr small { margin-left: 6px; font: 500 12px var(--mono); letter-spacing: .08em; }
 /* A rate that is the best of several pools says so above itself, so the three figures keep one left edge. */
 .fm-apr small.up { position: absolute; bottom: 100%; left: 1px; margin: 0 0 4px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
-.fm-way h3 { margin: 12px 0 0; font: 400 24px/1.1 var(--serif); }
-.fm-way p { flex: 1; margin: 0; font-size: 13px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
-.fm-way .fm-go { margin-top: 12px; font-size: 13px; font-weight: 500; }
+.fm-way h3 { grid-area: h; margin: 0; font: 400 19px/1.15 var(--serif); }
+.fm-way p { grid-area: p; margin: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
+.fm-way .fm-go { grid-area: go; margin-top: 4px; font-size: 12px; font-weight: 500; }
+.fm-way .fm-apr { grid-area: apr; margin: 0; font-size: 32px; text-align: right; }
+.fm-way .fm-apr small.up { position: static; display: block; margin: 0 0 2px; text-align: right; }
+.fm-way .fm-apr small:not(.up) { margin-left: 4px; font-size: 10px; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
 .fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 22px; }
 .fm-vp .fm-go a { position: relative; color: inherit; text-decoration: none; }
@@ -554,8 +549,8 @@ a.di { color: inherit; text-decoration: none; }
 /* TAC: one calm coin above its title; it turns to show Bitcoin on its back, then Ethereum. */
 .tc { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .tc .sx-h { margin-bottom: 26px; }
-.tc-stage { position: relative; width: 100%; height: 210px; display: grid; place-items: center; perspective: 900px; }
-.tc-tilt { scale: .8; transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
+.tc-stage { position: relative; width: 100%; height: 168px; display: grid; place-items: center; perspective: 900px; }
+.tc-tilt { scale: .62; transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
 @keyframes tc-bob { 0%, 100% { transform: rotateX(8deg) rotateZ(-4deg) translateY(-3px); } 50% { transform: rotateX(8deg) rotateZ(-4deg) translateY(3px); } }
 .tc-coin { --t: 14px; --cyc: 14s; position: relative; width: 200px; height: 200px; transform-style: preserve-3d; animation: tc-spin var(--cyc) infinite; }
 @keyframes tc-spin {
@@ -592,7 +587,7 @@ a.di { color: inherit; text-decoration: none; }
 .tc-facts dd { margin: 0; font: 400 30px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
 .tc-facts dd small { margin-right: 6px; font: 400 12px var(--mono); letter-spacing: 0; color: var(--mute); }
 /* Private bitcoin payments: three steps on one line, each a way in. */
-.tc-pay { width: 100%; max-width: 720px; margin: 56px 0 0; }
+.tc-pay { width: 100%; max-width: 720px; margin: 44px 0 0; }
 .tc-pay h3 { margin: 0; font: 400 22px/1.2 var(--serif); letter-spacing: -.01em; }
 .tp-flow { position: relative; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0 0; padding: 0; }
 .tp-flow::before { content: ''; position: absolute; top: 34px; left: calc(100% / 6); right: calc(100% / 6); border-top: 1px solid var(--hair-2); }
@@ -606,11 +601,11 @@ a.di { color: inherit; text-decoration: none; }
 .tp-flow b { font: 400 19px/1.1 var(--serif); }
 .tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
 /* What holding it does: four short lines under a rule. */
-.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 1040px; margin: 48px 0 0; padding: 28px 0 0; border-top: 1px solid var(--hair); }
+.tc-do { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 28px; width: 100%; max-width: 1040px; margin: 40px 0 0; padding: 0; }
 .tc-do li { display: grid; align-content: start; gap: 4px; }
-.tc-do b { font: 400 20px/1.15 var(--serif); }
+.tc-do b { font: 400 18px/1.15 var(--serif); }
 .tc-do span { font-size: 12px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
-.tc-links { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 36px; }
+.tc-links { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 32px; }
 .tc-links .tl { font-size: 14px; }
 .tc-links .btn { width: auto; min-height: 48px; margin: 0; padding: 0 24px; color: var(--ink); background: transparent; border-color: var(--ink); border-radius: 999px; }
 @media (hover: hover) { .tc-links .btn:hover:not(:disabled) { color: var(--paper); background: var(--ink); } }
@@ -1015,7 +1010,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .hx-b.swc .act, .hx-b .swc .act { margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; }
   .hx-amt { font-size: 38px; }
   .tape { margin-top: 22px; }
-  .sx { padding-top: 72px; }
+  .sx { padding-top: 56px; }
   .wd { --end: 1fr; }
   .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr); }
   .wd-top { padding: 16px 12px 14px; }
@@ -1031,15 +1026,16 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd-end small { font-size: 11px; line-height: 1.35; text-wrap: balance; }
   .wd-wire span { display: none; }
   .wd-wl { left: 6px; right: 6px; }
-  .wd-foot { grid-template-columns: minmax(0, 1fr); }
-  .wd-foot button { padding: 12px; }
-  .wd-foot button + button { justify-content: flex-start; text-align: left; border-left: 0; border-top: 1px solid var(--hair); flex-direction: row-reverse; }
   .fm-y { grid-template-columns: minmax(0, 1fr); }
-  .fm-way { padding: 20px 18px 18px; }
+  .fm-way { padding: 12px 14px; gap: 2px 12px; }
+  .fm-way .fm-apr { font-size: 26px; }
   .fz { padding: 20px 16px 18px; border-radius: 18px; }
   .fz-row > * { flex: 1 1 100%; }
-  .tc-stage { height: 180px; }
-  .tc-tilt { scale: .66; }
+  .fz-mode button { flex: 1; }
+  .fz-facts { display: none; }
+  .kept { padding: 12px 12px 10px; }
+  .tc-stage { height: 150px; }
+  .tc-tilt { scale: .54; }
   .tc-shadow { width: 112px; bottom: 12px; }
   .tc-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
   .tc-facts dd { font-size: 22px; }
@@ -1047,9 +1043,9 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-as { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; max-width: 440px; margin-bottom: 26px; padding: 3px; border-radius: 16px; }
   .tc-as button { flex-direction: column; gap: 4px; padding: 7px 2px 6px; font-size: 11.5px; border-radius: 13px; }
   .tc-as .tk { width: 24px; height: 24px; }
-  .tc-pay { margin-top: 44px; }
+  .tc-pay { margin-top: 36px; }
   .tp-flow small { font-size: 11px; }
-  .tc-do { gap: 18px 20px; margin-top: 36px; }
+  .tc-do { gap: 16px 20px; margin-top: 32px; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
@@ -1292,6 +1288,25 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <ul class="dash-g" id="dash-g"></ul>
   </section>
 
+  <section class="sx fm" aria-labelledby="fm-h">
+    <div class="sx-h"><h2 id="fm-h">Earn on ETH, <em>privately</em>.</h2><p>One transaction turns ETH into a private LP position. Farm it for TAC, streamed by the second; leave whenever you like.</p></div>
+    <div class="fz" id="fz">
+      <div class="fz-l">
+        <span class="pair" id="fz-icons"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg></span>
+        <h3 id="fz-name">Private farms</h3>
+        <span class="fm-apr num" id="fz-apr"><span class="sk" style="--w:4ch"></span></span>
+        <p id="priv-day"></p>
+        <ul class="fz-facts"><li>One transaction from ETH</li><li>Your position, rewards and exit stay private</li><li>Harvest, add or leave any time</li></ul>
+      </div>
+      <div class="fz-r" id="fz-r"></div>
+    </div>
+    <div class="fm-y">
+      <a class="fm-way" href="#farm/public" data-hx="earn:ether:public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+      <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
+    </div>
+    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
+  </section>
+
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h"><h2 id="how-h">How it <em>works</em>.</h2></div>
     <div class="wd">
@@ -1317,12 +1332,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <button class="wd-end r" type="button" data-hx="shield:ether:defi"><span><b>tETH</b><small>private ETH, one for one</small></span><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg></button>
         </li>
       </ol>
-      <div class="wd-foot">
-        <button type="button" data-hx="swap:sats:tac"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><b>Sats for TAC</b> on Bitcoin’s order book</span></button>
-        <button type="button" data-hx="shield:ether:pay" aria-label="Pay pools on Ethereum, Base, Robinhood Chain and MegaETH"><span><b>Pay pools</b> <span class="chs" title="Ethereum, Base, Robinhood Chain, MegaETH" aria-hidden="true"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#c-base"/></svg><svg class="tk" aria-hidden="true"><use href="#c-rh"/></svg><svg class="tk" aria-hidden="true"><use href="#c-mega"/></svg></span></span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
-      </div>
+      <div class="kept" id="kept"><h3 class="kept-h">Bitcoin, proven on Ethereum<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
     </div>
-    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin, proven on Ethereum.<a href="/weld/stats/">All stats <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
   </section>
 
   <section class="sx tc" id="tac" aria-labelledby="tc-h">
@@ -1482,25 +1493,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="tc-links"><a class="btn" href="/vault/#v=eth">Borrow TACE</a><a class="tl" href="/vault/#v=eth&amp;pools">TACE pools →</a><a class="tl" href="/vault/#v=eth&amp;t=repay">Repay →</a><button class="tl" type="button" data-asset="tace">About TACE →</button></div>
     </div>
     </div>
-  </section>
-
-  <section class="sx fm" aria-labelledby="fm-h">
-    <div class="sx-h"><h2 id="fm-h">Earn on ETH, <em>privately</em>.</h2><p>One transaction turns ETH into a private LP position. Farm it for TAC, streamed by the second; leave whenever you like.</p></div>
-    <div class="fz" id="fz">
-      <div class="fz-l">
-        <span class="pair" id="fz-icons"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg></span>
-        <h3 id="fz-name">Private farms</h3>
-        <span class="fm-apr num" id="fz-apr"><span class="sk" style="--w:4ch"></span></span>
-        <p id="priv-day"></p>
-        <ul class="fz-facts"><li>One transaction from ETH</li><li>Your position, rewards and exit stay private</li><li>Harvest, add or leave any time</li></ul>
-      </div>
-      <div class="fz-r" id="fz-r"></div>
-    </div>
-    <div class="fm-y">
-      <a class="fm-way" href="#farm/public" data-hx="earn:ether:public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-      <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
-    </div>
-    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
   </section>
 
   <div class="sx pi">
@@ -12321,7 +12313,7 @@ const hxWrapReady = (units) => !!(units && S.key && VOUCH.mod?.pick(S.key.pubHex
 // A wrap's or a zap's Proof row: made already (one kept ready fits it), or who makes it now and about how long it takes
 const proofRow = (ready) => (ready ? ['Proof', 'made already: no wait', 'ok']
   : ownNow(['wrap']) ? ['Proof', devOn() ? 'on this computer, a few minutes' : 'with your own credit, about a minute']
-  : ['Proof', 'the relay’s, about a minute, before anything is sent']);
+  : ['Proof', 'by the relay, about a minute']);
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap', tip,
   rc: units ? [ownNow(['wrap']) ? ['Relay tip', 'none: your own proof'] : ['Relay tip', tip ? `${fmt(tip, 18, 6)} ETH` : tip === undefined ? 'shown next' : tip == null ? '…' : 'none', '', 'Paid on top, to the relay that settles the deposit'],
     S.key ? proofRow(hxWrapReady(units)) : null,
