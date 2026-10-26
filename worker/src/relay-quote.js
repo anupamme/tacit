@@ -92,6 +92,9 @@ export function feeAssetOf(type, op) {
       return op.assetA || null; // the relay fee is carved from the A side (see quoteLpAdd in confidential-pool-ux.js)
     case 'route':
       return op.asset0 || null; // the route's START asset (the only note the trader actually spends)
+    case 'wrapswap':
+      // exec-wrapswap.rs: the fee is carved from the deposit before the swap, so it is paid in the deposited (input) asset
+      return (Number(op.direction) === 0 ? op.assetA : op.assetB) || null;
     case 'fastlane':
       return op.transfer?.asset || null; // the Bitcoin-homed transfer's fee is carved from its own asset
     default:

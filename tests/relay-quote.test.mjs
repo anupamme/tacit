@@ -64,6 +64,8 @@ const WPU = 10000000000n;       // 1e10 wei per in-system cETH unit (unitScale @
   assert.strictEqual(feeAssetOf('transfer', { asset: '0xaa' }), '0xaa', 'transfer: op.asset');
   assert.strictEqual(feeAssetOf('unwrap', { asset: '0xaa' }), '0xaa', 'unwrap: op.asset');
   assert.strictEqual(feeAssetOf('sendunwrap', { asset: '0xaa' }), '0xaa', 'sendunwrap: op.asset');
+  assert.strictEqual(feeAssetOf('wrapswap', { assetA: '0xaa', assetB: '0xbb', direction: 0 }), '0xaa', 'wrapswap A→B: the deposited asset A');
+  assert.strictEqual(feeAssetOf('wrapswap', { assetA: '0xaa', assetB: '0xbb', direction: 1 }), '0xbb', 'wrapswap B→A: the deposited asset B');
   assert.strictEqual(feeAssetOf('bridgeburn', { asset: '0xaa' }), '0xaa', 'bridgeburn: op.asset');
   assert.strictEqual(feeAssetOf('lp', { assetA: '0xaa', assetB: '0xbb' }), '0xaa', 'lp: fee carved from assetA');
   assert.strictEqual(feeAssetOf('lpremove', { assetA: '0xaa', assetB: '0xbb' }), '0xaa', 'lpremove: assetA');

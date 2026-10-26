@@ -133,9 +133,9 @@ test('replenish in the settle loop never overlaps a settle, and is off by defaul
   // jobs, not only once the queue empties: a steady stream of jobs is when the prover credit drains fastest, and
   // an idle-only top-up never gets its turn then (on 2026-10-10 the PROVE sat in the sink through an outage for
   // exactly that reason). Awaited in the loop body, so "between jobs" is still never "during one".
-  ok(/\n\s*await maybeReplenish\(\);\n(\s*await maybeDepositArrived\(\);\n)?\s*if \(!worked\) await sleep/.test(settle), 'replenish must be awaited between jobs, before the idle sleep');
+  ok(/\n\s*await maybeReplenish\(\);\n(\s*await maybeDepositArrived\(\);\n)?\s*if \(!worked\) await (sleep|idleWait)/.test(settle), 'replenish must be awaited between jobs, before the idle wait');
   // PROVE that arrives between passes is deposited from the same place, awaited, so it never overlaps a settle either.
-  ok(/\n\s*await maybeDepositArrived\(\);\n\s*if \(!worked\) await sleep/.test(settle), 'the arrived-PROVE deposit must be awaited between jobs, before the idle sleep');
+  ok(/\n\s*await maybeDepositArrived\(\);\n\s*if \(!worked\) await (sleep|idleWait)/.test(settle), 'the arrived-PROVE deposit must be awaited between jobs, before the idle wait');
   ok(!/(?<!await )maybeReplenish\(\);/.test(settle), 'every call must be awaited, so none is left running beside a job');
   ok(/replenishDue\(/.test(settle), 'the schedule decides whether it is due, so calling it every pass stays cheap');
   ok(/opt\('REPLENISH_IN_SETTLE', '0'\) === '1'/.test(config), 'REPLENISH_IN_SETTLE must default off');
