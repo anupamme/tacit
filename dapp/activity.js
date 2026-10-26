@@ -99,6 +99,7 @@ export function makeJournal({ pub = () => null, onTrim = () => {}, onStatus = ()
     }
     if (it.status !== prev) {
       it.up = Date.now();
+      (it.ts ||= {})[it.status] ??= it.up;                // when each state was first seen: what a bar of how far along it is reads
       if (ended(it) && ['failed', 'stale', 'unknown'].includes(prev) && !it.sent) it.flip = true;
       it.end = ended(it) ? it.end || Date.now() : null;
       if (it.status === 'proving') it.prov = true;
@@ -171,6 +172,46 @@ export function makeFollow({ journal, jobStatus, receipt, receiptOnce, btcConfir
 // The relay's own state, for a job in line: busy, held, paused or down (null when it is taking work). Read at most every 15 s.
 //   api             the worker's base URL;   base()  the relay's base URL (the deployment's, else the worker's)
 //   uxState()       the pool module's own reading, if it has one;   onChange()  the state changed
+// How far along a relayed action is, for its bar and its time left: each part's expected seconds (learned in this browser from the actions
+// that went through, seeded with the relay's usual pace) set against the time it has had. A relay job waits its turn (and those ahead of it),
+// is proved (on Tacit's own machine, or the prover network), then sent; a transaction lands in about a block. A part past its expected
+// time is given a little more, never none, so the bar slows near its end rather than stopping, and it is full only once the action ends.
+export const PACE_KEY = 'tacit-pace-v1';
+const PACE0 = { queue: 8, 'prove:board': 60, 'prove:network': 100, prove: 70, send: 18, tx: 15 };
+const laneOf = (lane) => (/^network/.test(String(lane || '')) ? 'network' : lane === 'board' ? 'board' : null);
+export function makePace({ storage = globalThis.localStorage } = {}) {
+  let P = { ...PACE0 };
+  try { P = { ...PACE0, ...JSON.parse(storage?.getItem(PACE_KEY) || '{}') }; } catch { /* the seeds */ }
+  const proveOf = (lane) => P[`prove:${laneOf(lane)}`] ?? P.prove;
+  const sum = (stages, now) => {
+    let spent = 0, left = 0, live = false;
+    for (const [e, start, stop] of stages) {
+      if (stop) { spent += Math.max(0, (stop - (start || stop)) / 1000); continue; }
+      if (!live && start) { live = true; const ran = Math.max(0, (now - start) / 1000); spent += ran; left += Math.max(e * 0.15, e - ran); continue; }
+      left += e;
+    }
+    return { spent, left };
+  };
+  // a relay job: { status, at, ts: { [status]: first seen }, lane, ahead }
+  function job(it, now = Date.now()) {
+    const ts = it.ts || {}, prove = proveOf(it.lane), pAt = ts.proving, sAt = ts.proven || ts.sending || ts.open;
+    return sum([[P.queue + (it.ahead > 0 ? it.ahead * prove : 0), it.at, pAt || sAt], [prove, pAt || null, sAt], [P.send, sAt || null, it.end]], now);
+  }
+  const tx = (it, now = Date.now()) => sum([[P.tx, it.at, it.end]], now);
+  // what one more relay job would take, for an action whose main job is not asked for yet
+  const ahead = (lane = null) => P.queue + proveOf(lane) + P.send;
+  const of = ({ spent, left }) => ({ spent, left, pct: Math.min(97, Math.max(3, Math.round((spent / Math.max(1, spent + left)) * 100))) });
+  // a job that went through teaches the pace its parts took
+  function learn(it) {
+    const ts = it.ts || {}, pAt = ts.proving, sAt = ts.proven || ts.sending || ts.open, put = (k, ms) => { const v = ms / 1000; if (v > 0 && v < 1800) P[k] = Math.round((P[k] ?? v) * 0.7 + v * 0.3); };
+    if (it.kind !== 'job' || it.status !== 'settled' || !sAt || !it.end) return;
+    if (pAt) { put('queue', pAt - it.at); put(`prove:${laneOf(it.lane) || 'board'}`, sAt - pAt); } else put('prove', sAt - it.at);
+    put('send', it.end - sAt);
+    try { storage?.setItem(PACE_KEY, JSON.stringify(P)); } catch { /* a convenience */ }
+  }
+  return { job, tx, ahead, of, learn, get: () => ({ ...P }) };
+}
+
 export const WAIT_WHY = {
   held: 'In line. It keeps its place and goes through on its own.',
   paused: 'In line: the relay isn’t proving right now. It keeps its place and goes through once it is.',

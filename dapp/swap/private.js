@@ -11,7 +11,7 @@ import { forgetUx } from '/trade/poolux.js?cb=f4b7b030';
 import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=8054284a';
 import { wrapQuote, WRAP_TIP } from '/teth/read.js?cb=f00ab10f';
 import { secp, keccak_256, sha256, bytesToHex } from '/vendor/tacit-deps.min.js';
-import { makeRunner } from '/activity.js?cb=6ee0e434';
+import { makeRunner } from '/activity.js?cb=994f4169';
 
 export { Cancelled, relayWords };
 

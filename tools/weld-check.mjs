@@ -190,7 +190,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgeout,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -9295,6 +9295,63 @@ await step('selfwallet', async () => {
   } finally { if (restore) await restore(); await r.browser.close(); }
 });
 
+// How far along an action is. A withdrawal the relay holds in its line: a bar under the form's status line and one in its Activity row, each
+// with the time left, moving on as the time passes (the page's clock is moved here), and both gone once the relay has sent it.
+await step('pace', async () => {
+  const hex = 'pace'.replace(/[^0-9a-f]/g, 'a').padEnd(64, '7');
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      let made = null;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        made ||= [['50', 0]].map(([cents, index]) => {
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (BigInt(cents) * 10n ** 16n).toString(), ticker: 'cETH', index });
+          return ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        });
+        b.notes = [...b.notes, ...made];
+        for (const n of made) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.value = BigInt(g.value) + BigInt(n.value); g.notes = [...g.notes, n]; }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      return ux;
+    }` }));
+  const bar = (sel) => r.page.evaluate((s) => { const b = document.querySelector(s); return b ? { pct: Number(b.querySelector('.actr-bar')?.getAttribute('aria-valuenow')), left: b.querySelector('span')?.textContent || '' } : null; }, sel);
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await r.page.evaluate(() => { const real = Date.now.bind(Date); window.__shift = 0; Date.now = () => real() + window.__shift; });
+    await pasteKey(r.page, hex);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    for (let i = 0; i < 200; i++) { if (await r.page.$eval('[data-v1="out"]', (b) => b.getAttribute('aria-selected') === 'true').catch(() => false)) break; await r.page.click('[data-v1="out"]').catch(() => {}); await sleep(1500); }
+    pendingNext = 1;
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.5');
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    await r.page.click('#o-go');
+    await until(r.page, () => !!document.querySelector('#v1-status + .pace[data-run] .actr-bar'), null, 120000).catch(() => {});
+    const a = await bar('#v1-status + .pace[data-run]');
+    ok(a && a.pct >= 3 && a.pct <= 60 && /about|minute|seconds/.test(a.left), `pace: in the relay's line, a bar under the form's status line with the time left (${a ? `${a.pct}% · ${a.left}` : 'none'})`);
+    await r.page.evaluate(() => { window.__shift = 45e3; });
+    await sleep(2500);
+    const b = await bar('#v1-status + .pace[data-run]');
+    ok(b && b.pct > a.pct, `pace: and it moves on as the time passes (${a?.pct}% → ${b?.pct}% · ${b?.left})`);
+    await openActivity(r.page);
+    const row = await bar('#act-body .actr .pace');
+    ok(row && row.pct >= 3 && row.pct < 100 && !!row.left, `pace: its Activity row has the same bar (${row ? `${row.pct}% · ${row.left}` : 'none'})`);
+    await r.page.evaluate(() => document.querySelectorAll('#sheet-act[open]').forEach((d) => d.close()));
+    for (const id of Object.keys(pendingJobs)) { postedJobs[id] = { type: pendingJobs[id], txHash: '0x' + 'ad'.repeat(32) }; delete pendingJobs[id]; }
+    await until(r.page, () => !document.querySelector('#v1-status + .pace[data-run]'), null, 120000).catch(() => {});
+    ok(!(await r.page.$('#v1-status + .pace[data-run]')), 'pace: once the relay has sent it, the bar is gone');
+    if (r.errors.length) { fails++; console.log('FAIL pace page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { pendingNext = 0; await r.browser.close(); }
+});
+
 // A relayed harvest that stays in the relay's line (the relay up and sending, but busy or waiting out a spike): a minute on, the sheet says it
 // is in line and that the paying account can send it; three minutes on, it is offered to the paying account with what that costs.
 await step('slowline', async () => {
@@ -11444,7 +11501,9 @@ await step('selfdevice', async () => {
     ok(/Done\./.test(await said()) && dev.asked.length === dV && vSent.length === 1 && BigInt(vSent[0].value || 0) === 10n ** 16n && !(await kept()).some((v) => v.amount === '10000000000000000'),
       `selfdevice: a wrap of that size goes out from the voucher, nothing asked of the prover, and the voucher is used up (${await said()}; asked ${dev.asked.length - dV})`);
 
-    // (b4) A proof whose send the wallet declined is kept: pressed again, it goes out with nothing proved again.
+    // (b4) A proof whose send the wallet declined is kept: pressed again, it goes out with nothing proved again. Sizes kept ready are let go
+    // first: a kept size used above is proved again while the prover is idle, which would count among the proofs asked for here.
+    await r.page.evaluate((p) => localStorage.setItem('tacit-lite-keep-ready-v1:' + p, '[]'), pub);
     await r.page.evaluate(() => {
       const real = window.ethereum.request.bind(window.ethereum); let once = true;
       window.ethereum.request = (a) => (a.method === 'eth_sendTransaction' && once ? (once = false, Promise.reject(Object.assign(new Error('User rejected the request.'), { code: 4001 }))) : real(a));

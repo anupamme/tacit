@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vu3kOJII4poHLIkNQAcDKt0fSY85zMKyfTNz23ynTrk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MEimKz6MQXsskh64cRAH2uTU7dE9HaPxwvGDP9mVtZU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -260,6 +260,9 @@ a.di { color: inherit; text-decoration: none; }
 @keyframes pulse { 50% { opacity: .3; } }
 .actr-f { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
 .actr-bar { height: 3px; overflow: hidden; background: var(--hair); border-radius: 2px; }
+.pace { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.pace .actr-bar { flex: 1; }
+.pace > span { font-size: 12px; color: var(--mute); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .actr-bar i { display: block; height: 100%; background: var(--ink); border-radius: 2px; transition: width 1s linear; }
 .actr-f a { color: var(--ink); }
 .actr-f.err { color: var(--err); }
@@ -1759,7 +1762,7 @@ import { SERVED as SERVED_POOLS, keeperIdOf, makeTokenPools, KEEPERS as POOL_KEE
 import { bridgeError, checkText, listNotes as listBridgeNotes, begin as beginBridge, toSelf as noteToSelf, through as brThrough, transfers as brTransfers, longCount as brLongCount, longReason as brLongReason, needsSend as brNeedsSend, firstStep as brFirst, overCap as brOver, haltText as bridgeHaltText, halts as brHalts, mergeSend, startNote, tryAgain, bulkFee, prepsAfterPass, runMerge as bridgeRunMerge, runAll as bridgeRunAll } from '/bridge-in.js?cb=1b8357ef';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery, IN_DONE, IN_HELD, IN_BURN_SENT, waitRanOut } from '/bridge-tick.js?cb=db96a3a9';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
-import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=6ee0e434';
+import { ACT_KEY, ACT_MAX, JOB_LABEL, ENDS, ended, listed as listedOf, actBridge, actOpen, actDone, makeJournal, makeFollow, makeRelayState, makePace, WAIT_WHY, OPENISH, ahead } from '/activity.js?cb=994f4169';
 if (window.__tacitAway) await new Promise(() => {});
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
@@ -2453,6 +2456,7 @@ function actPut(id, patch) { return JRN.put(id, patch); }
 // this visit is asked about again later, and a run whose jobs have all ended lets go of what it held
 function actStatus(it, prev) {
   if (it.in) opSync(it.in); else actSaid(it, prev);
+  if (it.kind === 'job' && it.status === 'settled' && SESS.has(it.id) && !OWN_JOB.test(it.id.slice(4))) PACE.learn(it);
   if (it.kind === 'job' && ['failed', 'unknown'].includes(it.status) && SESS.has(it.id)) setTimeout(() => recheckJob(it.id), 180e3);
   if (ended(it)) { runsPrune(); const r = it.kind === 'job' && JOBS.get(it.id.slice(4))?.run; if (r) batchLine(r); }
 }
@@ -3237,7 +3241,49 @@ function actBridgeBody(it, b) {
       : due ? html`<div class="brr-a"><a class="btn ghost" href="#${xoLink(xaOf(b))}" data-link="${xoLink(xaOf(b))}">${due}</a></div>` : ''}`;
 }
 // A proof on this computer, while it runs: how far along it is
-const devBar = (row) => { const it = row.kind === 'op' ? opParts(row).find((x) => x.main)?.it : row, at = it && DEV_JOB.test(it.id) && !ended(it) && it.status !== 'proven' ? devNow(it) : null; return at ? html`<div class="actr-bar" role="progressbar" aria-label="Proving on this computer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${at.pct}"><i style="width:${at.pct}%"></i></div>` : html``; };
+// How far along an action is (activity.js makePace, learned in this browser), a proof on this computer by its own stages: { pct, left }, or null
+// once it has ended. An action whose main job is not asked for yet counts one more job's time.
+const PACE = makePace();
+const paceDev = (it) => { const d = devNow(it); return d ? { spent: (d.pct / Math.max(1, 100 - d.pct)) * d.left, left: d.left } : { spent: 0, left: PACE.ahead() }; };
+const pacePart = (it) => (it.kind === 'tx' ? PACE.tx(it) : DEV_JOB.test(it.id) && !ended(it) ? paceDev(it) : PACE.job(it));
+function paceOf(it) {
+  if (!it || ended(it)) return null;
+  if (it.kind === 'job' || it.kind === 'tx') return PACE.of(pacePart(it));
+  if (it.kind !== 'op') return null;
+  const parts = opParts(it).filter((x) => x.it);
+  let spent = 0, left = parts.some((x) => x.main) ? 0 : PACE.ahead();
+  for (const x of parts) { const p = pacePart(x.it); spent += p.spent; left += ended(x.it) ? 0 : p.left; }
+  return PACE.of({ spent, left });
+}
+const leftWords = (s) => (s < 8 ? 'a few seconds' : s < 55 ? `about ${Math.max(10, Math.round(s / 5) * 5)} s` : s < 90 ? 'about a minute' : `about ${Math.round(s / 60)} min`);
+const paceView = (id, pc) => html`<div class="pace" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc.pct}"><i style="width:${pc.pct}%"></i></div><span>${leftWords(pc.left)}</span></div>`;
+const devBar = (row) => { const pc = paceOf(row); return pc ? paceView(row.id, pc) : html``; };
+// Every bar on the page is moved on each second: Activity's rows, and the one under the status line of an action this page is running (put
+// there while it runs, taken away when it ends; a sheet drawn again gets it back on the next tick).
+function paceTick() {
+  if (document.hidden) return;
+  const taken = new Set();
+  for (const run of [...RUNS].sort((a, b) => b.n - a.n)) {
+    const st = run.live ? run.to?.status : null, el = typeof st === 'function' ? st() : st || null;
+    const id = run.op || run.jobs.at(-1) || run.txs.at(-1)?.id || null, pc = id && paceOf(actGet(id));
+    const bar = el && el.nextElementSibling?.matches?.(`.pace[data-run="${run.n}"]`) ? el.nextElementSibling : null;
+    // one bar a status line: the newest action's
+    if (!pc || !el?.isConnected || taken.has(el)) { bar?.remove(); continue; }
+    taken.add(el);
+    if (!bar) el.insertAdjacentHTML('afterend', html`<div class="pace" data-run="${run.n}" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
+    else if (bar.dataset.pace !== id) bar.dataset.pace = id;
+  }
+  for (const b of document.querySelectorAll('.pace[data-run]')) { const run = [...RUNS].find((r) => String(r.n) === b.dataset.run); if (!run?.live) b.remove(); }
+  for (const b of document.querySelectorAll('.pace[data-pace]')) {
+    const pc = paceOf(actGet(b.dataset.pace));
+    if (!pc) { if (b.dataset.run || b.dataset.card) b.remove(); continue; }
+    const bar = b.firstElementChild, i = bar?.firstElementChild, t = b.lastElementChild;
+    if (bar && bar.getAttribute('aria-valuenow') !== String(pc.pct)) { bar.setAttribute('aria-valuenow', String(pc.pct)); i.style.width = `${pc.pct}%`; }
+    const w = leftWords(pc.left);
+    if (t && t.textContent !== w) t.textContent = w;
+  }
+}
+setInterval(paceTick, 1000);
 const actRow = (it) => {
   const b = actBridge(it), open = !!b && b.stage !== 'minted', done = ended(it) && !open;
   return html`<li class="actr" data-act="${it.id}">
@@ -13797,8 +13843,16 @@ function swcKey() {
     openSheet('wallet');
   });
 }
-const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); } });
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=b7362c2d').catch((e) => { SWC.p = null; throw e; }));
+const swcWait = (label, timeoutMs) => ({ timeoutMs, sleep, onJob: (jobId) => { actPut(`job:${jobId}`, { kind: 'job', label, status: 'pending' }); followJob(`job:${jobId}`); swcPace(`job:${jobId}`); } });
+// the card's status line carries the bar of the relay job it waits on (paceTick moves it on, and takes it away once that job has ended)
+function swcPace(id) {
+  const q = $('#hx-swap #q');
+  if (!q) return;
+  const b = q.nextElementSibling?.matches?.('.pace[data-card]') ? q.nextElementSibling : null;
+  if (b) b.dataset.pace = id;
+  else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
+}
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=f95605b1').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

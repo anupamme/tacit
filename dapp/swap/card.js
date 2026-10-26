@@ -1416,7 +1416,7 @@ function stepsClick(e) {
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
-const pvLoad = () => (PVP ||= import('/swap/private.js?cb=ccb8db92').then((m) => {
+const pvLoad = () => (PVP ||= import('/swap/private.js?cb=38d1d1a2').then((m) => {
   PV = m.makePrivate({ getUx, pick: pickWallet, ...H.key, onKey: (why) => { if (why) say(esc(why), 'err', true); else { PV.read().then(paint, () => {}); if (plans().some((x) => x.state === 'waiting')) ltLoad().then(readBlend, () => {}); } paint(); } });
   PV.mod = m;
   return PV;
@@ -1491,10 +1491,19 @@ async function checkExits() {
 }
 async function privateGo(r, kind = 'private') {
   if (kind === 'pin') return pinGo(r);
-  const q = S.q, fromWallet = isEth(S.pay), units = parseUnits(S.amt, 8);
+  let q = S.q;
+  const fromWallet = isEth(S.pay), units = parseUnits(S.amt, 8);
   if (!q || !units) return;
   if (fromWallet && !W.account) { await H.connect(); return; }
-  if (now() - (q.at || 0) > 60) { say('The price was read again. Check it and press once more.', '', true); requote(true); return; }
+  // a quote over a minute old is read again here, and the press goes on while what it pays still clears the least shown
+  if (now() - (q.at || 0) > 60) {
+    say('Reading the price again…');
+    const least = (r.out * 99n) / 100n, my = ++S.seq;
+    await quote(my, q.wei).catch(() => {});
+    const nr = my === S.seq && S.q && !S.q.err ? picked(S.q) : null;
+    if (!nr || nr.k !== r.k || nr.out < least) { say('The price moved. Check it and press once more.', '', true); return; }
+    q = S.q; r = nr;
+  }
   const pay = tokenOf(S.pay), get = tokenOf(S.get), what = `${tidy(plain(units, 8))} ${pay.sym}`, payKey = S.pay, earned = rowPts(r, q);
   let popped = false;
   const step = (k, h) => (k === 'sent' && !popped && (popped = true) && reward(earned), say({
