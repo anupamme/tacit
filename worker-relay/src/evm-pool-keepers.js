@@ -2,7 +2,7 @@
 // there were four, each pool with its own nodes, store and loop, sharing the witness model and the proving key, which are the bulk of a
 // keeper's memory. Proofs are made one pool at a time (one groth16 prover in flight), so the peak is one keeper's, not four.
 //
-//   EVM_POOL_CHAINS=1,8453,4663,4326,1-tac   the keepers, in order; the first answers the unprefixed routes. A chain id is that chain's
+//   EVM_POOL_CHAINS=1,8453,4663,1-tac   the keepers, in order; the first answers the unprefixed routes. A chain id is that chain's
 //                                            pool; a chain id and a name (1-tac) is another pool on the same chain, here the TAC pool
 //   EVM_POOL_<KNOB>_<chainId>                a chain's own value of any keeper knob (EVM_POOL_RPC_URL_8453, EVM_POOL_KEEPER_PRIV_8453,
 //                                            EVM_POOL_START_BLOCK_8453 …); without one, the plain EVM_POOL_<KNOB> applies to every chain

@@ -89,9 +89,9 @@ try {
   for (const dt of [-7200, -3600, -600, 0, 600]) store.saveTaskQuote({ t: now + dt, venue: 'precision', tacPerEth: 9_772n * TAC, gasPrice: 120n * 10n ** 6n }, 0);
   const lowGas = { floor: 1000n, cap: 2n * GWEI };
   const tasks = createTasks({
-    store, jobs: [{ ...job, opensAt: 1 }], client: clientOf(1), clients: { 8453: clientOf(8453), 4663: stub(4663), 4326: stub(4326) }, log: () => {}, quote: async (a) => [{ venue: 'precision', amountIn: a, amountOut: a * 9_772n }],
+    store, jobs: [{ ...job, opensAt: 1 }], client: clientOf(1), clients: { 8453: clientOf(8453), 4663: stub(4663) }, log: () => {}, quote: async (a) => [{ venue: 'precision', amountIn: a, amountOut: a * 9_772n }],
     cfg: { budgetWei: 5_000n * TAC, endSec: 4_000_000_000, tipBps: 10_000n, floorWei: 150n * TAC, capWei: 2_500n * TAC, reserveDays: 2, sampleEverySecs: 1 << 30,
-      chains: { 8453: { confirmations: 12, minAgeSecs: 0, gas: lowGas }, 4663: { gas: lowGas }, 4326: { gas: lowGas } } },
+      chains: { 8453: { confirmations: 12, minAgeSecs: 0, gas: lowGas }, 4663: { gas: lowGas } } },
     budgetFor: () => 1111n * TAC, graceSecs: 1800, fundingInputs: async () => ({ heldWei: 50_000n * TAC, claimedWei: 0n, nextDay: 20_000 }),
   });
   let total = 0n;

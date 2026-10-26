@@ -920,7 +920,7 @@ services:
   #   envVars:
   #     # DELIBERATELY NOT `fromGroup: tacit-relay-shared`: public, and signs only with its own keys.
   #     - key: EVM_POOL_CHAINS
-  #       value: "1,8453,4663,4326,1-tac,1-tacd,1-tace"
+  #       value: "1,8453,4663,1-tac,1-tacd,1-tace"
   #     # the TAC vaults' token pools (1-tac, 1-tacd, 1-tace), each on its own knobs with the suffix _1_TAC etc. and Ethereum's nodes otherwise:
   #     # EVM_POOL_ADDR / EVM_POOL_ROUTER_ADDR (contracts/deployments/tac-vaults.json TAC_POOL/TAC_ROUTER, USD_POOL/USD_ROUTER, ETH_POOL/ETH_ROUTER),
   #     # EVM_POOL_START_BLOCK 26201971, EVM_POOL_KEEPER_POLL_SECS 30, the Ethereum keeper's key (EVM_POOL_KEEPER_PRIV_1_TAC = _1_TACD = _1_TACE =
@@ -934,16 +934,12 @@ services:
   #     - key: EVM_POOL_KEEPER_SINGLE_THREAD
   #       value: "1"
   #     # per chain: its key, its nodes (the read fallbacks and the facts nodes as the single services carry them), its start block
-  #     # and confirmations, its fee floor (eth:20000000000000 on Ethereum, eth:5000000000000 on Base and Robinhood, eth:1000000000000 on
-  #     # MegaETH), and MegaETH's gas figures (EVM_POOL_KEEPER_GAS_CAP_4326 3000000, _RELAY_GAS_4326 900000, _DEPOSIT_GAS_4326 900000,
-  #     # _SWEEP_GAS_4326 1500000, EVM_POOL_CONFIRMATIONS_4326 200, EVM_POOL_LOG_CHUNK_4326 10000)
+  #     # and confirmations, its fee floor (eth:20000000000000 on Ethereum, eth:5000000000000 on Base and Robinhood)
   #     - key: EVM_POOL_KEEPER_PRIV_1
   #       sync: false
   #     - key: EVM_POOL_KEEPER_PRIV_8453
   #       sync: false
   #     - key: EVM_POOL_KEEPER_PRIV_4663
-  #       sync: false
-  #     - key: EVM_POOL_KEEPER_PRIV_4326
   #       sync: false
   #     - key: EVM_POOL_RPC_URL_1
   #       value: https://ethereum-rpc.publicnode.com
@@ -951,15 +947,11 @@ services:
   #       value: https://mainnet.base.org
   #     - key: EVM_POOL_RPC_URL_4663
   #       value: https://rpc.mainnet.chain.robinhood.com
-  #     - key: EVM_POOL_RPC_URL_4326
-  #       value: https://mainnet.megaeth.com/rpc
   #     - key: EVM_POOL_START_BLOCK_1
   #       sync: false
   #     - key: EVM_POOL_START_BLOCK_8453
   #       sync: false
   #     - key: EVM_POOL_START_BLOCK_4663
-  #       sync: false
-  #     - key: EVM_POOL_START_BLOCK_4326
   #       sync: false
   #     - key: EVM_POOL_WASM               # finalized ceremony artifacts, by URL + pin, shared by every chain
   #       sync: false

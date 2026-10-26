@@ -812,7 +812,6 @@ export const CFG = {
   pointsTasksRpc: {
     8453: opt('POINTS_TASKS_RPC_8453', opt('BASE_RPC_URL', 'https://mainnet.base.org')),
     4663: opt('POINTS_TASKS_RPC_4663', opt('ROBINHOOD_RPC_URL', 'https://rpc.mainnet.chain.robinhood.com')),
-    4326: opt('POINTS_TASKS_RPC_4326', 'https://mainnet.megaeth.com/rpc,https://megaeth.drpc.org'),
   },
   pointsTasksMinAgeSecs: num('POINTS_TASKS_MIN_AGE_SECS', 120),
   // The liquidity campaign (lib/points-lp.js): TAC for opening the named Precision pools and for holding liquidity in them, credited

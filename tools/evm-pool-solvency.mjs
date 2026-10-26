@@ -31,7 +31,6 @@ const CHAINS = {
   1: { name: 'Ethereum', rpc: ['https://mainnet.gateway.tenderly.co', 'https://rpc.mevblocker.io'], chunk: 1000, margin: 12 },
   8453: { name: 'Base', rpc: ['https://base.rpc.blxrbdn.com'], chunk: 10000, margin: 30 },
   4663: { name: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com'], chunk: 100000, margin: 300 },
-  4326: { name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc'], chunk: 100000, margin: 30 },
 };
 
 // ---------------------------------------------------------------- decoding and the checks (no network)

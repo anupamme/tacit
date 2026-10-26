@@ -54,8 +54,8 @@ A job's steps may be on other chains than Ethereum (a step names its `chainId`; 
 claim on the chain the claim names (`POST /tasks/claim` takes `{ "txHashes": […], "chainId": 8453 }`; Ethereum when it is left out),
 prices its gas from that chain's own block (with its own slow-price floor, a thousand wei, not Ethereum's 0.01 gwei) in the TAC price
 of Ethereum, and waits `POINTS_TASKS_MIN_AGE_SECS` (default 120) after the block as well as twelve confirmations, since a chain with
-quick blocks is not final in twelve of them. Nodes: `POINTS_TASKS_RPC_8453`, `_4663`, `_4326` (default the service's Base and Robinhood
-nodes and MegaETH's public ones; a comma list is tried in order). A job on a chain with no node refuses to start the service, and a node
+quick blocks is not final in twelve of them. Nodes: `POINTS_TASKS_RPC_8453`, `_4663` (default the service's Base and Robinhood
+nodes; a comma list is tried in order). A job on a chain with no node refuses to start the service, and a node
 that answers for another chain than the one it serves credits nothing.
 
 ## What the page reads
@@ -90,7 +90,7 @@ job by id and leaves the others):
 
     node worker-relay/scripts/tasks-jobs.mjs --payload payload.json --manifest tac-vaults.json --rpc <anvil fork> --opens <unix secs>
 
-`worker-relay/scripts/tasks-gen4.mjs` builds the `anon-wei-4` job (the page's chunks on Ethereum, the catch-up registry on four chains,
+`worker-relay/scripts/tasks-gen4.mjs` builds the `anon-wei-4` job (the page's chunks on Ethereum, the catch-up registry on three chains,
 the first points on two) from the page build's `out/` and the registry's init code and open salt; it reads each step's gas from the
 chain's own node with `eth_estimateGas` (nothing is sent). The page fetches a point from the chain's keeper when it is sent
 (`GET /<chainId>/evm-pool/keeper/point`) and checks its shape against the plan.

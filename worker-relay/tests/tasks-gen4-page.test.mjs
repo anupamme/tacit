@@ -24,7 +24,7 @@ const serviceJob = checkJob(JSON.parse(readFileSync(new URL('worker-relay/src/li
 const payload = JSON.parse(readFileSync(new URL('dapp/tasks/anon-wei-4-payload.json', root), 'utf8'));
 const chainOf = (s) => s.chainId ?? 1;
 const REG = serviceJob.steps.find((s) => s.kind === 'post').to;
-const NAMES = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain', 4326: 'MegaETH' };
+const NAMES = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain' };
 
 const server = spawn('node', [new URL('../../tools/serve-dapp.mjs', import.meta.url).pathname], { env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore' });
 const dir = mkdtempSync(join(tmpdir(), 'tasks-gen4-page-'));
@@ -41,9 +41,9 @@ try {
     getTransaction: async ({ hash }) => { const r = receipts.get(hash); if (!r) throw new Error('not found'); return { from: r.from, to: r.to, input: r.input }; },
     getTransactionReceipt: async ({ hash }) => { const r = receipts.get(hash); if (!r || r.chain !== id) throw new Error('not found'); return { status: 'success', blockNumber: 100n, logs: r.logs }; } });
   const tasks = createTasks({
-    store: quoteStore, jobs: [{ ...serviceJob, opensAt: 1 }], client: stub(1), clients: { 8453: stub(8453), 4663: stub(4663), 4326: stub(4326) }, log: () => {}, quote: async (a) => [{ venue: 'precision', amountIn: a, amountOut: a * 9_772n }],
+    store: quoteStore, jobs: [{ ...serviceJob, opensAt: 1 }], client: stub(1), clients: { 8453: stub(8453), 4663: stub(4663) }, log: () => {}, quote: async (a) => [{ venue: 'precision', amountIn: a, amountOut: a * 9_772n }],
     cfg: { budgetWei: 5_000n * TAC, endSec: 4_000_000_000, tipBps: 10_000n, floorWei: 150n * TAC, capWei: 2_500n * TAC, reserveDays: 2, sampleEverySecs: 1 << 30,
-      chains: Object.fromEntries([8453, 4663, 4326].map((id) => [id, { confirmations: 1, minAgeSecs: 0, gas: { floor: 1000n, cap: 2n * GWEI } }])) },
+      chains: Object.fromEntries([8453, 4663].map((id) => [id, { confirmations: 1, minAgeSecs: 0, gas: { floor: 1000n, cap: 2n * GWEI } }])) },
     budgetFor: () => 1111n * TAC, graceSecs: 1800, fundingInputs: async () => ({ heldWei: 50_000n * TAC, claimedWei: 0n, nextDay: 20_000 }),
   });
   await tasks.cycle().catch(() => {});
@@ -60,8 +60,8 @@ try {
     if (url.pathname === '/tasks/claim') { const body = JSON.parse(req.postData()); claims.push(body); const r = await tasks.claim(body, { client: 'page' }); return route.fulfill(json(r.body, r.status)); }
     return route.fulfill(json({ error: 'not here' }, 404));
   });
-  const HOSTS = { 1: ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'], 8453: ['mainnet.base.org', 'base.gateway.tenderly.co', 'base-rpc.publicnode.com', 'base.drpc.org'], 4663: ['rpc.mainnet.chain.robinhood.com', 'robinhood.drpc.org'], 4326: ['mainnet.megaeth.com', 'megaeth.drpc.org'] };
-  const seen = { defaults: { 1: 0, 8453: 0, 4663: 0, 4326: 0 }, custom: 0, batches: 0 };
+  const HOSTS = { 1: ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'], 8453: ['mainnet.base.org', 'base.gateway.tenderly.co', 'base-rpc.publicnode.com', 'base.drpc.org'], 4663: ['rpc.mainnet.chain.robinhood.com', 'robinhood.drpc.org'] };
+  const seen = { defaults: { 1: 0, 8453: 0, 4663: 0 }, custom: 0, batches: 0 };
   const serve = (id, label) => async (route) => {
     const req = route.request();
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
@@ -145,7 +145,7 @@ try {
   const text = () => page.locator('main').innerText();
   const body = await text();
   assert.match(body, /PAGE CHUNKS/i); assert.match(body, /CATCH-UP REGISTRY/i); assert.match(body, /FIRST POINTS/i);
-  for (const name of ['Ethereum', 'Base', 'Robinhood Chain', 'MegaETH']) assert.ok(await page.locator(`.p-steps svg[aria-label="${name}"]`).count() > 0, `a step on ${name} shows its chain's mark`);
+  for (const name of ['Ethereum', 'Base', 'Robinhood Chain']) assert.ok(await page.locator(`.p-steps svg[aria-label="${name}"]`).count() > 0, `a step on ${name} shows its chain's mark`);
   assert.match(body, new RegExp(`0 of ${total} steps on the chain`));
   assert.match(body, /at least 8 TAC a step/, 'the rewards panel says what a chunk pays at least');
   console.log(`ok - the job shows ${total} steps in three groups, each on its chain, none on the chain yet`);
@@ -191,21 +191,21 @@ try {
   assert.equal(sent.length, total, `every step was sent (${sent.length} of ${total})`);
   const order = serviceJob.steps.filter((x) => x.id !== one.id).map(chainOf);
   assert.deepEqual(sent.map((s) => s.chainId), [chainOf(one), ...order], 'the lone chunk first, then the rest in the plan\'s order, each on its own chain');
-  assert.ok(added.some((a) => a.chainName === 'Robinhood Chain') && added.some((a) => a.chainName === 'MegaETH'), 'the wallet was asked to add the chains it had never seen');
+  assert.ok(added.some((a) => a.chainName === 'Robinhood Chain'), 'the wallet was asked to add the chain it had never seen');
   assert.ok(!added.some((a) => a.chainName === 'Base'), 'and not those it knew');
   assert.ok(added.every((x) => /\/chain-icons\/\d+\.svg$/.test(x.iconUrls?.[0] || '')), 'each added chain comes with a picture of ours, for a wallet that has none');
   assert.ok(sent.filter((s) => s.data.slice(0, 10) === `0x${keccak256(new TextEncoder().encode('post(uint256,uint256,bytes32[32])')).slice(2, 10)}`).length === 2, 'two points, read from the keepers');
-  console.log(`ok - the page sent all ${total} steps on four chains, adding the two chains the wallet did not have, and read both points from the keepers`);
+  console.log(`ok - the page sent all ${total} steps on three chains, adding the chain the wallet did not have, and read both points from the keepers`);
 
   // Each transaction is named to the service on its own chain, and credited.
   await page.waitForFunction(() => document.querySelector('#jobs')?.innerText.includes('steps on the chain'), null, { timeout: 15000 });
   await page.waitForTimeout(25000);
-  assert.deepEqual([...new Set(claims.map((c) => c.chainId ?? 1))].sort((a, b) => a - b), [1, 4326, 4663, 8453], 'claims are named per chain');
+  assert.deepEqual([...new Set(claims.map((c) => c.chainId ?? 1))].sort((a, b) => a - b), [1, 4663, 8453], 'claims are named per chain');
   const pending = quoteStore.pendingTaskClaims().length;
   assert.equal(pending, total, `all ${total} steps are recorded as claims (${pending})`);
   await tasks.cycle();
   assert.ok(quoteStore.creditedWithPrefix('task:') > 0n);
-  console.log(`ok - ${pending} claims, on four chains, credited ${Number(quoteStore.creditedWithPrefix('task:')) / 1e18} TAC`);
+  console.log(`ok - ${pending} claims, on three chains, credited ${Number(quoteStore.creditedWithPrefix('task:')) / 1e18} TAC`);
   assert.deepEqual(errors, [], `no page errors: ${errors.join(' | ')}`);
   console.log('ok - no errors on the page');
 } finally {

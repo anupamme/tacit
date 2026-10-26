@@ -4,11 +4,11 @@
 //   dapp/tasks/anon-wei-4-payload.json            the transactions a visitor sends
 //
 //   node worker-relay/scripts/tasks-gen4.mjs --page /path/to/tacit-pay --registry-init init.txt --registry-salt 0x… --registry-address 0x…
-//        --min-base 25000 --min-robinhood 2000 --opens <unix secs> [--rpc-1 <node>] [--rpc-8453 <node>] [--rpc-4663 <node>] [--rpc-4326 <node>]
+//        --min-base 25000 --min-robinhood 2000 --opens <unix secs> [--rpc-1 <node>] [--rpc-8453 <node>] [--rpc-4663 <node>]
 //        [--no-estimate (keep the gas already in the files)] [--out <dir>]
 //
 // The job: the page's chunks on Ethereum (each a CreateX CREATE2 deployment under a chain-bound salt anyone may use, so its
-// address is fixed by its code), the catch-up registry on four chains (CreateX CREATE2 under one salt anyone may use: the same
+// address is fixed by its code), the catch-up registry on three chains (CreateX CREATE2 under one salt anyone may use: the same
 // address on every chain, fixed by its code), and the first point posted to the registry on the two chains where a long history
 // slows the first read. The page's wrapper (`deployNext`, from the steward) and the name `anon.wei` are the steward's and are not
 // part of the job.
@@ -33,8 +33,8 @@ const PAYLOAD_OUT = out ? `${out}/payload.json` : `${root}dapp/tasks/anon-wei-4-
 const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 const DEPLOY_CREATE2 = '0x26307668';                                      // deployCreate2(bytes32 salt, bytes initCode)
 const TAC = 10n ** 18n;
-const CHAINS = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain', 4326: 'MegaETH' };
-const NODES = { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com', 4326: 'https://mainnet.megaeth.com/rpc' };
+const CHAINS = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain' };
+const NODES = { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com' };
 // What a step pays at least and at most, in TAC, whatever gas costs.
 const BOUNDS = { chunk: [8n, 80n], registryEthereum: [12n, 80n], registryOther: [15n, 40n], post: [25n, 60n] };
 const POST_GAS = 1_743_000;                                                // measured: 1,742,487 on forks of Ethereum and Base (the admin page's end-to-end test)
@@ -63,17 +63,18 @@ files.forEach((init, i) => {
   steps.push({ id: `${String(i + 1).padStart(2, '0')}-chunk-${i + 1}`, chainId: 1, group: 'Page chunks', kind: 'createx', to: CREATEX, data: deployData(salt, init), expected, salt, initCodeHash: initHash, label: `Page chunk ${i + 1} of ${files.length}`, bounds: BOUNDS.chunk });
 });
 
-// ── the registry, on four chains, under one open salt ──
+// ── the registry, on three chains, under one open salt ──
 const regInit = readFileSync(need('registry-init'), 'utf8').trim(), regSalt = need('registry-salt'), regAddr = getAddress(need('registry-address'));
 const regHash = keccak256(regInit);
 if (!/^0x0{40}00[0-9a-f]{22}$/i.test(regSalt)) throw new Error('the registry salt must start with 20 zero bytes and the flag 0x00');
 if (create2(CREATEX, keccak256(regSalt), regHash) !== regAddr) throw new Error(`the salt and init code give ${create2(CREATEX, keccak256(regSalt), regHash)}, not ${regAddr}`);
-for (const id of [1, 8453, 4663, 4326]) {
+for (const id of [1, 8453, 4663]) {
   steps.push({ id: `${String(steps.length + 1).padStart(2, '0')}-registry-${CHAINS[id].toLowerCase().replace(/[^a-z]+/g, '-')}`, chainId: id, group: 'Catch-up registry', kind: 'createx', bound: false, to: CREATEX, data: deployData(regSalt, regInit), expected: regAddr, salt: regSalt, initCodeHash: regHash, label: `Catch-up registry on ${CHAINS[id]}`, bounds: id === 1 ? BOUNDS.registryEthereum : BOUNDS.registryOther });
 }
 // ── the first points, where the pool has a long history ──
+// numbered from 21: the job once had a fourth registry step (20), and the ids the others were paid under stay
 for (const [id, min] of [[8453, Number(need('min-base'))], [4663, Number(need('min-robinhood'))]]) {
-  steps.push({ id: `${String(steps.length + 1).padStart(2, '0')}-point-${CHAINS[id].toLowerCase().split(' ')[0]}`, chainId: id, group: 'First points', kind: 'post', to: regAddr, minSize: min, label: `First catch-up point on ${CHAINS[id]}`, bounds: BOUNDS.post, gas: POST_GAS });
+  steps.push({ id: `${String(steps.length + 2).padStart(2, '0')}-point-${CHAINS[id].toLowerCase().split(' ')[0]}`, chainId: id, group: 'First points', kind: 'post', to: regAddr, minSize: min, label: `First catch-up point on ${CHAINS[id]}`, bounds: BOUNDS.post, gas: POST_GAS });
 }
 
 // ── gas, from each chain's own node ──
@@ -95,10 +96,10 @@ for (const s of steps) {
 // ── what the page says about the job ──
 const COPY = {
   title: 'Deploy the next anon.wei',
-  tagline: `Put anon.wei’s next version on Ethereum, its catch-up registry on four chains, and the first points: ${steps.length} transactions, from any wallet.`,
+  tagline: `Put anon.wei’s next version on Ethereum, its catch-up registry on three chains, and the first points: ${steps.length} transactions, from any wallet.`,
   about: [
     { h: 'What it does', p: 'anon.wei opens on a new device by reading the pool’s whole history, which takes a long time on a busy chain. The catch-up registry keeps the pool’s tree at some counts, each checked against the pool when it is posted, so a new device starts from the newest and reads the older history in the background. The next page also adds wallet apps through WalletConnect, and fixes.' },
-    { h: 'What gets deployed', p: `The page’s ${files.length} chunks on Ethereum (plain code the page is read from); the registry on Ethereum, Base, Robinhood Chain and MegaETH, at one address; and the first catch-up point on Base and on Robinhood Chain, where the history is longest. The page’s own contract and the anon.wei name are the steward’s to set afterwards.` },
+    { h: 'What gets deployed', p: `The page’s ${files.length} chunks on Ethereum (plain code the page is read from); the registry on Ethereum, Base and Robinhood Chain, at one address; and the first catch-up point on Base and on Robinhood Chain, where the history is longest. The page’s own contract and the anon.wei name are the steward’s to set afterwards.` },
     { h: 'Who controls it', p: 'Nobody. The registry has no owner and no settings: anyone can post a point, and it keeps one only if the pool itself held that root at that count. The chunks are code with no owner.' },
     { h: 'Who can send it', p: 'Anyone. Each address is fixed by its exact code, so the sender cannot change what lands there. A point is read from the chain’s keeper when it is sent, and the registry refuses one the pool did not hold.' },
   ],

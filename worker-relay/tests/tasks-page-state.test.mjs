@@ -38,7 +38,7 @@ try {
       if (service === 'down') return new Promise(() => {});
       return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(service) });
     });
-    for (const host of ['https://ethereum-rpc.publicnode.com/**', 'https://eth.drpc.org/**', 'https://1rpc.io/**', 'https://mainnet.gateway.tenderly.co/**', 'https://mainnet.base.org/**', 'https://base.gateway.tenderly.co/**', 'https://base-rpc.publicnode.com/**', 'https://base.drpc.org/**', 'https://rpc.mainnet.chain.robinhood.com/**', 'https://robinhood.drpc.org/**', 'https://mainnet.megaeth.com/**', 'https://megaeth.drpc.org/**']) {
+    for (const host of ['https://ethereum-rpc.publicnode.com/**', 'https://eth.drpc.org/**', 'https://1rpc.io/**', 'https://mainnet.gateway.tenderly.co/**', 'https://mainnet.base.org/**', 'https://base.gateway.tenderly.co/**', 'https://base-rpc.publicnode.com/**', 'https://base.drpc.org/**', 'https://rpc.mainnet.chain.robinhood.com/**', 'https://robinhood.drpc.org/**']) {
       await ctx.route(host, async (route) => {
         const req = route.request();
         if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });

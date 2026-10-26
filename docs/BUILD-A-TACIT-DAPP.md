@@ -7,7 +7,7 @@ needs a build step, a framework or a backend. A starting skeleton is
 The protocol itself is in [`SPEC.md`](../SPEC.md); addresses are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md). Every path on one page,
 with its rules, the relay API, the addresses and the mainnet transactions behind each: [tacit.finance/build](https://tacit.finance/build/).
 
-**Only want private ETH payments, on Ethereum, Base, Robinhood Chain and MegaETH?** That is a separate, smaller pool —
+**Only want private ETH payments, on Ethereum, Base and Robinhood Chain?** That is a separate, smaller pool —
 one fixed Groth16 circuit, proved on the user's own device, no SP1, no relay witness — with its own guide:
 [`EVM-POOL.md`](./EVM-POOL.md). This guide is for the confidential pool: multi-asset notes, DeFi (swap, LP,
 lend, farm, OTC, bids) and the Bitcoin bridge, all through one SP1 program.
@@ -65,7 +65,7 @@ first step works with nothing but an RPC; the second needs the relay.
 
 Ethereum mainnet. The source of truth is
 [`contracts/deployments/1-createx.json`](../contracts/deployments/1-createx.json); read addresses from it.
-(A second, separate Tacit pool — private ETH only, multichain on Ethereum, Base, Robinhood Chain and MegaETH — has its
+(A second, separate Tacit pool — private ETH only, multichain on Ethereum, Base and Robinhood Chain — has its
 own addresses; see §5h.)
 
 | | |

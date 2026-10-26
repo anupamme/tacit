@@ -20,7 +20,6 @@ const CHAINS = {
   1: { name: 'Ethereum', explorer: ETHERSCAN, hosts: RPCS },
   8453: { name: 'Base', explorer: 'https://basescan.org', hosts: ['https://mainnet.base.org', 'https://base.gateway.tenderly.co', 'https://base-rpc.publicnode.com', 'https://base.drpc.org'] },
   4663: { name: 'Robinhood Chain', explorer: 'https://robinhoodchain.blockscout.com', hosts: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'] },
-  4326: { name: 'MegaETH', explorer: 'https://mega.etherscan.io', hosts: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'] },
 };
 // What the reader has set (Endpoints, below): nodes per chain, the rewards service and the keepers. A chain with nodes of the reader's own
 // is read through them alone; the page's are the default.
@@ -44,7 +43,7 @@ async function batchOn(id, calls) {
   }
   return Promise.all(calls.map(([m, p]) => readOn(id, m, p).catch(() => null)));
 }
-const CHAIN_MARK = { 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh', 4326: 'c-mega' };
+const CHAIN_MARK = { 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh' };
 const mark = (id) => `<svg class="tk xs inl" role="img" aria-label="${esc(CHAINS[id].name)}"><title>${esc(CHAINS[id].name)}</title><use href="#${CHAIN_MARK[id]}"/></svg>`;
 const asWallet = (id) => ({ id, name: CHAINS[id].name, rpc: hostsOf(id).slice(0, 2), explorer: CHAINS[id].explorer, icon: `${location.origin}/chain-icons/${id}.svg` });
 const LATEST = '0x52bfe789';                          // the catch-up registry's latest(): the count of its newest point

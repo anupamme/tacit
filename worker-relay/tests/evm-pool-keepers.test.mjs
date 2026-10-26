@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { chainsOf, instancesOf, envFor, routeOf, serialProver } from '../src/evm-pool-keepers.js';
 
 test('the chains are read in order; a bad id refuses', () => {
-  assert.deepEqual(chainsOf({ EVM_POOL_CHAINS: '1, 8453,4663,4326' }), [1, 8453, 4663, 4326]);
+  assert.deepEqual(chainsOf({ EVM_POOL_CHAINS: '1, 8453,4663,10' }), [1, 8453, 4663, 10]);
   assert.deepEqual(chainsOf({}), []);
   assert.throws(() => chainsOf({ EVM_POOL_CHAINS: '1,base' }), /bad chain id/);
 });

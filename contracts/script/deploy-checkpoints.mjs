@@ -42,7 +42,6 @@ let CHAINS = [
   { id: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], explorer: 'https://etherscan.io', relay: keeper(1), deployBlock: 26069245, logStep: 50_000 },
   { id: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.gateway.tenderly.co', 'https://base.drpc.org'], explorer: 'https://basescan.org', relay: keeper(8453), deployBlock: 51864014, logStep: 500 },
   { id: 4663, name: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'], explorer: 'https://robinhoodchain.blockscout.com', relay: keeper(4663), deployBlock: 73991661, logStep: 1_000_000 },
-  { id: 4326, name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'], explorer: 'https://mega.etherscan.io', relay: keeper(4326), deployBlock: 28397750, logStep: 100_000 },
 ];
 for (const c of CHAINS) {
   if (process.env['RPC_' + c.id]) c.rpc = [process.env['RPC_' + c.id]];
