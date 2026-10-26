@@ -570,9 +570,13 @@ function createMarket(host, ctx) {
         } else h = 'No one is selling right now.';
       } else {
         const bids = eligibleBids();
-        const manual = S.book.bids.filter((b) => !b.mine && !b.auto).length;
-        if (bids.length) h = `Best bid <b>${fmtUnit(bids[0].unit)}</b> sats/${T} · ${bids.length} bid${bids.length === 1 ? '' : 's'} you can sell into now`;
-        else if (manual) h = `No auto-settling bids. ${manual} bid${manual === 1 ? ' settles' : 's settle'} only when the bidder is online — allow them in Settings, or <button type="button" class="bm-link" data-act="to-limit">list at your price</button>.`;
+        const online = S.book.bids.filter((b) => !b.mine && !b.auto);
+        const manual = online.length;
+        if (bids.length) {
+          const above = S.includeManual ? [] : online.filter((b) => b.unit > bids[0].unit);
+          const more = above.length === 1 ? `1 more at <b>${fmtUnit(above[0].unit)}</b> settles` : `${above.length} more, up to <b>${fmtUnit(above[0]?.unit)}</b>, settle`;
+          h = `Best bid <b>${fmtUnit(bids[0].unit)}</b> sats/${T} · ${bids.length} bid${bids.length === 1 ? '' : 's'} you can sell into now${above.length ? ` · ${more} only when the bidder is online` : ''}`;
+        } else if (manual) h = `No auto-settling bids. ${manual} bid${manual === 1 ? ' settles' : 's settle'} only when the bidder is online — allow them in Settings, or <button type="button" class="bm-link" data-act="to-limit">list at your price</button>.`;
         else h = 'No one is bidding right now.';
       }
     }
