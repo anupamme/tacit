@@ -51,6 +51,28 @@ export function canonical(v) {
 }
 export const hashRecord = (record) => createHash('sha256').update(canonical(record)).digest('hex');
 
+// A client for a public endpoint: one request at a time, `gapMs` apart, and a request the endpoint refuses for its rate limit (or that times out) is asked
+// again after a pause that doubles (1 s, 2 s, 4 s … at most 30 s), up to `tries` times. Any other error, such as a range of logs that is too wide, is
+// passed on at once so that the caller can ask for less. Only the four calls checkDayRecord makes are given.
+export function throttledClient(client, { gapMs = 150, tries = 8, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let tail = Promise.resolve();
+  const refused = (e) => [429, 502, 503, 504].includes(e?.status)
+    || /rate limit|too many requests|\b429\b|limit exceeded|timed out|timeout|ETIMEDOUT|ECONNRESET|fetch failed|temporarily/i.test([e?.shortMessage, e?.message, e?.details, e?.cause?.message].filter(Boolean).join(' '));
+  const run = (fn) => {
+    const next = tail.then(async () => {
+      for (let i = 0; ; i++) {
+        try { const r = await fn(); await sleep(gapMs); return r; } catch (e) {
+          if (i + 1 >= tries || !refused(e)) throw e;
+          await sleep(Math.min(30_000, 1000 * 2 ** i));
+        }
+      }
+    });
+    tail = next.catch(() => {});
+    return next;
+  };
+  return { readContract: (a) => run(() => client.readContract(a)), getBlock: (a) => run(() => client.getBlock(a)), getCode: (a) => run(() => client.getCode(a)), getLogs: (a) => run(() => client.getLogs(a)) };
+}
+
 // The transfers of `pool` from block `from` to `to`, in the order they happened, in stretches the node will give (halved when it refuses one).
 async function transfersOf(client, pool, from, to, chunk) {
   const out = [];

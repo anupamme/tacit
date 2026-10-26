@@ -14,18 +14,22 @@
 //                       to suit, which no check of the record alone can)
 //   --allow-unpinned    accept readings made before they were pinned to blocks (only the day of the upgrade has them)
 //   --from-block        the block a pool was created at, to skip the search for it
+//   --gap-ms            the pause between requests (default 150); a public endpoint that says it is rate limited is asked again after a growing pause
+//
+// Archive endpoints that worked for a two-day-old day on free plans: https://eth.drpc.org (logs in ranges up to 10,000 blocks). publicnode refuses old
+// state, llamarpc and ankr need a key, blastapi allows only 10 blocks of logs a call.
 //
 // A day long past needs an archive node for --rpc (or LP_VERIFY_RPC); a recent one does not. Exit code 0 when everything checks out, 1 when
 // something does not, 2 when it cannot be read.
 import { createRequire } from 'node:module';
-import { verifyServiceDay } from '../worker-relay/src/lib/points-lp-record.js';
+import { verifyServiceDay, throttledClient } from '../worker-relay/src/lib/points-lp-record.js';
 
 const require = createRequire(new URL('../worker-relay/package.json', import.meta.url));
 const { createPublicClient, http } = require('viem');
 const { mainnet } = require('viem/chains');
 
 const args = process.argv.slice(2);
-const VALUE_FLAGS = new Set(['--farm', '--service', '--rpc', '--from-block']);
+const VALUE_FLAGS = new Set(['--farm', '--service', '--rpc', '--from-block', '--gap-ms']);
 const flag = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 const all = (name) => args.flatMap((a, i) => (a === name ? [args[i + 1]] : []));
 const positional = args.filter((a, i) => !a.startsWith('--') && !VALUE_FLAGS.has(args[i - 1]));
@@ -46,10 +50,13 @@ const get = async (path) => {
 
 let result;
 try {
-  const client = createPublicClient({ chain: mainnet, transport: http(rpc) });
+  // A free public endpoint refuses a burst: one request at a time, a pause apart, asked again when it says it is rate limited.
+  const client = throttledClient(createPublicClient({ chain: mainnet, transport: http(rpc) }), { gapMs: Number(flag('--gap-ms') ?? 150) });
   result = await verifyServiceDay({ get, day, farm, client, usdc: USDC, ethUsdFeed: FEED, fromBlocks, allowUnpinned: args.includes('--allow-unpinned'), reference: args.includes('--reference') });
 } catch (e) {
-  console.error(`cannot check day ${day}: ${e?.shortMessage || e?.message || e}`);
+  // viem's short message ("RPC Request failed.") hides what the node said: print its answer, the method asked and the HTTP status.
+  const said = [e?.details, e?.status ? `HTTP ${e.status}` : null, e?.body?.method ? `in ${e.body.method}` : null, e?.cause?.details].filter(Boolean).join(' · ');
+  console.error(`cannot check day ${day}: ${e?.shortMessage || e?.message || e}${said ? ` (${said})` : ''}`);
   process.exit(2);
 }
 
