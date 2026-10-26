@@ -162,13 +162,35 @@ const ackIf = async (page) => {
 };
 // The tooltip of each receipt row (the detail a row keeps out of its text).
 const rowTips = (page) => page.$$eval('#rcpt div', (ds) => ds.map((d) => d.title).filter(Boolean));
-// Each side's Wallet / Private switch.
-const sidePriv = (page, side, on) => page.click(`.sides[data-side="${side}"] [data-p="${on ? 1 : 0}"]`);
-// a coin chosen in the picker; chosen again if the list arrived and was drawn anew under the click
+// The picker lists each place's coins under its header (Wallet, Private, More tokens): a row by its symbol, in the place given (a token the private
+// place does not hold is the wallet's), and where a side's coin is held, as its field's corner names it.
+const rowIn = (page, sym, place) => page.evaluate(([sym, place]) => {
+  let g = '', any = null;
+  for (const el of document.querySelectorAll('#pk .pk-g, #pk .pk-r')) {
+    if (el.classList.contains('pk-g')) { g = el.textContent; continue; }
+    if (el.querySelector('b')?.textContent.trim() !== sym) continue;
+    any ||= el.dataset.k;
+    if ((place === 'Private') === /^Private/.test(g)) return el.dataset.k;
+  }
+  return any;
+}, [sym, place]);
+const atOf = async (page, side) => (await page.textContent(`#${side}-at`)).trim();
+// A side made private or public, as its Wallet / Private switch did: the same coin in the other place (ETH and tETH, tacUSD and cUSD, tacBTC and
+// cBTC); a To token with no private place of its own goes by Swap privately's switch.
+const sidePriv = async (page, side, on) => {
+  const sym = (await page.textContent(side === 'pay' ? '#pay-coin' : '#get-coin')).replace('▾', '').trim();
+  const POOL = { ETH: 'tETH', tETH: 'tETH', TAC: 'TAC', tacUSD: 'cUSD', cUSD: 'cUSD', tacBTC: 'cBTC', cBTC: 'cBTC' }, PUB = { tETH: 'ETH', cUSD: 'tacUSD', cBTC: 'tacBTC' };
+  // a To token with no private place of its own: public, Swap privately is off; private, the switch made it tETH
+  if (side === 'get' && !POOL[sym] && !on) { if ((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && await page.isVisible('#later-on')) await page.click('#later-on'); return; }
+  await page.click(side === 'pay' ? '#pay-coin' : '#get-coin');
+  await page.click(`#pk .pk-r[data-k="${await rowIn(page, on ? POOL[sym] || 'tETH' : PUB[sym] || sym, on ? 'Private' : 'Wallet')}"]`);
+};
+// a coin chosen in the picker, in the place the side is in; chosen again if the list arrived and was drawn anew under the click
 const pick = async (page, side, sym) => {
   const coin = side === 'pay' ? '#pay-coin' : '#get-coin';
   for (let i = 0; i < 3; i++) {
-    await page.click(coin); await page.click(`.pk-r:has(b:text-is("${sym}"))`);
+    const place = await atOf(page, side);
+    await page.click(coin); await page.waitForSelector('#pk .pk-r'); await page.click(`#pk .pk-r[data-k="${await rowIn(page, sym, place)}"]`);
     if ((await page.textContent(coin)).trim().startsWith(sym)) return;
     if (await page.isVisible('#pk .pk-x')) await page.keyboard.press('Escape');
   }
@@ -180,10 +202,10 @@ const pick = async (page, side, sym) => {
   await pick(page, 'get', 'USDC');
   await typeAmt(page, '0.1');
   await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 60000).catch(() => {});
-  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && /Private/.test(await page.textContent('.sides[data-side="get"] [aria-checked="true"]')), 'ETH for USDC opens on Swap privately, the To side reading Private');
-  await sidePriv(page, 'get', false);
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && (await atOf(page, 'get')) === 'Wallet', 'ETH for USDC opens on Swap privately (the USDC is the wallet\'s: how it travels is the switch)');
+  await page.click('#later-on');
   await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'false', null, 30000).catch(() => {});
-  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.evaluate(() => localStorage.getItem('tacit-swap-hop'))) === 'public', 'To: Wallet makes it a public swap, and the choice is kept');
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.evaluate(() => localStorage.getItem('tacit-swap-hop'))) === 'public', 'the switch makes it a public swap, and the choice is kept');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#amt', { timeout: 60000 });
   await pick(page, 'get', 'USDT');
@@ -245,7 +267,7 @@ const pick = async (page, side, sym) => {
       return { n: rows.length, link: (img('LINK')?.getAttribute('src') || img('LINK')?.dataset.src) || '', pepe: !!of('PEPE'), farWaits: !!far && !far.getAttribute('src') && !!far.dataset.src, heads: [...document.querySelectorAll('.pk-g')].map((g) => g.textContent) }; });
     ok(look.n > 400 && /^\/swap\/logos\/0x514910771af9ca656af840dff83e8264ecf986ca\.webp$/.test(look.link) && look.pepe, `and the Uniswap list's tokens beside it, each logo kept on this site (${look.n} tokens, LINK ${look.link})`);
     ok(look.farWaits, 'a logo far down the list is not fetched until it scrolls into view');
-    ok(look.heads[0] === 'With private pools' && look.heads[1] === 'Any token', `the coins Tacit holds privately lead the list under their own heading (${look.heads.join(', ')})`); }
+    ok(look.heads.join() === 'Wallet,Private,More tokens', `the wallet's coins with private pools lead, then the private coins, then the rest of the list, each under its heading (${look.heads.join(', ')})`); }
   await page.fill('#pk-q', 'link');
   { const first = await page.evaluate(() => [...document.querySelectorAll('.pk-r:not([hidden])')].sort((a, b) => (Number(a.style.order) || 0) - (Number(b.style.order) || 0))[0]?.querySelector('b')?.textContent);
     ok(first === 'LINK', `a search puts the symbol itself first (${first})`); }
@@ -290,7 +312,8 @@ const pick = async (page, side, sym) => {
   // Private: priced here, made on the card. The get side private: what is bought lands in the private balance.
   await sidePriv(page, 'get', true);
   await page.click('#get-coin');
-  ok(await page.$('.pk-r:has(b:text-is("cUSD"))') && await page.$('.pk-r:has(b:text-is("cBTC"))') && !(await page.$('.pk-r:has(b:text-is("tacUSD"))')), 'private: the picker names the notes cUSD and cBTC');
+  { const g = await page.evaluate(() => { let h = ''; const o = {}; for (const el of document.querySelectorAll('#pk .pk-g, #pk .pk-r')) { if (el.classList.contains('pk-g')) { h = el.textContent; continue; } (o[h] ||= []).push(el.querySelector('b')?.textContent); } return o; });
+    ok(['cUSD', 'cBTC'].every((x) => g.Private?.includes(x)) && !g.Private?.includes('tacUSD') && g.Wallet?.includes('tacUSD'), 'private: the picker names the notes cUSD and cBTC under Private (tacUSD is the wallet\'s)'); }
   await page.click('.pk-x');
   await pick(page, 'pay', 'ETH');
   await pick(page, 'get', 'TAC');
@@ -786,9 +809,9 @@ const pick = async (page, side, sym) => {
   await page.click('#pay-coin');
   await until(page, () => [...document.querySelectorAll('#pk .pk-r b')].some((b) => b.textContent === 'LUSD'), null, 30000);
   const groups = await page.$$eval('#pk .pk-l > *', (els) => { const out = []; for (const e of els) { if (e.classList.contains('pk-g')) out.push([e.textContent, []]); else if (e.classList.contains('pk-r') && out.length) out[out.length - 1][1].push(e.querySelector('b').textContent); } return out; });
-  const pooledG = groups.find(([h]) => h === 'With private pools')?.[1] || [], anyG = groups.find(([h]) => h === 'Any token')?.[1] || [];
+  const pooledG = groups.find(([h]) => h === 'Wallet')?.[1] || [], anyG = groups.find(([h]) => h === 'More tokens')?.[1] || [];
   ok(pooledG.join() === 'ETH,TAC,tacUSD,tacBTC,USDC,USDT' && anyG.length >= 10 && !anyG.includes('USDC'),
-    `the picker leads with the coins that have private pools, USDC and USDT among them, then the list's tokens (${pooledG.join(' ')} | ${anyG.slice(0, 4).join(' ')})`);
+    `the picker leads with the wallet's coins that have private pools, USDC and USDT among them, then the list's tokens (${pooledG.join(' ')} | ${anyG.slice(0, 4).join(' ')})`);
   ok(!asked.length, `and nothing asks the registry for it (${asked.length})`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
@@ -816,30 +839,26 @@ const pick = async (page, side, sym) => {
   await browser.close();
 }
 
-// ── a Private Get side takes any token: a coin the pool holds stays in the private balance, any other token is Swap privately ──
+// ── from a Private Get side, a token the pool does not hold is the wallet's, got by Swap privately ──
 {
-  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?amt=0.01&private=to' });
-  const getPrivOn = () => page.getAttribute('.sides[data-side="get"] [data-p="1"]', 'aria-checked');
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?amt=0.01&private=to', hop: null });
   await page.click('#get-coin');
-  ok(await page.isVisible('#pk-q') && await page.isVisible('.pk-r:has(b:text-is("USDC"))') && await page.isVisible('.pk-r:has(b:text-is("tETH"))'), 'with Get private, the list has the pool\'s coins and any token, and can be searched');
+  ok(await page.isVisible('#pk-q') && await page.isVisible('.pk-r:has(b:text-is("USDC"))') && await page.isVisible('.pk-r:has(b:text-is("tETH"))'), 'the list has the pool\'s coins and any token, and can be searched');
   await page.click('.pk-r:has(b:text-is("USDC"))');
   await quoted(page);
   await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 30000).catch(() => {});
-  ok((await page.textContent('#get-coin')).includes('USDC') && (await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'USDC chosen there: Get stays Private and Swap privately is on');
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await atOf(page, 'get')) === 'Wallet' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'USDC chosen there is the wallet\'s, got by Swap privately');
   ok(/private=to/.test(page.url()) && /to=USDC/.test(page.url()), `the link keeps it (${page.url().split('?')[1]})`);
   await page.reload();
   await quoted(page);
   await until(page, () => document.querySelector('#later-on')?.getAttribute('aria-checked') === 'true', null, 30000).catch(() => {});
-  ok((await page.textContent('#get-coin')).includes('USDC') && (await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'and the link opens on it again');
-  await sidePriv(page, 'get', false);
-  ok((await getPrivOn()) === 'false' && (await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.textContent('#get-coin')).includes('USDC'), 'Get turned to Wallet: the same USDC, bought in the open');
-  await sidePriv(page, 'get', true);
-  ok((await getPrivOn()) === 'true' && (await page.getAttribute('#later-on', 'aria-checked')) === 'true' && (await page.textContent('#get-coin')).includes('USDC'), 'and back to Private: Swap privately again, still USDC');
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await page.getAttribute('#later-on', 'aria-checked')) === 'true', 'and the link opens on it again');
   await page.click('#later-on');
-  ok((await getPrivOn()) === 'false', 'Swap privately switched off under the receipt turns the Get side to Wallet too');
-  await sidePriv(page, 'get', true);
-  await pick(page, 'get', 'tETH');
-  ok((await page.textContent('#get-coin')).includes('tETH') && (await getPrivOn()) === 'true' && await page.isHidden('#later'), 'a coin the pool holds is a private swap into the balance, with no Swap privately');
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'false' && (await page.textContent('#get-coin')).includes('USDC') && (await atOf(page, 'get')) === 'Wallet', 'Swap privately switched off: the same USDC, bought in the open');
+  await page.click('#later-on');
+  ok((await page.getAttribute('#later-on', 'aria-checked')) === 'true' && (await page.textContent('#get-coin')).includes('USDC'), 'and on again: Swap privately, still USDC');
+  await page.click('#get-coin'); await page.waitForSelector('#pk .pk-r'); await page.click(`#pk .pk-r[data-k="${await rowIn(page, 'tETH', 'Private')}"]`);
+  ok((await page.textContent('#get-coin')).includes('tETH') && (await atOf(page, 'get')) === 'Private' && await page.isHidden('#later'), 'a coin from the private place is a private swap into the balance, with no Swap privately');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
@@ -983,7 +1002,7 @@ const pick = async (page, side, sym) => {
 {
   const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?private=both' });
   await pick(page, 'get', 'USDC');
-  ok((await page.textContent('#get-coin')).includes('USDC') && (await page.getAttribute('.sides[data-side="get"] [data-p="0"]', 'aria-checked')) === 'true' && (await page.getAttribute('.sides[data-side="pay"] [data-p="1"]', 'aria-checked')) === 'true', 'paid from the private balance, USDC is paid out of the pool to an address: Pay stays Private, Get reads Wallet');
+  ok((await page.textContent('#get-coin')).includes('USDC') && (await atOf(page, 'get')) === 'Wallet' && (await atOf(page, 'pay')) === 'Private', 'paid from the private balance, USDC is paid out of the pool to an address: Pay stays Private, Get reads Wallet');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
@@ -995,9 +1014,9 @@ const pick = async (page, side, sym) => {
   const res = () => page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name));
   ok(!(await res()).some((u) => /\/chrome\.css/.test(u)) && (await page.evaluate(() => getComputedStyle(document.querySelector('footer.sf')).display)) === 'flex', 'the shared header and footer styles are in the page, not a request the first paint waits for');
   ok(!(await res()).some((u) => /confidential-pool-ux|confidential-pool\.js/.test(u)), 'the private door\'s modules are not fetched by a page that stays public');
-  await page.hover('.sides[data-side="get"] [data-p="1"]');
+  await page.click('#get-coin'); await page.keyboard.press('Escape');
   await until(page, () => performance.getEntriesByType('resource').some((e) => /confidential-pool-ux/.test(e.name)) && performance.getEntriesByType('resource').some((e) => /confidential-pool\.js/.test(e.name)), null, 60000);
-  ok(true, 'going toward Private fetches its modules, all at once');
+  ok(true, 'opening a picker (where the private coins are) fetches the private modules, all at once');
   await page.click('[data-slip="100"]');
   await page.reload();
   await until(page, () => document.querySelector('#slip [aria-pressed="true"]'));
@@ -1031,12 +1050,6 @@ const pick = async (page, side, sym) => {
 {
   const { browser, page, errors } = await openPage({ width: 1440, height: 900 });
   await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
-  const G = '.sides[data-side="get"]';
-  await page.focus(`${G} [data-p="0"]`);
-  await page.keyboard.press('ArrowRight');
-  ok((await page.getAttribute(`${G} [data-p="1"]`, 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.p === '1'), 'the arrow keys move a side from Wallet to Private, the focus with them');
-  await page.keyboard.press('ArrowLeft');
-  ok((await page.getAttribute(`${G} [data-p="0"]`, 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.p === '0'), 'and back');
   await typeAmt(page, '1');
   await quoted(page);
   if ((await page.$$('#rows [data-route]')).length >= 2) {
