@@ -210,7 +210,7 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     const amount = M.parseUnits(P.text[side], dec);
     if (!amount || amount <= 0n) return { ok: false, why: 'Enter an amount' };
     const first = !seeded(st), plan = first ? seedPlan(m, side, amount) : addPlan(m, st, side, amount);
-    if (!plan) return { ok: false, why: first && !m.open ? 'This pool has no liquidity, and the page cannot say where it should open.' : first && !m.openOk ? 'The price is outside this market’s range' : 'Too small for this market' };
+    if (!plan) return { ok: false, why: first && !m.open ? 'This pool is empty and has no opening price.' : first && !m.openOk ? 'The price is outside this market’s range' : 'Too small for this market' };
     return { ok: true, plan, first, amount };
   }
   function maxOf(st, side) {

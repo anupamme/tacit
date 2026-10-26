@@ -3,12 +3,12 @@
 // wallet, which turns the wTAC into TAC), and a join with both sides (each cut to size by the relay if no note fits, then bonded at the pool's
 // ratio). Joining with one side (a swap first) and what only an unwrap sent yourself can do are the front page's: they link there.
 // Nothing here is loaded until the holder asks: this module, the key and the pool all come in on that press.
-import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
+import { makeKeySession, signInSheet } from '/trade/key.js?cb=88028d84';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=1722600f';
 import { makeRunner } from '/activity.js?cb=532a162f';
 import { canHarvest, canUnbond, unharvested, locked, harvest, unbond, rewardNotes, relayable, redeem, wtacWithdrawCall, wtacBalanceCall, worthHarvesting, lpNotes, takeOut, HARVEST_WORTH, UNBOND_DUST, bFor, joinTerms, notesOf, exactOf, cutPick, cutSized, bond } from '/farm-ops.js?cb=0933a4c8';
 import { relayWords } from '/relay-outcome.js?cb=26298b8e';
-import { esc, wordAt, parseUnits } from '/trade/util.js?cb=509d6618';
+import { esc, wordAt, parseUnits } from '/trade/util.js?cb=dcf3a4f2';
 
 const API = 'https://api.tacit.finance';
 const day = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -20,7 +20,7 @@ const noteKey = (n) => String(n.leaf || n.nullifier || `${n.cx}:${n.cy}`).toLowe
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const QUOTE_FRESH = 30e3;                                                            // how long a pool's terms are used before they are read again
 
-export function mountFarms(root, { pick, names = () => new Map(), program = () => null, wallet = null, W = null, connect = null } = {}) {
+export function mountFarms(root, { pick, names = () => new Map(), pair = () => '', program = () => null, wallet = null, W = null, connect = null } = {}) {
   let D = null, seq = 0, runner = null, wanted = null;
   let lockedWhy = '';                                                                  // why the key was locked, when the wallet that opened it moved
   const key = makeKeySession({ moved: (why) => { lockedWhy = why || ''; forget(); } });
@@ -33,7 +33,7 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
   function pinned() {
     const pub = key.key.pubHex;
     return () => {
-      if (!key.unlocked || key.key.pubHex !== pub) throw new Error('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.');
+      if (!key.unlocked || key.key.pubHex !== pub) throw new Error('Your Tacit wallet was locked or changed, so this stopped before its next step. Nothing further was sent.');
       return key.priv();
     };
   }
@@ -248,7 +248,7 @@ export function mountFarms(root, { pick, names = () => new Map(), program = () =
     else {
       const rows = D.list.map((pos, i) => {
         const b = D.busy, tac = Number(pos.pendingTac || 0), lk = locked(pos);
-        return `<dl class="kv"><div><dt>${esc(name(pos))}</dt><dd class="num">${esc(tac.toLocaleString('en-US', { maximumFractionDigits: 4 }))} TAC earned</dd></div>${lk ? `<div><dt>Bonded until</dt><dd>${esc(day(Number(pos.unlockAt)))}</dd></div>` : ''}</dl>
+        return `<dl class="kv"><div><dt>${pair(pos.pid)}${esc(name(pos))}</dt><dd class="num">${esc(tac.toLocaleString('en-US', { maximumFractionDigits: 4 }))} TAC earned</dd></div>${lk ? `<div><dt>Bonded until</dt><dd>${esc(day(Number(pos.unlockAt)))}</dd></div>` : ''}</dl>
           <div class="acts">
             <button type="button" data-pf="harvest" data-i="${i}"${b || !canHarvest(pos) ? ' disabled' : ''}>${b === `harvest:${i}` ? 'Harvesting…' : 'Harvest'}</button>
             <button type="button" data-pf="unbond" data-i="${i}"${b || !canUnbond(pos) ? ' disabled' : ''}>${b === `unbond:${i}` ? 'Unbonding…' : 'Unbond'}</button>

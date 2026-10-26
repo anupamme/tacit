@@ -214,6 +214,7 @@ try {
   await until(r.page, () => location.pathname === '/vault/' && !document.querySelector('#app').hidden);
   ok(r.page.url() === `http://127.0.0.1:${WEB}/vault/?x=1#a`, '/vault/tac goes to /vault/ with its query and fragment');
   ok(await r.page.$eval('.via', (n) => [...n.querySelectorAll('a')].map((a) => `${a.textContent}:${a.getAttribute('href')}:${a.getAttribute('aria-current') || ''}`).join()) === 'TAC:/vault/:page,Bitcoin:/vault/#btc:', 'the page offers TAC and Bitcoin, TAC being the one it is');
+  ok(await r.page.$eval('.via', (n) => [...n.querySelectorAll('a svg use')].map((u) => u.getAttribute('href')).join()) === '#tk-tac,#c-btc', 'each side carries its mark: TAC’s and Bitcoin’s');
   await r.page.goto(`http://127.0.0.1:${WEB}/vault/btc`, { waitUntil: 'domcontentloaded' });
   await until(r.page, () => location.pathname === '/vault/' && location.hash === '#btc' && document.documentElement.dataset.side === 'btc');
   ok(await r.page.$eval('.via a[aria-current="page"]', (a) => a.dataset.side) === 'btc', '/vault/btc opens this page’s Bitcoin side (/vault/#btc)');
@@ -333,6 +334,7 @@ try {
   await typed(u, '3000');
   const rows = await text(u, '#info');
   ok(/Fee \(1%\)\s*30 TACD/.test(rows) && /You receive\s*3,000 TACD/.test(rows) && /You owe after\s*3,030 TACD/.test(rows) && /Ratio after\s*825%/.test(rows), `the fee is shown before: ${rows}`);
+  ok(await u.$$eval('#info svg use', (a) => a.map((x) => x.getAttribute('href'))).then((h) => h.length >= 3 && h.every((x) => x === '#tk-tacd' || x === '#tk-tac')), 'each amount in the receipt carries its token’s mark');
   ok(/825%/.test(await text(u, '#after .hb-val')) && /Open/.test(await text(u, '#tk-h')) && await u.$eval('#after .hb', (e) => e.getAttribute('aria-hidden') === 'true' && !e.hasAttribute('role')), 'the ticket says the vault is open, and draws the health bar for where the borrow would leave it (825%, the same as its row), once, for the eye');
   await typed(u, '8000');
   ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /You receive\s*8,000 TACD/.test(await text(u, '#info')) && /Ratio after\s*[4-9]\d\d%/.test(await text(u, '#info')), `over what the vault's own TAC allows it offers the deposit that makes it work, enough to stay at 400% (${(await text(u, '#info')).slice(0, 120)})`);

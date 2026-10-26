@@ -145,7 +145,7 @@ try {
   const text = () => page.locator('main').innerText();
   const body = await text();
   assert.match(body, /PAGE CHUNKS/i); assert.match(body, /CATCH-UP REGISTRY/i); assert.match(body, /FIRST POINTS/i);
-  assert.match(body, /Base · /); assert.match(body, /Robinhood Chain · /); assert.match(body, /MegaETH · /);
+  for (const name of ['Ethereum', 'Base', 'Robinhood Chain', 'MegaETH']) assert.ok(await page.locator(`.p-steps svg[aria-label="${name}"]`).count() > 0, `a step on ${name} shows its chain's mark`);
   assert.match(body, new RegExp(`0 of ${total} steps on the chain`));
   assert.match(body, /at least 8 TAC a step/, 'the rewards panel says what a chunk pays at least');
   console.log(`ok - the job shows ${total} steps in three groups, each on its chain, none on the chain yet`);

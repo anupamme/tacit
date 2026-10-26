@@ -6,9 +6,9 @@ import {
 } from '/vault/chain.js?cb=2846737a';
 import { makeFeed, RECORD_GAS, PER_TX, GAS_ROOM, encBatch, MULTICALL3 } from '/vault/feed.js?cb=4ca779bc';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=91c83890';
-import { makePools } from '/vault/pools.js?cb=10b10a42';
+import { makePools } from '/vault/pools.js?cb=ee3f072b';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=6058a172';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,6 +17,8 @@ const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const KIND = { usd: { name: 'TAC Dollar', sym: 'TACD', dp: 2, price: (t) => `$${t}` }, eth: { name: 'TAC Ether', sym: 'TACE', dp: 4, price: (t) => `${t} ETH` } };
 const icon = (key) => `<svg class="tk" aria-hidden="true"><use href="#tk-${key === 'usd' ? 'tacd' : 'tace'}"/></svg>`;
+const mk = (id) => `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-${id}"/></svg>`;
+const synMk = (x) => mk(x.V.key === 'usd' ? 'tacd' : 'tace');
 const ACTS = [['deposit', 'Deposit'], ['borrow', 'Borrow'], ['repay', 'Repay'], ['withdraw', 'Withdraw']];
 
 const params = () => new URLSearchParams(location.hash.replace(/^#/, ''));
@@ -352,10 +354,10 @@ function renderPos() {
     return;
   }
   const rows = [];
-  rows.push(`<div class="kv"><span>Collateral</span><b class="num">${esc(tac(m.collateral))} TAC${x.value != null ? `<small>${esc(syn(x, x.value))} ${esc(x.sym)}</small>` : ''}</b></div>`);
-  rows.push(`<div class="kv"><span>Debt</span><b class="num">${esc(syn(x, m.debt))} ${esc(x.sym)}</b></div>`);
+  rows.push(`<div class="kv"><span>Collateral</span><b class="num">${mk('tac')}${esc(tac(m.collateral))} TAC${x.value != null ? `<small>${esc(syn(x, x.value))} ${esc(x.sym)}</small>` : ''}</b></div>`);
+  rows.push(`<div class="kv"><span>Debt</span><b class="num">${synMk(x)}${esc(syn(x, m.debt))} ${esc(x.sym)}</b></div>`);
   if (x.ratio != null) rows.push(`<div class="kv"><span>Ratio</span><b class="num z-${x.zone}">${esc(pctOf(x.ratio))}</b></div>`);
-  if (x.borrow) rows.push(`<div class="kv"><span>You can borrow</span><b class="num">${esc(syn(x, x.borrow.amount))} ${esc(x.sym)}${x.borrow.binding === 'room' ? '<small>limited by the room left to borrow</small>' : ''}</b></div>`);
+  if (x.borrow) rows.push(`<div class="kv"><span>You can borrow</span><b class="num">${synMk(x)}${esc(syn(x, x.borrow.amount))} ${esc(x.sym)}${x.borrow.binding === 'room' ? '<small>limited by the room left to borrow</small>' : ''}</b></div>`);
   if (x.liqPrice != null && x.d.pL != null) {
     const below = Math.floor((1 - Number(x.liqPrice) / Number(x.d.pL)) * 100);
     rows.push(`<div class="kv"><span>Liquidation price</span><b class="num">${esc(priceText(x, x.liqPrice, 'up'))}<small>${below > 0 ? `${below}% below TAC’s price` : 'TAC is at or below it'}</small></b></div>`);
@@ -386,7 +388,7 @@ function planCore() {
   const ratioRow = (collateral, debt) => { const r = after(collateral, debt), z = d.pL != null ? M.zoneOf({ collateral, debt, price: d.pL, liq: x.s.liq }) : null; P.after = r != null ? { ratio: r, zone: z } : null; return r != null ? [['Ratio after', `<span class="z-${z}">${esc(pctOf(r))}</span>`]] : []; };
   const fill = (n) => `<button class="linkbtn" type="button" data-fill="${M.plain(n)}">Add ${esc(tac(n))} TAC</button>`;
   const typed = S.amt.trim() !== '';
-  if (typed && amt == null) { P.hint = 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).'; P.err = true; P.cta = 'Enter an amount'; return P; }
+  if (typed && amt == null) { P.hint = 'Could not read that amount. Write 1500 or 0.05.'; P.err = true; P.cta = 'Enter an amount'; return P; }
   const none = !amt;
 
   if (t === 'deposit') {
@@ -395,7 +397,7 @@ function planCore() {
     if (none) { P.cta = 'Enter an amount'; return P; }
     if (amt > bal) { P.cta = 'Not enough TAC'; return P; }
     P.ok = true; P.cta = 'Deposit TAC'; P.amount = amt;
-    P.rows = [['Collateral after', `${esc(tac(m.collateral + amt))} TAC`], ...ratioRow(m.collateral + amt, m.debt)];
+    P.rows = [['Collateral after', `${mk('tac')}${esc(tac(m.collateral + amt))} TAC`], ...ratioRow(m.collateral + amt, m.debt)];
     return P;
   }
   if (t === 'borrow') {
@@ -428,7 +430,7 @@ function planCore() {
     }
     P.ok = true; P.amount = amt; P.feeBps = d.feeBps; P.add = add;
     const owe = c.owe, r = after(m.collateral + add, owe);
-    P.rows = [...(add > 0n ? [['TAC added to your vault', `${esc(tac(add))} TAC`]] : []), [`Fee (${feeText(d.feeBps)})`, `${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral + add, owe)];
+    P.rows = [...(add > 0n ? [['TAC added to your vault', `${mk('tac')}${esc(tac(add))} TAC`]] : []), [`Fee (${feeText(d.feeBps)})`, `${synMk(x)}${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${synMk(x)}${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${synMk(x)}${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral + add, owe)];
     if (add > 0n) P.cta = `Deposit ${tac(add)} TAC and borrow`;
     if (r != null && d.pL != null && M.zoneOf({ collateral: m.collateral + add, debt: owe, price: d.pL, liq: x.s.liq }) !== 'safe') {
       const more = M.topUp({ collateral: m.collateral + add, debt: owe, price: d.pL, bps: x.safe });
@@ -451,7 +453,7 @@ function planCore() {
       return P;
     }
     P.ok = true; P.all = c.all; P.paid = c.paid; P.amount = c.all ? M.MAX_UINT : amt;
-    P.rows = [['You owe', `${esc(syn(x, m.debt))} ${esc(sym)}`], ['Owed after', `${esc(syn(x, c.left))} ${esc(sym)}`], ...(c.left > 0n ? ratioRow(m.collateral, c.left) : [])];
+    P.rows = [['You owe', `${synMk(x)}${esc(syn(x, m.debt))} ${esc(sym)}`], ['Owed after', `${synMk(x)}${esc(syn(x, c.left))} ${esc(sym)}`], ...(c.left > 0n ? ratioRow(m.collateral, c.left) : [])];
     return P;
   }
   P.max = x.wmax; P.maxText = who() ? `Up to ${tac(x.wmax)} · Max` : '';
@@ -472,7 +474,7 @@ function planCore() {
     return P;
   }
   P.ok = true; P.all = m.debt === 0n && amt >= m.collateral; P.amount = P.all ? M.MAX_UINT : amt;
-  P.rows = [['Collateral after', `${esc(tac(m.collateral - amt))} TAC`], ...ratioRow(m.collateral - amt, m.debt)];
+  P.rows = [['Collateral after', `${mk('tac')}${esc(tac(m.collateral - amt))} TAC`], ...ratioRow(m.collateral - amt, m.debt)];
   return P;
 }
 
@@ -700,7 +702,7 @@ function drawFeed() {
   if (!VS.length || !st || carried || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }
   el.hidden = false;
   const rows = st.venues.map((v, i) => `<div class="vn"><div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div><i class="mt" aria-hidden="true"><b style="width:${v.points ? Math.min(100, Math.round(v.counted * 100 / v.points)) : 0}%"></b></i></div>`).join('');
-  setHtml(el, `<p class="eyebrow" id="feed-h"><span>Price feed</span><span class="who">${st.ready ? 'up to date' : `${st.missing} to record`}</span></p>
+  setHtml(el, `<p class="eyebrow" id="feed-h"><span>Price feed</span><span class="who st${st.ready ? ' s-open' : ''}"><i class="sd"></i>${st.ready ? 'up to date' : `${st.missing} to record`}</span></p>
     <div class="rows flat">${rows}</div>
     ${st.missing ? `<p class="note">Anyone can record them. ${esc(recordHint(st.missing))}</p>
     <button class="btn" id="feed-go" type="button"${F.busy ? ' disabled' : ''}>${F.busy ? 'Recording…' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>` : ''}
@@ -932,7 +934,7 @@ let mineP = null;
 $('#btc-mine').addEventListener('click', (e) => {
   if (mineP || !e.target.closest('[data-mine="open"]')) return;
   e.stopImmediatePropagation();
-  mineP = import('/vault/mine.js?cb=0b815dbb').then((m) => { m.mountMine($('#btc-mine'), { pick: pickProvider, wallet, W, connect: connectWallet }); $('#btc-mine [data-mine="open"]')?.click(); })
+  mineP = import('/vault/mine.js?cb=f8515f0f').then((m) => { m.mountMine($('#btc-mine'), { pick: pickProvider, wallet, W, connect: connectWallet }); $('#btc-mine [data-mine="open"]')?.click(); })
     .catch((err) => { mineP = null; console.warn('your position:', err?.message || err); });
 });
 const refresh = () => load().catch((e) => { console.warn('vault read:', e?.message || e); if (!S.loaded) S.failed = true; }).then(() => { renderAll(); pools.read(); });

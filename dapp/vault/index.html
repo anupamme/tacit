@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://tacit-points.onrender.com" crossorigin>
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=d12a58dd">
+<link rel="modulepreload" href="/vault/app.js?cb=203c7ada">
 <link rel="modulepreload" href="/vault/deployments.js?cb=4af96594">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=2846737a">
@@ -32,15 +32,15 @@
 <link rel="modulepreload" href="/vault/feed.js?cb=4ca779bc">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/vault/batch.js?cb=91c83890">
-<link rel="modulepreload" href="/vault/pools.js?cb=10b10a42">
+<link rel="modulepreload" href="/vault/pools.js?cb=ee3f072b">
 <link rel="modulepreload" href="/vault/router.js?cb=21df6509">
-<link rel="modulepreload" href="/trade/connect.js?cb=5ca12f8f">
+<link rel="modulepreload" href="/trade/connect.js?cb=6058a172">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
-<link rel="modulepreload" href="/trade/wallet.js?cb=fe7a26b6">
+<link rel="modulepreload" href="/trade/wallet.js?cb=6778fe25">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
-<link rel="modulepreload" href="/trade/util.js?cb=509d6618">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
-<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -93,6 +93,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
 .tk.xs { width: 14px; height: 14px; }
+.tk.inl { display: inline-block; vertical-align: -3px; margin-right: 6px; }
 .seg button .tk, .bt thead th .tk, .amt .u .tk { display: inline-block; width: 18px; height: 18px; margin: 0 8px 0 0; vertical-align: -4px; }
 .amt .u { display: inline-flex; align-items: center; }
 .amt .u .tk { vertical-align: 0; }
@@ -108,7 +109,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 /* the head */
 .hero { padding: 26px 0 18px; }
 .via { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--hair-2); margin: 0 0 16px; }
-.via a { display: grid; place-items: center; min-height: 34px; padding: 4px 16px; color: var(--mute); font-size: 12.5px; text-decoration: none; }
+.via a { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 4px 16px; color: var(--mute); font-size: 12.5px; text-decoration: none; }
 .via a + a { border-left: 1px solid var(--hair-2); }
 .via a[data-side="tac"], :root:has(#btc:target) .via a[data-side="btc"], :root[data-side="btc"] .via a[data-side="btc"] { background: var(--ink); color: var(--card); }
 :root:has(#btc:target) .via a[data-side="tac"], :root[data-side="btc"] .via a[data-side="tac"] { background: none; color: var(--mute); }
@@ -447,12 +448,13 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-    <symbol id="tk-usdc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#2775ca"/><circle cx="16" cy="16" r="12" fill="none" stroke="#fff" stroke-width="2"/><path d="M19.2 12.6c-.3-1.1-1.4-1.8-3.2-1.8-2 0-3.2.9-3.2 2.2 0 1.3 1 1.9 3.2 2.3 2.2.4 3.2 1 3.2 2.4 0 1.3-1.2 2.3-3.2 2.3-1.9 0-3.1-.8-3.4-2" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M16 9v2M16 21v2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
-    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#3c4a63"/><path d="M16 5.5l-6 10 6 3.5 6-3.5z" fill="#fff"/><path d="M16 20.4l-6-3.5 6 9.6 6-9.6z" fill="#cfd6e4"/></symbol>
+    <symbol id="tk-usdc" viewBox="0 0 32 32"><g fill="none"><circle fill="#2775CA" cx="16" cy="16" r="16"/><g fill="#FFF"><path d="M20.022 18.124c0-2.124-1.28-2.852-3.84-3.156-1.828-.243-2.193-.728-2.193-1.578 0-.85.61-1.396 1.828-1.396 1.097 0 1.707.364 2.011 1.275a.458.458 0 00.427.303h.975a.416.416 0 00.427-.425v-.06a3.04 3.04 0 00-2.743-2.489V9.142c0-.243-.183-.425-.487-.486h-.915c-.243 0-.426.182-.487.486v1.396c-1.829.242-2.986 1.456-2.986 2.974 0 2.002 1.218 2.791 3.778 3.095 1.707.303 2.255.668 2.255 1.639 0 .97-.853 1.638-2.011 1.638-1.585 0-2.133-.667-2.316-1.578-.06-.242-.244-.364-.427-.364h-1.036a.416.416 0 00-.426.425v.06c.243 1.518 1.219 2.61 3.23 2.914v1.457c0 .242.183.425.487.485h.915c.243 0 .426-.182.487-.485V21.34c1.829-.303 3.047-1.578 3.047-3.217z"/><path d="M12.892 24.497c-4.754-1.7-7.192-6.98-5.424-11.653.914-2.55 2.925-4.491 5.424-5.402.244-.121.365-.303.365-.607v-.85c0-.242-.121-.424-.365-.485-.061 0-.183 0-.244.06a10.895 10.895 0 00-7.13 13.717c1.096 3.4 3.717 6.01 7.13 7.102.244.121.488 0 .548-.243.061-.06.061-.122.061-.243v-.85c0-.182-.182-.424-.365-.546zm6.46-18.936c-.244-.122-.488 0-.548.242-.061.061-.061.122-.061.243v.85c0 .243.182.485.365.607 4.754 1.7 7.192 6.98 5.424 11.653-.914 2.55-2.925 4.491-5.424 5.402-.244.121-.365.303-.365.607v.85c0 .242.121.424.365.485.061 0 .183 0 .244-.06a10.895 10.895 0 007.13-13.717c-1.096-3.46-3.778-6.07-7.13-7.162z"/></g></g></symbol>
+    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
     <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -497,7 +499,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
 
   <section class="hero" aria-labelledby="h">
-    <nav class="via" aria-label="Collateral"><a href="/vault/" data-side="tac" aria-current="page">TAC</a><a href="/vault/#btc" data-side="btc">Bitcoin</a></nav>
+    <nav class="via" aria-label="Collateral"><a href="/vault/" data-side="tac" aria-current="page"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</a><a href="/vault/#btc" data-side="btc"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</a></nav>
     <h1 id="h"><span class="s-tac"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></span><span class="s-btc"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span>Borrow against <em>Bitcoin</em></span></span></h1>
     <p class="sub s-tac" id="sub">Borrow TACD or TACE against your TAC. No interest, one fee.</p>
     <p class="promo s-tac" id="promo" hidden></p>
@@ -561,7 +563,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <section class="panel" id="btc-board" aria-labelledby="bb-h">
           <p class="eyebrow" id="bb-h"><span>Bitcoin loans</span><span class="who" data-bf-who></span></p>
           <div class="rows flat">
-            <div class="kv"><span>cUSD lent</span><b class="num" data-bf="out">…</b></div>
+            <div class="kv"><span><svg class="tk xs inl" aria-hidden="true"><use href="#tk-cusd"/></svg>cUSD lent</span><b class="num" data-bf="out">…</b></div>
             <div class="kv"><span>Collateral needed</span><b class="num" data-bf="ratio">…</b></div>
             <div class="kv"><span>Liquidated below</span><b class="num" data-bf="liq">…</b></div>
           </div>
@@ -587,6 +589,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=d12a58dd"></script>
+<script type="module" src="/vault/app.js?cb=203c7ada"></script>
 </body>
 </html>

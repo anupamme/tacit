@@ -6,9 +6,9 @@
 // is a step the service has read from the chain), so that a visit does not download the code of every contract a job deployed.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=6058a172';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=509d6618';
+import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=dcf3a4f2';
 import { bodyType } from '/trade/rpc.js?cb=63f04503';
 import { checkPayload, checkStep } from '/tasks/verify.js?cb=b8174dad';
 
@@ -44,14 +44,17 @@ async function batchOn(id, calls) {
   }
   return Promise.all(calls.map(([m, p]) => readOn(id, m, p).catch(() => null)));
 }
+const CHAIN_MARK = { 1: 'c-eth', 8453: 'c-base', 4663: 'c-rh', 4326: 'c-mega' };
+const mark = (id) => `<svg class="tk xs inl" role="img" aria-label="${esc(CHAINS[id].name)}"><title>${esc(CHAINS[id].name)}</title><use href="#${CHAIN_MARK[id]}"/></svg>`;
 const asWallet = (id) => ({ id, name: CHAINS[id].name, rpc: hostsOf(id).slice(0, 2), explorer: CHAINS[id].explorer, icon: `${location.origin}/chain-icons/${id}.svg` });
 const LATEST = '0x52bfe789';                          // the catch-up registry's latest(): the count of its newest point
 // A job's steps in the groups it names (else contracts, then the confidential pool's calls), in order.
 const groupOf = (s) => s.group || (s.kind === 'createx' ? 'Contracts' : 'Confidential pool');
 const groupsOf = (job) => { const m = new Map(); job.steps.forEach((s, i) => { const g = groupOf(s); if (!m.has(g)) m.set(g, []); m.get(g).push([s, i]); }); return [...m]; };
-// Where a step shows: its chain's name when the job is on more than one.
-const manyChains = (job) => new Set(job.steps.map((s) => chainOf(job, s))).size > 1;
-const atChain = (job, s) => (manyChains(job) ? `${CHAINS[chainOf(job, s)].name} · ` : '');
+// Where a step shows: its chain's mark when the job is on more than one.
+const jobChains = (job) => [...new Set(job.steps.map((s) => chainOf(job, s)))];
+const manyChains = (job) => jobChains(job).length > 1;
+const atChain = (job, s) => (manyChains(job) ? mark(chainOf(job, s)) : '');
 const steps = (n) => (n === 1 ? 'step' : 'steps');
 const STORE = 'tacit.tasks.v1';
 const tac = (wei, max = 2) => (wei == null ? '—' : fmtUnits(BigInt(wei), 18, max));
@@ -224,7 +227,7 @@ function card(job) {
   const st = stateOf(job), exp = isExpanded(job), [label, cls] = PILL[st];
   const n = doneCount(job), total = job.steps.length, eco = economics(job), res = resultOf(job);
   const own = job.steps.filter((s) => chainOf(job, s) === job.chainId);
-  let fig = '—', cap = 'shown when rewards open', foot = `${(own.reduce((x, s) => x + s.gas, 0) / 1e6).toFixed(1)}M gas${manyChains(job) ? ` on ${CHAINS[job.chainId].name}` : ''}`;
+  let fig = '—', cap = 'shown when rewards open', foot = `${(own.reduce((x, s) => x + s.gas, 0) / 1e6).toFixed(1)}M gas${manyChains(job) ? ` ${mark(job.chainId)}` : ''}`;
   if (st === 'done') {
     fig = res.count ? `${tac(res.total)}<small>TAC</small>` : '—';
     const waiting = Object.values(S.hashes).filter((v) => v.state === 'pending').length;
@@ -234,7 +237,7 @@ function card(job) {
   return `<article class="job ${st}${exp ? ' is-open' : ''}" id="${esc(job.id)}">
     <button class="job-head" type="button" data-toggle="${esc(job.id)}" aria-expanded="${exp}" aria-controls="body-${esc(job.id)}">
       <span class="job-top"><b>${esc(job.title)}</b><span class="pill ${cls}">${label}</span></span>
-      <span class="job-sub">${esc(job.tagline)}</span>
+      <span class="job-sub">${esc(job.tagline)}${manyChains(job) ? ` ${jobChains(job).map(mark).join('')}` : ''}</span>
       <span class="job-fig"><span class="big num">${fig}</span><span class="cap">${cap}</span></span>
       <span class="bar" role="img" aria-label="${n} of ${total} ${steps(total)} on the chain"><i style="width:${(100 * n) / total}%"></i></span>
       <span class="job-foot"><span>${n} of ${total} ${steps(total)} on the chain</span><span>${foot}</span></span>
@@ -335,8 +338,8 @@ function openBody(job) {
   const est = todo.map((s) => aj?.steps.find((y) => y.id === s.id)?.estimateWei);
   const payNow = !open || !aj || !todo.length ? null : todo.length === job.steps.length && eco ? eco.pays : est.every((e) => e != null) ? est.reduce((x, e) => x + BigInt(e), 0n) : null;
   const hint = !S.api ? 'The rewards service did not answer, so sending is paused: a step sent now might not be paid.'
-    : !open ? 'Rewards for this job are not open yet, so steps cannot be sent from here.'
-    : todo.length ? 'Each step is paid to the account that sends it, so you can send all of them or only some and leave the rest to others. Most wallets let you pick a slower speed, which keeps your network fee below what the step pays.' : 'Everything in this job is on the chain.';
+    : !open ? 'Rewards for this job are not open yet. Sending opens with them.'
+    : todo.length ? 'Each step is paid to the account that sends it: send all or some, and leave the rest to others. Pick a slower speed in your wallet to keep your network fee below what a step pays.' : 'Everything in this job is on the chain.';
   return `
     <div class="grid">
       <div class="col">
@@ -357,7 +360,7 @@ function openBody(job) {
           <p class="eyebrow">Do it</p>
           <div class="rows flat">
             <div class="kv"><span>Steps left</span><b class="num">${todo.length} of ${job.steps.length}</b></div>
-            <div class="kv"><span>Gas${manyChains(job) ? ` on ${CHAINS[job.chainId].name}` : ' for them'}</span><b class="num">${(gas / 1e6).toFixed(1)}M<small class="gasnote"></small></b></div>
+            <div class="kv"><span>Gas${manyChains(job) ? ` ${mark(job.chainId)}` : ' for them'}</span><b class="num">${(gas / 1e6).toFixed(1)}M<small class="gasnote"></small></b></div>
             <div class="kv"><span>Pays, about</span><b class="num">${payNow != null ? `${tacR(payNow)} TAC` : '—'}</b></div>
           </div>
           <p class="hint">${hint}</p>
@@ -458,7 +461,7 @@ async function go(job, only = null) {
       }
       const id = chainOf(job, s), tx = s.kind === 'post' ? await pointTx(job, s) : payload.steps[i];
       if (checkStep(job, s, tx).length) throw new Error('A transaction no longer matches the plan.');
-      say(`Step ${i + 1} of ${job.steps.length}: ${esc(s.label)}${id === job.chainId ? '' : ` (on ${CHAINS[id].name})`}. Confirm in your wallet…`);
+      say(`Step ${i + 1} of ${job.steps.length}: ${esc(s.label)}${id === job.chainId ? '' : ` ${mark(id)}`}. Confirm in your wallet…`);
       const hash = await conn.wallet.sendTx({ to: tx.to, data: tx.data, value: 0n, from: W.account, chain: id === 1 ? null : asWallet(id) });
       say(`Step ${i + 1} sent: ${link(`${CHAINS[id].explorer}/tx/${hash}`, esc(short(hash, 6)))}. Waiting for it to land…`);
       const rc = await conn.wallet.receipt(hash, { read: (m, p) => readOn(id, m, p), where: `the ${CHAINS[id].name} explorer` });
@@ -514,7 +517,7 @@ function renderEnds() {
   const el = $('#ends-body');
   el.innerHTML = `<form autocomplete="off">
     <p class="note">Each chain is read through public nodes, which see your IP address. Set your own and it is read through yours alone.</p>
-    ${Object.entries(CHAINS).map(([id, c]) => `<label class="lbl"><span>${esc(c.name)} · your own nodes</span><textarea rows="2" spellcheck="false" id="e-rpc-${id}" placeholder="https://… (optional)">${esc((ends.rpc?.[id] || []).join('\n'))}</textarea></label>`).join('')}
+    ${Object.entries(CHAINS).map(([id, c]) => `<label class="lbl"><span>${mark(id)}${esc(c.name)} · your own nodes</span><textarea rows="2" spellcheck="false" id="e-rpc-${id}" placeholder="https://… (optional)">${esc((ends.rpc?.[id] || []).join('\n'))}</textarea></label>`).join('')}
     <label class="lbl"><span>Rewards service</span><input id="e-points" spellcheck="false" placeholder="${esc(POINTS)}" value="${esc(ends.points || '')}"></label>
     <label class="lbl"><span>Keepers, for the first points</span><input id="e-keepers" spellcheck="false" placeholder="${esc(KEEPERS)}" value="${esc(ends.keepers || '')}"></label>
     <p class="note" id="ends-say" role="status"></p>

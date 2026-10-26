@@ -2,9 +2,9 @@ import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=9efdff52';
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=5ca12f8f';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=6058a172';
 import { TAC, POOL, FARM, aprText, readPrecision, readSpot, readStake, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
-import { rememberOwed } from '/trade/rewards-dot.js?cb=837a0a4e';
+import { rememberOwed } from '/trade/rewards-dot.js?cb=f9cbe2e7';
 import { readTasks } from '/rewards/earn.js?cb=74689244';
 import { readCampaign, bestApr } from '/trade/lp-campaign.js?cb=9d89e80f';
 import { DEPLOYMENTS } from '/vault/deployments.js?cb=4af96594';
@@ -358,16 +358,17 @@ function claimedNow(address, air, pts) {
 
 const json = (url) => fetch(url, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const farmFacts = () => keep('farm', () => readPrecision(call));
-const ICONS = new Set(['tac', 'eth', 'teth', 'cusd', 'cbtc']);
+const ICONS = new Set(['tac', 'tacd', 'tace', 'eth', 'teth', 'cusd', 'cbtc']);
 const pairIcons = (ids) => `<span class="pairtk">${ids.filter((i) => ICONS.has(i)).map((i) => `<svg class="tk" aria-hidden="true"><use href="#tk-${i}"/></svg>`).join('')}</span>`;
+const dot = (on) => `<i class="sd${on ? ' on' : ''}"></i>`;
 function noteFarm(f) {
   $('#farm-apr').textContent = f?.live ? aprText(f.apr) : f ? '—' : '';
-  $('#farm-d').textContent = f?.live ? `Public · ${tac(f.perDay, 0)} TAC a day` : f ? 'Public · between reward periods' : 'Public';
+  $('#farm-d').innerHTML = f?.live ? `${dot(true)}Public · ${tac(f.perDay, 0)} TAC a day` : f ? `${dot(false)}Public · between reward periods` : 'Public';
 }
 let PRIV = [], PROG = null;
 function paintPrivate(list) {
   PRIV = list;
-  const host = $('#farms'), h = list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join('');
+  const host = $('#farms'), h = list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>${dot(true)}Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join('');
   if (host.__priv === h) return;
   host.__priv = h;
   $$('#farms [data-priv]').forEach((e) => e.remove());
@@ -377,7 +378,7 @@ function paintPrivate(list) {
 // The holder's own private positions (rewards/farms.js): loaded on the first press, so the page reads nothing more until then
 const pickProvider = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
 let farmsP = null;
-const openFarms = () => (farmsP ||= import('/rewards/farms.js?cb=11ac0775').then((m) => { const f = m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])), program: () => PROG, wallet, W, connect: () => connect.connect() }); $('#pf-mine [data-pf="open"]')?.click(); return f; })
+const openFarms = () => (farmsP ||= import('/rewards/farms.js?cb=0810ae22').then((m) => { const f = m.mountFarms($('#pf-mine'), { pick: pickProvider, names: () => new Map(PRIV.map((x) => [x.pid, x.name])), pair: (pid) => { const icons = PRIV.find((x) => String(x.pid) === String(pid))?.icons || []; return icons.length ? pairIcons(icons) : ''; }, program: () => PROG, wallet, W, connect: () => connect.connect() }); $('#pf-mine [data-pf="open"]')?.click(); return f; })
   .catch((err) => { farmsP = null; console.warn('your positions:', err?.message || err); }));
 $('#pf-mine').addEventListener('click', (e) => {
   if (farmsP || !e.target.closest('[data-pf="open"]')) return;
@@ -397,7 +398,7 @@ function notePoints(c) {
   if (!c?.program) return;
   const over = c.programDay > c.programDays;
   $('#pts-f').textContent = over ? '' : tac(BigInt(c.program.dayBudgetWei || 0), 0);
-  $('#pts-s').textContent = over ? 'The program has ended' : `Day ${c.programDay} of ${c.programDays} · split by points`;
+  $('#pts-s').innerHTML = over ? `${dot(false)}The program has ended` : `${dot(true)}Day ${c.programDay} of ${c.programDays} · split by points`;
 }
 // TACD's and TACE's pools: shown while the liquidity campaign pays for them, each with the most a dollar in one of them earns a year
 function noteLiquidity(c, tacUsd = 0) {
@@ -438,7 +439,7 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=d0ca4914'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=5a940508'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=1a2388b9'), import('/trade/util.js?cb=dcf3a4f2'), import('/evm-trade-venues.js?cb=5a940508'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
@@ -489,7 +490,7 @@ async function paintDays(d) {
   if (!el.isConnected) return;
   if (!r || !Array.isArray(r.days)) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const list = r.days.slice(0, 14);
-  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? (x.tacWei == null ? '—' : `${tac(BigInt(x.tacWei), 4)} TAC`) : 'in progress'}</span></li>`).join('')}</ul>${list.some((x) => x.settled && x.tacWei == null) ? '<p class="st mute">A dash means that day\'s TAC is in the total above but not shown by day.</p>' : ''}${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
+  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? (x.tacWei == null ? '—' : `${tac(BigInt(x.tacWei), 4)} TAC`) : 'in progress'}</span></li>`).join('')}</ul>${list.some((x) => x.settled && x.tacWei == null) ? '<p class="st mute">A dash means that day’s TAC is in the total above but not shown by day.</p>' : ''}${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
   el.dataset.done = a;
 }
 async function paintBoard() {
@@ -516,13 +517,15 @@ async function paintEarn() {
   const day = c.day, wts = inForce(P.weights, day)?.weights || {}, caps = inForce(P.addressDayCaps, day)?.caps || {}, shares = inForce(P.categoryShareCaps, day)?.caps || {};
   const pot = tac(BigInt(P.dayBudgetWei || 0), 0), n = (x) => Math.round(x).toLocaleString('en-US');
   const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ${wts[k]}×` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day’s ${pot} TAC` : ''}`;
+  const mark = (id) => `<svg class="tk sm inl" aria-hidden="true"><use href="#tk-${id}"/></svg>`;
+  const chains = [[1, 'c-eth', 'Ethereum'], [8453, 'c-base', 'Base'], [4663, 'c-rh', 'Robinhood Chain']].map(([, id, name]) => `<svg class="tk xs inl" role="img" aria-label="${name}"><title>${name}</title><use href="#${id}"/></svg>`).join('');
   const ways = [
-    ['holding', 'Hold ETH in the private pools', '/#points', (r) => `${n(r)} points per ETH a day, proven on your device`],
-    ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
-    ['evmpooldeposit', 'Deposit ETH in a device pool (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
-    ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/swap/', (r) => `${n(r)} points per ETH`],
-    ['cbtcmint', 'Post a bond toward cBTC', '/vault/#btc', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`],
-    ['cusdmint', 'Borrow cUSD', '/vault/#btc', (r) => `${n(r)} points per dollar, when you send the loan yourself`],
+    ['holding', 'Hold ETH in the private pools', '/#points', (r) => `${n(r)} points per ETH a day, proven on your device`, mark('eth')],
+    ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`, mark('eth')],
+    ['evmpooldeposit', 'Deposit ETH in a device pool', '/#device', (r) => `${n(r)} points per ETH`, mark('eth'), ` ${chains}`],
+    ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/swap/', (r) => `${n(r)} points per ETH`, mark('eth')],
+    ['cbtcmint', 'Post a bond toward cBTC', '/vault/#btc', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`, mark('cbtc')],
+    ['cusdmint', 'Borrow cUSD', '/vault/#btc', (r) => `${n(r)} points per dollar, when you send the loan yourself`, mark('cusd')],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);
   const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets', wrap: 'wrapping ETH', evmpooldeposit: 'pool deposits', btcpool: 'the Bitcoin pool' };
   const orList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);
@@ -532,7 +535,7 @@ async function paintEarn() {
   const perPoint = (w) => `${(Number(BigInt(w) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC a point`;
   const reserved = [live, upcoming].filter((e) => e?.groups?.length).map((entry) => `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day’s ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}%${g.capped ? ' at most' : ''} for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)}${g.topWeiPerPoint && BigInt(g.topWeiPerPoint) > BigInt(g.maxWeiPerPoint) ? `, and ${perPoint(g.topWeiPerPoint).replace(' TAC a point', '')} when the day has TAC left over` : ''})` : ''}`).join(' and ')}. ${entry.groups.some((g) => g.capped) ? 'A share that is not used is not paid out.' : 'A share that is not used goes back to everyone else.'}</p>`).join('');
   const tiers = P.holder?.tiers || [];
-  el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
+  el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f, lead, tail = '']) => `<li><a href="${to}">${lead}${esc(label)}${tail}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
     + reserved
     + (tiers.length ? `<p class="st mute">Holding ${orList(tiers.map((t) => n(t.tac)))} public TAC at the same address for a day multiplies that day’s points by ${orList(tiers.map((t) => `${t.multiplier}×`))}. ` : '<p class="st mute">')
     + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. Each day’s pot is split by points.</p>`;
