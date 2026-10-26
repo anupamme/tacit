@@ -825,24 +825,24 @@ async function zRouterVerifiedSwapAmount(client, chainId, wethAddr, txHash, zRou
   }
 
   let total = 0n;
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() === wethAddr.toLowerCase()) {
+  for (const entry of receipt.logs) {
+    if (entry.address.toLowerCase() === wethAddr.toLowerCase()) {
       let decoded;
-      try { decoded = decodeEventLog({ abi: [ERC20_TRANSFER_EVENT], data: log.data, topics: log.topics }); } catch { continue; }
+      try { decoded = decodeEventLog({ abi: [ERC20_TRANSFER_EVENT], data: entry.data, topics: entry.topics }); } catch { continue; }
       if (decoded.args.from.toLowerCase() === zRouter.toLowerCase() && await isKnownPool(decoded.args.to)) {
         total += decoded.args.value;
       }
       continue;
     }
-    if (await isPrecisionPool(log.address)) {
+    if (await isPrecisionPool(entry.address)) {
       let decoded;
-      try { decoded = decodeEventLog({ abi: [PRECISION_SWAP_EVENT], data: log.data, topics: log.topics }); } catch { continue; }
+      try { decoded = decodeEventLog({ abi: [PRECISION_SWAP_EVENT], data: entry.data, topics: entry.topics }); } catch { continue; }
       if (decoded.args.tokenIn === '0x0000000000000000000000000000000000000000') total += decoded.args.amountIn;
       continue;
     }
-    if (log.address.toLowerCase() === V4_POOL_MANAGER[chainId]) {
+    if (entry.address.toLowerCase() === V4_POOL_MANAGER[chainId]) {
       let decoded;
-      try { decoded = decodeEventLog({ abi: [V4_SWAP_EVENT], data: log.data, topics: log.topics }); } catch { continue; }
+      try { decoded = decodeEventLog({ abi: [V4_SWAP_EVENT], data: entry.data, topics: entry.topics }); } catch { continue; }
       if (decoded.args.sender.toLowerCase() !== zRouter.toLowerCase()) continue;
       const paidIn = -decoded.args.amount0 === tx.value ? tx.value : -decoded.args.amount1 === tx.value ? tx.value : 0n;
       if (paidIn === 0n) continue;
