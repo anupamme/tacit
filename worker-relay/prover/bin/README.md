@@ -1,7 +1,8 @@
 # Prebuilt SP1 network-prove binaries
 
 The binaries are not committed; only their `SHA256SUMS` is. The `Dockerfile` fetches every `exec-<op>`, `bitcoin_prove` and
-`eth_prove` from the GitHub release named by `PROVER_RELEASE` and checks them against it.
+`eth_prove` from the GitHub releases it names (`PROVER_EXEC_RELEASE`, `PROVER_REFLECT_RELEASE`, `PROVER_ETH_RELEASE`) and
+checks them against it.
 
 To build them yourself (needs the SP1 toolchain and the guest ELFs):
 

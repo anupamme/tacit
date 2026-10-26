@@ -11,8 +11,12 @@ export function makeBoardProver({ post, status, cancel, verify, alive = null, wa
 
   // `stdin`: bincode SP1Stdin bytes, or `sealed`: { worker, epk, iv, ct } (the input encrypted to that worker; the board
   // offers it to no one else). `cls`: 'private' for a user's witness. `memos`: what the settle will carry, so the proof's
-  // memo root is checked. → { publicValues, proof, worker, jobId }, or an error with code 'board_miss'.
-  async function prove({ stdin = null, sealed = null, cycleLimit, gasLimit, cls = 'private', label = null, memos = [], timeoutMs = waitMs } = {}) {
+  // memo root is checked. `program` and `mode`: what the board proves ('confidential', groth16, by default; 'eth-state' is
+  // proved compressed), with `check` in place of the lane's `verify` for a program the pool does not settle. A check answers
+  // true (use it), 'stale' (sound, but behind the pool), 'unchecked' (it could not be checked here: no mark against the
+  // worker) or false (refused: it counts against the worker). → { publicValues, proof, worker, jobId }, or an error with code
+  // 'board_miss'.
+  async function prove({ stdin = null, sealed = null, cycleLimit, gasLimit, cls = 'private', label = null, memos = [], timeoutMs = waitMs, program = 'confidential', mode = null, check = null } = {}) {
     if (sealed == null && (!(stdin instanceof Uint8Array) || !stdin.length)) throw new Error('prover board: stdin must be the input bytes');
     if (sealed != null && (typeof sealed !== 'object' || typeof sealed.worker !== 'string' || typeof sealed.ct !== 'string')) throw new Error('prover board: sealed must be { worker, epk, iv, ct }');
     // No worker has polled lately: the job would only sit out the wait, so it goes straight to the next lane.
@@ -21,7 +25,7 @@ export function makeBoardProver({ post, status, cancel, verify, alive = null, wa
     const t0 = now();
     // The job's deadline sits a minute past this wait: a worker that answers just late is not paid for by the network too.
     const input = sealed != null ? { sealed } : { stdin: Buffer.from(stdin).toString('base64') };
-    const posted = await post({ class: cls, program: 'confidential', ...input, cycleLimit: Number(cycleLimit), gasLimit: Number(gasLimit),
+    const posted = await post({ class: cls, program, ...(mode ? { mode } : {}), ...input, cycleLimit: Number(cycleLimit), gasLimit: Number(gasLimit),
       deadline: Math.floor(now() / 1000) + Math.ceil(budget / 1000) + 60, label }).catch((e) => ({ ok: false, error: String(e && e.message || e) }));
     if (!posted || !posted.ok || !posted.jobId) throw miss(`not posted: ${(posted && posted.error) || 'no answer from the API'}`);
     const { jobId } = posted;
@@ -31,12 +35,16 @@ export function makeBoardProver({ post, status, cancel, verify, alive = null, wa
       const s = st && st.status;
       if (s && s !== lastSeen) { lastSeen = s; log(`prover board: job ${jobId.slice(0, 10)} ${s}${st.worker ? ` (${st.worker})` : ''}`); }
       if (s === 'proved') {
-        const ok = await Promise.resolve(verify({ publicValues: st.publicValues, proof: st.proof, memos })).catch(() => false);
+        const ok = await Promise.resolve((check || verify)({ publicValues: st.publicValues, proof: st.proof, memos })).catch(() => (check ? 'unchecked' : false));
         if (ok !== true) {
-          // 'stale': the op's roots are behind the pool, so the proof cannot land whoever made it; the job is cancelled without a mark
-          // against the worker. Anything else is a proof the pool refuses, which counts against the worker that made it.
-          await cancel(jobId, ok === 'stale' ? 'stale' : 'bad').catch(() => {});
-          throw miss(ok === 'stale' ? `the proof from ${st.worker || 'a worker'} is for roots the pool has moved past` : `the proof from ${st.worker || 'a worker'} did not pass the settle check`, { jobId, worker: st.worker, stale: ok === 'stale' });
+          // 'stale': the op's roots are behind the pool, so the proof cannot land whoever made it; 'unchecked': the check itself could
+          // not run here. Either way the job is cancelled without a mark against the worker. Anything else is a proof that was
+          // refused, which counts against the worker that made it.
+          const why = ok === 'stale' ? 'stale' : ok === 'unchecked' ? 'unchecked' : 'bad';
+          await cancel(jobId, why).catch(() => {});
+          const who = st.worker || 'a worker';
+          throw miss(why === 'stale' ? `the proof from ${who} is for roots the pool has moved past` : why === 'unchecked' ? `the proof from ${who} could not be checked here`
+            : `the proof from ${who} did not pass the ${check ? 'check' : 'settle check'}`, { jobId, worker: st.worker, stale: why === 'stale' });
         }
         return { publicValues: st.publicValues, proof: st.proof, worker: st.worker, jobId };
       }

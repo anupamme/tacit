@@ -82,3 +82,28 @@ test('with no worker seen lately the job is not posted at all', async () => {
   const r = await makeBoardProver({ ...g.api, alive: async () => { throw new Error('unreadable'); } }).prove({ stdin, cycleLimit: 1, gasLimit: 1 });
   assert.equal(r.worker, 'gpu1', 'an unreadable liveness read does not hold the job back');
 });
+
+test('another program: posted with its program and mode, and checked by the caller\'s check instead of the settle check', async () => {
+  const f = fakeBoard({ script: [{ status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: 'QUJD' }], verifyOk: false });
+  const seen = [];
+  const r = await makeBoardProver(f.api).prove({ stdin, cycleLimit: 3e9, gasLimit: 3e9, cls: 'eth-state', program: 'eth-state', mode: 'compressed', check: async (a) => { seen.push(a); return true; } });
+  assert.equal(r.proof, 'QUJD');
+  assert.equal(f.calls.post[0].program, 'eth-state'); assert.equal(f.calls.post[0].mode, 'compressed'); assert.equal(f.calls.post[0].class, 'eth-state');
+  assert.equal(f.calls.verify.length, 0, 'the settle check is not run for it');
+  assert.deepEqual(seen, [{ publicValues: PV, proof: 'QUJD', memos: [] }]);
+  const g = fakeBoard({ script: [{ status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: PROOF }] });
+  await makeBoardProver(g.api).prove({ stdin, cycleLimit: 1, gasLimit: 1 });
+  assert.equal(g.calls.post[0].program, 'confidential'); assert.equal('mode' in g.calls.post[0], false, 'a settle job is posted as before');
+});
+
+test('a check that could not run cancels without a mark against the worker; a refusal counts as bad', async () => {
+  let f = fakeBoard({ script: [{ status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: 'QUJD' }] });
+  await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1, gasLimit: 1, program: 'eth-state', check: async () => 'unchecked' }), (e) => e.code === 'board_miss' && /could not be checked here/.test(e.message));
+  assert.deepEqual(f.calls.cancel, [{ jobId: '0xjob1234567890', reason: 'unchecked' }]);
+  f = fakeBoard({ script: [{ status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: 'QUJD' }] });
+  await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1, gasLimit: 1, program: 'eth-state', check: async () => { throw new Error('spawn failed'); } }), (e) => e.code === 'board_miss' && /could not be checked/.test(e.message));
+  assert.deepEqual(f.calls.cancel, [{ jobId: '0xjob1234567890', reason: 'unchecked' }], 'a check that throws is not the worker\'s fault');
+  f = fakeBoard({ script: [{ status: 'proved', worker: 'eve', publicValues: PV, proof: 'QUJD' }] });
+  await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1, gasLimit: 1, program: 'eth-state', check: async () => false }), (e) => e.code === 'board_miss' && /did not pass the check/.test(e.message));
+  assert.deepEqual(f.calls.cancel, [{ jobId: '0xjob1234567890', reason: 'bad' }]);
+});

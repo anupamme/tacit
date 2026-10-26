@@ -246,7 +246,7 @@ async function cycle() {
   const result = await proveEthState({ mode: 'network', timeoutMs: CFG.ethProveTimeoutSecs * 1000 });
   const contentHash = ethStateContentHash(result.ethPv);
   log(`proved — ${result.crossouts.length} cumulative crossout(s), ${result.consumeds.length} cumulative `
-    + `consumed, execBlock=${result.execBlock}, contentHash=${contentHash}`);
+    + `consumed, execBlock=${result.execBlock}, contentHash=${contentHash}, on the ${result.lane || 'network'}${result.worker ? ` (${result.worker})` : ''}`);
   await checkStall(contentHash);
   await archiveCandidate(contentHash, result.lastBlock).catch((e) => log('could not archive candidate state:', e.message));
 

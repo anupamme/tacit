@@ -49,8 +49,8 @@ memo root → `settle` over the private submission endpoints → `POST /confiden
 ## Prover binaries
 
 The image fetches the prebuilt binaries (`exec-<op>` for each confidential op, `bitcoin_prove`,
-`eth_prove`) from the GitHub release named by `PROVER_RELEASE` in the `Dockerfile` and checks
-them against `prover/bin/SHA256SUMS`. They are patched to `.network()` and embed their guest
+`eth_prove`) from the GitHub releases the `Dockerfile` names (`PROVER_EXEC_RELEASE`, `PROVER_REFLECT_RELEASE`,
+`PROVER_ETH_RELEASE`) and checks them against `prover/bin/SHA256SUMS`. They are patched to `.network()` and embed their guest
 ELFs, so each proves exactly one program. Set `EXPECT_VKEY` so a binary built against a
 different guest fails at startup rather than producing proofs the pool rejects. Rotating a guest
 means bumping `SHA256SUMS`, the release tag and the on-chain vkey together.

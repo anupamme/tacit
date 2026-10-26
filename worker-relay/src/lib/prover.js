@@ -17,6 +17,7 @@ import { privateProvePlan, retryPublic, privateRefused, rememberRefusal, private
 import { CREDIT_SHORT } from './prove-pause.js';
 import { makeStdinProver, batchInput } from './stdin-prover.js';
 import { makeBoardProver } from './board-prover.js';
+import { makeEthBoard, boardProves, finishVerdict } from './eth-board.js';
 import { boardPost, boardStatus, boardCancel, boardSummary } from './worker-client.js';
 import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
@@ -209,29 +210,109 @@ function ethProveEnv(mode, rpcs) {
     ETHPROVE_GAS_LIMIT: CFG.ethProveGasLimit,
     ETH_PROVE_OUT_DIR: CFG.ethProveOutDir,
     ETH_PROVE_DEBUG_DIR: CFG.ethProveDebugDir,
-    // eth_prove.rs reads its OWN SP1_PROVER var (backend selector: cpu|cuda|network|execute) — separate
+    // eth_prove.rs reads its OWN SP1_PROVER var (backend selector: cpu|cuda|network|execute|stdin|finish) — separate
     // from the bitcoin_prove/exec convention of always being 'network', because 'execute' (free local
-    // dry-run, no STARK) is a real, distinct mode this binary supports and the sidecar uses deliberately.
-    SP1_PROVER: mode === 'execute' ? 'execute' : CFG.sp1Prover,
+    // dry-run, no STARK) is a real, distinct mode this binary supports and the sidecar uses deliberately; 'stdin' and
+    // 'finish' are the two halves of a proof made on the prover board (ethBoardLane below).
+    SP1_PROVER: ['execute', 'stdin', 'finish'].includes(mode) ? mode : CFG.sp1Prover,
   });
+}
+
+// The Ethereum-state proof on the prover board (lib/eth-board.js): eth_prove builds the input (SP1_PROVER=stdin), a worker
+// that proves the 'eth-state' program proves it compressed, and eth_prove finishes with that proof (SP1_PROVER=finish). The
+// board's status for a proved job carries the proof (about 1.7 MB), so each read is bounded: a stalled read must not hold
+// the stage past its wait.
+const within = (p, ms, what) => {
+  let timer;
+  const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error(`${what} took over ${ms / 1000} s`)), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+};
+// Whether this image's eth_prove has the stdin and finish modes, asked once (ETH_PROVE_MODES=1, answered at once and nothing else
+// done). An older build does not answer it, and spawned with no SOURCE_CONSENSUS_RPC it stops on that before any RPC or proof,
+// where SP1_PROVER=stdin would have sent it into a CPU proof inside this container.
+let ethModes = null;
+async function ethProveModes() {
+  ethModes ||= run(CFG.ethProveBin, { env: { ETH_PROVE_MODES: '1', PATH: process.env.PATH || '' }, cwd: CFG.ethProveOutDir, timeoutMs: 20_000, tag: 'eth_prove:modes' })
+    .then(({ out }) => (/^ETH_PROVE_MODES (.+)$/m.exec(out)?.[1] || '').split(/\s+/).filter(Boolean))
+    .catch(() => []);
+  return ethModes;
+}
+let ethBoard = null;
+function ethBoardLane() {
+  if (!CFG.ethStateBoard) return null;
+  const dir = CFG.ethProveOutDir;
+  ethBoard ||= makeEthBoard({
+    capable: async () => (await ethProveModes()).includes('stdin') && boardProves(await within(boardSummary(), 15_000, 'the board summary'), 'eth-state'),
+    buildInput: async () => {
+      await Promise.all(['eth_stdin.bin', 'eth_candidate.json'].map((f) => rm(path.join(dir, f), { force: true })));
+      const { code, out, err } = await run(CFG.ethProveBin, { env: ethProveEnv('stdin', await ethProveRpcs()), cwd: dir, timeoutMs: CFG.ethStateStdinTimeoutSecs * 1000, tag: 'eth_prove:stdin' });
+      const m = /^STDIN_OK bytes=(\d+) exec_block=(\d+) expect_pv=([0-9a-f]+)$/m.exec(out);
+      if (code !== 0 || !m) throw new Error(`eth_prove stdin run gave no input (code=${code}): ${(out + err).slice(-600)}`);
+      return { stdin: new Uint8Array(await readFile(path.join(dir, 'eth_stdin.bin'))), expectPv: m[3], execBlock: Number(m[2]) };
+    },
+    lane: makeBoardProver({
+      post: boardPost, cancel: boardCancel, status: (id) => within(boardStatus(id), 30_000, 'a board status read'),
+      verify: () => false, waitMs: CFG.ethStateBoardWaitSecs * 1000, pollMs: 2000, log: boardLog,
+    }),
+    finish: async (proofB64) => {
+      const file = path.join(dir, 'eth_board_proof.bin');
+      try {
+        await writeFile(file, Buffer.from(String(proofB64 || ''), 'base64'));
+        const r = await run(CFG.ethProveBin, { env: { ...ethProveEnv('finish', { exec: CFG.sourceExecutionRpc, proof: null }), ETH_PROOF_IN: file }, cwd: dir,
+          timeoutMs: CFG.ethFinishTimeoutSecs * 1000, rssLimitKB: CFG.ethFinishRssKB, tag: 'eth_prove:finish' });
+        return finishVerdict(r);
+      } catch (e) {
+        boardLog(`eth-state: the finish run did not complete (${String(e.message).split('\n')[0]})`);
+        return 'unchecked';
+      } finally { await rm(file, { force: true }); }
+    },
+    cycleLimit: CFG.ethProveCycleLimit, gasLimit: CFG.ethProveGasLimit, waitMs: CFG.ethStateBoardWaitSecs * 1000, log: boardLog,
+  });
+  return ethBoard;
+}
+
+const ETH_OUTPUTS = ['eth_compressed.bin', 'eth_set.json', 'eth_set_state.pending.json'];
+async function readEthArtifacts() {
+  const [ethCompressed, bundleRaw, pendingRaw] = await Promise.all(ETH_OUTPUTS.map((f, i) => readFile(path.join(CFG.ethProveOutDir, f), i ? 'utf8' : undefined)));
+  const bundle = JSON.parse(bundleRaw); // { ethPv, crossouts:[{claimId,destCommitment,asset}], consumeds:[{nu,consumedVal,spendRoot}] }
+  const pending = JSON.parse(pendingRaw); // { last_block, crossouts, consumeds } — the CANDIDATE cumulative state
+  return {
+    ethPv: bundle.ethPv,
+    crossouts: bundle.crossouts.map((c) => ({ claimId: c.claimId, destCommitment: c.destCommitment, asset: c.asset })),
+    consumeds: bundle.consumeds.map((c) => ({ nu: c.nu, consumedVal: c.consumedVal, spendRoot: c.spendRoot })),
+    ethCompressedProofB64: ethCompressed.toString('base64'),
+    lastBlock: pending.last_block,
+    execBlock: pending.last_block,
+  };
 }
 
 // mode 'execute': free local dry-run (no proof, no artifacts) — parses EXECUTE_OK/RAWPV off stdout so the
 // caller can sanity-check cycle count and decode crossOutCount/etc. from RAWPV before spending a real
-// network prove. mode 'network' (default): the real compressed proof + bundle, read back from ETH_PROVE_OUT_DIR.
+// network prove. mode 'network' (default): the real compressed proof + bundle, read back from ETH_PROVE_OUT_DIR, made on the
+// prover board first when a worker there proves it (ethBoardLane above), else by the network. → { …, lane: 'board'|'network' }
 export async function proveEthState({ mode = 'network', timeoutMs } = {}) {
   await mkdir(CFG.ethProveOutDir, { recursive: true });
-  if (mode !== 'execute') {
-    // Clear this run's output artifacts BEFORE spawning (mirrors proveReflection's own rm-before-run
-    // guard above) — otherwise a run that panics without writing anything new leaves readFile below to
-    // silently pick up a PREVIOUS successful run's leftover files and return them as if they were fresh.
-    // That happened for real: a network proof rejected as "unexecutable" still left the prior candidate's
-    // eth_set_state.pending.json on disk, and this function returned it as a "successful" result.
-    await Promise.all([
-      rm(path.join(CFG.ethProveOutDir, 'eth_compressed.bin'), { force: true }),
-      rm(path.join(CFG.ethProveOutDir, 'eth_set.json'), { force: true }),
-      rm(path.join(CFG.ethProveOutDir, 'eth_set_state.pending.json'), { force: true }),
-    ]);
+  // Clear this run's output artifacts BEFORE spawning (mirrors proveReflection's own rm-before-run
+  // guard above) — otherwise a run that panics without writing anything new leaves readFile below to
+  // silently pick up a PREVIOUS successful run's leftover files and return them as if they were fresh.
+  // That happened for real: a network proof rejected as "unexecutable" still left the prior candidate's
+  // eth_set_state.pending.json on disk, and this function returned it as a "successful" result.
+  const clearOutputs = () => Promise.all(ETH_OUTPUTS.map((f) => rm(path.join(CFG.ethProveOutDir, f), { force: true })));
+  if (mode !== 'execute') await clearOutputs();
+  if (mode === 'network') {
+    const lane = ethBoardLane();
+    if (lane) {
+      const b = await lane.prove();
+      if (b.ok) {
+        try {
+          const r = await readEthArtifacts();
+          boardLog(`eth-state: proved on the board by ${b.worker} in ${Math.round(b.ms / 1000)} s`);
+          return { ...r, lane: 'board', worker: b.worker };
+        } catch (e) { boardLog(`eth-state: the board proof was accepted but its outputs are not readable (${e.message}); proving it on the network`); }
+      } else boardLog(`eth-state: ${b.reason}; proving it on the network`);
+      await clearOutputs();
+      if (timeoutMs) timeoutMs = Math.max(10 * 60_000, timeoutMs - b.ms);
+    }
   }
   // execute mode runs the (heavy) eth-reflection guest through SP1's local CPU interpreter — observed to
   // spike to >1.2GB in well under a second on this host and take the whole container down with it (the
@@ -248,21 +329,7 @@ export async function proveEthState({ mode = 'network', timeoutMs } = {}) {
     return { cycles: Number(m[1]), pvBytes: Number(m[2]), rawPvHex: rawpv ? rawpv[1] : null };
   }
   try {
-    const [ethCompressed, bundleRaw, pendingRaw] = await Promise.all([
-      readFile(path.join(CFG.ethProveOutDir, 'eth_compressed.bin')),
-      readFile(path.join(CFG.ethProveOutDir, 'eth_set.json'), 'utf8'),
-      readFile(path.join(CFG.ethProveOutDir, 'eth_set_state.pending.json'), 'utf8'),
-    ]);
-    const bundle = JSON.parse(bundleRaw); // { ethPv, crossouts:[{claimId,destCommitment,asset}], consumeds:[{nu,consumedVal,spendRoot}] }
-    const pending = JSON.parse(pendingRaw); // { last_block, crossouts, consumeds } — the CANDIDATE cumulative state
-    return {
-      ethPv: bundle.ethPv,
-      crossouts: bundle.crossouts.map((c) => ({ claimId: c.claimId, destCommitment: c.destCommitment, asset: c.asset })),
-      consumeds: bundle.consumeds.map((c) => ({ nu: c.nu, consumedVal: c.consumedVal, spendRoot: c.spendRoot })),
-      ethCompressedProofB64: ethCompressed.toString('base64'),
-      lastBlock: pending.last_block,
-      execBlock: pending.last_block,
-    };
+    return { ...(await readEthArtifacts()), lane: 'network' };
   } catch (e) {
     throw new Error(`eth_prove network run produced no usable artifacts (code=${code}): ${e.message}\n${tail}`);
   }

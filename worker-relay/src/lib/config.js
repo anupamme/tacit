@@ -409,6 +409,19 @@ export const CFG = {
   // Bitcoin-side attest can land, so a single hung child process silently halts the whole Bitcoin->Ethereum
   // lane with every service still reporting healthy. Generous (a real network prove is minutes), but finite.
   ethProveTimeoutSecs: num('ETH_PROVE_TIMEOUT_SECS', 45 * 60),
+  // The Ethereum-state proof on Tacit's prover board (lib/eth-board.js), before the network. When a worker that proves the
+  // eth-state program has polled the board in the last half minute, eth_prove builds the input (SP1_PROVER=stdin), the worker
+  // proves it compressed and eth_prove finishes with that proof (SP1_PROVER=finish), which it refuses unless the proof's
+  // public values are the candidate's, the guest key is the one the Bitcoin guest pins and it verifies. No such worker, a
+  // refused proof or none back within ETH_STATE_BOARD_WAIT_SECS: the network proves it, as before. ETH_STATE_BOARD=0: the
+  // network only.
+  ethStateBoard: opt('ETH_STATE_BOARD', '1') !== '0',
+  ethStateBoardWaitSecs: num('ETH_STATE_BOARD_WAIT_SECS', 300),
+  // Building the input is eth_prove's whole RPC phase (light-client updates, logs, storage proofs) without the proof.
+  ethStateStdinTimeoutSecs: num('ETH_STATE_STDIN_TIMEOUT_SECS', 15 * 60),
+  // The finish run sets up the guest's key and verifies a compressed proof on the CPU; it proves nothing.
+  ethFinishTimeoutSecs: num('ETH_FINISH_TIMEOUT_SECS', 10 * 60),
+  ethFinishRssKB: num('ETH_FINISH_RSS_KB', 1_700_000),
   // MUST mirror ETH_STATE_PENDING_STALE_SECS_DEFAULT in worker/src/index.js. This value decides whether the
   // sidecar thinks it is worth publishing; that one decides whether the server 409s the publish. When they
   // disagree, the sidecar spends a network proof on a candidate the server then refuses — and the two sides
