@@ -174,10 +174,10 @@ function drawScene(ctx, L, C) {
   // The proof gate: where a burn waits until Bitcoin's state has landed on Ethereum.
   ctx.beginPath(); ctx.moveTo(L.gateX, L.up - 3); ctx.lineTo(L.gateX, L.dn + 3); ctx.stroke();
   ctx.fillStyle = C.mute; ctx.globalAlpha = 0.75;
-  ctx.font = `400 ${L.compact ? 10 : 9}px ${C.mono}`;
   ctx.textAlign = 'center';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '1.2px';
-  ctx.fillText('PROOF', L.gateX, L.up - (L.compact ? 7 : 9));
+  if (C.q) ctx.font = `italic 400 13px ${C.serif}`; else ctx.font = `400 ${L.compact ? 10 : 9}px ${C.mono}`;
+  if (!C.q && 'letterSpacing' in ctx) ctx.letterSpacing = '1.2px';
+  ctx.fillText(C.q ? 'proof' : 'PROOF', L.gateX, L.up - (L.compact ? 7 : 9));
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   ctx.globalAlpha = 1;
   // The column the TAC moves along, broken where Ethereum's own mark and name sit.
@@ -199,7 +199,7 @@ function drawMark(ctx, m, L, C) {
     return;
   }
   if (m.ring != null) {
-    ctx.strokeStyle = alpha(m.c, m.a); ctx.lineWidth = 1;
+    ctx.strokeStyle = alpha(m.c, C.q ? m.a * 0.7 : m.a); ctx.lineWidth = C.q ? 0.75 : 1;
     ctx.beginPath(); ctx.arc(m.x, m.y, m.ring, 0, Math.PI * 2); ctx.stroke();
     return;
   }
@@ -212,6 +212,23 @@ function drawMark(ctx, m, L, C) {
 function drawMarkTrail(ctx, p, t, L, C) {
   const m = look(p, t, L, C);
   if (!m) return;
+  if (C.q && m.trail) {
+    // one fine line that thins away behind a small, crisp head
+    let prev = m;
+    ctx.lineWidth = 1; ctx.lineCap = 'round';
+    for (let k = 1; k <= m.trail; k++) {
+      const tt = t - k * 0.013;
+      if (tt < 0) break;
+      const q = look(p, tt, L, C);
+      if (!q) break;
+      ctx.strokeStyle = alpha(m.c, m.a * 0.6 * (1 - k / (m.trail + 1)));
+      ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+      prev = q;
+    }
+    ctx.lineCap = 'butt';
+    drawMark(ctx, { ...m, r: m.r * 0.8 }, L, C);
+    return;
+  }
   drawMark(ctx, m, L, C);
   for (let k = 1; k <= (m.trail || 0); k++) {
     const tt = t - k * 0.013;
@@ -246,20 +263,22 @@ const STYLE = `
 .fl.fl-c .fl-n .fl-disc { width: 16px; height: 16px; font-size: 9px; }
 .fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .75; pointer-events: none; white-space: nowrap; }
 .fl.fl-c .fl-s { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+.fl.fl-c.fl-q .fl-n { gap: 5px; font: italic 400 14px/1 var(--serif, Georgia, serif); letter-spacing: 0; text-transform: none; }
+.fl.fl-c.fl-q .fl-s { font: italic 400 13px var(--serif, Georgia, serif); letter-spacing: 0; text-transform: none; opacity: .8; }
 .fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font: 400 10px var(--mono, monospace); letter-spacing: .01em; color: var(--mute, #625c4f); }
 .fl-foot b { color: var(--ink, #1a1a1a); font-weight: 400; }
 .fl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 520px) { .fl-n small { display: none; } .fl-foot { gap: 3px 12px; } }
 `;
 
-export function mountFlow(host, { api = 'https://api.tacit.finance', compact = false, fetchImpl, tipUrl = 'https://mempool.space/api/blocks/tip/height', pollMs = 15000, tipMs = 30000 } = {}) {
+export function mountFlow(host, { api = 'https://api.tacit.finance', compact = false, quiet = false, fetchImpl, tipUrl = 'https://mempool.space/api/blocks/tip/height', pollMs = 15000, tipMs = 30000 } = {}) {
   const doc = host.ownerDocument, win = doc.defaultView;
   const doFetch = fetchImpl || ((...a) => win.fetch(...a));
   const reduce = !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (!doc.getElementById('fl-style')) { const st = doc.createElement('style'); st.id = 'fl-style'; st.textContent = STYLE; doc.head.appendChild(st); }
 
   const el = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const root = el('div', `fl${compact ? ' fl-c' : ''}`);
+  const root = el('div', `fl${compact ? ' fl-c' : ''}${quiet ? ' fl-q' : ''}`);
   root.setAttribute('role', 'group'); root.setAttribute('aria-label', 'Bitcoin and Ethereum, kept in step');
   const top = el('div', 'fl-top'), modes = el('div', 'fl-mode'), clock = el('span', 'fl-clock', 'loading…');
   modes.setAttribute('role', 'tablist'); modes.setAttribute('aria-label', 'View');
@@ -290,7 +309,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   let C = null;
   const colors = () => {
     const s = css(), v = (n, fb) => (s.getPropertyValue(n) || '').trim() || fb;
-    C = { orange: v('--orange', '#f7931a'), eth: v('--eth', '#627eea'), ink: v('--ink', '#1a1a1a'), mute: v('--mute', '#625c4f'), hair: v('--hair', 'rgba(26,26,26,.12)'), hair2: v('--hair-2', 'rgba(26,26,26,.28)'), mono: v('--mono', 'ui-monospace, Menlo, monospace') };
+    C = { orange: v('--orange', '#f7931a'), eth: v('--eth', '#627eea'), ink: v('--ink', '#1a1a1a'), q: quiet, serif: v('--serif', 'Georgia, serif'), mute: v('--mute', '#625c4f'), hair: v('--hair', 'rgba(26,26,26,.12)'), hair2: v('--hair-2', 'rgba(26,26,26,.28)'), mono: v('--mono', 'ui-monospace, Menlo, monospace') };
   };
   const ctx = canvas.getContext && canvas.getContext('2d');
   let L = layout(600, compact ? 104 : 280, compact), dpr = 1;

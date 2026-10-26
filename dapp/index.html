@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NmPC4c6Wy+NnWapPU2/CnXZw512po51dD88lfos7upc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-KY/4wgs83kktMNEDwSq1AtLnUo3hwfC72qbfJx4y1eA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -59,6 +59,7 @@
   --paper: #E8E0CC;
   --card: #F2EBD4;
   --field: #FAF6EA;
+  --soft: color-mix(in srgb, #fff 40%, var(--card));
   --ink: #1A1A1A;
   --mute: #625C4F;
   --hair: rgba(26,26,26,.12);
@@ -76,7 +77,7 @@
   --route-o: .55;
   --blue: #627eea;
   --green: #16a34a;
-  --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
+  --float: 0 1px 2px rgba(26,26,26,.05), 0 26px 50px -34px rgba(26,26,26,.38);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: 'Instrument Serif', 'Instrument Serif Fallback', 'Instrument Serif Fallback T', 'Instrument Serif Fallback N', Georgia, serif;
   --tap: 44px;
@@ -90,6 +91,7 @@
     --paper: #15130E;
     --card: #1F1C15;
     --field: #191711;
+    --soft: color-mix(in srgb, var(--ink) 4.5%, var(--card));
     --ink: #EDE5CF;
     --mute: #A39B85;
     --hair: rgba(237,229,207,.12);
@@ -214,7 +216,7 @@ main:focus { outline: none; }
 .dash .callout { margin: 0 0 10px; }
 .dash-g { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
 .di { display: flex; flex-direction: column; gap: 3px; width: 100%; min-height: 86px; padding: 12px 14px; text-align: left; cursor: pointer;
-  background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; transition: border-color .15s, box-shadow .15s; }
+  background: var(--card); border: 1px solid var(--hair); border-radius: 14px; transition: border-color .15s, box-shadow .15s; }
 @media (hover: hover) { .di:hover { border-color: var(--ink); box-shadow: var(--lift); } }
 a.di { color: inherit; text-decoration: none; }
 .di-k { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mute); letter-spacing: .02em; }
@@ -321,7 +323,18 @@ a.di { color: inherit; text-decoration: none; }
 .trust::before { content: '✓'; margin-right: 6px; color: var(--green); }
 
 /* ── the hero's console: a card that takes a verb, an amount and a way, and hands the rest to the sheet that does it ── */
-.hx { position: relative; width: 100%; max-width: 480px; min-width: 0; margin: 0 auto; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
+.hx { position: relative; width: 100%; max-width: 480px; min-width: 0; margin: 0 auto; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; box-shadow: var(--float); }
+/* The card's fields sit a shade off its surface instead of being outlined boxes. No dashes either: a shielded side is told by its lock mark and its
+   dashed token ring, not by its edge. Chips and rings are hairlines, and the primary button is a little dimmer on dark. */
+.hx .swc { --field: var(--soft); }
+.hx .swc .f, .hx .swc .rows { border-color: transparent; }
+.hx .swc .f.priv { border-style: solid; border-color: transparent; }
+.hx .swc .f:focus-within { border-color: var(--hair-2); }
+.hx .swc .coin, .hx .swc .flip { border-color: var(--hair); }
+.hx .swc .quick button { border-color: var(--hair); color: var(--mute); }
+.hx .swc .go.priv, .hx .swc .later.on { border-style: solid; }
+.hx .swc .rcpt div::after { border-bottom-color: var(--hair); }
+@media (prefers-color-scheme: dark) { .hx .swc .go:not(.priv) { background: color-mix(in srgb, var(--ink) 86%, var(--card)); border-color: transparent; } .hx .swc .go.priv { border-color: var(--hair-2); } }
 /* The card is filled by script, so until it is, it holds the height it settles at (measured at each width): what is below it does not move when it appears. */
 .hx:has(#hx-body:empty) { min-height: 448px; }
 @media (max-width: 640px) { .hx:has(#hx-body:empty) { min-height: 477px; } }
@@ -449,7 +462,7 @@ a.di { color: inherit; text-decoration: none; }
 .sx-h p { margin: 0; max-width: 52ch; font-size: 14px; line-height: 1.5; color: var(--mute); text-wrap: balance; }
 
 /* One ID, two chains: Bitcoin left, Ethereum right, the key between them, one lane for each thing that crosses. */
-.wd { --end: 340px; overflow: hidden; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; }
+.wd { --end: 340px; overflow: hidden; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; }
 .wd-top, .wd-lane { display: grid; grid-template-columns: var(--end) minmax(0, 1fr) var(--end); align-items: center; }
 .wd-top { padding: 22px 24px 20px; border-bottom: 1px solid var(--hair); }
 .wd-ch { display: flex; align-items: center; gap: 12px; font: 400 clamp(26px, 3vw, 34px)/1 var(--serif); letter-spacing: -.01em; }
@@ -458,7 +471,7 @@ a.di { color: inherit; text-decoration: none; }
 .wd-key { position: relative; z-index: 1; display: grid; justify-items: center; gap: 8px; text-align: center; color: inherit; background: none; border: 0; cursor: pointer; }
 .wd-key .tk { width: 48px; height: 48px; transition: transform .35s var(--spring); }
 @media (hover: hover) { .wd-key:hover .tk { transform: rotate(-14deg); } }
-.wd-key code { font: 500 13px var(--mono); padding: 3px 12px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 999px; }
+.wd-key code { font: 500 13px var(--mono); padding: 3px 12px; background: var(--soft); border: 1px solid var(--hair); border-radius: 999px; }
 .wd-key small { font-size: 12px; line-height: 1.4; color: var(--mute); }
 .wd-key::after { content: ''; position: absolute; top: calc(100% + 4px); left: 50%; height: 16px; border-left: 1px dashed var(--hair-2); }
 .wd-lanes { position: relative; list-style: none; margin: 0; padding: 0; }
@@ -472,10 +485,10 @@ a.di { color: inherit; text-decoration: none; }
 .wd-end .pair .tk + .tk { margin-left: -12px; box-shadow: 0 0 0 2px var(--card); }
 .wd-end b { display: block; font: 400 24px/1.05 var(--serif); }
 .wd-end small { display: block; margin-top: 3px; font-size: 12px; line-height: 1.4; color: var(--mute); }
-/* The wire: Bitcoin's orange running into Ethereum's blue, an arrowhead at each end something arrives at, and a dot crossing each way
-   (orange from Bitcoin, blue from Ethereum). */
+/* The wire: one neutral hairline with an arrowhead at each end something arrives at (Bitcoin's orange, Ethereum's blue), and a dot crossing each way
+   (orange from Bitcoin, blue from Ethereum). It darkens when its lane is pointed at. */
 .wd-wire { position: relative; align-self: stretch; display: grid; place-items: center; padding: 0; color: inherit; background: none; border: 0; cursor: pointer; }
-.wd-wl { position: absolute; left: 14px; right: 14px; top: 50%; height: 1.5px; margin-top: -.75px; background: linear-gradient(90deg, var(--orange), var(--blue)); opacity: .8; }
+.wd-wl { position: absolute; left: 14px; right: 14px; top: 50%; height: 1px; background: currentColor; opacity: .3; transition: opacity .2s; }
 .wd-wl::before, .wd-wl::after { content: ''; position: absolute; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border: solid; border-width: 1.5px 1.5px 0 0; }
 .wd-wl::after { right: 0; border-color: var(--blue); transform: rotate(45deg); }
 .wd-wl::before { left: 0; border-color: var(--orange); transform: rotate(-135deg); }
@@ -488,6 +501,7 @@ a.di { color: inherit; text-decoration: none; }
 @keyframes wd-l { 0% { transform: translateX(0); opacity: 0; } 12%, 85% { opacity: 1; } 100% { transform: translateX(-100%); opacity: 0; } }
 .wd-wire:hover::before, .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::before, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-duration: 1.4s; }
 .wd-wire:hover::after, .wd-lane:has(.wd-end:hover) .wd-wire::after { animation-delay: -.7s; }
+.wd-wire:hover .wd-wl, .wd-lane:has(.wd-end:hover) .wd-wl { opacity: .85; }
 .wd-wire span { position: relative; z-index: 1; padding: 2px 10px; font: 400 12px var(--mono); letter-spacing: .04em; color: var(--mute); background: var(--card); border-radius: 999px; transition: color .15s; }
 .wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--ink); }
 /* The picture of the two chains: what is passing between them now, and over the last day; the bridge card's last band. */
@@ -501,7 +515,7 @@ a.di { color: inherit; text-decoration: none; }
 .fm-c { max-width: 600px; margin: 0 auto; }
 .fm-y { display: grid; gap: 12px; margin-top: 12px; }
 .fm .sx-h p { max-width: 72ch; }
-.fz { display: grid; gap: 22px; padding: 24px 24px 22px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; }
+.fz { display: grid; gap: 22px; padding: 24px 24px 22px; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; }
 /* The pool picked, as one slim reading over its form: its pair, its name and what it pays a day, its rate at the right. */
 .fz-l { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr"; align-items: center; gap: 2px 14px; min-width: 0; }
 .fz-l .pair { grid-area: pair; }
@@ -513,7 +527,7 @@ a.di { color: inherit; text-decoration: none; }
 .fz-l #priv-day { grid-area: p; margin: 0; font-size: 13px; color: var(--mute); }
 .fz-r { display: flex; flex-direction: column; min-width: 0; }
 .fz-pairs { display: grid; gap: 6px; }
-.fz-pairs button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 8px; color: var(--ink); text-align: left; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+.fz-pairs button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 8px; color: var(--ink); text-align: left; background: var(--soft); border: 1px solid transparent; border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
 .fz-pairs button .pair .tk { width: 26px; height: 26px; }
 .fz-pairs button .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 1.5px var(--field); }
 .fz-pairs button span:not(.pair) { flex: 1; font-size: 14px; }
@@ -522,10 +536,10 @@ a.di { color: inherit; text-decoration: none; }
 .fz-pairs button[aria-checked="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 @media (hover: hover) { .fz-pairs button:hover { border-color: var(--hair-2); } .fz-pairs button[aria-checked="true"]:hover { border-color: var(--ink); } }
 .fz-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
-.fz-sizes, .fz-mode { display: inline-flex; border: 1px solid var(--hair-2); border-radius: 10px; overflow: hidden; }
+.fz-sizes, .fz-mode { display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
 .fz-sizes { flex: 1 1 auto; } .fz-sizes button { flex: 1; }
 .fz-sizes button, .fz-mode button { min-height: 38px; padding: 6px 12px; color: var(--mute); font: 13px var(--mono); white-space: nowrap; background: none; border: 0; cursor: pointer; }
-.fz-sizes button + button, .fz-mode button + button { border-left: 1px solid var(--hair-2); }
+.fz-sizes button + button, .fz-mode button + button { border-left: 1px solid var(--hair); }
 .fz-sizes button[aria-checked="true"], .fz-mode button[aria-checked="true"] { color: var(--card); background: var(--ink); }
 .fz-sizes button.rd svg { width: 8px; height: 10px; margin: 0 5px -1px 0; fill: var(--ok); }
 .fz-sizes button.rd[aria-checked="true"] svg { fill: currentColor; }
@@ -533,7 +547,7 @@ a.di { color: inherit; text-decoration: none; }
 .fz-r .btn { margin-top: 14px; border-radius: 12px; }
 .fz-r .q { min-height: 1.4em; margin: 10px 0 0; font-size: 13px; color: var(--mute); }
 .fz.off .fz-r { display: none; } .fz.off { grid-template-columns: minmax(0, 1fr); }
-.fm-way { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr" "pair go apr"; align-items: center; gap: 2px 14px; padding: 14px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; transition: background .15s; }
+.fm-way { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr" "pair go apr"; align-items: center; gap: 2px 14px; padding: 14px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; transition: background .15s; }
 @media (hover: hover) { a.fm-way:hover { background: var(--field); } a.fm-way:hover .go { transform: translateX(4px); } }
 .fm-way .pair { grid-area: pair; }
 .fm-way .pair .tk { width: 30px; height: 30px; }
@@ -546,7 +560,7 @@ a.di { color: inherit; text-decoration: none; }
 .fm-way p { grid-area: p; margin: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
 .fm-way .fm-go { grid-area: go; margin-top: 4px; font-size: 12px; font-weight: 500; }
 .fm-way .fm-apr { grid-area: apr; margin: 0; font-size: 32px; text-align: right; }
-.fm-way .fm-apr small.up { position: static; display: block; margin: 0 0 2px; text-align: right; }
+.fm-way .fm-apr small.up { position: static; display: block; margin: 0 0 2px; text-align: left; }
 .fm-way .fm-apr small:not(.up) { margin-left: 4px; font-size: 10px; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
 .fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 22px; }
@@ -631,12 +645,13 @@ a.di { color: inherit; text-decoration: none; }
 /* The other assets: a switch under the coin. The coin turns to the one picked, leans toward a pointer and turns over when pressed;
    each asset's story sits in the same grid cell, so a switch never moves what is below. */
 .tc-hand { transform-style: preserve-3d; transform: rotateX(var(--tx, 0deg)) rotateY(var(--ty, 0deg)); transition: transform .6s var(--ease); cursor: pointer; }
-.tc-as { display: inline-flex; gap: 2px; margin: 0 0 30px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); }
-.tc-as button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 3px 16px 3px 6px; font-size: 14px; font-weight: 500; color: color-mix(in srgb, var(--mute) 85%, var(--ink)); background: none; border: 0; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s; }
-.tc-as .tk { width: 26px; height: 26px; transition: transform .35s var(--spring); }
-.tc-as [aria-selected="true"] { color: var(--ink); background: var(--card); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
-.tc-as button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-@media (hover: hover) { .tc-as button:not([aria-selected="true"]):hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 5%, transparent); } .tc-as button:hover .tk { transform: rotate(-14deg); } }
+.tc-as { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 26px; margin: 0 0 32px; }
+.tc-as button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 2px 5px; font: italic 400 20px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; cursor: pointer; transition: color .15s, border-color .15s; }
+.tc-as .tk { width: 24px; height: 24px; opacity: .55; transition: opacity .15s, transform .35s var(--spring); }
+.tc-as [aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tc-as [aria-selected="true"] .tk { opacity: 1; }
+.tc-as button:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+@media (hover: hover) { .tc-as button:not([aria-selected="true"]):hover { color: var(--ink); } .tc-as button:hover .tk { opacity: 1; transform: rotate(-14deg); } }
 .tc-sets { display: grid; width: 100%; }
 .tc-set { grid-area: 1 / 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .tc-set:not(.on) { visibility: hidden; }
@@ -809,7 +824,7 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .pts-line { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .pts-line .tk { width: 14px; height: 14px; }
 .kv b small { font-size: 11px; }
-.rcpt { margin-top: 14px; padding-top: 8px; border-top: 1px dashed var(--hair-2); }
+.rcpt { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--hair); }
 
 .btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 18px; padding: 10px 16px;
   font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); cursor: pointer; transition: background .15s, color .15s; }
@@ -1071,8 +1086,8 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
   .tc-facts dd { font-size: 22px; }
   .tc-facts dt { font-size: 11px; text-wrap: balance; }
-  .tc-as { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; max-width: 440px; margin-bottom: 26px; padding: 3px; border-radius: 16px; }
-  .tc-as button { flex-direction: column; gap: 4px; padding: 7px 2px 6px; font-size: 11.5px; border-radius: 13px; }
+  .tc-as { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; width: 100%; max-width: 440px; margin-bottom: 26px; }
+  .tc-as button { flex-direction: column; gap: 5px; padding: 4px 0 5px; font-size: clamp(14px, 4.4vw, 16px); }
   .tc-as .tk { width: 24px; height: 24px; }
   .tc-pay { margin-top: 36px; }
   .tp-flow small { font-size: 11px; }
@@ -13972,7 +13987,7 @@ document.addEventListener('click', (e) => {
     stage.addEventListener('pointerleave', () => { cancelAnimationFrame(f); f = 0; hand.style.removeProperty('--tx'); hand.style.removeProperty('--ty'); });
   }
 }
-{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=087b9f28').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
+{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=4f57a74e').then((m) => m.mountFlow($('#kept-v'), { compact: true, quiet: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
 
 function refreshAll() {
