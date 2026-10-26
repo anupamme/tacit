@@ -2,7 +2,7 @@
 // acknowledgement that a burn can't be undone, and the burn itself, proved by the relay. A note of exactly the amount is spent whole; if none is,
 // the relay cuts one to size first. Anything the relay will not take, and proving the burn oneself, is the front page's: the status line links there.
 import { getUx } from '/trade/poolux.js?cb=1722600f';
-import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=509d6618';
+import { esc, parseUnits, fmtUnits, plain, short } from '/trade/util.js?cb=dcf3a4f2';
 import { OUT_ASSETS, makeOutFee, limitText, proofWarn, proofProblem, fundingText } from '/bridge-out.js?cb=ecf49203';
 import { notesOf, exactOf, cutPick, cutSized, ladder, feeShort } from '/farm-ops.js?cb=0933a4c8';
 import { advanceOut } from '/bridge-tick.js?cb=db96a3a9';
@@ -21,17 +21,17 @@ export function mountOutForm(el, { asset, mover, say = () => {}, repaint = () =>
   const { key, TS, run } = mover.session, fmt = (v, max = a.dp) => fmtUnits(v, 8, max);
   // every use of the key goes through here: a key that was locked, or another opened, since the form was checked stops the burn before its next step
   const pub = key.key.pubHex, priv = () => {
-    if (!key.unlocked || key.key.pubHex !== pub) throw said('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.');
+    if (!key.unlocked || key.key.pubHex !== pub) throw said('Your Tacit wallet was locked or changed, so this stopped before its next step. Nothing further was sent.');
     return key.priv();
   };
   let q = null, seq = 0, busy = false, bal = null, pf = null, gone = false;
 
   el.hidden = false;
   el.innerHTML = `<div class="bo-top"><span>Amount</span><button type="button" id="bo-max" disabled>Use the most</button></div>
-    <div class="bo-amt"><input id="bo-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(a.ticker)} to bridge to Bitcoin"><span>${esc(a.ticker)}</span></div>
+    <div class="bo-amt"><input id="bo-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(a.ticker)} to bridge to Bitcoin"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-${esc(a.key)}"/></svg>${esc(a.ticker)}</span></div>
     <div class="bo-r" id="bo-rcpt" hidden></div>
     <label class="bo-ack" id="bo-ackrow" hidden><input type="checkbox" id="bo-ack"><span>I understand a bridge can’t be undone once it is burned on Ethereum.</span></label>
-    <button class="go" type="button" id="bo-go" disabled><span>Bridge to Bitcoin</span><span aria-hidden="true">→</span></button>
+    <button class="go" type="button" id="bo-go" disabled><span>Bridge ${esc(a.ticker)}</span><span class="cc" role="img" aria-label="Ethereum to Bitcoin"><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg></span></button>
     <p class="bo-s" id="bo-s" role="status" hidden></p>`;
   const $ = (s) => el.querySelector(s), amt = $('#bo-amt'), rc = $('#bo-rcpt'), go = $('#bo-go'), ack = $('#bo-ack'), ackRow = $('#bo-ackrow'), maxBtn = $('#bo-max'), st = $('#bo-s');
   // Once the form is gone (the tile was flipped, the key locked) the page's own line carries what a burn still in flight has to say: the form's is off the page.
@@ -70,7 +70,7 @@ export function mountOutForm(el, { asset, mover, say = () => {}, repaint = () =>
     rc.hidden = false; rc.innerHTML = '<p class="bo-n">Checking the fees and the proof…</p>';
     try {
       const [t, T] = await Promise.all([getUx(), TS.load()]), ux = T.crossoutUx(), lim = ux.assetOf(a.id);
-      if (!lim) throw said(`${a.ticker} cannot be bridged to Bitcoin from this deployment.`);
+      if (!lim) throw said(`${a.ticker} does not bridge to Bitcoin from here.`);
       const min = lim.minRaw > 0n ? lim.minRaw : a.min, fee = await outFee(t, a), ns = await notes(), exact = exactOf(ns, units);
       const size = exact ? 0n : BigInt(await t.quoteOpFee(a.pool, 'transfer')), have = held(ns), p = await preflight(ux);
       if (my !== seq || gone) return;

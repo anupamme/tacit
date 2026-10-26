@@ -3,8 +3,8 @@
 // the key's own address, and a note over the limit is split. Once started, the bridge is one of the rows above and goes on as any other does.
 // With several notes it also merges them or bridges them all (bridge-all.js plans it, bridge-in.js runs it, the front page runs the same). Bridging a note
 // for the holder when it is ready, paying the minted TAC out and sending it to someone else stay on the front page: the line below links there.
-import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=509d6618';
-import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=21533762';
+import { esc, parseUnits, fmtUnits, short } from '/trade/util.js?cb=dcf3a4f2';
+import { TAC_BTC_ID, noteId, bridgeError, checkText, firstStep, overCap, marked, listNotes, checkNote, priceNote, freeCoins, begin, toSelf, planSet, burnMaxRate, mergeSend, startNote, tryAgain, bulkFee, runMerge, runAll } from '/bridge-in.js?cb=1b8357ef';
 import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { hexToBytes } from '/vendor/tacit-deps.min.js';
 
@@ -22,7 +22,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
   const { key, TS, esplora } = mover.session, fmt = (v, max = 4) => fmtUnits(v, 8, max);
   // every use of the key goes through here: a key that was locked, or another opened, since the form was drawn stops the step before it signs
   const pub = key.key.pubHex, priv = () => {
-    if (!key.unlocked || key.key.pubHex !== pub) throw Object.assign(said('Your Tacit key was locked or changed, so this stopped before its next step. Nothing further was sent.'), { halt: true });
+    if (!key.unlocked || key.key.pubHex !== pub) throw Object.assign(said('Your Tacit wallet was locked or changed, so this stopped before its next step. Nothing further was sent.'), { halt: true });
     return key.priv();
   };
   let notes = null, loadErr = null, loading = null, pick = null, seq = 0, busy = false, gone = false, rv = null, capRaw = 0n, act = null, bseq = 0;
@@ -35,7 +35,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
     <div class="bo-r" id="bi-bulkp" hidden></div>
     <div class="bo-r" id="bi-rcpt" hidden></div>
     <label class="bo-ack" id="bi-ackrow" hidden><input type="checkbox" id="bi-ack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
-    <button class="go" type="button" id="bi-go" disabled><span>Bridge to Ethereum</span><span aria-hidden="true">→</span></button>
+    <button class="go" type="button" id="bi-go" disabled><span>Bridge TAC</span><span class="cc" role="img" aria-label="Bitcoin to Ethereum"><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg></span></button>
     <p class="bo-s" id="bi-s" role="status" hidden></p>
     <p class="bo-n"><a href="/#bridge">Make the minted TAC public, or send it to someone else: the front page →</a></p>`;
   const $ = (s) => el.querySelector(s), bar = $('#bi-bulk'), bulkp = $('#bi-bulkp'), list = $('#bi-notes'), rc = $('#bi-rcpt'), go = $('#bi-go'), ack = $('#bi-ack'), ackRow = $('#bi-ackrow'), st = $('#bi-s'), re = $('#bi-re');
@@ -129,7 +129,7 @@ export function mountInForm(el, { mover, say = () => {}, repaint = () => {} }) {
       if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats${q.later ? `, and about ${q.later.toLocaleString('en-US')} for the burns after` : ''}`;
       if (short) bulkp.insertAdjacentHTML('beforeend', `<p class="bo-n bo-e">This key’s Bitcoin address has ${esc(q.free.toLocaleString('en-US'))} sats free for fees, short of the about ${esc(q.need.toLocaleString('en-US'))} sats this needs. <a href="/#bitcoin/receive">Add bitcoin to it</a></p>`);
       gateB();
-    }).catch(() => { if (my === bseq) { const fee = $('#bi-bfee'); if (fee) fee.textContent = 'not quoted just now: close this and open it again'; } });
+    }).catch(() => { if (my === bseq) { const fee = $('#bi-bfee'); if (fee) fee.textContent = 'Could not quote the fee. Close this and open it again.'; } });
     bgo.addEventListener('click', () => {
       if (Date.now() - quotedAt > FRESH) { paintBulk(); return status('The fees were read again. Look them over, then press once more.'); }
       runBulk(kind, bulk);

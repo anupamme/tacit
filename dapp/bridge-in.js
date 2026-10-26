@@ -29,7 +29,7 @@ export function checkText(s, errText) {
   const err = (x) => bridgeError(x, errText);
   if (s.name === 'not-tracked') return 'This TAC arrived recently: Bitcoin’s proof on Ethereum has not reached its block yet. Try again in a few hours.';
   if (s.name === 'reflected') return 'This TAC was received privately. One Bitcoin transaction sends it to your own address, and then it can be bridged.';
-  if (s.name === 'old-leaf') return 'This TAC is held in an older note form that the bridge cannot burn directly. One Bitcoin transaction sends it to your own address in the current form, and then it can be bridged.';
+  if (s.name === 'old-leaf') return 'This TAC is held in an older note form that the bridge does not burn directly. One Bitcoin transaction sends it to your own address in the current form, and then it can be bridged.';
   if (s.name === 'bound') return 'This TAC is held in a note bound to another deployment, which the bridge does not burn.';
   if (s.name === 'source-ownership') return 'This TAC is not at this key’s own Bitcoin address.';
   if (s.name === 'source-confirmed') return 'This TAC is waiting for its Bitcoin confirmation.';
@@ -39,7 +39,7 @@ export function checkText(s, errText) {
   if (s.name === 'trace') {
     const wait = /retry in ~(\d+)s/.exec(s.detail || '');
     return wait ? `Bitcoin’s history for this TAC is still being read. Pick it again in about ${wait[1]} seconds.`
-      : `This TAC’s history could not be read from Bitcoin just now (${err(s.detail)}). Pick it again in a moment.`;
+      : `Could not read this TAC’s history from Bitcoin (${err(s.detail)}). Pick it again in a moment.`;
   }
   return `Could not check this TAC: ${err(s.detail || s.name)}`;
 }

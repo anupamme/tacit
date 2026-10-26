@@ -26,7 +26,7 @@ assert.match(T({ name: 'trace', unprovable: true, through: 'pool' }), /includes 
 assert.match(T({ name: 'trace', unprovable: true, through: 'other', at: 'ab'.repeat(32) }), /includes a transaction the bridge’s proof does not follow \(abababab…ababab\)/);
 assert.match(T({ name: 'trace', reading: true, read: 1234 }), /1,234 transfers so far/);
 assert.match(T({ name: 'trace', detail: 'busy, retry in ~40s' }), /Pick it again in about 40 seconds/);
-assert.match(T({ name: 'trace', detail: 'boom' }), /could not be read from Bitcoin just now \(said: boom\)/);
+assert.match(T({ name: 'trace', detail: 'boom' }), /Could not read this TAC’s history from Bitcoin \(said: boom\)/);
 assert.match(T({ name: 'cap', detail: 'x' }), /^Could not check this TAC: said: x$/);
 
 // the notes: which need a send first, which are over the limit, which a check or an empty amount takes off the list

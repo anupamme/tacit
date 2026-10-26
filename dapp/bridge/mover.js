@@ -2,12 +2,12 @@
 // and the two presses that need only the relay (the burn of a moved bridge, the mint of a recorded one). Nothing is loaded until the holder asks:
 // this module, the key sheet and tacit.js (four megabytes) all come in on that press. Starting a bridge is the forms' (in-form.js, out-form.js). Merging, bridging all, minting to another address, paying
 // the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
-import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
+import { makeKeySession, signInSheet } from '/trade/key.js?cb=88028d84';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=edbb7881';
+import { ROUTES } from '/bridge/track.js?cb=f2e85f93';
 import { makeRunner } from '/activity.js?cb=532a162f';
-import { parseUnits } from '/trade/util.js?cb=509d6618';
+import { parseUnits } from '/trade/util.js?cb=dcf3a4f2';
 import { forgetUx } from '/trade/poolux.js?cb=1722600f';
 import { relayWords } from '/relay-outcome.js?cb=26298b8e';
 import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
@@ -49,7 +49,7 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     try {
       let T;
       try { T = await TS.load(); loadSaid = false; }
-      catch (e) { if (!loadSaid) { loadSaid = true; say(`The wallet library could not be loaded (${txt(e)}). Check the connection and press Move them on here again.`); } throw e; }
+      catch (e) { if (!loadSaid) { loadSaid = true; say(`Could not load the wallet (${txt(e)}). Check your connection, then press Move them on here again.`); } throw e; }
       if (journaledIn(pub)) await stepIn({ ux: T.bridgeUx(), pub, withKey: TS.withKey, priv: () => key.priv(), planOf: planOf(pub), alive: () => key.key?.pubHex === pub });
       const pubs = outPubs();
       if (pubs.length) {

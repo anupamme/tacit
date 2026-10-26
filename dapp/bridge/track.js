@@ -24,13 +24,13 @@ export const CBTC_ID = '62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471
 export const ROUTES = {
   tac: {
     ticker: 'TAC', icon: 'tk-tac', dp: 4,
-    in: { href: '/#bridge', go: 'Bridge TAC to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#bridge/out', go: 'Bridge TAC to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { href: '/#bridge', go: 'Bridge TAC', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { href: '/#bridge/out', go: 'Bridge TAC', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   teth: {
     ticker: 'tETH', icon: 'tk-teth', dp: 6,
-    in: { href: '/#private/bitcoin/back', go: 'Bring tETH back to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#private/bitcoin/out', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { href: '/#private/bitcoin/back', go: 'Bring tETH back', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { href: '/#private/bitcoin/out', go: 'Bridge tETH', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
   // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow page's (Lock, Bond, Mint, Borrow), and its Bitcoin side lists

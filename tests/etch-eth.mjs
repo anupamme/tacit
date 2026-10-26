@@ -320,7 +320,7 @@ console.log('\nToo little ETH:');
   await choose(page);
   await form(page, { ticker: 'poor', supply: '1' });
   await connect(page);
-  await page.waitForFunction(() => /It needs about [\d.]+ ETH.* for gas\. Your wallet holds 0\.00001/.test(document.querySelector('#q')?.textContent || ''), null, { timeout: 30000 });
+  await page.waitForFunction(() => /Needs about [\d.]+ ETH.* for the network fee\. Your wallet holds 0\.00001/.test(document.querySelector('#q')?.textContent || ''), null, { timeout: 30000 });
   ok(await page.$eval('#rcpt dd.warn', (e) => /0\.00001 ETH/.test(e.textContent)), 'a wallet with too little ETH for the gas is told so, in the receipt and under it');
   await page.click('#go');
   await page.waitForTimeout(1500);

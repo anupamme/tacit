@@ -29,8 +29,8 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=ba1a9826">
-<link rel="modulepreload" href="/bridge/track.js?cb=edbb7881">
+<link rel="modulepreload" href="/bridge/app.js?cb=9c4fa1d7">
+<link rel="modulepreload" href="/bridge/track.js?cb=f2e85f93">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
 <style>
@@ -75,6 +75,9 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .skip { position: absolute; left: 16px; top: -64px; z-index: 100; padding: 10px 16px; background: var(--ink); color: var(--paper); border-radius: 8px; text-decoration: none; font-size: 13px; transition: top .15s; }
 .skip:focus { top: 12px; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
+.tk.sm { width: 18px; height: 18px; }
+.tk.xs { width: 14px; height: 14px; }
+.cc { display: inline-flex; align-items: center; gap: 5px; vertical-align: -3px; }
 .shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
 .sk { display: inline-block; min-width: var(--w, 6ch); height: .9em; vertical-align: -.05em; border-radius: 3px; background: var(--hair); }
 
@@ -119,6 +122,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 #bt-steps li::after { background: var(--ink); opacity: 0; animation: glow 2.4s calc(var(--i) * .8s) ease-in-out infinite; }
 @keyframes glow { 0%, 100% { opacity: 0; } 40% { opacity: .8; } }
 #bt-steps li:last-child::before, #bt-steps li:last-child::after { display: none; }
+#bt-steps .tk { display: inline-block; vertical-align: -2px; margin-left: 1px; }
 #bt-steps .dot { position: absolute; left: 0; top: 0; width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--ink); background: var(--ink); }
 #bt-steps li:first-child .dot { background: var(--from); border-color: var(--from); }
 #bt-steps li:last-child .dot { background: var(--to); border-color: var(--to); }
@@ -133,6 +137,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 /* the two proofs a bridge waits on */
 .pf { max-width: 560px; margin: 12px auto 0; display: grid; gap: 4px; font-size: 12px; color: var(--mute); text-align: left; }
 .pf p { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 0 6px; }
+.pf .cc { margin-right: 6px; }
 .pf b { color: var(--ink); font-weight: 500; }
 .pf .lost { margin-top: 6px; }
 .pf .lost a { color: var(--ink); }
@@ -167,6 +172,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .bo-amt { display: flex; align-items: center; gap: 10px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 12px; padding: 0 14px; min-height: 52px; }
 .bo-amt input { flex: 1; min-width: 0; font: 500 18px var(--mono); color: var(--ink); background: none; border: 0; outline: none; }
 .bo-amt span { color: var(--mute); }
+.bo-amt .u { display: inline-flex; align-items: center; gap: 8px; }
 .bo-r { display: grid; gap: 6px; font-size: 13px; }
 .bo-r > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 14px; min-width: 0; }
 .bo-r > div > span { color: var(--mute); }
@@ -205,6 +211,8 @@ button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--h
 .mb-t { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .mb-t b { font-weight: 500; }
 .mb-t span, .mb-t small { color: var(--mute); font-size: 12px; }
+.mb-t .cc, .mb-w .tk { align-self: center; }
+.mb-w .tk { display: inline-block; vertical-align: -2px; margin-left: 2px; }
 .mb-r { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0 6px; max-width: 280px; }
 .mb-r i { height: 4px; border-radius: 2px; background: var(--hair); }
 .mb-r i.y { background: var(--ink); }
@@ -222,6 +230,7 @@ button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--h
 .mb-self { color: var(--ok); white-space: nowrap; }
 .mb-x { display: inline-flex; gap: 10px; }
 .mb-x a { color: var(--mute); }
+.mb-x .tk { display: inline-block; vertical-align: -2px; margin-right: 3px; }
 @media (max-width: 560px) { .mb { grid-template-columns: auto 1fr; } .mb-a { grid-column: 1 / -1; justify-items: start; text-align: left; } }
 
 /* motion runs only where it can be seen: app.js adds .m, then sets data-run on what is in view in a visible tab */
@@ -291,6 +300,7 @@ button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--h
 .d .drop:nth-of-type(2) { animation-delay: .5s; } .d .drop:nth-of-type(3) { animation-delay: 1s; } .d .drop:nth-of-type(4) { animation-delay: 1.5s; }
 @keyframes drop { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(var(--dx, 70px), var(--dy, 70px)); opacity: 0; } }
 
+.go .cc { vertical-align: 0; gap: 6px; }
 .go span:last-child { transition: transform .2s; }
 @media (hover: hover) { .go:hover span:last-child { transform: translateX(4px); } }
 .ch, .faq, .nx { content-visibility: auto; contain-intrinsic-size: auto 520px; }
@@ -300,6 +310,7 @@ button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--h
 /* a two-way switch */
 .seg { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 10px; }
 .seg button { min-height: 36px; padding: 0 14px; font: 500 12.5px var(--mono); color: var(--mute); background: none; border: 0; border-radius: 7px; cursor: pointer; }
+.seg button .cc { vertical-align: 0; gap: 8px; }
 .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 0 var(--hair-2); }
 
 /* the wide drawings: reflection, and the bridge's three moves */
@@ -385,8 +396,7 @@ button.go.ghost { background: none; color: var(--ink); border: 1px solid var(--h
 .rt { list-style: none; margin: 18px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; counter-reset: rt; }
 .rt li { position: relative; padding: 16px 14px 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; font-size: 12.5px; counter-increment: rt; }
 .rt li::before { content: counter(rt); position: absolute; right: 12px; top: 10px; font: italic 400 26px/1 var(--serif); color: var(--hair-2); }
-.rt li i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
-.rt li.e i { background: var(--blue); } .rt li.b i { background: var(--orange); }
+.rt li .tk { display: inline-block; vertical-align: -2px; margin-right: 8px; }
 .rt li b { font-weight: 500; }
 .rt li p { margin: 6px 0 8px; color: var(--mute); }
 .rt li a { color: var(--mute); font-size: 12px; margin-right: 10px; }
@@ -547,6 +557,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -599,23 +611,23 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <button type="button" role="tab" data-asset="cbtc" aria-selected="false"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</button>
         </div>
         <div class="bt-r">
-          <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-from-ic" href="#tk-btc"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>From</small><b id="bt-from">Bitcoin</b></span></div>
+          <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-from-ic" href="#c-btc"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>From</small><b id="bt-from">Bitcoin</b></span></div>
           <button type="button" id="bt-flip" aria-label="Switch direction" title="Switch direction"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h15l-4-4"/><path d="M20 15H5l4 4"/></svg></button>
-          <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-to-ic" href="#tk-eth"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>To</small><b id="bt-to">Ethereum</b></span></div>
+          <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-to-ic" href="#c-eth"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>To</small><b id="bt-to">Ethereum</b></span></div>
         </div>
-        <ol id="bt-steps" aria-label="Steps" data-key="tac/in"><li style="--i:0"><span class="dot" aria-hidden="true"></span>Burned on Bitcoin</li><li style="--i:1"><span class="dot" aria-hidden="true"></span>Confirmed</li><li style="--i:2"><span class="dot" aria-hidden="true"></span>Proven on Ethereum</li><li style="--i:3"><span class="dot" aria-hidden="true"></span>Minted privately</li></ol>
+        <ol id="bt-steps" aria-label="Steps" data-key="tac/in"><li style="--i:0"><span class="dot" aria-hidden="true"></span>Burned <span class="sr">on Bitcoin</span><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg></li><li style="--i:1"><span class="dot" aria-hidden="true"></span>Confirmed</li><li style="--i:2"><span class="dot" aria-hidden="true"></span>Proven <span class="sr">on Ethereum</span><svg class="tk xs" aria-hidden="true"><use href="#c-eth"/></svg></li><li style="--i:3"><span class="dot" aria-hidden="true"></span>Minted privately</li></ol>
         <p class="bt-w" id="bt-wait">About 4 hours: 24 Bitcoin confirmations, then the next proof (about every 30 min)</p>
         <p class="bt-w bt-l" id="bt-limit">Up to 1,000 TAC a bridge while it is new</p>
         <p class="bt-w bt-l" id="bt-cost" hidden></p>
-        <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC to Ethereum</span><span aria-hidden="true">→</span></a>
+        <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC</span><span class="cc" id="bt-way" role="img" aria-label="Bitcoin to Ethereum"><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg></span></a>
         <button type="button" id="bt-here" hidden>Or bridge from here</button>
         <div id="bt-form" hidden></div>
       </div>
 
       <div class="pf" aria-live="polite">
-        <p id="pf-btc" data-state="off"><i></i><span>Bitcoin, proven on Ethereum to block <b class="num sk" data-live="btc" style="--w:7ch"></b><span id="pf-lag"></span></span></p>
-        <p id="pf-eth" data-state="off"><i></i><span>Ethereum, proven for Bitcoin to block <b class="num sk" data-live="eth" style="--w:8ch"></b><span id="pf-elag"></span></span></p>
-        <p class="lost"><span>Can’t see a bridge? It is rebuilt from your key and the chain. <a href="/#bridge" id="lost-a">Find it</a></span></p>
+        <p id="pf-btc" data-state="off"><i></i><span><span class="cc" role="img" aria-label="Bitcoin to Ethereum"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg><span aria-hidden="true">→</span><svg class="tk xs" aria-hidden="true"><use href="#c-eth"/></svg></span>Proven to block <b class="num sk" data-live="btc" style="--w:7ch"></b><span id="pf-lag"></span></span></p>
+        <p id="pf-eth" data-state="off"><i></i><span><span class="cc" role="img" aria-label="Ethereum to Bitcoin"><svg class="tk xs" aria-hidden="true"><use href="#c-eth"/></svg><span aria-hidden="true">→</span><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg></span>Proven to block <b class="num sk" data-live="eth" style="--w:8ch"></b><span id="pf-elag"></span></span></p>
+        <p class="lost"><span>Can’t see a bridge? It is rebuilt from your key. <a href="/#bridge" id="lost-a">Find it</a></span></p>
         <details id="lost-form" hidden>
           <summary>A bridge to Bitcoin, from the transaction that burned it</summary>
           <div class="lf-f">
@@ -652,7 +664,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <!-- the two chains scroll past the proven edge, one block every ten minutes and one every few seconds: each lane is a layer the browser moves on its own -->
           <div class="lane lane-b" aria-hidden="true"><svg class="d" viewBox="-80 34 1320 60"><rect class="bx s-btc" x="-136" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="-56" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="24" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="104" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="184" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="264" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="344" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="424" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="504" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="584" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="664" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="744" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="824" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="904" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="984" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1064" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1144" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1224" y="40" width="56" height="48" rx="8"/><path class="ln" d="M-80 64h24M0 64h24M80 64h24M160 64h24M240 64h24M320 64h24M400 64h24M480 64h24M560 64h24M640 64h24M720 64h24M800 64h24M880 64h24M960 64h24M1040 64h24M1120 64h24M1200 64h24M1280 64h24"/><g class="btc"><circle cx="-108" cy="64" r="4"/><circle cx="-37" cy="58" r="3.5"/><circle cx="-21" cy="72" r="3.5"/><circle cx="52" cy="64" r="4"/><circle cx="123" cy="58" r="3.5"/><circle cx="139" cy="72" r="3.5"/><circle cx="212" cy="64" r="4"/><circle cx="283" cy="58" r="3.5"/><circle cx="299" cy="72" r="3.5"/><circle cx="372" cy="64" r="4"/><circle cx="443" cy="58" r="3.5"/><circle cx="459" cy="72" r="3.5"/><circle cx="532" cy="64" r="4"/><circle cx="603" cy="58" r="3.5"/><circle cx="619" cy="72" r="3.5"/><circle cx="692" cy="64" r="4"/><circle cx="763" cy="58" r="3.5"/><circle cx="779" cy="72" r="3.5"/><circle cx="852" cy="64" r="4"/><circle cx="923" cy="58" r="3.5"/><circle cx="939" cy="72" r="3.5"/><circle cx="1012" cy="64" r="4"/><circle cx="1083" cy="58" r="3.5"/><circle cx="1099" cy="72" r="3.5"/><circle cx="1172" cy="64" r="4"/><circle cx="1243" cy="58" r="3.5"/><circle cx="1259" cy="72" r="3.5"/></g></svg></div>
           <div class="lane lane-e" aria-hidden="true"><svg class="d" viewBox="-80 236 1200 38"><rect class="bx s-eth" x="-56" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="-16" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="24" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="64" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="184" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="224" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="264" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="304" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="344" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="384" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="424" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="464" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="504" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="544" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="584" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="624" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="664" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="704" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="744" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="784" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="824" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="864" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="904" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="944" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="984" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1024" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1064" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1184" y="240" width="30" height="30" rx="6"/></svg></div>
-          <svg class="d rf-top" viewBox="0 0 1000 330" role="img" aria-label="Bitcoin's blocks and Ethereum's finalized blocks scroll past the point each has been proven to, and feed one proof, which the pool on Ethereum verifies">
+          <svg class="d rf-top" viewBox="0 0 1000 330" role="img" aria-label="Bitcoin’s blocks and Ethereum’s finalized blocks scroll past the point each has been proven to, and feed one proof, which the pool on Ethereum verifies">
             <defs>
               <linearGradient id="rfYoung" x1="0" x2="1"><stop offset="0" style="stop-color:var(--card);stop-opacity:0"/><stop offset=".25" style="stop-color:var(--card);stop-opacity:.66"/><stop offset="1" style="stop-color:var(--card);stop-opacity:.66"/></linearGradient>
             </defs>
@@ -700,15 +712,15 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h">
         <span class="kk">The bridge</span>
         <h2 id="mv-h" style="font-size:clamp(28px,4vw,40px)">Burn, prove, <em>mint</em></h2>
-        <div class="seg" id="mv-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true">Bitcoin → Ethereum</button><button type="button" data-dir="out" aria-pressed="false">Ethereum → Bitcoin</button></div>
+        <div class="seg" id="mv-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true" aria-label="Bitcoin to Ethereum" title="Bitcoin to Ethereum"><span class="cc"><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg></span></button><button type="button" data-dir="out" aria-pressed="false" aria-label="Ethereum to Bitcoin" title="Ethereum to Bitcoin"><span class="cc"><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg></span></button></div>
       </div>
       <figure class="fig big" id="mv" data-dir="in" style="margin:18px 0 0">
         <svg class="d" viewBox="0 20 1000 132" role="img" aria-label="A note is burned on one chain, proven, and minted on the other">
           <path class="ln trk" d="M170 86 H830"/>
           <path class="ln trk flow" d="M170 86 H830"/>
-          <g class="st"><circle class="bx src" cx="170" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;5;1.6;1.6" keyTimes="0;.14;.3;1"/></circle><use id="mv-a" href="#tk-btc" x="146" y="62" width="48" height="48"/></g>
+          <g class="st"><circle class="bx src" cx="170" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;5;1.6;1.6" keyTimes="0;.14;.3;1"/></circle><use id="mv-a" href="#c-btc" x="146" y="62" width="48" height="48"/></g>
           <g class="st"><rect class="bx ink" x="452" y="38" width="96" height="96" rx="24"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1;1;3.5;3.5;1;1" keyTimes="0;.4;.46;.54;.6;1"/></rect><text x="487" y="98" style="font:400 40px var(--serif)">π</text></g>
-          <g class="st"><circle class="bx dst" cx="830" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;1.6;5;1.6" keyTimes="0;.8;.86;1"/></circle><use id="mv-b" href="#tk-eth" x="806" y="62" width="48" height="48"/></g>
+          <g class="st"><circle class="bx dst" cx="830" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;1.6;5;1.6" keyTimes="0;.8;.86;1"/></circle><use id="mv-b" href="#c-eth" x="806" y="62" width="48" height="48"/></g>
           <g class="note"><circle r="13" class="nt"/><text x="-5" y="5" style="fill:var(--paper)">C</text>
             <animateMotion dur="6s" repeatCount="indefinite" path="M170 86 H830" keyPoints="0;0;.5;.5;1;1" keyTimes="0;.14;.42;.58;.86;1" calcMode="linear"/>
           </g>
@@ -730,7 +742,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <div class="fig" id="note-fig" data-side="btc">
         <div class="seg" role="group" aria-label="Where the note is"><button type="button" data-side="btc" aria-pressed="true">On Bitcoin</button><button type="button" data-side="eth" aria-pressed="false">In the pool</button></div>
-        <svg class="d" viewBox="0 0 560 230" role="img" aria-label="A commitment C on a Bitcoin output, and a commitment of the same value as a leaf of the pool's tree">
+        <svg class="d" viewBox="0 0 560 230" role="img" aria-label="A commitment C on a Bitcoin output, and a commitment of the same value as a leaf of the pool’s tree">
           <g class="side-btc">
             <text class="h" x="20" y="18">BITCOIN</text>
             <rect class="bx" x="20" y="34" width="210" height="150" rx="10"/>
@@ -768,7 +780,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div>
         <span class="kk">Under the hood</span>
         <h3 id="c2-h">Step by <em>step</em></h3>
-        <div class="seg" id="hood-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true">Bitcoin → Ethereum</button><button type="button" data-dir="out" aria-pressed="false">Ethereum → Bitcoin</button></div>
+        <div class="seg" id="hood-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true" aria-label="Bitcoin to Ethereum" title="Bitcoin to Ethereum"><span class="cc"><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg></span></button><button type="button" data-dir="out" aria-pressed="false" aria-label="Ethereum to Bitcoin" title="Ethereum to Bitcoin"><span class="cc"><svg class="tk sm" aria-hidden="true"><use href="#c-eth"/></svg><span aria-hidden="true">→</span><svg class="tk sm" aria-hidden="true"><use href="#c-btc"/></svg></span></button></div>
         <div data-hood="in">
         <ol class="st-l" data-for="in" aria-label="Steps, Bitcoin to Ethereum">
           <li data-step tabindex="0"><b>Headers, by work</b><span>A relay on Ethereum checks every Bitcoin header’s proof of work.</span></li>
@@ -831,7 +843,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </svg>
       </figure>
         <figure class="fig" data-stepper data-for="out" data-hood-fig hidden style="margin:0">
-        <svg class="d" viewBox="0 0 560 300" role="img" aria-label="Ethereum's sync committee signs finality, storage proofs read the pool, the Ethereum proof is verified inside Bitcoin's proof, and the note is minted on Bitcoin">
+        <svg class="d" viewBox="0 0 560 300" role="img" aria-label="Ethereum’s sync committee signs finality, storage proofs read the pool, the Ethereum proof is verified inside Bitcoin’s proof, and the note is minted on Bitcoin">
           <text class="h" x="16" y="18">ETHEREUM</text><text class="h" x="226" y="18">PROVER</text><text class="h" x="408" y="18">BITCOIN</text>
           <path class="dash" d="M206 26 V292 M388 26 V292"/>
           <!-- 0: the committee -->
@@ -926,7 +938,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <p>Tacit’s services keep it current, and so can you.</p>
       </div>
       <figure class="fig big" style="margin:22px 0 0">
-        <svg class="d" viewBox="0 0 1000 232" role="img" aria-label="Anyone can send Bitcoin's headers to the relay, make the proof, and submit it to the pool">
+        <svg class="d" viewBox="0 0 1000 232" role="img" aria-label="Anyone can send Bitcoin’s headers to the relay, make the proof, and submit it to the pool">
           <path class="ln s-btc flow" d="M290 108 H380"/>
           <path class="ln ink flow" d="M620 108 H710"/>
           <circle class="btc pkt" r="4"><animateMotion dur="2.2s" repeatCount="indefinite" path="M290 108 H380"/></circle>
@@ -979,10 +991,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h"><span class="kk">On mainnet</span><h2 id="rt-h" style="font-size:clamp(28px,4vw,40px)">There and back, <em>proven twice</em></h2>
         <p><b class="num sk" data-live="supply" style="--w:9ch"></b> TAC on Ethereum, every one minted from TAC proven to have left Bitcoin.</p></div>
       <ol class="rt">
-        <li class="e"><i></i><b>Out of the pool</b><p>The note is burned on Ethereum.</p><a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener">Ethereum tx</a></li>
-        <li class="b"><i></i><b>Minted on Bitcoin</b><p>The cross-out is proven and the note minted.</p><a href="https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2" target="_blank" rel="noopener">Bitcoin tx</a></li>
-        <li class="b"><i></i><b>Burned on Bitcoin</b><p>The note is burned to go back.</p><a href="https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb" target="_blank" rel="noopener">Bitcoin tx</a></li>
-        <li class="e"><i></i><b>Back in the pool</b><p>The burn is proven and a fresh note minted.</p><a href="https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb" target="_blank" rel="noopener">Ethereum tx</a></li>
+        <li class="e"><svg class="tk xs" role="img" aria-label="Ethereum"><use href="#c-eth"/></svg><b>Out of the pool</b><p>The note is burned on Ethereum.</p><a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener">Ethereum tx</a></li>
+        <li class="b"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg><b>Minted on Bitcoin</b><p>The cross-out is proven and the note minted.</p><a href="https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2" target="_blank" rel="noopener">Bitcoin tx</a></li>
+        <li class="b"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg><b>Burned on Bitcoin</b><p>The note is burned to go back.</p><a href="https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb" target="_blank" rel="noopener">Bitcoin tx</a></li>
+        <li class="e"><svg class="tk xs" role="img" aria-label="Ethereum"><use href="#c-eth"/></svg><b>Back in the pool</b><p>The burn is proven and a fresh note minted.</p><a href="https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb" target="_blank" rel="noopener">Ethereum tx</a></li>
       </ol>
     </section>
 
@@ -1028,6 +1040,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=ba1a9826"></script>
+<script type="module" src="/bridge/app.js?cb=9c4fa1d7"></script>
 </body>
 </html>

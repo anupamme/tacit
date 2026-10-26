@@ -127,12 +127,13 @@ try {
     ok(cls <= 0.04, `layout shift while it loads is ${cls.toFixed(3)} (at most 0.04)`);
     ok(await page.textContent('h1') === 'Cross by proof', 'the title');
     ok((await page.textContent('#pf-btc')).includes('972,090'), 'Bitcoin’s proof on Ethereum, live');
-    ok((await page.textContent('#pf-btc')).includes('3 behind Bitcoin’s tip'), 'and how far it is from the tip');
+    ok((await page.textContent('#pf-btc')).includes('3 behind the tip'), 'and how far it is from the tip');
     ok((await page.textContent('#pf-eth')).includes('26,225,800'), 'Ethereum’s proof for Bitcoin, live');
     ok((await page.textContent('#pf-eth')).includes('12 min behind the head') && await page.getAttribute('#pf-eth', 'data-state') === 'on', 'and how far it is from the head, in minutes');
     ok(await page.getAttribute('#pf-btc', 'data-state') === 'on' && !(await page.textContent('#bt-wait')).includes('behind'), 'a proof close to its chain is not called slow, and the tile’s wait line adds nothing');
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge', 'TAC from Bitcoin opens the Bridge tab');
     ok((await page.$$('#bt-steps li')).length === 4, 'four steps');
+    ok((await page.$$('#bt-steps li svg.tk')).length === 2 && /Burned\s+on Bitcoin/.test(await page.textContent('#bt-steps')), 'the steps that happen on a chain show its mark, and keep its name for a screen reader');
     await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge/out' && await page.evaluate(() => location.hash) === '#tac/out', 'the flip: TAC to Bitcoin, and the link says so');
     ok((await page.textContent('#bt-from')) === 'Ethereum', 'from Ethereum');
@@ -144,10 +145,10 @@ try {
     ok(/^A few hours: Ethereum finalizes \(about 13 min\), the next proof covers it, then you sign the Bitcoin step/.test(await page.textContent('#bt-wait')), 'the way out says it takes hours: finality, then the proof that covers the burn, then the Bitcoin step, not finality alone');
     ok(await page.getAttribute('.lost a', 'href') === '/#private/bitcoin/back', 'and a bridge that cannot be seen is looked for on the Private ETH sheet, where tETH’s are found');
     await page.click('#bt-flip');
-    ok((await page.textContent('#bt-go')).includes('Bring tETH back to Ethereum') && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
+    ok((await page.textContent('#bt-go')).includes('Bring tETH back') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Bitcoin to Ethereum' && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
     ok((await page.textContent('#bt-cost')) === 'About $0.80 now: 1,000 sats on Bitcoin; Tacit covers the Ethereum side', 'and the way back says its own cost');
     await page.click('#bt-flip');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('Bridge tETH') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Ethereum to Bitcoin', 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
     ok(await page.getAttribute('.lost a', 'href') === '/vault/#btc', 'a cBTC lock that cannot be seen is looked for on the Borrow page, which lists the key\'s locks');
     ok(await page.isHidden('#bt-limit') && await page.isHidden('#bt-cost'), 'cBTC has no per-bridge limit line and no cost line');
@@ -160,7 +161,7 @@ try {
     ok(await page.isVisible('#mine'), 'the bridges under way are listed');
     const rows = await page.$$eval('#mine-l > li', (ls) => ls.map((l) => l.innerText));
     ok(rows.length === 5, `five bridges (${rows.length})`);
-    ok(rows.some((r) => /0\.3 tETH/.test(r) && /to Ethereum/.test(r)), 'a tETH bridge coming back from Bitcoin is listed as tETH, with its amount');
+    ok(rows.some((r) => /0\.3 tETH/.test(r)) && await page.$$eval('#mine-l > li', (ls) => ls.some((l) => /0\.3 tETH/.test(l.innerText) && l.querySelector('.mb-t .cc')?.getAttribute('aria-label') === 'to Ethereum')), 'a tETH bridge coming back from Bitcoin is listed as tETH, with its amount and the way it goes');
     ok(/1\.5 tETH/.test(rows[0]) && /Send to Bitcoin/.test(rows[0]), 'the one that needs its holder comes first, with its press');
     ok(await page.$eval('#mine-l > li .mb-due', (a) => a.getAttribute('href')) === '/#private/bitcoin/out', 'which opens its sheet, on the way it goes');
     ok(rows.some((r) => /250 TAC/.test(r) && /10 blocks behind/.test(r)), 'a burn on Bitcoin: how far the proof is behind its block');
@@ -229,7 +230,7 @@ try {
     ok(!/same commitment|same note|without opening/i.test(body) && /fresh note of the same value/.test(body), 'a bridge is said to mint a fresh note of the same value, not the same note');
     ok(/Whoever makes the mint’s proof sees it/.test(await page.textContent('.faq')), 'and the privacy answer says who sees the amount');
     await page.click('#mv-dir button[data-dir="out"]');
-    ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#tk-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
+    ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#c-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
     ok((await page.textContent('#rf')).includes('972,090'), 'the reflection drawing carries the live block');
     for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#hood', 'sec-hood'], ['#run', 'sec-run'], ['.faq', 'sec-faq'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
       await page.evaluate((q) => { document.querySelector(q).scrollIntoView({ block: 'start' }); scrollBy(0, -90); }, id); await page.waitForTimeout(700); await shot(page, name);
@@ -279,7 +280,7 @@ try {
     const { browser, page, errors } = await openPage({ width: 1280, height: 900 });
     await page.waitForFunction(() => document.querySelector('#pf-lag').textContent !== '', null, { timeout: 20000 }).catch(() => {});
     LATE = false; NO_MEMPOOL = false;
-    ok((await page.textContent('#pf-btc')).includes('60 behind Bitcoin’s tip') && await page.getAttribute('#pf-btc', 'data-state') === 'slow', 'with mempool.space refusing, the lag is still read, from the API’s own tip, and a late proof still reads as slow');
+    ok((await page.textContent('#pf-btc')).includes('60 behind the tip') && await page.getAttribute('#pf-btc', 'data-state') === 'slow', 'with mempool.space refusing, the lag is still read, from the API’s own tip, and a late proof still reads as slow');
     await browser.close();
   }
 

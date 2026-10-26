@@ -25,12 +25,12 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- preload-roots: /etch/app.js | | /trade/btc.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/etch/app.js?cb=6a090437">
-<link rel="modulepreload" href="/trade/util.js?cb=509d6618">
+<link rel="modulepreload" href="/etch/app.js?cb=6ffb720e">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
-<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/etch/find.js?cb=0972c6b8">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
+<link rel="modulepreload" href="/etch/find.js?cb=3c8365d6">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -135,7 +135,8 @@ img.tk { object-fit: cover; background: var(--field); }
 
 /* the optional details */
 .mode { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
-.mode button { min-height: 30px; padding: 2px 14px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
+.mode button { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 14px 2px 10px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
+.mode .tk { width: 16px; height: 16px; }
 .mode button[aria-checked="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
 @media (pointer: coarse) { .mode button { min-height: 38px; } }
 .more { margin: 12px 2px 0; }
@@ -362,6 +363,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -420,8 +423,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
             <form id="form" autocomplete="off" novalidate>
               <div id="edit">
                 <div class="mode" id="chain" role="radiogroup" aria-label="Chain">
-                  <button type="button" role="radio" aria-checked="true" data-chain="btc">On Bitcoin</button>
-                  <button type="button" role="radio" aria-checked="false" data-chain="eth">On Ethereum</button>
+                  <button type="button" role="radio" aria-checked="true" data-chain="btc"><svg class="tk" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</button>
+                  <button type="button" role="radio" aria-checked="false" data-chain="eth"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg>Ethereum</button>
                 </div>
                 <div class="f">
                   <div class="fh"><label for="tk">Ticker</label><span class="where" id="tk-note"></span></div>
@@ -448,7 +451,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
                     <label class="fld"><span>Description</span><textarea id="ds" maxlength="500" rows="2" placeholder="Optional"></textarea></label>
                     <label class="fld"><span>Link</span><input type="text" id="ln" placeholder="https://" autocomplete="off" spellcheck="false"></label>
                     <label class="chk" id="pub-row"><input type="checkbox" id="pub" checked><span>Publish the supply<small>Anyone can check the total against the chain.</small></span></label>
-                    <label class="chk" id="mint-row"><input type="checkbox" id="mint"><span>Mintable<small>You can issue more later. This cannot be changed.</small></span></label>
+                    <label class="chk" id="mint-row"><input type="checkbox" id="mint"><span>Mintable<small>You can issue more later. Fixed once etched.</small></span></label>
                     <label class="chk" id="reg-row" hidden><input type="checkbox" id="reg"><span>Register it with the Tacit pool<small>One more call, sent together with the first when your wallet takes batches.</small></span></label>
                   </div>
                 </details>
@@ -463,8 +466,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
           <div id="p-find" role="tabpanel" aria-labelledby="t-find" hidden>
             <div class="mode" id="fchain" role="radiogroup" aria-label="Chain">
-              <button type="button" role="radio" aria-checked="true" data-fchain="btc">Bitcoin</button>
-              <button type="button" role="radio" aria-checked="false" data-fchain="eth">Ethereum</button>
+              <button type="button" role="radio" aria-checked="true" data-fchain="btc"><svg class="tk" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</button>
+              <button type="button" role="radio" aria-checked="false" data-fchain="eth"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg>Ethereum</button>
             </div>
             <div class="srch"><input id="find" type="search" placeholder="Ticker, name or asset ID" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search assets"></div>
             <div class="cnt num" id="cnt" role="status"></div>
@@ -495,12 +498,12 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 </div>
 <!-- warm:begin -->
 <template id="warm">
-<link rel="modulepreload" href="/trade/btc.js?cb=53a35df6">
+<link rel="modulepreload" href="/trade/btc.js?cb=c881f96d">
 <link rel="modulepreload" href="/trade/btc-session.js?cb=ce0ad4e4">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 </template>
 <!-- warm:end -->
 <div class="sr" id="live" role="status" aria-live="polite"></div>
-<script type="module" src="/etch/app.js?cb=6a090437"></script>
+<script type="module" src="/etch/app.js?cb=6ffb720e"></script>
 </body>
 </html>

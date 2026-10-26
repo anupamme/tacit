@@ -1,11 +1,11 @@
 // tacit.finance/etch: an asset made on Bitcoin, and a search of the ones that exist. Create takes a ticker and a supply (a name, a logo and a link are optional)
 // and etches it from the Tacit key the visitor opens; Discover searches the registry. tacit.js and the key come in when the visitor first touches the form
 // (/trade/btc.js signs them in), not before. The asset is the key's own the moment the reveal is sent, so the front page's wallet lists it as it lists TAC.
-import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=509d6618';
-import { day } from '/trade/fmt.js?cb=c07717c4';
-import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=0972c6b8';
+import { $, esc, fmtUnits, parseUnits, short } from '/trade/util.js?cb=dcf3a4f2';
+import { day } from '/trade/fmt.js?cb=32b1744b';
+import { loadAssets, readNames, search, ipfs } from '/etch/find.js?cb=3c8365d6';
 
-const BTC_MODULE = '/trade/btc.js?cb=53a35df6', ETH_MODULE = '/etch/eth.js?cb=258db1fd', WALLET_MODULE = '/trade/wallet.js?cb=fe7a26b6', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=509d6618';
+const BTC_MODULE = '/trade/btc.js?cb=c881f96d', ETH_MODULE = '/etch/eth.js?cb=258db1fd', WALLET_MODULE = '/trade/wallet.js?cb=6778fe25', SHEET_MODULE = '/trade/sheet.js?cb=84cda8f2', UTIL_MODULE = '/trade/util.js?cb=dcf3a4f2';
 const DECIMALS_OF = { btc: [0, 2, 6, 8], eth: [0, 6, 8, 18] };
 // What the pool can hold of an asset, in its base units (2^64 − 1 in-system units); on Bitcoin, the etch's own limit.
 const maxFor = (dec) => (S.chain === 'eth' ? ((1n << 64n) - 1n) * 10n ** BigInt(dec - Math.min(dec, 8)) : MAX_BASE);
@@ -182,7 +182,7 @@ async function act() {
   S.working = true; paint();
   try {
     const b = await lane();
-    if (typeof T.etchAsset !== 'function') throw new Error('the wallet library served to this browser is older than the page: reload in a minute');
+    if (typeof T.etchAsset !== 'function') throw new Error('Your browser has an older wallet than this page needs. Reload in a minute.');
     if (!b.session.unlocked) { say(''); await b.signIn(); return; }
     const r = read();
     if (!r.tickerOk || !r.supplyOk || !r.linkOk) return;
@@ -344,7 +344,7 @@ function ethFoot(r) {
     : !r.tickerOk ? ['Enter a ticker', true] : !r.supplyOk ? ['Enter a supply', true] : !r.linkOk ? ['The link starts with https://', true] : [`Etch ${r.ticker} on Ethereum`, false];
   go.textContent = label; go.disabled = off;
   $('#edit').inert = S.busy || S.working;
-  const soft = !S.busy && on && short && r.tickerOk && r.supplyOk ? `It needs about ${fmtUnits(cost, 18, 5)} ETH${ethFiat(cost)} for gas. Your wallet holds ${fmtUnits(S.eth.bal, 18, 5)}.` : '';
+  const soft = !S.busy && on && short && r.tickerOk && r.supplyOk ? `Needs about ${fmtUnits(cost, 18, 5)} ETH${ethFiat(cost)} for the network fee. Your wallet holds ${fmtUnits(S.eth.bal, 18, 5)}.` : '';
   if (soft !== S.soft) { if (soft || S.soft) put(soft); S.soft = soft; }
 }
 async function pickEth(list) {
@@ -373,7 +373,7 @@ async function pinDetails(job, E) {
   if (job.link.trim()) md.external_url = job.link.trim();
   const r = await fetch(`${API}/pin-json`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(md), signal: AbortSignal.timeout(20e3) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.cid) throw new Error(`its details could not be saved (${j.error || r.status}), so nothing was made: try again`);
+  if (!r.ok || !j.cid) throw new Error(`Could not save its details (${j.error || r.status}). Nothing was made. Try again in a moment.`);
   return E.cidDigest(j.cid);
 }
 const stopped = (e) => e?.userStopped || e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)|cancell?ed in your wallet/i.test(e?.message || '');
@@ -387,7 +387,7 @@ async function actEth() {
     if (!r.tickerOk || !r.supplyOk || !r.linkOk) return;
     const job = { ...snapshot(r), reg: ui.reg.checked };
     const need = ethCost(job.reg);
-    if (S.eth.bal != null && need > 0n && S.eth.bal < need) { say(`It needs about ${esc(fmtUnits(need, 18, 5))} ETH for gas, and your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
+    if (S.eth.bal != null && need > 0n && S.eth.bal < need) { say(`Needs about ${esc(fmtUnits(need, 18, 5))} ETH for the network fee. Your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
     S.busy = true; paint();
     say('Saving its details…');
     const cid = await pinDetails(job, lane.E);
@@ -395,7 +395,7 @@ async function actEth() {
     const account = lane.wallet.state.account.toLowerCase();
     const plan = await lane.E.plan({ account, symbol: job.ticker, decimals: job.dec, supply: job.base, cid, register: job.reg }, lane.rpc);
     const cost = plan.gas * (S.eth.gasPrice || 0n) * 12n / 10n;
-    if (S.eth.bal != null && cost > 0n && S.eth.bal < cost) { say(`It needs about ${esc(fmtUnits(cost, 18, 5))} ETH for gas, and your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
+    if (S.eth.bal != null && cost > 0n && S.eth.bal < cost) { say(`Needs about ${esc(fmtUnits(cost, 18, 5))} ETH for the network fee. Your wallet holds ${esc(fmtUnits(S.eth.bal, 18, 5))}.`, 'err'); return; }
     let made = false;
     try {
       const hashes = await lane.E.send(plan, lane.wallet, { read: lane.rpc, step: (i, n, label) => say(n > 1 ? `${esc(label)} (${i} of ${n})…` : `${esc(label)}…`) });
@@ -407,7 +407,7 @@ async function actEth() {
       if (!e?.partial?.length) throw e;
       // the token was made and a later call was not: what exists is said, and the page shows it
       const v = await lane.E.verify(plan, lane.rpc).catch(() => ({ ok: false, checks: {} }));
-      S.done = { eth: true, job, plan, hashes: e.partial, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: false, note: stopped(e) ? 'Registering it with the pool was not confirmed in your wallet. The token is made.' : `Registering it with the pool did not go through: ${e.message}` };
+      S.done = { eth: true, job, plan, hashes: e.partial, verified: v, ticker: job.ticker, base: job.base, dec: job.dec, logo: job.logo?.url || null, logoUri: job.logo?.uri || null, reg: job.reg, registered: false, note: stopped(e) ? 'Registering it with the pool was not confirmed in your wallet. The token is made.' : `Could not register it with the pool: ${e.message}. The token is made.` };
     }
     rememberEth(S.done, job);
     showDoneEth();

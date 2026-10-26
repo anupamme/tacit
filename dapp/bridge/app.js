@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=edbb7881';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=f2e85f93';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -14,6 +14,15 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const int = (n) => Number(n).toLocaleString('en-US');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const within = (ms) => (AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+// A chain is its mark (the page's sprite has both), and a way is two of them with an arrow; the names stay in the labels.
+const CHAIN = { btc: ['c-btc', 'Bitcoin'], eth: ['c-eth', 'Ethereum'] };
+const mk = (c, size = 'xs') => `<svg class="tk ${size}" aria-hidden="true"><use href="#${CHAIN[c][0]}"/></svg>`;
+const ends = (dir) => (dir === 'in' ? ['btc', 'eth'] : ['eth', 'btc']);
+const wayName = (dir) => ends(dir).map((c) => CHAIN[c][1]).join(' to ');
+const wayInner = (dir, size = 'xs') => { const [a, b] = ends(dir); return `${mk(a, size)}<span aria-hidden="true">→</span>${mk(b, size)}`; };
+// A step that names a chain ('Burned on Bitcoin') shows the chain as its mark; the words stay for a screen reader.
+const STEP = /^(.+?) ((?:on|for|to) (Bitcoin|Ethereum))$/;
+const stepHtml = (s) => { const m = STEP.exec(s); return m ? `${esc(m[1])} <span class="sr">${m[2]}</span>${mk(m[3] === 'Bitcoin' ? 'btc' : 'eth')}` : esc(s); };
 async function getJson(url, ms = 15e3) {
   const r = await fetch(url, { signal: within(ms) });
   if (!r.ok) throw new Error(String(r.status));
@@ -92,7 +101,7 @@ function paintProofs() {
   const e = $('#pf-eth');
   if (e) e.dataset.state = LIVE.ethCovered == null ? 'off' : ethSlow() ? 'slow' : 'on';
   const lagEl = $('#pf-lag');
-  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? ' · at the tip' : ` · ${int(lag)} behind Bitcoin’s tip`;
+  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? ' · at the tip' : ` · ${int(lag)} behind the tip`;
   const eLag = $('#pf-elag');
   if (eLag && behind != null) eLag.textContent = behind < 10 ? ' · at the head' : ` · ${ethSpan(behind)} behind the head`;
   paintWait();
@@ -156,17 +165,20 @@ function paintTile() {
   $('#bt-flip').title = a.out ? 'Switch direction' : `${a.ticker} enters by a lock`;
   $('#bt-from').textContent = PICK.dir === 'in' ? 'Bitcoin' : 'Ethereum';
   $('#bt-to').textContent = PICK.dir === 'in' ? 'Ethereum' : 'Bitcoin';
-  $('#bt-from-ic').setAttribute('href', PICK.dir === 'in' ? '#tk-btc' : '#tk-eth');
-  $('#bt-to-ic').setAttribute('href', PICK.dir === 'in' ? '#tk-eth' : '#tk-btc');
+  $('#bt-from-ic').setAttribute('href', `#${CHAIN[ends(PICK.dir)[0]][0]}`);
+  $('#bt-to-ic').setAttribute('href', `#${CHAIN[ends(PICK.dir)[1]][0]}`);
   $$('#bt .bt-tk use').forEach((u) => u.setAttribute('href', `#${a.icon}`));
   const steps = $('#bt-steps'), key = `${PICK.asset}/${PICK.dir}`;
   if (steps.dataset.key !== key) {                // drawn again only when the way changes, so its light keeps running
     steps.dataset.key = key;
-    steps.innerHTML = route.steps.map((s, i) => `<li style="--i:${i}"><span class="dot" aria-hidden="true"></span>${esc(s)}</li>`).join('');
+    steps.innerHTML = route.steps.map((s, i) => `<li style="--i:${i}"><span class="dot" aria-hidden="true"></span>${stepHtml(s)}</li>`).join('');
   }
   const go = $('#bt-go');
   go.href = route.href;
   go.querySelector('span').textContent = route.go;
+  const way = $('#bt-way');
+  way.innerHTML = wayInner(PICK.dir, 'sm');
+  way.setAttribute('aria-label', wayName(PICK.dir));
   $('.lost a').href = a.in.href;                  // a bridge that cannot be seen is looked for where this asset's sheet is
   paintWait();
   const lim = limitLine(PICK.asset, PICK.dir);
@@ -215,7 +227,7 @@ const nxt = (r) => nextOf(r, LIVE, !!(MV?.open && !MV.pressing && r.pub === MV.p
 function rowHtml(r) {
   const a = ROUTES[r.asset] || ROUTES.tac;
   const nx = nxt(r), live = liveLine(r, LIVE);
-  const to = r.dir === 'in' ? 'to Ethereum' : 'to Bitcoin';
+  const to = `<span class="cc" role="img" aria-label="to ${CHAIN[ends(r.dir)[1]][1]}"><span aria-hidden="true">→</span>${mk(ends(r.dir)[1])}</span>`;
   const ticks = r.steps.map((s, i) => `<i class="${i < r.at ? 'y' : i === r.at && !r.done ? 'now' : ''}" title="${esc(s)}"></i>`).join('');
   // the last step it has done (the bar shows the one it is on)
   const where = r.done ? (r.paid ? 'Sent' : 'Arrived') : r.back ? 'Moved back to your Bitcoin address' : r.held ? 'Waiting for you' : r.at > 0 ? r.steps[r.at - 1] : 'Started';
@@ -229,15 +241,15 @@ function rowHtml(r) {
     : r.done || r.back ? '' : nx.self ? '<span class="mb-self">Goes on by itself</span>'
     : `<a class="mb-open" href="${r.href}">Open to move it on <span aria-hidden="true">→</span></a>`;
   const links = [
-    r.btcTx ? `<a href="https://mempool.space/tx/${esc(r.btcTx)}" target="_blank" rel="noopener">Bitcoin tx</a>` : '',
-    r.ethTx ? `<a href="https://etherscan.io/tx/${esc(r.ethTx)}" target="_blank" rel="noopener">Ethereum tx</a>` : '',
+    r.btcTx ? `<a href="https://mempool.space/tx/${esc(r.btcTx)}" target="_blank" rel="noopener" title="Bitcoin transaction" aria-label="Bitcoin transaction">${mk('btc')} tx</a>` : '',
+    r.ethTx ? `<a href="https://etherscan.io/tx/${esc(r.ethTx)}" target="_blank" rel="noopener" title="Ethereum transaction" aria-label="Ethereum transaction">${mk('eth')} tx</a>` : '',
   ].filter(Boolean).join('');
   return `<li class="mb${r.done ? ' done' : ''}${nx.due ? ' due' : ''}" data-dir="${r.dir}">
     <svg class="tk" aria-hidden="true"><use href="#${a.icon}"/></svg>
     <div class="mb-m">
-      <div class="mb-t"><b class="num">${fmtAmount(r.amount, a.dp)} ${a.ticker}</b><span>${to}</span><small>${r.since ? ago(r.since) : ''}</small></div>
+      <div class="mb-t"><b class="num">${fmtAmount(r.amount, a.dp)} ${a.ticker}</b>${to}<small>${r.since ? ago(r.since) : ''}</small></div>
       <div class="mb-r" role="img" aria-label="${esc(where)}">${ticks}</div>
-      <div class="mb-w"><span>${esc(where)}</span>${live ? `<span class="mb-live">${esc(live)}</span>` : ''}</div>
+      <div class="mb-w"><span>${stepHtml(where)}</span>${live ? `<span class="mb-live">${esc(live)}</span>` : ''}</div>
       ${r.note ? `<p class="mb-n">${esc(r.note)}</p>` : ''}
     </div>
     <div class="mb-a">${act}${links ? `<span class="mb-x">${links}</span>` : ''}</div>
@@ -327,7 +339,7 @@ function paintHere() {
   if (!want) { box.hidden = true; return; }
   FORM_KEY = want;
   const repaint = () => { readMine.sig = null; readMine(); };
-  (dir === 'in' ? import('/bridge/in-form.js?cb=cc2af435') : import('/bridge/out-form.js?cb=8bb51193')).then((m) => {
+  (dir === 'in' ? import('/bridge/in-form.js?cb=b123156a') : import('/bridge/out-form.js?cb=d19c1b49')).then((m) => {
     if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
     FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
   }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
@@ -339,7 +351,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=ce2cb176').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=5413bd32').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });
@@ -436,8 +448,8 @@ function wireMoves() {
   const set = (dir) => {
     fig.dataset.dir = dir;
     if (caps) caps.dataset.dir = dir;
-    $('#mv-a').setAttribute('href', dir === 'in' ? '#tk-btc' : '#tk-eth');
-    $('#mv-b').setAttribute('href', dir === 'in' ? '#tk-eth' : '#tk-btc');
+    $('#mv-a').setAttribute('href', `#${CHAIN[ends(dir)[0]][0]}`);
+    $('#mv-b').setAttribute('href', `#${CHAIN[ends(dir)[1]][0]}`);
     $$('#mv-dir button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === dir)));
   };
   $$('#mv-dir button').forEach((b) => b.addEventListener('click', () => set(b.dataset.dir)));
