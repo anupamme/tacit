@@ -1,0 +1,156 @@
+# Build the Ethereum-state prover (contracts/sp1/eth-reflection/prover-host, bin eth_prove) for Linux x86-64 as the prover box laid
+# it out, the way build-reflection-prover builds bitcoin_prove: the guest ELF it embeds is the committed one, checked against
+# elf-vkey-pin.json, and its path crates are the repo's, copied to the /root paths its sources name. Before the binary is kept as a
+# workflow artifact the run checks:
+#   - it carries the ELF byte for byte and answers ETH_PROVE_MODES with the stdin and finish modes the prover board's lane uses;
+#   - offline, on a real request the network proved (prover-host/fixtures/eth-request-9e732826.json, its input and proof fetched
+#     from the network's public artifact store and pinned by SHA-256): the public values it computes for that input (expect) and
+#     executes (execute) are the network proof's, and its finish mode accepts that proof and refuses it with one bit flipped or
+#     for another candidate's public values;
+#   - against the baseline release's eth_prove, run at the same moment on live chain data: both reach the same finalized head
+#     and execution block, build the same set witnesses (the eth-reflection CBOR buffer each dumps, byte for byte) and execute
+#     to the same public values, which are the ones the new build computed. The light-client buffer is not compared byte for
+#     byte: its finality update is re-signed every slot. Each run starts from no state (a scan from DEPLOY_BLOCK); a pair that
+#     straddles a finality step or meets a public RPC's 5xx is run again, three tries in all.
+# Nothing is published: the binary goes into a prover-bins release by hand, after those checks.
+# Trigger manually (workflow_dispatch).
+name: build-eth-prover
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Release whose eth_prove the new build must match on live data'
+        default: 'prover-bins-v8'
+      consensus_rpc:
+        description: 'Beacon API for the live comparison'
+        default: 'https://ethereum-beacon-api.publicnode.com'
+      execution_rpc:
+        description: 'Execution RPC for the live comparison: eth_getLogs from DEPLOY_BLOCK (publicnode refuses that far back without a token; drpc free refuses it too) and eth_getProof at the finalized block'
+        default: 'https://rpc.mevblocker.io'
+      scan_chunk:
+        description: 'eth_getLogs window in blocks for the live comparison'
+        default: '2500'
+jobs:
+  build:
+    runs-on: ubuntu-22.04   # GLIBC 2.35 <= the worker-relay image's Bookworm 2.36
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build deps (protoc for sp1-prover-types, zstd for the network's stdin artifact)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler zstd
+      # The Groth16 FFI's build script runs `go`: the version its go.mod asks for.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Lay out the box's paths from the pinned ELF and the repo's crates
+        run: |
+          set -eu
+          S=contracts/sp1
+          python3 - <<'EOF'
+          import hashlib, json
+          pin = json.load(open('contracts/sp1/confidential/elf-vkey-pin.json'))
+          path, want = 'contracts/sp1/eth-reflection/elf/eth_reflection', pin['eth_reflection_elf_sha256']
+          got = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+          assert got == want, f'{path}: {got} is not the pinned {want}'
+          print('pinned', path, got)
+          EOF
+          R=riscv64im-succinct-zkvm-elf/release
+          sudo mkdir -p /root/sp1-helios/target/elf-compilation/$R /root/work/confidential
+          sudo cp $S/eth-reflection/elf/eth_reflection /root/sp1-helios/target/elf-compilation/$R/eth_reflection
+          sudo cp -r $S/eth-reflection/vendor/sp1-helios-primitives /root/sp1-helios/primitives
+          sudo cp -r $S/confidential/cxfer-core /root/work/confidential/cxfer-core
+          sudo cp -r $S/reflect-stdin /root/work/reflect-stdin
+          sudo chown -R "$(id -u):$(id -g)" /root/work /root/sp1-helios
+          sudo chmod a+rx /root
+      - name: Build
+        working-directory: contracts/sp1/eth-reflection/prover-host
+        run: cargo build --release --locked --bin eth_prove
+      - name: The ELF, the modes, and a real request the network proved
+        run: |
+          set -eu
+          B=$PWD/contracts/sp1/eth-reflection/prover-host/target/release/eth_prove
+          FX=$PWD/contracts/sp1/eth-reflection/prover-host/fixtures/eth-request-9e732826.json
+          python3 - "$B" <<'EOF'
+          import sys
+          assert open('contracts/sp1/eth-reflection/elf/eth_reflection', 'rb').read() in open(sys.argv[1], 'rb').read(), 'the ELF is not embedded byte for byte'
+          print('embedded contracts/sp1/eth-reflection/elf/eth_reflection')
+          EOF
+          env -i ETH_PROVE_MODES=1 "$B" | tee modes.log
+          grep -Eq '^ETH_PROVE_MODES .*\bstdin\b.*\bfinish\b' modes.log
+          j() { python3 -c "import json,sys; print(json.load(open('$FX'))[sys.argv[1]])" "$1"; }
+          mkdir -p rec && cd rec
+          curl -fsSL -o stdin.zst "$(j stdinUrl)" && echo "$(j stdinZstSha256)  stdin.zst" | sha256sum -c -
+          zstd -dq stdin.zst -o stdin.bin && echo "$(j stdinSha256)  stdin.bin" | sha256sum -c -
+          curl -fsSL -o proof.bin "$(j proofUrl)" && echo "$(j proofSha256)  proof.bin" | sha256sum -c -
+          PV=$(j publicValues); PV=${PV#0x}
+          ETH_STDIN_IN=stdin.bin SP1_PROVER=expect "$B" | tee expect.log
+          [ "$(sed -n 's/^EXPECT_PV //p' expect.log)" = "$PV" ] && echo "computed public values = the network proof's"
+          ETH_STDIN_IN=stdin.bin SP1_PROVER=execute "$B" > execute.log 2>&1 || { tail -40 execute.log; exit 1; }
+          grep '^EXECUTE_OK' execute.log
+          [ "$(sed -n 's/^RAWPV //p' execute.log)" = "$PV" ] && echo "executed public values = the network proof's"
+          # finish: accepted as it came, refused with one bit flipped and for another candidate's public values (exit 3, nothing written)
+          python3 - "$PV" <<'EOF'
+          import json, sys
+          for d, pv in [('ok', sys.argv[1]), ('other', '00' * 448), ('flip', sys.argv[1])]:
+              import os; os.makedirs(d, exist_ok=True)
+              json.dump({'last_block': 1, 'crossouts': [], 'consumeds': [], 'expect_pv': pv}, open(f'{d}/eth_candidate.json', 'w'))
+          b = bytearray(open('proof.bin', 'rb').read()); b[600000] ^= 1; open('proof-flip.bin', 'wb').write(bytes(b))
+          EOF
+          ETH_PROVE_OUT_DIR=$PWD/ok SP1_PROVER=finish ETH_PROOF_IN=proof.bin "$B" | tee finish-ok.log
+          grep -q '^FINISH_OK$' finish-ok.log && [ "$(cat ok/eth_pv.hex)" = "$PV" ] && test -s ok/eth_compressed.bin && test -s ok/eth_set.json && test -s ok/eth_set_state.pending.json
+          for d in other flip; do
+            p=$([ $d = flip ] && echo proof-flip.bin || echo proof.bin)
+            set +e; ETH_PROVE_OUT_DIR=$PWD/$d SP1_PROVER=finish ETH_PROOF_IN=$p "$B" > finish-$d.log 2>&1; code=$?; set -e
+            grep '^FINISH_REFUSED' finish-$d.log; [ $code = 3 ] && ! test -e $d/eth_pv.hex
+          done
+          echo "finish accepts the network's proof and refuses an altered one and another candidate's"
+      - name: The same input and public values as the baseline's eth_prove on live data
+        env:
+          BASELINE: '${{ github.event.inputs.baseline }}'
+          SOURCE_CONSENSUS_RPC: '${{ github.event.inputs.consensus_rpc }}'
+          SOURCE_EXECUTION_RPC: '${{ github.event.inputs.execution_rpc }}'
+          SCAN_CHUNK: '${{ github.event.inputs.scan_chunk }}'
+          SCAN_DELAY_MS: '400'
+          SOURCE_CHAIN_ID: '1'
+          # The live pool, its EthCallOutbox, its deploy block and the genesis slot (worker-relay/render.yaml tacit-eth-state).
+          POOL: '0x000000000Ed1eabD231Be41d93b719056F7febFC'
+          ETH_CALL_OUTBOX: '0x00000000a26a6E291972666a9687741dBa11Af46'
+          DEPLOY_BLOCK: '25998736'
+          GENESIS_SLOT: '15237120'
+          SP1_PROVER: execute
+        run: |
+          set -eu
+          B=$PWD/contracts/sp1/eth-reflection/prover-host/target/release/eth_prove
+          mkdir -p base && curl -fsSL -o base/eth_prove "https://github.com/${{ github.repository }}/releases/download/${BASELINE}/eth_prove"
+          (cd base && grep ' eth_prove$' ../worker-relay/prover/bin/SHA256SUMS | sha256sum -c -) && chmod +x base/eth_prove
+          one() {
+            rm -rf run-$1 && mkdir -p run-$1/out run-$1/dbg
+            ETH_PROVE_OUT_DIR=$PWD/run-$1/out ETH_PROVE_DEBUG_DIR=$PWD/run-$1/dbg "$2" > run-$1.log 2>&1
+          }
+          head_of() { grep -aoE 'finalized slot [0-9]+ \(period [0-9]+\), exec_block [0-9]+' run-$1.log | head -1; }
+          pair() {
+            one base "$PWD/base/eth_prove" & a=$!
+            one new "$B" & b=$!
+            wait $a || { tail -30 run-base.log; return 1; }
+            wait $b || { tail -30 run-new.log; return 1; }
+            for who in base new; do echo "$who: $(head_of $who)"; grep -aE '^(EXECUTE_OK|EXPECTED_PV_MATCH)' run-$who.log || true; done
+            [ -n "$(head_of base)" ] && [ "$(head_of base)" = "$(head_of new)" ] || { echo "the two runs reached different finalized heads"; return 1; }
+            cmp run-base/dbg/ethprove-ethr.cbor run-new/dbg/ethprove-ethr.cbor && [ -n "$(grep -a '^RAWPV' run-new.log)" ] \
+              && [ "$(grep -a '^RAWPV' run-base.log)" = "$(grep -a '^RAWPV' run-new.log)" ]
+          }
+          ok=0
+          for attempt in 1 2 3; do
+            if pair; then ok=1; break; fi
+            echo "attempt $attempt: not comparable or not equal; again in a minute"
+            sleep 60
+          done
+          [ $ok = 1 ]
+          grep -q '^EXPECTED_PV_MATCH yes$' run-new.log
+          echo "the same input and public values as ${BASELINE}'s eth_prove, and the computed public values match"
+          mkdir -p dist && cp "$B" dist/ && (cd dist && sha256sum eth_prove | tee eth_prove.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eth_prove
+          path: dist/
