@@ -26,17 +26,17 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=48231aa1">
-<link rel="modulepreload" href="/trade/connect.js?cb=5ca12f8f">
+<link rel="modulepreload" href="/swap/app.js?cb=06f51fe1">
+<link rel="modulepreload" href="/trade/connect.js?cb=6058a172">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
-<link rel="modulepreload" href="/trade/wallet.js?cb=fe7a26b6">
+<link rel="modulepreload" href="/trade/wallet.js?cb=6778fe25">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
-<link rel="modulepreload" href="/trade/util.js?cb=509d6618">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
-<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
-<link rel="modulepreload" href="/swap/card.js?cb=98d64472">
+<link rel="modulepreload" href="/swap/card.js?cb=0b094832">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -48,7 +48,7 @@
 <link rel="modulepreload" href="/points-note.js?cb=dc44d257">
 <link rel="modulepreload" href="/evm-pool-tokens.js?cb=e1ab5d24">
 <!-- preload:end -->
-<link rel="stylesheet" href="/swap/card.css?cb=d9cf2eb2">
+<link rel="stylesheet" href="/swap/card.css?cb=8c3bff9c">
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
@@ -220,6 +220,9 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .lanes .end.priv { border-style: dashed; }
 .lanes b { display: block; font: 400 21px/1.15 var(--serif); letter-spacing: -.01em; }
 .lanes small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.lanes b.tks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.lanes .tks span { display: inline-flex; align-items: center; gap: 6px; }
+.lanes .tks .tk { width: 22px; height: 22px; }
 .lanes .door small { margin-top: 30px; }
 .door { position: relative; display: grid; justify-items: center; gap: 4px; padding: 0 8px; text-align: center; font-size: 11.5px; line-height: 1.4; color: var(--mute); }
 .door::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--c); border-radius: 2px; }
@@ -374,6 +377,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
+    <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
+    <symbol id="c-mega" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M10.4 21.2V11.4L16 17.4L21.6 11.4V21.2" fill="none" stroke="#ff8fb4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -445,8 +453,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <h2 id="how-h">Three ways <em>to swap</em></h2>
     <ol class="lanes">
       <li><div class="end"><b>Your wallet</b></div><div class="door pub"><span>public</span><small>best onchain route</small></div><div class="end"><b>Any token</b><small>in your wallet</small></div></li>
-      <li><div class="end priv"><b>Private balance</b></div><div class="door priv"><span>private</span><small>a proof the relay sends</small></div><div class="end priv"><b>tETH, TAC, cUSD, cBTC</b><small>still private, or out to any token</small></div></li>
-      <li><div class="end"><b>Your ETH</b></div><div class="door priv"><span>Swap privately</span><small>deposit, wait, swap out</small></div><div class="end"><b>Any token</b><small>at an address, no trail back</small></div></li>
+      <li><div class="end priv"><b>Private balance</b></div><div class="door priv"><span>private</span><small>a proof the relay sends</small></div><div class="end priv"><b class="tks"><span><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span><span><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span><span><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg>cUSD</span><span><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</span></b><small>still private, or out to any token</small></div></li>
+      <li><div class="end"><b class="tks"><span><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>Your ETH</span></b></div><div class="door priv"><span>Swap privately</span><small>deposit, wait, swap out</small></div><div class="end"><b>Any token</b><small>at an address, no trail back</small></div></li>
     </ol>
     <a class="more" href="/build/#amm-doors">How the pool trades</a>
   </section>
@@ -526,6 +534,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=48231aa1"></script>
+<script type="module" src="/swap/app.js?cb=06f51fe1"></script>
 </body>
 </html>

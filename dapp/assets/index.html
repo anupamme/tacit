@@ -25,12 +25,12 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- preload-roots: /assets/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/assets/app.js?cb=6588c154">
-<link rel="modulepreload" href="/trade/util.js?cb=509d6618">
+<link rel="modulepreload" href="/assets/app.js?cb=b094a084">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
-<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/assets/farms.js?cb=7a44b5da">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
+<link rel="modulepreload" href="/assets/farms.js?cb=6e5f5d9e">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
 <link rel="modulepreload" href="/trade/lp-campaign.js?cb=9d89e80f">
 <link rel="modulepreload" href="/vault/deployments.js?cb=4af96594">
@@ -100,6 +100,9 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .al .n small { font: 400 13px var(--mono); color: var(--mute); min-width: 5ch; }
 .al .d { font-size: 14px; line-height: 1.45; color: var(--mute); text-wrap: balance; }
 .al .d small { display: block; font: 400 12px var(--mono); }
+.al .d .tk { display: inline-block; width: 16px; height: 16px; margin: 0 4px 0 0; vertical-align: -3px; transition: none; }
+.al .d .cm { display: inline-flex; gap: 3px; vertical-align: -2px; } .al .d .cm .tk { margin: 0; }
+@media (hover: hover) { .al a:hover .d .tk { transform: none; } }
 .al .go { font-size: 16px; color: var(--mute); transition: transform .3s var(--spring), color .15s; }
 @media (hover: hover) { .al a:hover .tk { transform: scale(1.06); } .al a:hover .go { transform: translateX(4px); color: var(--ink); } }
 @media (max-width: 860px) { .al { grid-template-columns: minmax(0, 1fr); } .hero { padding-top: 18px; } }
@@ -258,6 +261,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
     <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="tk-tacbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
+    <symbol id="tk-tacusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="none" stroke="#16a34a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 7 L15.5 25" stroke-width="2.7"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" stroke-width="2.6"/></g></symbol>
+    <symbol id="tk-usdc" viewBox="0 0 32 32"><g fill="none"><circle fill="#2775CA" cx="16" cy="16" r="16"/><g fill="#FFF"><path d="M20.022 18.124c0-2.124-1.28-2.852-3.84-3.156-1.828-.243-2.193-.728-2.193-1.578 0-.85.61-1.396 1.828-1.396 1.097 0 1.707.364 2.011 1.275a.458.458 0 00.427.303h.975a.416.416 0 00.427-.425v-.06a3.04 3.04 0 00-2.743-2.489V9.142c0-.243-.183-.425-.487-.486h-.915c-.243 0-.426.182-.487.486v1.396c-1.829.242-2.986 1.456-2.986 2.974 0 2.002 1.218 2.791 3.778 3.095 1.707.303 2.255.668 2.255 1.639 0 .97-.853 1.638-2.011 1.638-1.585 0-2.133-.667-2.316-1.578-.06-.242-.244-.364-.427-.364h-1.036a.416.416 0 00-.426.425v.06c.243 1.518 1.219 2.61 3.23 2.914v1.457c0 .242.183.425.487.485h.915c.243 0 .426-.182.487-.485V21.34c1.829-.303 3.047-1.578 3.047-3.217z"/><path d="M12.892 24.497c-4.754-1.7-7.192-6.98-5.424-11.653.914-2.55 2.925-4.491 5.424-5.402.244-.121.365-.303.365-.607v-.85c0-.242-.121-.424-.365-.485-.061 0-.183 0-.244.06a10.895 10.895 0 00-7.13 13.717c1.096 3.4 3.717 6.01 7.13 7.102.244.121.488 0 .548-.243.061-.06.061-.122.061-.243v-.85c0-.182-.182-.424-.365-.546zm6.46-18.936c-.244-.122-.488 0-.548.242-.061.061-.061.122-.061.243v.85c0 .243.182.485.365.607 4.754 1.7 7.192 6.98 5.424 11.653-.914 2.55-2.925 4.491-5.424 5.402-.244.121-.365.303-.365.607v.85c0 .242.121.424.365.485.061 0 .183 0 .244-.06a10.895 10.895 0 007.13-13.717c-1.096-3.46-3.778-6.07-7.13-7.162z"/></g></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -303,10 +311,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h1 id="hero-h">Tacit <em>assets</em></h1>
     </section>
     <ul class="al">
-      <li><a href="/trade/tac/"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="t"><span class="n"><b>TAC</b><small class="num" id="px-tac"></small></span><span class="d">Tacit’s token, traded on Ethereum and Bitcoin.</span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/trade/tac/"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="t"><span class="n"><b>TAC</b><small class="num" id="px-tac"></small></span><span class="d">Tacit’s token, traded on <span class="cm" role="img" aria-label="Ethereum and Bitcoin" title="Ethereum and Bitcoin"><svg class="tk" aria-hidden="true"><use href="#c-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#c-btc"/></svg></span></span></span><span class="go" aria-hidden="true">→</span></a></li>
       <li><a href="/teth/"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span class="t"><span class="n"><b>tETH</b><small class="num" id="px-teth"></small></span><span class="d">ETH made private in the Tacit pool.</span></span><span class="go" aria-hidden="true">→</span></a></li>
-      <li><a href="/cbtc/"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="t"><span class="n"><b>cBTC</b><small class="num" id="px-cbtc"></small></span><span class="d">Private bitcoin, one for one with BTC locked at your own address.<small>In public: tacBTC</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
-      <li><a href="/vault/#btc"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span class="t"><span class="n"><b>cUSD</b></span><span class="d">A private dollar borrowed against cBTC.<small>In public: tacUSD</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/cbtc/"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="t"><span class="n"><b>cBTC</b><small class="num" id="px-cbtc"></small></span><span class="d">Private bitcoin, 1:1 with BTC locked at your own address.<small>In public: <svg class="tk" aria-hidden="true"><use href="#tk-tacbtc"/></svg>tacBTC</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/vault/#btc"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span class="t"><span class="n"><b>cUSD</b></span><span class="d">A private dollar borrowed against cBTC.<small>In public: <svg class="tk" aria-hidden="true"><use href="#tk-tacusd"/></svg>tacUSD</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
       <li><a href="/vault/#v=usd"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><span class="t"><span class="n"><b>TACD</b></span><span class="d">A dollar borrowed against TAC.</span></span><span class="go" aria-hidden="true">→</span></a></li>
       <li><a href="/vault/#v=eth"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg><span class="t"><span class="n"><b>TACE</b></span><span class="d">Ether borrowed against TAC.</span></span><span class="go" aria-hidden="true">→</span></a></li>
     </ul>
@@ -317,8 +325,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <ul class="fl">
         <li><a id="fr-pub" href="/#farm/public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="n"><b>TAC / ETH</b><small class="sub">Public farm</small></span><span class="a"><b class="num apr"></b><small>APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
         <li><a id="fr-prv" href="/#farm"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><span class="n"><b>Private farms</b><small class="sub">Hidden pools</small></span><span class="a"><b class="num apr"></b><small>best APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
-        <li><a id="fr-tacd" href="/vault/#v=usd&amp;pools"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg></span><span class="n"><b>TACD / USDC</b><small class="sub">Borrow market</small></span><span class="a"><b class="num apr"></b><small>best APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
-        <li><a id="fr-tace" href="/vault/#v=eth&amp;pools"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="n"><b>TACE / ETH</b><small class="sub">Borrow market</small></span><span class="a"><b class="num apr"></b><small>best APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
+        <li><a id="fr-tacd" href="/vault/#v=usd&amp;pools"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-usdc"/></svg></span><span class="n"><b>TACD / USDC</b><small class="sub">Borrow market</small></span><span class="a"><b class="num apr"></b><small>best APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
+        <li><a id="fr-tace" href="/vault/#v=eth&amp;pools"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="n"><b>TACE / ETH</b><small class="sub">Borrow market</small></span><span class="a"><b class="num apr"></b><small>best APR now</small><span class="go" aria-hidden="true">→</span></span></a></li>
       </ul>
     </section>
   </main>
@@ -338,6 +346,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/assets/app.js?cb=6588c154"></script>
+<script type="module" src="/assets/app.js?cb=b094a084"></script>
 </body>
 </html>

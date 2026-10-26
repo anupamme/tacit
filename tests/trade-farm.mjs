@@ -142,7 +142,7 @@ try {
   await p.fill('#fm-amt', '0.4');
   ok(await p.$eval('#fm-go', (b) => b.disabled), 'typing a new amount holds the button until that amount is quoted');
   await p.fill('#fm-amt', '1.2.3');
-  await until(p, () => /Cannot read that amount/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
+  await until(p, () => /Could not read that amount/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
   ok(await p.$eval('#fm-go', (b) => b.disabled) && (await p.$eval('#fm-amt', (i) => i.hasAttribute('aria-invalid'))), 'an amount that cannot be read is said and marked, and nothing can be sent');
   // A deposit whose swap costs 30% or more is accepted by typing its figure, not by ticking a box.
   await p.fill('#fm-amt', '20');

@@ -239,7 +239,7 @@ try {
   await p.click('[data-lane="btc"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 20);
   const cb = await candles(p);
   ok(cb > 20, `the Bitcoin lane draws the order book's trades as candles (${cb})`);
-  ok(/Every trade on the Bitcoin order book since 2026-05-24/.test(await text(p, '#chart-note')), 'and says where they come from');
+  ok(/Every trade on the Bitcoin order book since \d{1,2} \w{3,4} 2026/.test(await text(p, '#chart-note')), 'and says where they come from');
   await p.click('[data-lane="cmp"]'); await until(p, () => document.querySelectorAll('#chart polyline').length === 2);
   ok((await lines(p)) === 2 && !(await p.$('#chart .body')), 'Compare draws the two lanes as lines in dollars');
   ok(/Ethereum and Bitcoin in dollars, at today’s ETH and BTC prices/.test(await text(p, '#chart-note')), 'and says they are at today\'s rates');
@@ -305,7 +305,7 @@ try {
   await p.fill('#amt', '0.05'); await until(p, (x) => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && document.querySelector('#out').textContent.trim() !== '…', null, 120000);
   ok(withComma === (await text(p, '#out')).trim() && Number(withComma.replace(/,/g, '')) < 2000, `0,05 ETH reads as 0.05 (both quote ${withComma} TAC), not 5`);
   { const tk = await p.evaluate(() => window.__tk); ok(tk.stale && !tk.emptied, `a new amount leaves the last quote on the ticket, dimmed, until the new one replaces it: the ticket does not empty and fill again (${JSON.stringify(tk)})`); }
-  await p.fill('#amt', '1,500'); await until(p, () => /Cannot read that amount/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
+  await p.fill('#amt', '1,500'); await until(p, () => /Could not read that amount/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
   ok(await p.$eval('#out', (e) => e.classList.contains('ph')), 'an ambiguous 1,500 is said to be unreadable, with no quote');
   await p.fill('#amt', '1,500.25'); await until(p, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 120000);
   ok(true, 'and 1,500.25 reads as one thousand five hundred and a quarter');
@@ -442,9 +442,9 @@ try {
     ok(await q.evaluate(() => window.__go.has('Updating the quote…')), `while a new amount is quoted the button says so and waits (${await q.evaluate(() => [...window.__go].join(' / '))})`);
     if (SHOTS) await q.locator('.p-ticket').screenshot({ path: join(SHOTS, 'ticket-quoted.png') });
     const rv = (await text(q, '#route')).replace(/\s+/g, ' ');
-    ok(/Split across two pools/.test(rv) && /Price impact\d+%/.test(rv) && /Least you get[\d,.]+ TAC/.test(rv) && /Slippage/.test(rv) && !!(await q.$('#slip-seg')) && /checked before it is sent/.test(await text(q, '#tk-note')) && !(await q.$('#review')), `the quote itself says the route, the price impact and the least it takes, with slippage in it and no review step (${rv.slice(0, 200)})`);
+    ok(/Split across two pools/.test(rv) && /Price impact\d+%/.test(rv) && /At least[\d,.]+ TAC/.test(rv) && /Slippage/.test(rv) && !!(await q.$('#slip-seg')) && /checked before it is sent/.test(await text(q, '#tk-note')) && !(await q.$('#review')), `the quote itself says the route, the price impact and the least it takes, with slippage in it and no review step (${rv.slice(0, 200)})`);
     ok(/Network fee(≈ \$\d+\.\d\d|under \$0\.01)/.test(rv) && /gas at [\d.]+ gwei/.test(await q.$eval('#route .kv b[title*="gas at"]', (b) => b.title)), `the quote says what the network takes, at the gas price now (${(rv.match(/Network fee[^S]*/) || [''])[0]})`);
-    const floorTxt = (rv.match(/Least you get([\d,.]+) TAC/) || [])[1];
+    const floorTxt = (rv.match(/At least([\d,.]+) TAC/) || [])[1];
     ok(await q.$eval('#go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#route')), 'a purchase that moves the price over 10% waits for the box to be ticked');
     ok(/^Accept the loss to buy TAC$/.test(await text(q, '#go')), `the waiting button says what it waits for (${await text(q, '#go')})`);
     await q.check('#ack');
@@ -628,7 +628,7 @@ try {
     ok(/Filling Swapboard v1 order #\d+/.test(await text(q, '#pin')) && (await q.inputValue('#amt')) === '0.01' && /^1,000/.test((await text(q, '#out')).trim()), `Fill sets the ticket to buy that order whole: 0.01 ETH for ${await text(q, '#out')} TAC`);
     ok(/Route.*Swapboard v1 order #\d+/.test((await text(q, '#route')).replace(/\s+/g, ' ')), 'and the route is that order');
     const rvb = (await text(q, '#route')).replace(/\s+/g, ' ');
-    ok(/Swapboard v1 order #\d+/.test(rvb) && /Least you get[\d,.]+ TAC/.test(rvb) && !/I accept losing/.test(rvb), `the quote names the order and the least it takes (${rvb.slice(0, 150)})`);
+    ok(/Swapboard v1 order #\d+/.test(rvb) && /At least[\d,.]+ TAC/.test(rvb) && !/I accept losing/.test(rvb), `the quote names the order and the least it takes (${rvb.slice(0, 150)})`);
     const t0 = await tacBal(me.account), e0 = await ethBal(me.account), mc0 = await tacBal(MC3), n0 = w.walletLog.sends.length;
     await q.click('#go');
     await until(q, () => /Bought\./.test(document.querySelector('#status')?.textContent || '') || document.querySelector('#status .err'), null, 300000);
@@ -666,7 +666,7 @@ try {
     const before = w.walletLog.sends.length;
     if (await q.$('#ack')) await q.check('#ack');
     await q.click('#go');
-    await until(q, () => /just filled or cancelled/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
+    await until(q, () => /filled or cancelled/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(/Nothing was sent/.test(await text(q, '#status')) && w.walletLog.sends.length === before, 'a lot someone else fills after the quote stops the trade with nothing sent');
     await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`) && document.querySelector('#pin').hidden, dutchKey, 120000);
     ok(true, 'and the filled lot leaves the book and the pin');

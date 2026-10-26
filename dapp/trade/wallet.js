@@ -173,7 +173,7 @@ export function makeWallet({ rpc, leave = null, busy = () => false }) {
       const st = await Promise.race([W.prov.request({ method: 'wallet_getCallsStatus', params: [id] }), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 9000))])
         .then((x) => { quiet = 0; return x; }, () => { if (++quiet > 9) throw unknown('Your wallet sent it but cannot say how it went. Check its activity before trying again.'); return null; });
       const rs = st?.receipts || [], q = String(st?.status ?? '');
-      if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed on chain, so nothing was sent.');
+      if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed. Nothing was lost but its network fee.');
       const last = rs[rs.length - 1], h = last && (q === '200' || /CONFIRMED|SUCCESS/i.test(q) || rs.length >= calls.length) ? last.transactionHash || last.hash : null;
       if (h) return h;
       await new Promise((r) => setTimeout(r, 1000));

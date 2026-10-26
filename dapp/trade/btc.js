@@ -184,7 +184,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       const r = await session.T.recoverPreauthCommit(m[1].toLowerCase());
       notify(`Recovered ${Number(r.recovered_sats).toLocaleString('en-US')} sats (sweep fee ${r.fee_sats} sats).`, 'success', 9000);
       await refreshMe(); ctl?.refresh?.({ soft: true });
-    } catch (e) { notify(`Could not recover them yet: ${e?.message || e}. They stay recoverable in the classic app, under Holdings.`, 'error', 12000); }
+    } catch (e) { notify(`Could not recover them: ${e?.message || e}. They stay recoverable in the classic app, under Holdings.`, 'error', 12000); }
   }
 
   // The sats at the key's address and the TAC it holds, which the module reads synchronously through ctx.me().

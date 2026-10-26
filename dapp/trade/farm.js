@@ -1,4 +1,4 @@
-import { day, group } from '/trade/fmt.js?cb=c07717c4';
+import { day, group } from '/trade/fmt.js?cb=32b1744b';
 import { shieldedApr, readSpot } from '/trade/farm-read.js?cb=112a01b9';
 
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', LENS = '0x000000956bf20A41C54BaE4a4b6F5C8A166DAB4E';
@@ -174,7 +174,7 @@ export function mountFarm(host, ctx) {
     const wei = m !== 'tac' ? parseUnits(ethIn.value) || 0n : 0n, tac = m !== 'eth' ? parseUnits(tacIn.value) || 0n : 0n;
     F.q = null; gate();
     const unread = [[ethIn, m !== 'tac'], [tacIn, m !== 'eth']].filter(([i, shown]) => { const off = shown && !!i.value.trim() && parseUnits(i.value) == null; i.toggleAttribute('aria-invalid', off); return off; });
-    if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).</p>'; return; }
+    if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">Could not read that amount. Write 1500 or 0.05.</p>'; return; }
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
     try {
       let lp, loss = 0, used = null;

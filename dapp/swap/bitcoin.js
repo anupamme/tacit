@@ -1,14 +1,14 @@
 // The swap page's Bitcoin lane: tETH and TAC swapped in the Bitcoin pool, signed by a Tacit key. The page loads this when the lane is first opened. tacit.js
 // comes with it through the trade page's Bitcoin module, which also holds the key's sign-in. Nothing here builds or signs a transaction: tacit.js does.
-import { esc, fmtUnits, parseUnits, plain } from '/trade/util.js?cb=509d6618';
+import { esc, fmtUnits, parseUnits, plain } from '/trade/util.js?cb=dcf3a4f2';
 import { moveSatsNeeded, MOVE_SATS_FLAT } from '/btc-book.js?cb=0a09ab9e';
 
-const BTC_MODULE = '/trade/btc.js?cb=53a35df6';
+const BTC_MODULE = '/trade/btc.js?cb=c881f96d';
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TOKENS = { [TETH]: { sym: 'tETH', icon: 'teth', dec: 8 }, [TAC]: { sym: 'TAC', icon: 'tac', dec: 8 } };
 const SLIPS = [50, 100, 300];
 const DUST = 546, IMPACT_WARN = 0.05, IMPACT_ACK = 0.1;
-const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount (one Bitcoin transaction pair)…', 'cut:wait': 'Waiting for the network to show the cut…', send: 'Sending the swap…' };
+const STAGES = { check: 'Checking the pool…', prepare: 'Cutting the exact amount…', 'cut:wait': 'Waiting for the network to show the cut…', send: 'Sending the swap…' };
 const MEMPOOL = 'https://mempool.space';
 const SLIP_KEY = 'tacit-swap-btc-slip-v1';
 const SENT_KEY = 'tacit-swap-btc-sent-v1', SENT_KEEP = 5, SENT_FOR = 24 * 3600e3;               // the swaps sent from this browser, so one is still followed after a reload
@@ -38,13 +38,13 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
 
   host.innerHTML = `
     <div class="f" id="b-pay">
-      <div class="fh"><span>You pay</span><span class="where">on Bitcoin</span></div>
+      <div class="fh"><span>You pay</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
       <div class="fm"><input class="amt" id="b-amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><span class="coin" id="b-pay-coin"></span></div>
       <div class="ff"><span id="b-bal" class="num"></span><span class="quick" id="b-quick"></span></div>
     </div>
     <div class="mid"><button class="flip" id="b-flip" type="button" aria-label="Swap the two sides"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <div class="f" id="b-get">
-      <div class="fh"><span>You get</span><span class="where">on Bitcoin</span></div>
+      <div class="fh"><span>You get</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
       <div class="fm"><output class="big ph num" id="b-out" for="b-amt">0</output><span class="coin" id="b-get-coin"></span></div>
       <div class="ff"><span id="b-get-bal" class="num"></span><span></span></div>
     </div>
@@ -186,7 +186,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     if (!din) return { label: 'Enter a valid amount', off: true };
     if (bal != null && din > bal) return { label: `Not enough ${TOKENS[L.pay].sym} on Bitcoin`, off: true };
     if (!q) return { label: 'Getting a quote…', off: true };
-    if (q.kind !== 'direct') return { label: q.kind === 'multihop' ? 'Not offered here' : 'The pool cannot take this', off: true };
+    if (q.kind !== 'direct') return { label: q.kind === 'multihop' ? 'Not offered here' : 'No route', off: true };
     if (q.minOut < 1n) return { label: 'Too small', off: true };
     if (L.sats != null && L.need != null && L.sats < L.need) return { label: 'Add sats for the Bitcoin fees', act: 'fund' };
     if (impact(q) > IMPACT_ACK && !L.ack) return { label: 'Swap', off: true };
@@ -208,8 +208,8 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       rc.hidden = false;
       rc.innerHTML = [
         ['Price', `1 ${TOKENS[L.pay].sym} ≈ ${px >= 1 ? px.toPrecision(6).replace(/\.?0+$/, '') : px.toPrecision(4)} ${TOKENS[L.get].sym}`, ''],
-        ['Least you get', `${tidy(fmt(q.minOut, L.get))} ${TOKENS[L.get].sym}`, ''],
-        ['Worse than the pool’s price by', `${(imp * 100).toFixed(imp < 0.1 ? 1 : 0)}%`, imp > IMPACT_ACK ? 'err' : imp > IMPACT_WARN ? 'warn' : ''],
+        ['At least', `${tidy(fmt(q.minOut, L.get))} ${TOKENS[L.get].sym}`, ''],
+        ['Price impact', `${(imp * 100).toFixed(imp < 0.1 ? 1 : 0)}%`, imp > IMPACT_ACK ? 'err' : imp > IMPACT_WARN ? 'warn' : ''],
         ['Pool fee', `${(q.feeBps / 100).toFixed(2)}%`, ''],
         ['Pool holds', `${tidy(fmt(L.pool.a === TETH ? L.pool.ra : L.pool.rb, TETH))} tETH · ${tidy(fmt(L.pool.a === TAC ? L.pool.ra : L.pool.rb, TAC))} TAC`, ''],
         ...(q.pending ? [['In flight', `${q.pending} swap${q.pending > 1 ? 's' : ''} counted`, '']] : []),
@@ -217,7 +217,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       ].map(([k, v, c]) => `<div><dt>${esc(k)}</dt><dd${c ? ` class="${c}"` : ''}>${esc(v)}</dd></div>`).join('');
       const needAck = imp > IMPACT_ACK;
       $('b-ack').hidden = !needAck;
-      $('b-acktext').textContent = `I accept ${(imp * 100).toFixed(0)}% less than the pool’s price. This pool is small.`;
+      $('b-acktext').textContent = `I accept ${(imp * 100).toFixed(0)}% less than the pool’s price.`;
       $('b-ackbox').checked = L.ack;
     } else {
       out.textContent = '0'; out.classList.add('ph'); $('b-ack').hidden = true;
@@ -229,7 +229,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     paintBridged(); paintSent();
     const g = gate(), go = $('b-go');
     go.textContent = g.label; go.disabled = !!g.off; go.dataset.act = g.act || ''; go.dataset.mv = g.mv ?? '';
-    if (!L.busy && !L.sent.length && !L.asking && !L.line && L.noPool) say('There is no pool for tETH and TAC on Bitcoin yet.');
+    if (!L.busy && !L.sent.length && !L.asking && !L.line && L.noPool) say('No tETH and TAC pool on Bitcoin yet.');
   }
   function paintBridged() {
     const box = $('b-brd');
@@ -239,7 +239,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       const ready = n.amount != null && n.confirmed;
       return `<div><span>${esc(what)} ${n.swap ? 'from your swap' : 'you bridged'} sits at your Taproot address, which a swap does not spend from.${ready ? '' : ` <em>${esc(n.amount == null ? 'Its amount is not readable yet.' : 'Waiting for its Bitcoin confirmation.')}</em>`}</span>${ready && !L.busy ? ` <button class="link" type="button" data-move="${i}">Move to trade</button>` : ''}</div>`;
     });
-    if (L.unread && !L.notes.length) rows.push('<div><span>Part of your Taproot address could not be read just now.</span></div>');
+    if (L.unread && !L.notes.length) rows.push('<div><span>Could not read part of your Taproot address. Try again in a moment.</span></div>');
     box.hidden = !rows.length; box.innerHTML = rows.join('');
   }
 
@@ -299,7 +299,7 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
     L.busy = true; L.asking = null; say('Moving it to your trading address…'); paint();
     try {
       await T.moveBridgedNote({ txid: n.txid, vout: n.vout ?? 0, assetIdHex: n.aid, swap: !!n.swap, onProgress: (s) => say(s === 'reveal-start' ? 'Sending the second transaction…' : 'Sending the first transaction…') });
-      say(`Moved ${esc(tidy(fmt(n.amount, n.aid)))} ${TOKENS[n.aid].sym}. It confirms with the next Bitcoin block, and then it shows in your balance here, ready to swap.`, 'ok');
+      say(`Moved ${esc(tidy(fmt(n.amount, n.aid)))} ${TOKENS[n.aid].sym}. It shows in your balance after the next Bitcoin block.`, 'ok');
       L.notes = L.notes.filter((_, j) => j !== i);
       keepBridged(bitcoin.session.key?.pubHex, n.aid === TETH ? 'teth' : 'tac', { notes: L.notes.filter((x) => x.aid === n.aid), unread: L.unread });
       onBridged();

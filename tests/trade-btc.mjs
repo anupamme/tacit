@@ -272,7 +272,7 @@ try {
   await p.click('.bsheet.top .btn:not(.ghost)');
   await p.evaluate(() => window.__rec);
   const notes = await p.evaluate(() => window.__notes);
-  ok(notes.some((x) => /^error:Could not recover them yet/.test(x)) && /classic app/.test(notes.join(' ')), `recovering a commit this browser has no record of says so and points to the classic app (${notes[0]?.slice(0, 80)})`);
+  ok(notes.some((x) => /^error:Could not recover them/.test(x)) && /classic app/.test(notes.join(' ')), `recovering a commit this browser has no record of says so and points to the classic app (${notes[0]?.slice(0, 80)})`);
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests (${[...r.errors, ...r.blocked].slice(0, 2).join(' | ')})`);
   await r.browser.close();
 
