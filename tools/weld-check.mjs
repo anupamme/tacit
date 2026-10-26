@@ -7459,9 +7459,10 @@ await step('farmzapeth', async () => {
 });
 
 // LP vouchers: the farm's share notes proved ahead. On the relay lane the share for the amount typed is asked of the relay once the amount
-// settles, and opening the farm's zap keeps its sizes ready through the community pool; a zap whose amount a ready share costs then goes
-// out at once, the zap and the settle that makes its note from the paying account with that share's proof, nothing asked of the relay at
-// the press, and the bond after. The pool's settle is answered here (no real proof): the share note is then made by the relay stub.
+// settles, and opening the farm's zap keeps its sizes (0.01, 0.1 and 1 ETH) ready through the community pool, shown as buttons under the
+// amount; a ready size pressed fills its exact cost, and the zap goes out at once as ONE transaction from the paying account
+// (zapETHIntoFarm: the zap and the settle of that share's proof), nothing asked of the relay at the press, the bond after. The pool's
+// settle is answered here (no real proof; tests/…/zapfarm fork.mjs runs it with a real one): the note is then made by the relay stub.
 await step('lpvoucher', async () => {
   const hex = '1b0c'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00';
   const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
@@ -7490,28 +7491,30 @@ await step('lpvoucher', async () => {
     await p.fill('#sz-a-0', '0.021');
     await p.fill('#sz-a-0', '0.02');
     await until(p, () => /ready now/.test(document.querySelector('#sz-rcpt-0')?.textContent || ''), null, 120000).catch(() => {});
-    ok(/Proof\s*ready now: sends 0\.0\d+ ETH/.test(await text(p, '#sz-rcpt-0')), `lpvoucher: and the receipt says the proof is ready (${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ').slice(-80)})`);
-    // (2) kept ready: the farm's 0.05 ETH size is asked of the pool, and its proof collected into a voucher
+    ok(/Proof\s*ready now: one transaction, 0\.0\d+ ETH/.test(await text(p, '#sz-rcpt-0')), `lpvoucher: and the receipt says the proof is ready, for one transaction (${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ').slice(-90)})`);
+    // (2) kept ready: the farm's 0.01 ETH size is asked of the pool, and its proof collected into a voucher
     await chainUntil(async () => poolReqs.slice(q0).some((b) => b.type === 'wrap' && !wrapOpFromStdin(b.stdin, STUB_CETH) && !wrapOpFromStdin(b.stdin, STUB_CTAC)), 200000);
     const lpReqs = poolReqs.slice(q0).filter((b) => !wrapOpFromStdin(b.stdin, STUB_CETH) && !wrapOpFromStdin(b.stdin, STUB_CTAC));
-    ok(lpReqs.length >= 1 && /^0x[0-9a-f]{64}$/.test(lpReqs[0].expect.depositId), `lpvoucher: opening the farm's zap keeps a share of about 0.05 ETH ready, asked of the pool (${lpReqs.length})`);
+    ok(lpReqs.length >= 1 && /^0x[0-9a-f]{64}$/.test(lpReqs[0].expect.depositId), `lpvoucher: opening the farm's zap keeps a share of about 0.01 ETH ready, asked of the pool (${lpReqs.length})`);
     poolDone = true;
-    await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'pool' && v.size === '50000000000000000' && v.status === 'ready'), pub, 200000).catch(() => {});
-    const pooled = (await lpOf('pool')).find((v) => v.size === '50000000000000000');
+    await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'pool' && v.size === '10000000000000000' && v.status === 'ready'), pub, 200000).catch(() => {});
+    const pooled = (await lpOf('pool')).find((v) => v.size === '10000000000000000');
     ok(pooled?.status === 'ready', `lpvoucher: and the pool's proof is kept as a ready share (${(await lpOf('pool')).map((v) => `${v.size}/${v.status}`)})`);
-    // (3) a zap of 0.05 ETH goes out from that share: the zap, then the settle with its proof, from the Tacit account; nothing new asked of the relay
-    await p.fill('#sz-a-0', '0.05');
+    // (3) the 0.01 ETH size, ready, fills its exact cost, and the zap goes out from that share as one transaction from the Tacit account
+    await until(p, () => /ready now/.test(document.querySelector('#sz-sizes-0 [data-size]')?.textContent || ''), null, 90000).catch(() => {});
+    ok(/0\.01 ETH\s*ready now/.test(await text(p, '#sz-sizes-0')), `lpvoucher: the kept sizes show under the amount, the proved one as ready now (${(await text(p, '#sz-sizes-0')).replace(/\s+/g, ' ')})`);
+    await p.click('#sz-sizes-0 [data-size]');
     await until(p, () => /ready now/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 240000).catch(() => {});
+    ok(/one transaction/.test(await text(p, '#sz-rcpt-0')), `lpvoucher: and pressing it fills its cost, the receipt saying one transaction (${(await text(p, '#sz-rcpt-0')).replace(/\s+/g, ' ').slice(-110)})`);
     const b0 = BigInt(await rpc('eth_blockNumber', [])), s1 = submits.length;
     await p.click('#sz-go-0');
     await until(p, () => window.__farmCalls.some((c) => c.startsWith('bond:')) || /class="err"/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000).catch(() => {});
     const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
     for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct) mine.push(tx);
-    const zapTx = mine.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), settleTx = mine.find((x) => String(x.to).toLowerCase() === POOL_ADDR && x.input.startsWith('0x' + SETTLE_SEL));
-    const zr = zapTx && await rpc('eth_getTransactionReceipt', [zapTx.hash]);
-    ok(zr?.status === '0x1' && zapTx.input.includes(pooled.commit.slice(2).toLowerCase()) && settleTx?.input.includes('0b'.repeat(32)) && mine.indexOf(zapTx) < mine.indexOf(settleTx)
+    const zapTx = mine.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), zr = zapTx && await rpc('eth_getTransactionReceipt', [zapTx.hash]);
+    ok(zr?.status === '0x1' && mine.length === 1 && zapTx.input.startsWith('0xc4294fac') && zapTx.input.includes(pooled.commit.slice(2).toLowerCase()) && zapTx.input.includes('0b'.repeat(32))
       && !submits.slice(s1).some((x) => x.mode === 'prove') && !(await kept()).some((v) => v.depositId === pooled.depositId),
-      `lpvoucher: a zap of 0.05 ETH goes out from that share, the zap and then its settle with the share's proof from the Tacit account, nothing asked of the relay, the voucher used up (${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
+      `lpvoucher: the zap goes out from that share as one transaction (zapETHIntoFarm with the share's proof) from the Tacit account, nothing asked of the relay, the voucher used up (${mine.map((x) => `${x.to.slice(0, 10)}/${x.input.slice(0, 10)}`)})`);
     ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')), `lpvoucher: and the share goes on into the farm (${(await p.evaluate(() => window.__farmCalls)).join(', ')})`);
     if (r.errors.length) { fails++; console.log('FAIL lpvoucher page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { poolDone = false; proveStub = false; await restore(); await r.browser.close(); }

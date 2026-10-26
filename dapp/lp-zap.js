@@ -151,10 +151,32 @@ export function zapSplitPlan({ eth, ra, rb, total, feeBps = 30n, ammIn, extIn, e
 // is a unit over the B leg, so it pays what the add takes and some comes back. `to` of the swap is the router, which holds both legs.
 // `swapData` is another zRouter call for the swap (a split's), which must pay the router at least the plan's floor.
 export function zapCalldata({ plan, router, amm, tokenB, assetA, assetB, feeBps = 30, deadline, commit, swapData = null }) {
-  const swap = 'cfdf9dcc' + b32(assetA) + b32(assetB) + word(feeBps) + word(plan.swapIn) + word(plan.floor) + word(deadline) + addr(router);
-  const snwap = swapData ? String(swapData).replace(/^0x/, '') : '5f3bd1c8' + addr('0x0') + word(0) + addr(router) + addr(tokenB) + word(plan.floor) + addr(amm) + word(7 * 32) + bytes(swap);
-  return '0xf9d1fa01' + addr(tokenB) + word(feeBps) + word(plan.ethLeg) + word(plan.bLeg) + word(plan.shares) + word(deadline) + b32(commit) + word(8 * 32) + bytes(snwap);
+  return '0xf9d1fa01' + addr(tokenB) + word(feeBps) + word(plan.ethLeg) + word(plan.bLeg) + word(plan.shares) + word(deadline) + b32(commit) + word(8 * 32)
+    + bytes(zapSwap({ plan, router, amm, tokenB, assetA, assetB, feeBps, deadline, swapData }));
 }
+// The zap's swap leg: the trade venues' own call where given (a split), else zRouter's snwap into this pool's swapPublic.
+function zapSwap({ plan, router, amm, tokenB, assetA, assetB, feeBps, deadline, swapData }) {
+  if (swapData) return String(swapData).replace(/^0x/, '');
+  const swap = 'cfdf9dcc' + b32(assetA) + b32(assetB) + word(feeBps) + word(plan.swapIn) + word(plan.floor) + word(deadline) + addr(router);
+  return '5f3bd1c8' + addr('0x0') + word(0) + addr(router) + addr(tokenB) + word(plan.floor) + addr(amm) + word(7 * 32) + bytes(swap);
+}
+// ConfidentialRouter.zapETHIntoFarm: the same zap, then in the same call the settle of a proof that consumes its share deposit (the share
+// note's OP_WRAP, proved before anything was sent; the router settles it fee-free, as wrapAndSettleETH does a wrap's). One transaction
+// from any wallet: the shares are minted, shielded and made a private note together, or nothing happens.
+export function zapSettleCalldata({ plan, router, amm, tokenB, assetA, assetB, feeBps = 30, deadline, commit, swapData = null, publicValues, proof, memos = [] }) {
+  const tails = [bytes(zapSwap({ plan, router, amm, tokenB, assetA, assetB, feeBps, deadline, swapData })), bytes(publicValues), bytes(proof), bytesArray(memos)];
+  let off = 11 * 32;
+  const heads = tails.map((t) => { const h = word(off); off += t.length / 2; return h; });
+  return '0x' + ZAP_FARM_SEL + addr(tokenB) + word(feeBps) + word(plan.ethLeg) + word(plan.bLeg) + word(plan.shares) + word(deadline) + b32(commit) + heads.join('') + tails.join('');
+}
+// zapETHIntoFarm(address,uint32,uint256,uint256,uint256,uint64,bytes32,bytes,bytes,bytes,bytes[])
+export const ZAP_FARM_SEL = 'c4294fac';
+const bytesArray = (xs) => {
+  const items = xs.map((x) => bytes(x));
+  let off = xs.length * 32;
+  const heads = items.map((t) => { const h = word(off); off += t.length / 2; return h; });
+  return word(xs.length) + heads.join('') + items.join('');
+};
 
 // What a zap ends with at the pool's price before it, in A units: the position (its share of the pool after the swap's own part and the add)
 // and what comes back (A not sent or not taken, and B over what the add takes, at `backPrice` A per B if given: the price the swap paid for

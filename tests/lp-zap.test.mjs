@@ -3,7 +3,7 @@
 // remove): with nothing in between, it mints exactly the shares its note commits to; with any trade, add or remove landing first, it mints at
 // most that many, so with minShares set to them the transaction mints exactly them or reverts, and no deposit is left a note cannot open.
 //   node tests/lp-zap.test.mjs
-import { zapPlan, zapPlanFor, zapSplitPlan, zapSplitSearch, zapWorth, zapCalldata, ammOut, addShares } from '../dapp/lp-zap.js';
+import { zapPlan, zapPlanFor, zapSplitPlan, zapSplitSearch, zapWorth, zapCalldata, zapSettleCalldata, ammOut, addShares } from '../dapp/lp-zap.js';
 
 let n = 0; const ok = (c, m) => { if (c) { n++; } else { console.error('FAIL -', m); process.exitCode = 1; } };
 let seed = 7n; const rnd = () => { seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n); return seed >> 11n; };
@@ -246,4 +246,15 @@ ok(exact > 0 && reverted > 0, `with something landing first a zap is exact or re
       `the calldata carries the legs, the shares as minShares, and the swap through the pool with its floor a unit over the B leg (${p === z ? 'zapPlan' : 'zapPlanFor'})`);
   }
 }
+// the one-transaction zap (an LP voucher sent): ConfidentialRouter.zapETHIntoFarm with the share note's proof, byte for byte as cast encodes
+// it, its swap leg the same bytes zapETHIntoShieldedLP carries
+{
+  const { readFileSync } = await import('node:fs');
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/lp-zap/zap-settle-calldata.json', import.meta.url), 'utf8')), a = fx.args;
+  const plan = Object.fromEntries(Object.entries(a.plan).map(([k, v]) => [k, BigInt(v)]));
+  const got = zapSettleCalldata({ ...a, plan, deadline: BigInt(a.deadline) }), plain = zapCalldata({ ...a, plan, deadline: BigInt(a.deadline) });
+  ok(got === fx.calldata && got.startsWith('0xc4294fac'), 'zapSettleCalldata is zapETHIntoFarm as cast encodes it');
+  ok(got.includes(plain.slice(10 + 9 * 64)), 'and its swap leg is the plain zap\'s');
+}
+
 console.log(`${n} checks`);
