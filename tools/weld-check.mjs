@@ -7,6 +7,7 @@
 //   swapurl the swap page's address on the front page: ?from=&to=&amt=&private= open the Swap tab on that swap, the address follows the card's pair
 //            (never the amount) while that tab shows, other parameters and the hash stay, and the first pair leaves it plain
 //   hxbridge the tile's Bridge tab: its link and the page's bridge buttons open it, its From lists what crosses, the flip and steps, the Swap card's line over to it, and the Bitcoin lane reached by putting both sides on Bitcoin
+//   hxbridgec cBTC and cUSD on the Bridge tab: private cUSD out quoted with its fee and limits, the press opening the Borrow sheet's form with the amount; cBTC back
 //   ux       the page's shell: a toast over an open sheet can be pressed, a drag ending on the backdrop leaves the sheet open, an
 //            unreadable amount says so, one sheet replacing another keeps its link in the address bar, a hash naming nothing is ignored
 //   apr      every farm row shows its APR now, and the public farm's card spells it out; the Farm tile leads with the public farm's APR
@@ -194,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -3196,11 +3197,11 @@ await step('bridge', async () => {
   const rows = await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length === 5, `bridge: the four bridges under way and the one arrived are listed (${rows.length})`);
   ok(/Recorded/.test(rows[0] || '') && /proof is at Bitcoin block 970,000; the burn is in block 970,050, 50 blocks on/.test(rows[0] || '') && /Started \d+ min ago/.test(rows[0] || '')
-    && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')) && /Check now/.test(rows[0] || '') && /Bitcoin bbd1d1/.test(rows[0] || '') && !/Your turn/.test(rows[0] || ''),
+    && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')) && /Check now/.test(rows[0] || '') && /bbd1d1/.test(rows[0] || '') && !!(await r.page.$('#bridge-body .brr:nth-child(1) .brl a .cmk[aria-label="Bitcoin"]')) && !/Your turn/.test(rows[0] || ''),
     `bridge: one waiting for the proof shows its step, how many blocks the proof has to go, when it started, its burn and Check now (${(rows[0] || '').slice(0, 220)})`);
   ok(/The relay finishes the mint, so you can close this page\./.test(rows[0] || '') && !/close this page/.test(rows[2] || ''), 'bridge: a one-step bridge whose mint is with the relay says the page can be closed, and one that is not says nothing of it');
   ok([2, 3].every((i) => /Your turn/.test(rows[i] || '')) && !/Your turn/.test(rows[1] || ''), 'bridge: each bridge waiting for a press from its holder says it is their turn, and one held by the day’s allowance does not');
-  ok(/Arrived/.test(rows[4] || '') && /Arrived 1 h ago/.test(rows[4] || '') && /Ethereum 0xabab/.test(rows[4] || '') && /Done/.test(rows[4] || '') && (await r.page.$$('#bridge-body .brr:last-child .stp li.done')).length === 4,
+  ok(/Arrived/.test(rows[4] || '') && /Arrived 1 h ago/.test(rows[4] || '') && /0xabab/.test(rows[4] || '') && !!(await r.page.$('#bridge-body .brr:last-child .brl a .cmk[aria-label="Ethereum"]')) && /Done/.test(rows[4] || '') && (await r.page.$$('#bridge-body .brr:last-child .stp li.done')).length === 4,
     `bridge: an arrived bridge is listed with all its steps done, its Ethereum transaction and Done (${(rows[4] || '').slice(0, 200)})`);
   await r.page.click('#bridge-body [data-bract="poll"]');
   await until(r.page, () => /Not yet/.test(document.querySelector('#br-rstatus')?.textContent || ''), null, 60000);
@@ -8486,9 +8487,9 @@ await step('hxout', async () => {
     ok((await btcs()) === 'btc btc -', `hxout: with only tETH on, TAC does not go to Bitcoin (${await btcs()})`);
     // Neither on: nothing goes to Bitcoin, and TAC still comes from there (and the Swap card still shields it there).
     await p.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
-    const none = await btcs(), from = await p.$$eval('#hx-from option', (os) => os.map((o) => o.value).join(',')), only = (await text(p, '#hx-panel .coin.one')).trim();
+    const none = await btcs(), from = await p.$$eval('#hx-from option', (os) => os.map((o) => o.value).join(','));
     await moveFrom(p, 'btc');
-    ok(none === '- - -' && from === '' && /^TAC/.test(only) && (await toPlaces(p)) === 'bitcoin', `hxout: with both switched off nothing goes to Bitcoin, TAC on Bitcoin still comes over, and the Swap card still shields it there (${none} · bridge from: ${from || 'TAC on Bitcoin alone'} · swap from Bitcoin: ${await toPlaces(p)})`);
+    ok(none === '- - -' && from.split(',').every((k) => !['tac', 'eth', 'ether', 'tb'].includes(k)) && from.split(',').includes('btc') && (await toPlaces(p)) === 'bitcoin', `hxout: with both switched off neither TAC nor tETH goes to Bitcoin (cBTC and cUSD have switches of their own), TAC on Bitcoin still comes over, and the Swap card still shields it there (${none} · bridge from: ${from} · swap from Bitcoin: ${await toPlaces(p)})`);
     // Nothing set: both are on.
     await p.evaluate(() => { localStorage.removeItem('tacit-teth-btc'); localStorage.removeItem('tacit-tac-btc'); });
     const dflt = await btcs();
@@ -8521,6 +8522,37 @@ await step('hxlink', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash ${await p.evaluate(() => location.hash)} | body: ${(await text(p, '#bridge-body')).replace(/\s+/g, ' ').slice(0, 240)}`); });
     ok((await p.evaluate(() => location.hash)) === '#bridge/out', 'hxlink: and with the key open it is on the To Bitcoin side, with the 25 TAC in the form');
     if (r.errors.length) { fails++; console.log('FAIL hxlink page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// cBTC and cUSD cross as tETH does: the Bridge tab takes private cUSD out (its relay fee and limits quoted, what the key holds checked) and
+// the press opens the Borrow sheet's cBTC and cUSD on Bitcoin on that asset, its way to Bitcoin, with the amount in; the way back names its notes.
+await step('hxbridgec', async () => {
+  const CUSD = '0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d', CBTC = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
+  const r = await openFarmKey('c05d'.padEnd(64, '6'), { notes: [[CUSD, 5000000000n], [CBTC, 50000000n]], fees: { transfer: 100000 } });
+  const p = r.page;
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await bridgeTo(p, 'cusd', '200');
+    await until(p, () => /You hold 50 cUSD privately\./.test(document.querySelector('#hx-q')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(p)} | out ${await text(p, BRG.out)}`); });
+    ok(true, 'hxbridgec: more cUSD than the key holds is said');
+    await p.fill(BRG.amt, '20');
+    await until(p, () => /^(19|20)(\.\d\d?)?$/.test(document.querySelector('#hx-out')?.textContent || '') && /Relay fee: [\d.]+ cUSD/.test(window.__said()) && /Limits: 10 to 1,000 cUSD a bridge/.test(window.__said()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(p)} | out ${await text(p, BRG.out)}`); });
+    ok((await text(p, BRG.go)).trim() === 'Bridge cUSD to Bitcoin' && (await heldAt(p)) === 'private', `hxbridgec: 20 cUSD to Bitcoin is quoted with its relay fee and limits (${await said(p)})`);
+    await p.click(BRG.go);
+    await until(p, () => !!document.querySelector('#sheet-borrow[open] #bw-btcx[open] #xu-amt') && document.querySelector('#xu-amt').value === '20', null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash ${await p.evaluate(() => location.hash)} | ${(await text(p, '#bw-btcx').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+    ok((await p.evaluate(() => location.hash)) === '#borrow/bitcoin/cusd' && /To Bitcoin/.test(await text(p, '#bw-xo-gen [data-xseg][aria-selected="true"]')) && /cUSD/.test(await text(p, '#bw-btcx [data-bwbx][aria-selected="true"]')), `hxbridgec: the press opens the Borrow sheet's cUSD on its way to Bitcoin, with the 20 cUSD in (${await p.evaluate(() => location.hash)})`);
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await bridgeTo(p, 'kb');
+    ok((await text(p, BRG.go)).trim() === 'Bring cBTC back' && (await heldAt(p)) === 'bitcoin', 'hxbridgec: cBTC on Bitcoin comes back from the same tab');
+    await p.click(BRG.go);
+    await until(p, () => location.hash === '#borrow/bitcoin/cbtc/back' && !!document.querySelector('#sheet-borrow[open] #bw-btcx[open]'), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash ${await p.evaluate(() => location.hash)}`); });
+    ok(true, 'hxbridgec: and its press opens the Borrow sheet on cBTC, back to Ethereum');
+    if (r.errors.length) { fails++; console.log('FAIL hxbridgec page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

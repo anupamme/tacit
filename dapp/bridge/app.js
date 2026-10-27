@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=2a64cc38';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=19dc6637';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -122,7 +122,7 @@ async function readCosts() {
   const floor = (asset, k) => getJson(`${API}/confidential/quote?asset=${asset}`).then((q) => { const u = BigInt(q.gasAwareFloorUnits ?? q.staticFloorUnits ?? 0); if (u > 0n) COST.relay[k] = u; }).catch(() => {});
   await Promise.all([
     getJson(`${ESPLORA}/v1/fees/recommended`).then((f) => { if (Number(f.fastestFee) > 0) COST.satvb = Number(f.fastestFee); }).catch(() => {}),
-    floor('cETH', 'teth'), floor('cTAC', 'tac'), feed('ethUsd'), feed('btcUsd'),
+    floor('cETH', 'teth'), floor('cTAC', 'tac'), floor('cBTC', 'cbtc'), floor('cUSD', 'cusd'), feed('ethUsd'), feed('btcUsd'),
   ]);
   paintTile();
 }
@@ -331,7 +331,7 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=13fa52db').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=ae0250fb').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
     onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } } });

@@ -43,7 +43,7 @@ import { loadTrackedNotes } from './tracked-notes.js';
 import { makeConfidentialPoolUx, setExternalTacHolders, forgetKeys as forgetPoolKeys } from './confidential-pool-ux.js';
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW as BURNDEP_BETA_CAP_RAW_TAC } from './burndep-ux.js';
 import { makeTxArchive } from './tx-archive.js';
-import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW } from './crossout-ux.js';
+import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW, CROSSOUT_CUSD_CAP_RAW, CROSSOUT_CUSD_MIN_RAW } from './crossout-ux.js';
 import { makeCrossoutNotes, p2trAddress as _crossoutP2trAddress } from './crossout-notes.js';
 import { renderConfidentialPoolTab } from './confidential-pool-tab.js';
 import { renderLanePanel } from './cross-chain-lane.js';
@@ -15870,7 +15870,8 @@ function _burndepUxSingleton() {
     pool: poolUx.pool, bridgeMint: poolUx.bridgeMint, chainBindingHex: poolUx.chainBindingHex,
     tacAssetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX,
     assets: [{ assetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX, ticker: 'TAC', capRaw: BURNDEP_BETA_CAP_RAW_TAC },
-      ...(tethAsset ? [{ assetId: tethAsset, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW }] : [])],
+      ...(tethAsset ? [{ assetId: tethAsset, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW }] : []),
+      ..._bridgedPoolAssets(poolUx).map((a) => ({ assetId: a.assetId, ticker: a.ticker, capRaw: a.capRaw }))],
     chain: { getUtxos: (a, cb) => getUtxos(a, cb, { forSpend: true }), pickSafeCommitSats, broadcastWithRetry, getFeeRate },
     encodeCXferBppPayload, computeKernelMsg, deriveChangeBlinding, deriveAmountKeystreamSelf, encryptAmount, signSchnorr, modN,
     openNote: async (txid, vout) => {
@@ -15891,7 +15892,15 @@ function _burndepReserved(txid, vout) {
   try { return _burndepUxSingleton().isReserved(txid, vout); } catch { return false; }
 }
 let _crossoutUx = null, _crossoutUxNet = null;
-function _cbtcRedeemOn() { try { return JSON.parse(localStorage.getItem('tacit-cbtc-redeem')) === true; } catch { return false; } }
+// cBTC and cUSD cross both ways like tETH: each is a pool asset whose Bitcoin link is its own id (the pool resolves a bridged-back note by it)
+function _bridgedPoolAssets(poolUx) {
+  const by = poolUx.assetByTicker || {}, out = [];
+  for (const [ticker, capRaw, minRaw] of [['cBTC', CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW], ['cUSD', CROSSOUT_CUSD_CAP_RAW, CROSSOUT_CUSD_MIN_RAW]]) {
+    const r = by[ticker];
+    if (r && r.assetId && r.bitcoinLink && String(r.assetId).toLowerCase() === String(r.bitcoinLink).toLowerCase()) out.push({ assetId: r.assetId, ticker, capRaw, minRaw });
+  }
+  return out;
+}
 function _crossoutUxSingleton() {
   const net = NET.name;
   if (_crossoutUx && _crossoutUxNet === net) return _crossoutUx;
@@ -15906,7 +15915,7 @@ function _crossoutUxSingleton() {
     tacAssetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX,
     assets: [{ assetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX, ticker: 'TAC', capRaw: CROSSOUT_TAC_CAP_RAW },
       ...(tethId ? [{ assetId: tethId, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW, minRaw: CROSSOUT_TETH_MIN_RAW }] : []),
-      ...(_cbtcRedeemOn() && poolUx.pool && poolUx.pool.CBTC_ZK_ASSET_ID ? [{ assetId: poolUx.pool.CBTC_ZK_ASSET_ID, ticker: 'cBTC', capRaw: CROSSOUT_CBTC_CAP_RAW, minRaw: CROSSOUT_CBTC_MIN_RAW }] : [])],
+      ..._bridgedPoolAssets(poolUx)],
     chain: { getUtxos: (a, cb) => getUtxos(a, cb, { forSpend: true }), pickSafeCommitSats, broadcastWithRetry, getFeeRate },
     postHint,
     nullifierSpent: (nu) => makeCrossLaneGuard({ keccak256: keccak_256 }).evmNullifierSpent((a, slot, tag) => poolUx.rpc('eth_getStorageAt', [a, slot, tag || 'latest']), poolUx.cfg.pool, nu),

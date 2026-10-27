@@ -6,6 +6,8 @@ export const CROSSOUT_TETH_CAP_RAW = 50_000_000n;
 export const CROSSOUT_TETH_MIN_RAW = 100_000n;           // 0.001 tETH while the bridge is new: small enough to try, and a bridge must still exceed its relay fee
 export const CROSSOUT_CBTC_CAP_RAW = 50_000_000n;
 export const CROSSOUT_CBTC_MIN_RAW = 1_000n;
+export const CROSSOUT_CUSD_CAP_RAW = 100_000_000_000n;    // 1,000 cUSD while the bridge is new
+export const CROSSOUT_CUSD_MIN_RAW = 1_000_000_000n;      // 10 cUSD: a bridge must still exceed its relay fee
 export const CROSSOUT_MINT_FEE_CEILING = 100;
 // How many times a burn's Bitcoin step is sent before the record stops offering it again: the first, and two more.
 export const CROSSOUT_MAX_MINT_ATTEMPTS = 3;

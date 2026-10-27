@@ -149,11 +149,17 @@ try {
     ok((await page.textContent('#bt-cost')) === 'About $0.80 now: 1,000 sats on Bitcoin; Tacit covers the Ethereum side', 'and the way back says its own cost');
     await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:eth' && (await page.textContent('#bt-go')).includes('Bridge tETH') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Ethereum to Bitcoin', 'tETH to Bitcoin');
+    // cBTC and cUSD cross as tETH does: back from Bitcoin by default, to Bitcoin turned around, each with its limit
     await page.click('[data-asset="cbtc"]');
-    ok(await page.getAttribute('.lost a', 'href') === '/vault/#btc', 'a cBTC lock that cannot be seen is looked for on the Borrow page, which lists the key\'s locks');
-    ok(await page.isHidden('#bt-limit') && await page.isHidden('#bt-cost'), 'cBTC has no per-bridge limit line and no cost line');
-    ok(await page.getAttribute('#bt-go', 'href') === '/vault/#btc' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
-    ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow page’s: lock, bond, mint, borrow');
+    if (await page.$eval('#bt', (b) => b.dataset.dir) === 'out') await page.click('#bt-flip');   // the way picked carries over from tETH's
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:kb' && (await page.textContent('#bt-go')).includes('Bring cBTC back') && !(await page.isDisabled('#bt-flip')) && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC comes back from Bitcoin through the Bridge tab, and turns around');
+    ok(await page.getAttribute('.lost a', 'href') === '/#borrow/bitcoin/cbtc/back', 'a cBTC bridge that cannot be seen is looked for on the Borrow sheet, under cBTC and cUSD on Bitcoin');
+    await page.click('#bt-flip');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:cbtc' && (await page.textContent('#bt-limit')) === '0.00001 to 0.5 cBTC a bridge while it is new', 'cBTC to Bitcoin, with what one bridge takes');
+    await page.click('[data-asset="cusd"]');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:cusd' && (await page.textContent('#bt-go')).includes('Bridge cUSD') && (await page.textContent('#bt-limit')) === '10 to 1,000 cUSD a bridge while it is new', 'cUSD to Bitcoin, with what one bridge takes');
+    await page.click('#bt-flip');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:ub' && (await page.textContent('#bt-go')).includes('Bring cUSD back'), 'and cUSD back from Bitcoin');
     await page.click('[data-asset="tac"]');
     await shot(page, 'desktop-top');
 

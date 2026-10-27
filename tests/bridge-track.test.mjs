@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { checkNote, readBridges, inRow, outRow, inActs, outActs, rowNote, inDue, outDue, liveLine, nextOf, readyNow, fmtAmount, limitLine, ethSpan, btcSpan, satsOut, satsBack, costLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TAC_ID, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
-import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
+import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW, CROSSOUT_CUSD_CAP_RAW, CROSSOUT_CUSD_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 import { makeCrossoutMintReveal } from '../dapp/crossout-mint-reveal.js';
 
@@ -177,7 +177,12 @@ test('the limits the page shows are the ones the bridge enforces', () => {
   assert.ok(tacMin, 'the front page keeps a TAC minimum');
   assert.equal(LIMITS.tac.out.min, BigInt(tacMin[1].replaceAll('_', '')));
   const tacit = readFileSync(new URL('../dapp/tacit.js', import.meta.url), 'utf8');
-  assert.match(tacit, /ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW \}\] : \[\]\)\],\n\s+chain/, 'the way back for tETH takes the same cap');
+  assert.match(tacit, /ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW \}\] : \[\]\),/, 'the way back for tETH takes the same cap');
+  // cBTC and cUSD: the same caps both ways (tacit.js hands each module _bridgedPoolAssets), the crossing's minimum the way out
+  for (const [k, cap, min] of [['cbtc', CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW], ['cusd', CROSSOUT_CUSD_CAP_RAW, CROSSOUT_CUSD_MIN_RAW]]) {
+    assert.equal(LIMITS[k].out.max, cap); assert.equal(LIMITS[k].out.min, min); assert.equal(LIMITS[k].in.max, cap);
+  }
+  assert.match(tacit, /\['cBTC', CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW\], \['cUSD', CROSSOUT_CUSD_CAP_RAW, CROSSOUT_CUSD_MIN_RAW\]/, 'cBTC and cUSD cross with those caps');
 });
 
 test('the line under the steps says what one bridge takes', () => {
@@ -185,7 +190,8 @@ test('the line under the steps says what one bridge takes', () => {
   assert.equal(limitLine('tac', 'out'), '20 to 1,000 TAC a bridge while it is new');
   assert.equal(limitLine('teth', 'out'), '0.001 to 0.5 tETH a bridge while it is new');
   assert.equal(limitLine('teth', 'in'), 'Up to 0.5 tETH a bridge while it is new');
-  assert.equal(limitLine('cbtc', 'in'), '');
+  assert.equal(limitLine('cbtc', 'out'), '0.00001 to 0.5 cBTC a bridge while it is new');
+  assert.equal(limitLine('cusd', 'out'), '10 to 1,000 cUSD a bridge while it is new');
 });
 
 test('a two-step bridge at its burn asks for no press when the page sends it, as the front page decides (brDue)', () => {
@@ -232,7 +238,8 @@ test('the tile\'s cost line says what a way costs now, and nothing when it canno
   assert.equal(costLine('teth', 'out', { ...c, ethUsd: null }), 'From 0.0005 tETH to the relay and 1,214 sats on Bitcoin', 'without a price it names the amounts only');
   assert.equal(costLine('tac', 'out', c), 'From 4 TAC to the relay and 1,214 sats on Bitcoin');
   assert.equal(costLine('tac', 'in', c), '', 'TAC\'s way in has two steps and is priced on its own sheet');
-  assert.equal(costLine('cbtc', 'in', c), '', 'a lock is priced on the Borrow sheet');
+  assert.equal(costLine('cbtc', 'in', c), 'About 1,000 sats on Bitcoin; Tacit covers the Ethereum side', 'cBTC comes back as tETH does');
+  assert.equal(costLine('cusd', 'out', { ...c, relay: { cusd: 50_000_008n } }), 'From 0.5 cUSD to the relay and 1,214 sats on Bitcoin');
   assert.equal(costLine('teth', 'out', { ...c, satvb: null }), '', 'no fee rate, no line');
   assert.equal(costLine('teth', 'out', { ...c, relay: {} }), '', 'no relay floor, no line for the way out');
 });
