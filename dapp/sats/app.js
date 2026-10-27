@@ -2,7 +2,7 @@
 const TACIT_URL = '/tacit.js?cb=3e031d49';
 const SECRET_URL = '/sats/secret.js?cb=a8c52b0f';
 const MIX_URL = '/sats/mix.js?cb=757a8922';
-const ETH_URL = '/sats/eth.js?cb=499efd95';
+const ETH_URL = '/sats/eth.js?cb=cb7a101e';
 const POOL_STATUS = 'https://tacit-btc-pool-mainnet.onrender.com/btc-pool/status';
 
 const NET_PREF = 'tacit-sats-net-v1';

@@ -1114,7 +1114,7 @@ const pageSigner = { get address() { return W.account; }, ready: async () => { i
   // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
   canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
   get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=69d85db0').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=7997030a').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
 // the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
 const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));
@@ -1687,12 +1687,11 @@ function openPicker(side) {
     if (!t) return '';
     // dimmed where it goes nowhere: a From coin with no To for it, a To coin the From side cannot reach (picked, the From side is mended)
     const ok = !moving() || (side === 'pay' ? goes('pay', k, a) : pairOk(S.pay, atOf('pay'), k, a));
-    // what is held there: on the front page the page's own reading of a place it moves from (the paying account's ETH and TAC among them)
-    const bal = side === 'pay' && moving() ? H.moves?.held?.(k, a) ?? (a === 'wallet' ? S.bal[k] : null) : a === 'wallet' ? S.bal[k] : a === 'defi' ? privBal(k) : null;
     const sub = a === 'defi' ? esc(SUB[k] || '') : a === 'pay' ? (isEth(k) && chains > 1 ? `pays on ${chainMarks(cs)}` : 'pays on Ethereum') : a === 'btc' ? 'at your Bitcoin address' : esc((t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name) || '');
-    return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(key)}" aria-current="${a === at && k === cur}">${coin(t, '', a === 'wallet')}<span><b>${esc(t.sym)}</b><small>${sub}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
+    return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(key)}" aria-current="${a === at && k === cur}">${coin(t, '', a === 'wallet')}<span><b>${esc(t.sym)}</b><small>${sub}</small></span><em>${rowBal(side, key)}</em></button>`;
   };
-  warmPrivate();
+  warmPrivate(); H.moves?.warm?.();
+  pkSide = side;
   pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${keys.some((k) => !inPool(k) && !/^@/.test(k)) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks, priv]) => `<p class="pk-g${priv ? ' priv' : ''}">${g === 'Bitcoin' ? '<svg class="tk" aria-hidden="true"><use href="#c-btc"/></svg>' : ''}${esc(g)}</p>${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
   pk.hidden = false;
   // the logos of the rows in the list's view (and a little past it), fetched as they come into it
@@ -1748,6 +1747,20 @@ function openPicker(side) {
     };
   }
   setTimeout(() => (qEl || pk.querySelector('[aria-current="true"]') || pk.querySelector('.pk-r'))?.focus(), 0);
+}
+// What a picker row says is held: on the front page the page's own reading of a place it moves from (the paying account's ETH and TAC among
+// them), a mark while the page is still reading it
+let pkSide = null;
+function rowBal(side, key) {
+  const m = ATK.exec(key), a = m ? m[1] : 'wallet', k = m ? m[2] : key, t = shownAt(k, a);
+  const bal = side === 'pay' && moving() ? H.moves?.held?.(k, a) ?? (a === 'wallet' ? S.bal[k] : null) : a === 'wallet' ? S.bal[k] : a === 'defi' ? privBal(k) : null;
+  return bal ? esc(amtFmt(bal, t?.dec ?? 18)) : side === 'pay' && moving() && H.moves?.loading?.(k, a) ? '<span class="pk-rd" aria-label="reading">…</span>' : '';
+}
+// the open picker's balances drawn again (the page read them while it was open)
+function pickerBals() {
+  const pk = $('#pk');
+  if (!pk || pk.hidden || !pkSide) return;
+  for (const b of pk.querySelectorAll('.pk-r[data-k]')) { if (b.dataset.add) continue; const em = b.querySelector('em'), v = rowBal(pkSide, b.dataset.k); if (em && em.innerHTML !== v) em.innerHTML = v; }
 }
 // what the wallet holds first (by its worth), then the tokens with a private pool of their own, then the list's order
 const POP = ['USDe', 'cbBTC', 'LINK', 'UNI', 'AAVE', 'PEPE', 'ENA', 'LDO', 'ONDO', 'SKY', 'MKR', 'weETH', 'cbETH', 'ARB', 'SHIB', 'CRV', 'PENDLE', 'ENS', 'COMP', 'GHO', 'crvUSD', 'PYUSD', 'EIGEN', 'ETHFI', 'SNX', 'GRT', 'RPL', 'FET', 'IMX', 'POL', 'APE', 'WLD', 'MORPHO', 'SUSHI', 'YFI', 'BAL', 'CVX', '1INCH'];
@@ -2096,6 +2109,7 @@ export function mountSwapCard(root, host = {}) {
     requote: () => { if (!S.busy && moveOf()) requote(true); },
     focus: () => $('#amt').focus({ preventScroll: true }),
     closePicker: () => pkClose?.({ quiet: true }),
+    pickerBals,
     get busy() { return S.busy; },
   };
 }

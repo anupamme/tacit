@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1451,7 +1451,7 @@ await step('devtokpool', async () => {
     const r0 = relays.length, b0 = await usdcOf(BEEF);
     await p.click('#d-go');
     await until(p, () => /Withdrawn|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
-    ok(/Withdrawn/.test(await st()) && relays.length - r0 === 1 && (await usdcOf(BEEF)) - b0 === 5n * unit && (await usdcOf(USDC_TP.pool)) === 25n * unit - 5n * unit - 200_000n,
+    ok(/Withdrawn/.test(await st()) && relays.length - r0 === 1 && (await usdcOf(BEEF)) - b0 === 5n * unit && (await usdcOf(USDC_TP.pool)) - held === 25n * unit - 5n * unit - 200_000n,
       `devtokpool: the relay takes 5 USDC out to the address, 0.2 USDC its fee (${(await st()).slice(0, 40)})`);
     await until(p, () => /^19\.8/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 120000);
     await until(p, (s) => !!document.querySelector(`#dash-g [data-dash-open="device/${s}"]`), slug, 120000);
@@ -7222,7 +7222,7 @@ await step('hxsend', async () => {
     await p.selectOption('#hx-sa', 'eth');
     await until(p, () => /Balance 0\.25 · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 120000);
     const rows = await p.$$eval('#hx-sa option', (o) => o.map((x) => x.value).join());
-    ok(rows === 'wtac,eth,tac,cusd,cbtc,pp,ptac,usdc,usdt,tacb,btc', `hxsend: Send offers TAC in the wallet, tETH, TAC, cUSD and cBTC private with the ETH, TAC, USDC and USDT payments pools, and TAC and BTC on Bitcoin, in the place switch's order (${rows})`);
+    ok(rows === 'ether,wtac,wusdc,wusdt,eth,tac,cusd,cbtc,pp,ptac,usdc,usdt,tacb,btc', `hxsend: Send offers ETH, TAC, USDC and USDT in the wallet, tETH, TAC, cUSD and cBTC private with the ETH, TAC, USDC and USDT payments pools, and TAC and BTC on Bitcoin, in the place switch's order (${rows})`);
     for (const [k, bal, amt, ticker, sheet, amtId, toId] of [['cusd', '^Balance 25 · Max', '15', 'cUSD', 'borrow', 'cs-amt', 'cs-to'], ['tac', '^Balance 50 · Max', '20', 'TAC', 'tac', 'ts-amt', 'ts-to'], ['cbtc', '^Balance 0\\.5 · Max', '0.2', 'cBTC', 'borrow', 'cs-amt', 'cs-to']]) {
       await pick(k, bal);
       await quote(amt, ticker);
@@ -7425,7 +7425,7 @@ await step('hxsendpool', async () => {
   const open = live ? null : TOKEN_TP.openTx(USDC);
   if (open) { const h = await rpc('eth_sendTransaction', [{ from: A0, to: open.to, data: open.data, gas: '0x' + open.gas.toString(16) }]); for (let i = 0; i < 100 && !(await rpc('eth_getTransactionReceipt', [h])); i++) await sleep(100); }
   await rpc('anvil_dealERC20', [A0, USDC, '0x' + (100n * unit).toString(16)]);
-  const r = await openPage({ account: A0, key: K0 }), p = r.page, slug = USDC_TP.id.slice(2), to = tacit1('def'.padEnd(64, '7'));
+  const r = await openPage({ account: A0, key: K0 }), p = r.page, slug = USDC_TP.id.slice(2), to = shownAddress('def'.padEnd(64, '7'));
   const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   try {
     // 25 USDC into the pool first, through the sheet's Deposit
@@ -7450,7 +7450,7 @@ await step('hxsendpool', async () => {
     await until(p, (h) => (document.querySelector('#hx-bal')?.textContent || '').replace(/,/g, '').startsWith(`Balance ${h} · Max`), held, 240000);
     ok(true, `hxsendpool: USDC for payments shows the pool's balance, in USDC's six decimals (${await text(p, '#hx-bal')})`);
     await p.fill('#hx-rcpt', to); await p.fill('#hx-amt', '10');
-    await until(p, () => /^They get: 10 USDC \| Relay fee: about 0\.2 USDC \| Chain sees: nothing/.test(window.__said()), null, 120000)
+    await until(p, () => /^They get: 10 USDC \| Relay fee: about 0\.2 USDC \| Chain sees: nothing/.test(window.__said()) && document.querySelector('#hx-go')?.textContent === 'Send privately', null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(p)}`); });
     ok(await text(p, '#hx-go') === 'Send privately' && !(await p.$eval('#hx-go', (b) => b.disabled)), `hxsendpool: a Tacit address gets a private send, the relay's fee quoted in USDC (${await said(p)})`);
     await p.fill('#hx-amt', '1000000');
@@ -7641,22 +7641,19 @@ await step('hxsendtac', async () => {
     ok(await text(p, '#hx-go') === 'Send TAC' && !(await p.$eval('#hx-go', (b) => b.disabled)), `hxsendtac: an Ethereum address gets a plain public transfer, quoted (${await line()})`);
     await look('hxsendtac-send');
     await p.click('#hx-go');
-    await until(p, ([x]) => document.querySelector('#sheet-tac[open] #ts-to')?.value === x && document.querySelector('#ts-amt')?.value === '15' && document.querySelector('[data-ts="pub-tac"]')?.getAttribute('aria-pressed') === 'true', [eth0], 120000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | pills: ${await p.$$eval('[data-ts]', (b) => b.map((x) => x.dataset.ts + ':' + x.getAttribute('aria-pressed')).join())}`); });
-    ok(true, 'hxsendtac: the button opens the TAC sheet on its public source with the address and the amount');
-    await until(p, () => !document.querySelector('#ts-go').disabled && /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || ''), null, 60000);
-    ok(/Private[^]*Public|Public[^]*Private/.test(await text(p, '#tac-send .lbl')), 'hxsendtac: the sheet\'s Send offers Private and Public TAC as its two sources');
-    await look('hxsendtac-sheet', '#sheet-tac .sheet-in');
-    await p.click('#ts-go');
-    await until(p, () => /Sent\./.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 240000);
-    ok((await tacOf(eth0)) - bal0 === 15n * E18 && had - (await tacOf(me)) === 15n * E18, 'hxsendtac: the wallet sent 15 TAC to the address, one plain transfer');
-    // A Tacit address does not take the ERC-20: it is said, and the button waits.
+    await until(p, () => /Sent\./.test(document.querySelector('#hx-ss')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-ss')}`); });
+    ok((await tacOf(eth0)) - bal0 === 15n * E18 && had - (await tacOf(me)) === 15n * E18 && !(await p.$('dialog[open]')), 'hxsendtac: the wallet sent 15 TAC to the address from the tile, one plain transfer');
+    // A Tacit address takes the ERC-20 into its TAC payments pool; one from before pool payments is said, and the button waits.
     await lander(p);
     await p.click('[data-hxm="send"]');
     await p.selectOption('#hx-sa', 'wtac');
+    await p.fill('#hx-rcpt', shownAddress('abc'.padEnd(64, '9')));
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Pay them privately' && /^Into their private TAC, for payments/.test(document.querySelector('#hx-way')?.textContent || ''), null, 60000);
+    ok(true, 'hxsendtac: a Tacit address is paid in wallet TAC into their TAC payments pool');
     await p.fill('#hx-rcpt', to);
-    await until(p, () => /^TAC in your wallet goes to an Ethereum address/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
-    ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsendtac: a Tacit address typed for the ERC-20 is said to need private TAC, and the button waits');
+    await until(p, () => /from before pool payments/.test(document.querySelector('#hx-rc')?.textContent || '') && document.querySelector('#hx-go')?.disabled, null, 60000);
+    ok(true, 'hxsendtac: one from before pool payments is said under the field, and the button waits');
     // Shield: TAC in the wallet becomes private TAC; the amount goes to the TAC sheet's form.
     await lander(p);
     await move(p, 'shield:wtac:defi', '10');
@@ -7713,8 +7710,7 @@ await step('hxsendtac', async () => {
   } finally { await r2.browser.close(); }
 });
 
-// A connected wallet with no Tacit key open holds TAC: the card's Send quotes its transfer and the TAC sheet shows the public send form
-// (no sign-in in the way), which sends it.
+// A connected wallet with no Tacit key open holds TAC: the card's Send quotes its transfer and sends it from the tile, one plain transfer.
 await step('hxsendwallet', async () => {
   const E18 = 10n ** 18n, eth0 = '0x' + 'cd'.repeat(20);
   await fundTac(A0, 30n * E18);
@@ -7738,14 +7734,102 @@ await step('hxsendwallet', async () => {
     ok(true, `hxsendwallet: a small amount is quoted whole, not rounded to nothing (${await line()})`);
     await p.fill('#hx-amt', '12');
     await until(p, () => /^They get: 12 TAC/.test(window.__said()), null, 60000);
+    ok(/^A public transfer from your wallet$/.test(await text(p, '#hx-way')) && await text(p, '#hx-go') === 'Send TAC', `hxsendwallet: the line says it is a public transfer, and the button sends TAC (${await text(p, '#hx-way')})`);
     await p.click('#hx-go');
-    await until(p, ([x]) => document.querySelector('#sheet-tac[open] #ts-to')?.value === x && document.querySelector('#ts-amt')?.value === '12' && !document.querySelector('#ts-go').disabled, [eth0], 240000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | sheet: ${(await text(p, '#tac-bal')).replace(/\s+/g, ' ').slice(0, 200)}`); });
-    ok(true, 'hxsendwallet: the TAC sheet opens on the public send form with the address and the amount, with no key open');
-    await p.click('#ts-go');
-    await until(p, () => /Sent\./.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 240000);
+    await until(p, () => /Sent\./.test(document.querySelector('#hx-ss')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-ss')}`); });
+    ok(!(await p.$('dialog[open]')), 'hxsendwallet: it is sent from the tile, with no sheet opened');
     ok((await tacOf(eth0)) - got0 === 12n * E18 && had - (await tacOf(A0)) === 12n * E18, 'hxsendwallet: the wallet sent 12 TAC to the address, one plain transfer');
     if (r.errors.length) { fails++; console.log('FAIL hxsendwallet page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Send's wallet coins, and what each kind of recipient does: the picker lists the paying account's ETH, TAC, USDC and USDT under Wallet,
+// their balances (one multicall) and the payments pools' (read together in the worker) drawn in the rows as they come while it is open; a
+// line under the recipient says what the send does; ETH to an 0x address is sent from the tile; USDC to someone's Tacit address opens the
+// USDC pool's Deposit with them and the amount in, which pays into their private balance; Me opens it for your own.
+await step('hxsendways', async () => {
+  const USDC = USDC_TP.token, unit = 10n ** 6n, hex = 'a7a5'.padEnd(64, '3'), them = shownAddress('abe'.padEnd(64, '7')), old = tacit1('abe'.padEnd(64, '7')), eth0 = '0x' + 'ce'.repeat(20), E18 = 10n ** 18n;
+  const live = (await rpc('eth_getCode', [USDC_TP.pool, 'latest'])) !== '0x' && (await rpc('eth_getCode', [USDC_TP.router, 'latest'])) !== '0x';
+  const open = live ? null : TOKEN_TP.openTx(USDC);
+  if (open) { const h = await rpc('eth_sendTransaction', [{ from: A0, to: open.to, data: open.data, gas: '0x' + open.gas.toString(16) }]); for (let i = 0; i < 100 && !(await rpc('eth_getTransactionReceipt', [h])); i++) await sleep(100); }
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await rpc('anvil_dealERC20', [acct, USDC, '0x' + (40n * unit).toString(16)]);
+  const r = await openFarmKey(hex, { notes: [] }), p = r.page;
+  const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const row = (v) => p.evaluate((x) => document.querySelector(`#hx .pk .pk-r[data-v="${x}"] em`)?.textContent.trim() ?? null, v);
+  try {
+    await lander();
+    await p.click('[data-hxm="send"]');
+    await p.click('.coin[data-pk="hx-sa"]');
+    await p.waitForSelector('#hx .pk .pk-r', { timeout: 30000 });
+    const groups = await p.$$eval('#hx .pk .pk-g', (g) => g.map((x) => x.textContent.trim()));
+    const wallet = await p.$$eval('#hx .pk .pk-r', (rs) => rs.map((x) => x.dataset.v).filter((v) => ['ether', 'wtac', 'wusdc', 'wusdt'].includes(v)));
+    ok(groups[0] === 'Wallet' && wallet.join() === 'ether,wtac,wusdc,wusdt', `hxsendways: the picker lists the wallet's ETH, TAC, USDC and USDT first (${groups.join(' | ')}; ${wallet.join()})`);
+    await until(p, () => document.querySelector('#hx .pk .pk-r[data-v="wusdc"] em')?.textContent.trim() === '40', null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | wusdc ${await row('wusdc')} ether ${await row('ether')}`); });
+    ok(/^1(\.0+)?$|^0\.9/.test(await row('ether') || ''), `hxsendways: with the picker open, the wallet's rows fill in (USDC ${await row('wusdc')}, ETH ${await row('ether')})`);
+    await until(p, () => /^0$|^[\d.,]+$/.test(document.querySelector('#hx .pk .pk-r[data-v="usdc"] em')?.textContent.trim() || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | usdc row ${await row('usdc')}`); });
+    ok(true, `hxsendways: and the payments pools' (USDC pool ${await row('usdc')}, TAC pool ${await row('ptac')})`);
+    // ETH to an address, from the tile
+    await p.click('#hx .pk .pk-r[data-v="ether"]');
+    await until(p, () => /^To 0x… or a name: a public transfer\. To tacit1…: paid into their private ETH for payments\.$/.test(document.querySelector('#hx-way')?.textContent || ''), null, 30000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-way')}`); });
+    ok(true, `hxsendways: with no recipient yet, the line says what each kind of address does (${await text(p, '#hx-way')})`);
+    const e0 = BigInt(await rpc('eth_getBalance', [eth0, 'latest']));
+    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '0.25');
+    await until(p, () => /^They get: 0\.25 ETH \| Network fee: paid by your Tacit account \| Chain sees: your Tacit account, the address and the amount/.test(window.__said()) && document.querySelector('#hx-go')?.textContent === 'Send ETH', null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(p)} | ${await text(p, '#hx-go')}`); });
+    ok(/^A public transfer from your Tacit account$/.test(await text(p, '#hx-way')), `hxsendways: an 0x address is a public transfer (${await text(p, '#hx-way')}; ${await said(p)})`);
+    await p.click('#hx-go');
+    await until(p, () => /Sent\./.test(document.querySelector('#hx-ss')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-ss')}`); });
+    ok(BigInt(await rpc('eth_getBalance', [eth0, 'latest'])) - e0 === E18 / 4n && !(await p.$('dialog[open]')), 'hxsendways: and 0.25 ETH arrives there, sent from the tile');
+    // USDC to someone's Tacit address: into their private USDC, by the pool's Deposit
+    await p.selectOption('#hx-sa', 'wusdc');
+    await p.fill('#hx-rcpt', them); await p.fill('#hx-amt', '10');
+    await until(p, () => /^Into their private USDC, for payments/.test(document.querySelector('#hx-way')?.textContent || '') && document.querySelector('#hx-go')?.textContent === 'Pay them privately' && /^They get: 10 USDC, private for payments \| Fee: the network fee only \| Chain sees: a deposit from your Tacit account, not whose it is/.test(window.__said()), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-way')} | ${await said(p)} | ${await text(p, '#hx-go')}`); });
+    ok(true, `hxsendways: a Tacit address is paid into their payments pool (${await text(p, '#hx-way')})`);
+    await p.fill('#hx-rcpt', old);
+    await until(p, () => /from before pool payments/.test(document.querySelector('#hx-rc')?.textContent || '') && document.querySelector('#hx-go')?.disabled && document.querySelector('#hx-way').hidden, null, 30000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-rc')} | ${await text(p, '#hx-way')}`); });
+    ok(true, `hxsendways: a Tacit address with no payments lane is refused under the field, before the sheet (${await text(p, '#hx-rc')})`);
+    await p.fill('#hx-rcpt', them);
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Pay them privately' && !document.querySelector('#hx-go').disabled, null, 30000);
+    await p.click('#hx-go');
+    await until(p, ([a]) => document.querySelector('#sheet-eth[open] #d-dto')?.value === a && document.querySelector('#d-amt')?.value === '10' && document.querySelector('#d-go')?.textContent === 'Deposit to them privately' && !document.querySelector('#d-go').disabled, [them], 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | ${(await text(p, '#d-form')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+    ok(true, 'hxsendways: its button opens the USDC pool\'s Deposit with them and 10 USDC in');
+    const u0 = BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + addrWord(acct) }, 'latest']));
+    await p.click('#d-go');
+    await until(p, () => /Deposited into their private balance|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    const u1 = BigInt(await rpc('eth_call', [{ to: USDC, data: '0x70a08231' + addrWord(acct) }, 'latest']));
+    ok(/Deposited into their private balance/.test(await text(p, '#d-status')) && u0 - u1 === 10n * unit, `hxsendways: 10 USDC go into their private balance (${await text(p, '#d-status')})`);
+    // Me: your own payments pool
+    await lander();
+    await p.fill('#hx-rcpt', ''); await p.dispatchEvent('#hx-rcpt', 'input');
+    await p.waitForSelector('#hx-recent [data-hxto]', { timeout: 30000 });
+    ok(await p.$eval('#hx-recent [data-hxto]', (b) => b.textContent) === 'Me', 'hxsendways: a wallet coin offers Me');
+    await p.click('#hx-recent [data-hxto]');
+    await p.fill('#hx-amt', '5');
+    await until(p, () => /^Into your own private USDC, for payments$/.test(document.querySelector('#hx-way')?.textContent || '') && document.querySelector('#hx-go')?.textContent === 'Deposit privately', null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-way')} | ${await text(p, '#hx-go')}`); });
+    await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-eth[open] #d-dto')?.value === '' && document.querySelector('#d-amt')?.value === '5' && document.querySelector('#d-go')?.textContent === 'Deposit privately', null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | dto: ${await p.evaluate(() => document.querySelector('#d-dto')?.value)} | amt: ${await p.evaluate(() => document.querySelector('#d-amt')?.value)} | go: ${await text(p, '#d-go')} | hx: ${await text(p, '#hx-go')} ${await text(p, '#hx-rc')} | ${p.url()}`); });
+    ok(true, 'hxsendways: Me opens your own USDC Deposit with 5 USDC in');
+    // a private coin: what each kind of address does, and the line for each
+    await lander();
+    await p.selectOption('#hx-sa', 'usdc');
+    await p.fill('#hx-rcpt', '');  await p.dispatchEvent('#hx-rcpt', 'input');
+    ok(/^To tacit1… or a name: stays private\. To 0x…: taken out of the payments pool to that address\.$/.test(await text(p, '#hx-way')), `hxsendways: a payments-pool coin says what each address does (${await text(p, '#hx-way')})`);
+    await p.fill('#hx-rcpt', eth0);
+    ok(/^Taken out of the payments pool to that address$/.test(await text(p, '#hx-way')), 'hxsendways: to an 0x address it is taken out');
+    await p.fill('#hx-rcpt', them);
+    ok(/^A private payment inside the payments pool$/.test(await text(p, '#hx-way')), 'hxsendways: to a Tacit address it stays private');
+    if (r.errors.length) { fails++; console.log('FAIL hxsendways page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

@@ -255,6 +255,27 @@ export function jsonRpc(urls, fetchImpl = globalThis.fetch.bind(globalThis), { t
   return single;
 }
 
+// A reader over `rpc` (a jsonRpc) for several wallets reading one chain at once: the calls they make within `wait` ms go to the
+// nodes as one batched request, a call asked twice in it (each wallet's eth_blockNumber) once. A call the batch answers with an
+// error, or a batch no node takes, is asked again on its own, as jsonRpc asks it (every node, the errors gathered), so the
+// wallets' handling of a refused range or a revert is the same as without it. A call with options ({ found }) goes on its own.
+export function batchedRpc(rpc, { wait = 15, max = 40 } = {}) {
+  let q = [], t = null;
+  const flush = async () => {
+    const calls = q.splice(0, max); t = q.length ? setTimeout(flush, 0) : null;
+    const by = new Map();
+    for (const c of calls) { const k = JSON.stringify([c.method, c.params]); if (!by.has(k)) by.set(k, []); by.get(k).push(c); }
+    const keys = [...by.keys()], first = keys.map((k) => by.get(k)[0]);
+    const done = (k, p) => p.then((v) => { for (const c of by.get(k)) c.ok(v); }, (e) => { for (const c of by.get(k)) c.no(e); });
+    let got = null;
+    if (first.length > 1 && rpc.batch) { try { got = await rpc.batch(first.map(({ method, params }) => ({ method, params }))); } catch { got = null; } }
+    keys.forEach((k, i) => { const r = got?.[i]; done(k, got && !(r instanceof Error) ? Promise.resolve(r) : rpc(first[i].method, first[i].params)); });
+  };
+  const call = (method, params = [], opts) => (opts ? rpc(method, params, opts) : new Promise((ok, no) => { q.push({ method, params, ok, no }); t ||= setTimeout(flush, wait); }));
+  call.batch = rpc.batch;
+  return call;
+}
+
 // The text of an RPC error and of every node's error behind it, data included, for reading block limits.
 const errorText = (e) => (e.all || [e]).map((x) => `${x.message} ${JSON.stringify(x.rpc?.data ?? x.data ?? '')}`).join(' ');
 
