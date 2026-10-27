@@ -2601,9 +2601,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   }
 
   const _route = makeConfidentialRoute({ keccak256, pool, kernelSign: (a) => _ct.kernelSign(a), rangeProve: (...a) => _ct.rangeProve(...a) });
-  async function poolReserves(poolIdHex) {
+  async function poolReserves(poolIdHex, block = 'latest') {
     const data = '0x' + _selector('pools(bytes32)') + _word(poolIdHex);
-    const res = await ethCall(cfg.pool, data);
+    const res = block === 'latest' ? await ethCall(cfg.pool, data) : await rpc('eth_call', [{ to: String(cfg.pool).toLowerCase(), data }, block]);
     const hex = String(res || '').replace(/^0x/, '');
     if (hex.length < 64 * 7) return null;
     const word = (i) => hex.slice(i * 64, i * 64 + 64);
@@ -2614,6 +2614,20 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       reserveA: BigInt('0x' + word(3)), reserveB: BigInt('0x' + word(4)),
       feeBps: Number(BigInt('0x' + word(5))), totalShares: BigInt('0x' + word(6)),
     };
+  }
+  // What a pool's liquidity earns in trading fees, as a year's rate: how much the invariant per share, sqrt(reserveA * reserveB) / shares, grew over the
+  // last `days` (a trade's fee grows it; a price move, a deposit or a withdrawal leaves it alone). Null when the pool is younger than that or a read fails.
+  const _isqrt = (n) => { if (n < 2n) return n; let x = n, y = (x + 1n) / 2n; while (y < x) { x = y; y = (x + n / x) / 2n; } return x; };
+  async function poolFeeApr(poolIdHex, days = 7) {
+    try {
+      const head = BigInt(await rpc('eth_blockNumber', []));
+      const [now, then] = await Promise.all([poolReserves(poolIdHex), poolReserves(poolIdHex, '0x' + (head - BigInt(days) * 7200n).toString(16))]);
+      if (!now || !then || !(now.totalShares > 0n) || !(then.totalShares > 0n)) return null;
+      const k1 = _isqrt(now.reserveA * now.reserveB), k0 = _isqrt(then.reserveA * then.reserveB);
+      if (!(k0 > 0n)) return null;
+      const grown = Number((k1 * then.totalShares * 10n ** 12n) / (k0 * now.totalShares)) / 1e12 - 1;
+      return Math.max(0, grown) * 365 / days;
+    } catch { return null; }
   }
   async function poolCurrentRoot() {
     const res = await ethCall(cfg.pool, '0x' + _selector('currentRoot()'));
@@ -3323,7 +3337,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
     deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, exitAhead, exitAheadSend, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
-    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, routeAhead, routeAheadSend, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, buildWrapSwap, submitWrapSwap, proveWrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
+    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolFeeApr, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, routeAhead, routeAheadSend, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, buildWrapSwap, submitWrapSwap, proveWrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };
 }

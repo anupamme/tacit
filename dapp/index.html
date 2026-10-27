@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-FWJZlc5jbCVbTlKuhsuNsNDDOIL1SUmtcD7dvcxelQs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-TwFLN64cIdMRqdB3iH0Jgsv23A1vYBejPLY3X2Bgi7k=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -568,6 +568,7 @@ a.di { color: inherit; text-decoration: none; }
 .fz-sizes { flex: 1 1 auto; } .fz-sizes button { flex: 1; }
 .fz-sizes button, .fz-mode button { min-height: 38px; padding: 6px 12px; color: var(--mute); font: 13px var(--mono); white-space: nowrap; background: none; border: 0; cursor: pointer; }
 .fz-sizes button + button, .fz-mode button + button { border-left: 1px solid var(--hair); }
+.hx-mode { margin: 12px 0 4px; }
 .fz-sizes button[aria-checked="true"], .fz-mode button[aria-checked="true"] { color: var(--card); background: var(--ink); }
 .fz-sizes button.rd svg { width: 8px; height: 10px; margin: 0 5px -1px 0; fill: var(--ok); }
 .fz-sizes button.rd[aria-checked="true"] svg { fill: currentColor; }
@@ -1772,7 +1773,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=310e4452","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=683e570c","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4537,7 +4538,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=310e4452'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=683e570c'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -10677,6 +10678,25 @@ function zapAhead(p, z, still) {
   if (z.plan && !z.sp && !z.ready && S.key && !ownNow(['wrap'])) VOUCH.zapTyping = setTimeout(async () => { if (still() && (await relayProving())) lpProve(p.poolId, { shares: z.plan.shares, relay: true }); }, 1500);
 }
 const zapTkB = (p) => String(p.pair).split('/').find((x) => x !== 'cETH');
+// The share could not be proved by Tacit's prover in time (or it cannot prove now): which way on is the holder's. Their own prover (a Succinct credit, or this
+// computer's) proves it and the zap goes in one transaction from the wallet; or the zap goes first and the relay finishes its share after (its settle and
+// gas, which is what was being avoided). The proof Tacit's prover is still making goes at once if it lands while this waits. → 'ready' | 'own' | 'relay'
+const ZAPWAY = { cb: null };
+function zapWay({ tell, inflight = null, down = false }) {
+  return new Promise((resolve) => {
+    const fin = (v) => { if (ZAPWAY.cb === fin) ZAPWAY.cb = null; resolve(v); };
+    ZAPWAY.cb = fin;
+    tell(html`<span class="err">${down ? 'Tacit’s prover is not available right now.' : 'Tacit’s prover is taking longer than usual.'}</span> Nothing has left your wallet.<div class="actr-f"><button class="link" type="button" data-zapway="own">Prove it yourself</button>, on this computer or with your credit · <button class="link" type="button" data-zapway="relay">Send the zap and let the relay finish it</button></div>`);
+    if (inflight) inflight.then(() => fin('ready'), () => fin('ready'));
+  });
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-zapway]');
+  if (!b || !ZAPWAY.cb) return;
+  b.closest('.actr-f')?.remove();                                    // a choice is made once: its buttons go
+  if (b.dataset.zapway === 'own') openProve();
+  ZAPWAY.cb(b.dataset.zapway);
+});
 // A quoted zap sent from the paying account, the same from the farm sheet, the card's Earn tab and the landing's farm. Its share goes in by
 // the fastest way open: proved ahead (kept ready, or asked of the relay as the amount settled), one transaction mints it and settles its
 // note; proved here or with your own credit, the same after; else the zap goes first and the relay settles its share. The note then goes
@@ -10695,12 +10715,23 @@ async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved 
     // A share proved already (kept ready, or asked of the relay as the amount settled): the zap and the settle that makes the note go in
     // one transaction at once, the bond after; a share the relay is still proving for this pool is waited for a little.
     if (!sp && S.key) {
-      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved, about a minute. Nothing has left your wallet yet…'); await Promise.race([VOUCH.ahead.p, sleep(150e3)]); }
+      // The ways a share is proved, in the order tried (a deposit is no secret, so the aim is that it goes through, from this wallet, with no waiting on
+      // the relay's settle or gas): one kept; Tacit's prover, pressed, with the relay's own Succinct credit behind it where the board is away; then
+      // the holder's own prover (their credit, or this computer's) if they have set one; else the way on is theirs to pick (zapWay).
+      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved, about a minute. Nothing has left your wallet yet…'); await Promise.race([VOUCH.ahead.p, sleep(90e3)]); }
       // none made: the relay proves it first, as it does a wrap (pressed, so ahead of the early ones), and one transaction then zaps, mints and settles it
       // from this account; not the zap first with the relay's settle and gas left to wait on
       else if (!(await lpReady(p.poolId, z.wei, res)) && !ownNow(['wrap']) && await relayProving()) {
         tell('Tacit’s relay is proving your share first, about a minute. Nothing has left your wallet yet…');
-        await Promise.race([lpProve(p.poolId, { shares: plan.shares, relay: true, now: true }) || Promise.resolve(), sleep(150e3)]).catch(() => {});
+        await Promise.race([lpProve(p.poolId, { shares: plan.shares, relay: true, now: true }) || Promise.resolve(), sleep(75e3)]).catch(() => {});
+      }
+      // not made in time, or the relay cannot prove it now, and no prover of their own set: the way on is the holder's, and a proof that lands meanwhile goes at once
+      let flying = VOUCH.ahead?.poolId === p.poolId ? VOUCH.ahead.p : null;
+      for (let asked = 0; !ownNow(['wrap']) && !(await lpReady(p.poolId, z.wei, res)) && asked < 2; asked++) {
+        const way = await zapWay({ tell, inflight: flying, down: !(await relayProving()) });
+        flying = null;
+        if (way === 'own') throw Object.assign(new Error('Choose how to prove it, then press the zap again. Nothing was sent.'), { said: true });
+        if (way === 'relay') break;
       }
       const ready = await lpReady(p.poolId, z.wei, res), v = await vouchers();
       if (ready && wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(ready.x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) v.drop(pub, ready.x.depositId);
@@ -12676,7 +12707,7 @@ function paintTape(d, rec) {
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
 
-const HX = { tab: 'swap', mode: 'swap', from: 'ether', pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null,
+const HX = { tab: 'swap', mode: 'swap', from: 'ether', pool: 'precision', lp: false, dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null,
   sf: 'ether', sd: 'defi', chain: 1, bm: 'cusd', bsrc: 'btc', bwr: '200', swq: 'to=tETH&private=to', ern: 'ether', br: 'btc' };
 // the Swap card's pair on a first visit: ETH made private
 const HX_SWQ0 = HX.swq;
@@ -12883,13 +12914,23 @@ const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: '
     ['Chain sees', `your ${fmt(units, 8, 6)} ETH going in`]] : [] });
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
 const hxWarmWrap = () => { if (!S.key || Date.now() - (HX.warmWrap || 0) < 60e3) return; HX.warmWrap = Date.now(); getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); };
+// What a private pool's liquidity earned in trading fees over its last week, as a year's rate (pool-ux poolFeeApr), read once and kept half an hour.
+const FEEAPR = {};
+async function feeAprOf(p) {
+  const c = FEEAPR[p.pid];
+  if (c && Date.now() - c.at < 30 * 60e3) return c.v;
+  const v = await getUx().then((t) => t.poolFeeApr(p.poolId)).catch(() => null);
+  FEEAPR[p.pid] = { v, at: Date.now() };
+  return v;
+}
 async function hxFarms(amt) {
   const [, prog] = await Promise.all([FARM.precision || loadPrecision(), HX.program ||= loadProgram().catch(() => FARM.program)]);
   if (!prog) HX.program = null;
   const out = [], x = FARM.precision, src = HX.from, tacSrc = src === 'wtac' || src === 'tac', live = !!FARM.program?.epoch?.active;
   const zapping = hxTwo(amt > 0 ? BigInt(Math.round(amt * 1e8)) : 0n) && HX.earnWay !== 'wrap';
   const eth = tacSrc ? amt * (x?.tacEth || 0) : amt;
-  if ((src === 'ether' || src === 'wtac') && x?.supply) {
+  const lpOnly = HX.lp && src === 'ether';
+  if (!lpOnly && (src === 'ether' || src === 'wtac') && x?.supply) {
     const staked = x.value / 1e18 * Number(x.totalStaked) / Number(x.supply);
     out.push({ k: 'precision', name: 'Precision pool', note: 'public', icons: ['tk-tac', 'tk-eth'], apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
   }
@@ -12899,7 +12940,8 @@ async function hxFarms(amt) {
     if (src === 'wtac' || (src === 'tac' && !String(p.pair).split('/').includes('TAC'))) continue;
     // about half goes through the pool's swap: what that gives up (zapImpact), or for TAC put in, what it moves the pool's TAC side by
     const half = amt / 2, impact = tacSrc ? (half > 0 && Number(r.reserveB) > 0 ? half / (Number(r.reserveB) / 1e8 + half) : 0) : zapImpact(p, amt, { split: zapping });
-    out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'], dry: !live, apr: live ? shieldedApr(p) : null, day: live ? farmDay(p, eth) : 0, impact });
+    out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'],
+      ...(lpOnly ? { dry: false, apr: await feeAprOf(p).then((v) => (v == null ? null : v * 100)), day: 0 } : { dry: !live, apr: live ? shieldedApr(p) : null, day: live ? farmDay(p, eth) : 0 }), impact });
   }
   return out;
 }
@@ -13583,7 +13625,7 @@ function hxSwapAsk(a, b, route, amt) {
   if (amt) p.set('amt', amt);
   return p;
 }
-function hxPreset(spec, amt, inCard = false, route = null) {
+function hxPreset(spec, amt, inCard = false, route = null, lp = false) {
   const [tab, a, b, r] = spec.split(':');
   route ||= r === 'private' || r === 'public' ? r : null;
   // TAC for sats is the Bitcoin market's: its book is on TAC's page
@@ -13599,7 +13641,7 @@ function hxPreset(spec, amt, inCard = false, route = null) {
     else if (tab === 'shield') { HX.tab = 'swap'; SWC.ask = hxMoveAsk(a, b, amt); }
     else if (tab === 'swap') { HX.tab = 'swap'; SWC.ask = hxSwapAsk(a, b, route, amt); }
     else if (tab === 'send') { HX.tab = 'send'; HX.send = a; HX.sendPick = true; HX.ask = false; }
-    else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; HX.placePick = true; if (b === 'public') HX.pool = HX.earnPick = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = HX.earnPick = b.slice(1); else HX.earnPick = null; }
+    else if (tab === 'earn') { HX.tab = 'earn'; HX.lp = !!lp && b !== 'public' && (a === 'ether' || !a); HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; HX.placePick = true; if (b === 'public') HX.pool = HX.earnPick = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = HX.earnPick = b.slice(1); else HX.earnPick = null; }
     else { HX.tab = 'borrow'; HX.bm = ['cbtc', 'tacd', 'tace'].includes(a) ? a : 'cusd'; HX.bsrc = ['tacd', 'tace'].includes(a) ? 'tac' : a === 'held' ? 'cbtc' : 'btc'; }
   });
   if (amt != null && !bare && HX.tab !== 'swap') { HX.amt = amt; HX.max = false; }
@@ -13692,15 +13734,18 @@ async function hxQuote() {
       zapsRead();
       const waiting = S.key ? zapsKept().filter((z) => z.pub === S.key.pubHex) : [], wp = waiting.length && FARM.program?.pools?.find((x) => x.pid === waiting[0].pid);
       const way = (w) => () => { HX.earnWay = w; HX.q = null; hxQuote(); };
-      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two && !zap ? 'wrap' : null,
-        go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? 'Zap into the farm' : two ? 'Make ETH private' : 'Farm privately',
+      // LP only: the same zap, its share kept as a private LP note that earns the pool's fees (no bond, so nothing after the one transaction)
+      const lpOnly = HX.lp && HX.from === 'ether' && !pub, lpFee = lpOnly ? (HX.zq?.res?.feeBps ?? FARM.program?.pools?.find((x) => String(x.pid) === pick.k)?.reserves?.feeBps ?? 30) / 100 : 0;
+      return done({ out: units && !lpOnly ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two && !zap ? 'wrap' : null,
+        go: pub ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : zap ? (lpOnly ? 'Add as private LP' : 'Zap into the farm') : two ? 'Make ETH private' : 'Farm privately',
         rc: [['How', pub ? `half swapped to ${tacSrc ? 'ETH' : 'TAC'}, both staked` : zap ? 'one transaction' : 'half swapped inside the pool'],
+          lpOnly ? ['You earn', `the pool’s ${lpFee}% fee on every swap${pick.apr != null ? `, about ${pctFmt(pick.apr)} a year (last week)` : ''}`] : null,
           pub ? null : ['Chain sees', zap ? 'ETH in, private after' : 'a deposit, not whose'], two && !zap ? ['Steps', 'make the ETH private, then farm it'] : null,
           HX.zq ? proofRow(HX.zq.ready) : null,
           HX.zq ? ['Network fee', `about ${fmt(HX.zq.ready ? ZAP_SETTLE_GAS * HX.zq.gp * 3n / 2n : HX.zq.gas, 18, 5)} ETH`] : null,
           !pub && (HX.zq ? HX.zq.impact >= 5 : pick.impact >= 0.05) ? ['Price impact', pctFmt(HX.zq ? HX.zq.impact : pick.impact * 100), 'err'] : null],
         // the two ways in from the wallet's ETH: the zap, or making it private first (more private, and a wrap earns points)
-        alt: wp ? { label: `Finish your zap into ${pairName(wp.pair)}`, link: `farm/private-${wp.pid}` } : !two ? null : zap ? { label: 'Earn points too: make ETH private first', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
+        alt: wp ? { label: `Finish your zap into ${pairName(wp.pair)}`, link: `farm/private-${wp.pid}` } : !two || lpOnly ? null : zap ? { label: 'Earn points too: make ETH private first', go: way('wrap') } : { label: 'Zap in one transaction instead', go: way(null) },
         warn: !!pick.dry || !!wp, line: wp ? 'A zap of yours is waiting to be farmed.' : pick.dry ? 'Between reward periods: nothing streams until the next one starts.' : '' });
     }
     if (m === 'btc' && HX.from === 'tac') {
@@ -14040,9 +14085,17 @@ function hxPrivOut() {
 function hxShareLink() {
   const u = hxUnits();
   if (!u || HX.tab !== 'earn' || HX.from !== 'ether' || !HX.pool) return null;
-  return `${location.origin}/#card=earn:ether:${HX.pool === 'precision' ? 'public' : `p${Number(HX.pool)}`}&amt=${plain(u, 8)}`;
+  return `${location.origin}/#card=earn:ether:${HX.pool === 'precision' ? 'public' : `p${Number(HX.pool)}`}&amt=${plain(u, 8)}${HX.lp && HX.pool !== 'precision' ? '&lp=1' : ''}`;
 }
 const hxShareSync = () => { const b = $('#hx-copy'); if (b) b.hidden = !hxShareLink(); };
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-hxlp]');
+  if (!b) return;
+  const lp = b.dataset.hxlp === '1';
+  if (HX.lp === lp) return;
+  HX.lp = lp; HX.earnWay = null; HX.q = null; hxRememberAmt?.();
+  paintHx(); hxQuote();
+});
 document.addEventListener('click', (e) => { if (e.target.closest('#hx-copy')) { const u = hxShareLink(); if (u) copy(u, 'Link copied'); } });
 function paintHxQ() {
   if (HX.tab === 'swap') { if (HXM.key) { HXM.cb?.(HX.q); if (!HX.q?.busy) hxPtsPaint(HX.q || {}); hxHave(); } return; }
@@ -14066,9 +14119,9 @@ function paintHxQ() {
   const rows = $('#hx-routes');
   if (rows && !q.busy) {
     rows.hidden = !q.rows;
-    const name = HX.mode === 'earn' ? 'Where it farms' : 'Route', had = rows.contains(document.activeElement);
+    const name = HX.mode === 'earn' ? (HX.lp && HX.from === 'ether' ? 'Where it earns' : 'Where it farms') : 'Route', had = rows.contains(document.activeElement);
     rows.setAttribute('aria-label', name);
-    mount(rows, html`<div class="rows-h"><span>${name}</span>${HX.mode === 'earn' ? html`<span>APR</span>` : ''}</div>${(q.rows || []).map((r) => html`<button type="button" role="radio" class="${r.icons ? 'c' : ''}" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}>${r.icons ? html`<span class="pair" aria-hidden="true">${r.icons.map((i) => html`<svg class="tk"><use href="#${i}"/></svg>`)}</span>` : ''}<span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
+    mount(rows, html`<div class="rows-h"><span>${name}</span>${HX.mode === 'earn' ? html`<span>${HX.lp && HX.from === 'ether' ? 'Fee APR' : 'APR'}</span>` : ''}</div>${(q.rows || []).map((r) => html`<button type="button" role="radio" class="${r.icons ? 'c' : ''}" aria-checked="${String(r.k === q.pick)}" tabindex="${r.k === q.pick ? 0 : -1}" data-hxr="${r.k}"${r.wait ? ' data-wait aria-busy="true"' : ''}>${r.icons ? html`<span class="pair" aria-hidden="true">${r.icons.map((i) => html`<svg class="tk"><use href="#${i}"/></svg>`)}</span>` : ''}<span class="rt"><b>${r.name}</b><small>${hxNb(r.note)}</small></span><span class="ra"><span>${r.show}</span>${r.best ? html`<em>best</em>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`)}`);
     const live = $$('[data-hxr]', rows);
     const choose = (b) => {
       for (const x of live) { x.setAttribute('aria-checked', x === b); x.tabIndex = x === b ? 0 : -1; }
@@ -14174,6 +14227,8 @@ function hxGo() {
     if (hxTwo(units) && HX.earnWay !== 'wrap') {
       const z = HX.zq;
       if (p && z && z.pid === pid && z.wei === units * E10 && !z.sp && !z.over && !(z.impact >= 15) && Date.now() - z.at < 90e3) return hxZap(p, z);
+      // as LP only the zap goes from this card or not at all: the farm sheet behind it would bond the share
+      if (HX.lp) { HX.q = { ...(HX.q || {}), warn: true, line: 'This amount moves the pool too much to add as LP only from here. Try a smaller amount or another pool.' }; paintHxQ(); return; }
       (FARM.jm ||= {})[pid] = 'eth'; hxDraft({ mode: 'zap', pid, amt }); return openLink(`farm/private-${pid}`);
     }
     if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
@@ -14198,7 +14253,7 @@ async function hxZap(p, z) {
   $('#hx-zs-at')?.replaceWith(HX.zs);
   HX.zapping = true;
   try {
-    await busy($('#hx-go'), (run) => zapNow({ run, p, z, status: HX.zs, moved: () => { HX.q = null; hxQuote(); },
+    await busy($('#hx-go'), (run) => zapNow({ run, p, z, status: HX.zs, bond: !HX.lp, moved: () => { HX.q = null; hxQuote(); },
       clear: () => { HX.amt = ''; HX.zq = null; const a = $('#hx-amt'); if (a) a.value = ''; hxTyped(true); } }));
   } finally {
     HX.zapping = false;
@@ -14322,7 +14377,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=cc49fb94').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=42d7f262').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -14409,7 +14464,8 @@ function paintHx() {
   } else if (m === 'earn') {
     const groups = hxGroups('earn'), place = hxPlaceOf('earn', HX.from);
     body = html`${field('You put in', heldAt(place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from), true, place === 'private')}
-      ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}${tail}
+      ${HX.from === 'ether' ? html`<div class="fz-mode hx-mode" role="radiogroup" aria-label="Farm it, or keep it as LP">${[[false, 'Farm'], [true, 'LP only']].map(([k, t]) => html`<button type="button" role="radio" aria-checked="${String(HX.lp === k)}" data-hxlp="${k ? '1' : '0'}">${t}</button>`)}</div>` : ''}
+      ${HX.lp && HX.from === 'ether' ? '' : html`${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}`}${tail}
       <p class="q" id="hx-zs-at" hidden></p>
       <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>
       <div class="hx-pos" id="hx-pos" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-pos-l"></div><p class="q" id="hx-pos-s" aria-live="polite"></p></div>`;
@@ -14913,8 +14969,8 @@ const route = () => {
     if (!snd[1]) { HX.sendPick = false; if (hxSendAuto()) paintHx(); }
     return;
   }
-  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3}|borrow:[a-z]+|bridge(?::[a-z]+)?|swap|earn|borrow)(?::(public|private))?(?:&amt=([^&]*))?$/);
-  if (card) { history.replaceState(null, '', location.pathname + location.search); hxPreset(card[1], /^\d{0,12}(?:\.\d{1,18})?$/.test(card[3] || '') ? card[3] || '' : '', false, card[2] || null); return; }
+  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3}|borrow:[a-z]+|bridge(?::[a-z]+)?|swap|earn|borrow)(?::(public|private))?(?:&amt=([^&]*))?(?:&lp=(1))?$/);
+  if (card) { history.replaceState(null, '', location.pathname + location.search); hxPreset(card[1], /^\d{0,12}(?:\.\d{1,18})?$/.test(card[3] || '') ? card[3] || '' : '', false, card[2] || null, card[4] === '1'); return; }
   if (pay) { BTC.mode = 'receive'; BTC.check = { kind: pay[1], txid: pay[2].toLowerCase() }; openSheet('btc'); }
   else if (h) openLink(h);
 };
