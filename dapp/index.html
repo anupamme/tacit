@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-GE98lPw7OSUJ51BeEDG6ePQ17rlhIqucugQNbA+bkWE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-TXzXmg9GjfO1PpT3DfyHH3cPfsboy8m8/qb16a+PGRQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3658,12 +3658,19 @@ function walletMoved(why = 'switched accounts') {
   syncAccount(); paintWallet(); refreshAll();
   SWC.card?.walletChanged();
 }
-async function connect({ change = false } = {}) {
-  const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({ pick: pickWallet });
-  const a = '0x' + address;
-  if (S.provider === provider && S.wallet === a) return;
-  S.provider = provider; S.wallet = a;
-  walletMoved();
+async function connect({ change = false, key = false } = {}) {
+  if (!(key && S.wallet && !change)) {
+    const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({ pick: pickWallet });
+    const a = '0x' + address;
+    if (!(S.provider === provider && S.wallet === a)) { S.provider = provider; S.wallet = a; walletMoved(); }
+  }
+  // A first visit's connect (the tile's) opens the Tacit wallet with it too, one signature (two the first time): the proofs kept ready are made for
+  // that key, so the default sizes start being made as the wallet connects, not at the press. One who has opened a key here before is asked as ever,
+  // and a signature declined leaves the wallet connected.
+  if (key && !S.key && !signing && !knownWallet() && !otherWallet()) {
+    signing = true;
+    try { await open.eth({ address: S.wallet }); } catch { /* declined: the sign-in sheet asks at the press */ } finally { signing = false; }
+  }
 }
 async function restoreWallet() {
   const c = await evm.restore().catch(() => null);
@@ -8554,7 +8561,7 @@ const KEEP_PREF = 'tacit-lite-keep-ready-v1:';
 // The sizes that can be kept ready, by pool ticker. ETH's are kept for every key until its holder turns them off (an empty choice is
 // stored as such): a wrap of a common size then goes out with no proving wait, and asking for one costs nothing.
 const KEEP_READY = {
-  cETH: { sizes: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 17n, 10n ** 16n, 10n ** 18n, 10n ** 15n], sym: 'ETH', dp: 3 },
+  cETH: { sizes: [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], dflt: [10n ** 16n, 10n ** 17n, 10n ** 18n, 10n ** 15n], sym: 'ETH', dp: 3 },       // 0.01 first: the size the card opens on
   TAC: { sizes: [100n * 10n ** 18n, 1000n * 10n ** 18n, 10000n * 10n ** 18n], dflt: [], sym: 'TAC', dp: 0 },
 };
 const keepKey = (tk) => KEEP_PREF + (tk === 'cETH' ? '' : `${tk}:`) + S.key.pubHex;
@@ -13925,6 +13932,14 @@ function hxGo() {
   if (HX.q?.busy) { HX.goNext = true; return; }
   HX.draft = null;
   const units = hxUnits(), amt = units ? plain(units, 8) : HX.amt, m = HX.mode;
+  // A first visit's press on a way in from the wallet's ETH (making it private, or zapping it into a farm) connects the wallet and opens the Tacit
+  // wallet with it first, one signature (two the first time): the proofs this goes with are made for that key, so the default sizes start being made
+  // now, not when a sheet asks. Asked once a visit: declined, the press goes on to the sheet that asks as ever.
+  if (!HX.keyAsked && !S.key && !signing && (m === 'private' || (m === 'earn' && HX.from === 'ether')) && !knownWallet() && !otherWallet()) {
+    HX.keyAsked = true;
+    connect({ key: true }).catch(() => {}).then(() => hxGo());
+    return;
+  }
   const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; hxDraft({ mode: 'wrap', amt }); openLink('private'); };
   if (m === 'private') { WRAP_GO.v = S.key && units ? { wei: units * E10, at: Date.now() } : null; return wrapFirst(); }
   if (m === 'pay') { const c = hxChain(); hxDraft({ mode: 'dep', amt, chain: c.chainId }); return openLink(`device/${chainSlug(c)}/deposit`); }
@@ -14106,7 +14121,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=8edf068d').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=f3bb7311').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -14116,7 +14131,7 @@ function hxSwap() {
       SWC.el = Object.assign(document.createElement('div'), { id: 'hx-swap', className: 'hx-swap' });
       for (const ev of ['pointerdown', 'keydown']) SWC.el.addEventListener(ev, () => { SWC.touched = true; }, { once: true });
       SWC.card = m.mountSwapCard(SWC.el, {
-        wallet: swcWallet, W: swcW, connect: () => connect().catch((e) => { if (e?.code !== 4001 && !/cancel/i.test(e?.message || '')) toast(errText(e), true); }), getUx, recent: false, moves: hxMoves,
+        wallet: swcWallet, W: swcW, connect: (o) => connect({ key: !!o?.key }).catch((e) => { if (e?.code !== 4001 && !/cancel/i.test(e?.message || '')) toast(errText(e), true); }), getUx, recent: false, moves: hxMoves,
         points: (act, eth) => { hxWantPoints(); const p = hxPts(act, eth); return p ? { pts: p.pts, floor: !p.known, why: p.why } : null; },
         key: { session: { get unlocked() { return !!S.key; }, get key() { return S.key; }, priv: walletPriv }, openKey: swcKey, wait: swcWait },
         // the pair and its sides are kept in this browser, the amount for the visit only, as the other tabs keep theirs

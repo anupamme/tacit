@@ -1523,7 +1523,7 @@ async function privateGo(r, kind = 'private') {
   let q = S.q;
   const fromWallet = isEth(S.pay), units = parseUnits(S.amt, 8);
   if (!q || !units) return;
-  if (fromWallet && !W.account) { await H.connect(); return; }
+  if (fromWallet && !W.account) { await H.connect({ key: true }); return; }          // a private swap needs the Tacit wallet: a first visit opens it as the wallet connects
   // a quote over a minute old is read again here, and the press goes on while what it pays still clears the least shown
   if (now() - (q.at || 0) > 60) {
     say('Reading the price again…');
@@ -1602,7 +1602,7 @@ async function privateGo(r, kind = 'private') {
 async function pinGo(r) {
   const q = S.q, from = W.account;
   if (!q?.pin || !q.ethIn) return;
-  if (!from) { await H.connect(); return; }
+  if (!from) { await H.connect({ key: true }); return; }
   if (now() - (q.at || 0) > 60) { say('The price was read again. Check it and press once more.', '', true); requote(true); return; }
   // the coins are the ones pressed for, read once: the pair cannot change while this runs, and nothing after an await reads it again
   const pay = tokenOf(S.pay), get = tokenOf(S.get), what = `${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym}`, payKey = S.pay, getKey = S.get;

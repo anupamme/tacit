@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -310,7 +310,7 @@ const STUB_POOLS = { '1-tac': { pool: TAC_POOL_ADDR, asset: '0xA1313eb9f3A445606
 const fromJsonText = (t) => JSON.parse(t || 'null');
 const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
-async function openPage({ account, key = null, host = '127.0.0.1', init = null, viewport = { width: 1280, height: 900 }, colorScheme = 'light' }) {
+async function openPage({ account, key = null, host = '127.0.0.1', init = null, viewport = { width: 1280, height: 900 }, colorScheme = 'light', locked = false }) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme });
   // A fork slow to fetch upstream state answers as an RPC that failed, which the page handles, instead of ending the run.
@@ -418,6 +418,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
     }
     return json(route, { ok: true });
   });
+  let walletLocked = locked;                                 // true: eth_accounts answers nothing until the page asks for accounts
   let walletChain = '0x1';                                   // what the wallet says it is on; every chain is this one fork
   await ctx.exposeFunction('__wallet', async (method, params = []) => {
     if (method === 'eth_sendTransaction') { walletTxs.push(params[0]); const { chainId, ...tx } = params[0]; return rpc(method, [tx]); }
@@ -435,7 +436,8 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return { id };
     }
     if (method === 'wallet_getCallsStatus') return { status: 200, receipts: (batchHashes[params[0]] || []).map((h) => ({ transactionHash: h, status: '0x1' })) };
-    if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
+    if (method === 'eth_requestAccounts') { walletLocked = false; return [account]; }
+    if (method === 'eth_accounts') return walletLocked ? [] : [account];
     if (method === 'eth_chainId') return walletChain;
     if (method === 'wallet_switchEthereumChain') { walletChain = params[0]?.chainId || walletChain; return null; }
     if (method === 'wallet_watchAsset') return null;
@@ -10697,6 +10699,30 @@ await step('routeahead', async () => {
     ok(/Done\./.test(await q('#q')) && all.filter((c) => c.posted && !c.refused).length === 1 && !all.some((c) => !c.ahead && !c.posted && !c.split),
       `routeahead: the press posts that proof for the relay to send and asks no route of the relay (${all.map((c) => (c.ahead ? 'ahead' : c.posted ? 'posted' : c.split ? 'split' : 'route')).join(' > ')}; ${(await q('#q')).slice(0, 100)})`);
     if (r.errors.length) { fails++; console.log('FAIL routeahead page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// A first visit on the card as it opens (ETH from the wallet into private tETH, 0.01): pressing Connect wallet connects it and opens the Tacit wallet
+// with it too (the signature), and the proofs kept ready start being made at once, the card's 0.01 ETH first. A public swap's Connect (hxsell) asks
+// for no key.
+await step('connectkey', async () => {
+  const r = await openPage({ account: A0, key: K0, locked: true }), p = r.page;
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h');
+    await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    const q0 = poolReqs.length;
+    await p.fill('#hx-swap #amt', '0.01');
+    await until(p, () => /Make ETH private/.test(document.querySelector('#hx-swap #go')?.textContent || ''), null, 90000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | go: ${await text(p, '#hx-swap #go').catch(() => 'none')} | tab: ${await p.evaluate(() => document.querySelector('[data-hxm][aria-selected="true"]')?.dataset.hxm)} | pay: ${await text(p, '#hx-swap #pay-coin').catch(() => '')} | bal: ${await text(p, '#hx-swap #pay-side').catch(() => '')}`); });
+    ok(!(await p.$('#wallet-dot.on')), 'connectkey: a fresh visit has no Tacit wallet open');
+    await p.click('#hx-swap #go');
+    await until(p, () => !!document.querySelector('#wallet-dot.on'), null, 120000).catch(() => {});
+    ok(!!(await p.$('#wallet-dot.on')), 'connectkey: pressing Connect wallet on the private swap opens the Tacit wallet with it');
+    await chainUntil(async () => poolReqs.length > q0, 120000).catch(() => {});
+    const first = poolReqs[q0], op = first && wrapOpFromStdin(first.stdin, STUB_CETH);
+    ok(!!op && op.value === String(10n ** 16n / 10n ** 10n), `connectkey: the first proof asked for is the card's 0.01 ETH wrap (${op ? `${op.value} units` : first ? 'another size or asset' : 'none asked'}; ${poolReqs.length - q0} asked)`);
+    if (r.errors.length) { fails++; console.log('FAIL connectkey page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
