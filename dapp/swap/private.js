@@ -7,8 +7,8 @@
 // relay proves and sends each step. Nothing here is loaded until the first private swap, or the first ask for a private balance; the key is
 // held in this visit's memory only.
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=88028d84';
-import { forgetUx } from '/trade/poolux.js?cb=a33a61e0';
-import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=7c6e9f78';
+import { forgetUx } from '/trade/poolux.js?cb=5f8a7b59';
+import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=e52aceab';
 import { wrapQuote, WRAP_TIP } from '/teth/read.js?cb=f00ab10f';
 import { secp, keccak_256, sha256, bytesToHex } from '/vendor/tacit-deps.min.js';
 import { makeRunner } from '/activity.js?cb=994f4169';
@@ -174,6 +174,48 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     if (!r || await stale(slot) || r.built.amountOut < BigInt(plan.minOut)) return null;
     return Object.assign(r, { slot });
   }
+  // A swap out of the private balance proved ahead too (the pool module's routeAhead): the swap the card shows, proved on the board as its
+  // quote stands, and posted at the press for the relay to send, which then only sends it. It spends the smallest note that covers the amount
+  // (the rest comes back as change in the same proof), so no note is cut first; it pins that note, the reserves of the pools it crosses and the
+  // relay's fee, and holds only while all three do. One at a time, and only while the relay is proving and sending.
+  const RAH = new Map();
+  const rahKey = ({ asset, units, path, fee }, note) => [lc(note.leaf), lc(asset), String(units), String(fee), path.map((h) => `${lc(h.assetNext)}/${h.feeBps}`).join('>')].join(':');
+  const rahNote = (plan) => (held ? of(plan.asset).notes.filter((n) => BigInt(n.value) >= BigInt(plan.units)).sort(byValue)[0] || null : null);
+  const routeAheadOf = (plan) => { const note = rahNote(plan), s = note && RAH.get(rahKey(plan, note)); return s && s.pub === key.key?.pubHex && !s.failed ? (s.r ? 'ready' : 'proving') : null; };
+  async function routeAhead(plan) {
+    if (!key.unlocked || plan.wallet || !plan.path?.length) return null;
+    const t = await getUx();
+    if (t.relay.ownProving?.()) return null;
+    await read();
+    const note = rahNote(plan);
+    if (!note) return null;
+    const k = rahKey(plan, note), pub = key.key.pubHex, have = RAH.get(k);
+    if (have?.pub === pub && !have.failed) return have.p;
+    const rs = await relayState().catch(() => null);
+    if (aheadAsked >= AHEAD_MAX || !rs?.proving || !rs?.settling) return null;
+    aheadAsked++;
+    RAH.clear();                                                                       // the swap shown now: the one before is let go
+    const slot = { k, pub, r: null };
+    RAH.set(k, slot);
+    const me = slot.p = proving.then(() => t.routeAhead({ walletPriv: key.priv(), inNote: note, amountIn: BigInt(plan.units), path: plan.path, minOut: BigInt(plan.minOut), fee: BigInt(plan.fee),
+      waitOpts: { timeoutMs: 6 * 60e3, intervalMs: 3000 } })).then((r) => { if (slot.p === me) slot.r = r; return r; }, () => { if (slot.p === me) slot.failed = Date.now(); return null; });
+    proving = me.then(() => {}, () => {});
+    return me;
+  }
+  // The proof made ahead for this route of this note, if it still holds: waited for a little while the board finishes it, and used only while
+  // the pools' reserves are the ones it pins, it pays at least the swap's least and its fee still clears the relay's floor.
+  const sameHops = (a, b) => a.length === b.length && a.every((h, i) => BigInt(h.reserveAPre) === BigInt(b[i].reserveAPre) && BigInt(h.reserveBPre) === BigInt(b[i].reserveBPre));
+  async function routeAheadFor({ note, units, path, fee, minOut, ticker }, say) {
+    const slot = RAH.get(rahKey({ asset: note.asset, units, path, fee }, note));
+    if (!slot || slot.pub !== key.key.pubHex || slot.failed) return null;
+    if (!slot.r) { say('ahead'); await Promise.race([slot.p, sleep(75e3)]); }
+    const r = slot.r;
+    if (!r || r.out < BigInt(minOut)) return null;
+    const t = await getUx(), q = await t.quoteRoute({ asset0: note.asset, amountIn: units, path, fee }).catch(() => null);
+    if (!q || !sameHops(q.hops, r.hops)) return null;
+    const one = BigInt(await t.quoteOpFee(ticker, 'route')), floor = path.length > 1 ? twoDigits((one * 14n) / 10n) : one;
+    return BigInt(fee) >= floor ? Object.assign(r, { slot }) : null;
+  }
   // The fee tier of the deepest pool between tETH and `toAsset` (the one a kept size is proved in), read once a visit.
   const TIERS = new Map();
   async function tierOf(toAsset) {
@@ -268,10 +310,19 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     let q = await priced(fee);
     const send = (f) => t.route({ walletPriv: key.priv(), inNote: note, amountIn: units, path, minOut, fee: f,
       waitOpts: { ...run().wait(label, 15 * 60e3), intervalMs: 4000, viaRelay: true } });
-    say('route');
-    let r;
+    let r = null, ahead = null;
+    try { ahead = await routeAheadFor({ note, units, path, fee, minOut, ticker }, say); } catch { ahead = null; }
+    if (ahead) {
+      say('posted');
+      try { r = await t.routeAheadSend(ahead, { waitOpts: { ...run().wait(label, 15 * 60e3), intervalMs: 4000, viaRelay: true } }); RAH.delete(ahead.slot.k); q = { amountOut: ahead.out }; }
+      catch (e) {
+        if (!e?.notPosted) { if (pending(e)) busy.set(lc(note.leaf), Date.now()); throw e; }
+        RAH.delete(ahead.slot.k);                                                      // the relay would not take it now (the pool traded): sent the usual way
+      }
+    }
+    if (!r) say('route');
     try {
-      try { r = await send(fee); }
+      if (!r) try { r = await send(fee); }
       catch (e) {
         if (!floorMiss(e)) throw e;
         const one = BigInt(await t.quoteOpFee(ticker, 'route')), now = path.length > 1 ? twoDigits((one * 14n) / 10n) : one, f2 = now > fee ? now : t.ladderFee(fee * 2n);
@@ -549,7 +600,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   }
 
   return {
-    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate, ahead, aheadOf, keep, tierOf,
+    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate, ahead, aheadOf, routeAhead, routeAheadOf, keep, tierOf,
     // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
     relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },

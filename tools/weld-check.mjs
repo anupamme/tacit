@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2273,7 +2273,7 @@ await step('farmjoin', async () => {
     export function makeConfidentialPoolUx(o) {
       const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
       let seq = 0;
-      const note = (asset, value) => { seq++; return { asset, value: String(value), leafIndex: 910000 + seq, cx: '0x' + seq.toString(16).padStart(64, 'a'), cy: '0x01', owner: '0x02', root: '0x03', path: [] }; };
+      const note = (asset, value) => { seq++; return { asset, value: String(value), leafIndex: 910000 + seq, leaf: '0x' + seq.toString(16).padStart(64, 'b'), cx: '0x' + seq.toString(16).padStart(64, 'a'), cy: '0x01', owner: '0x02', root: '0x03', path: [] }; };
       let add = [note('${CETH}', 2000000n), note('${CTAC}', 50000000000n)];
       window.__splits = [];
       let leafSeq = 0;
@@ -6672,11 +6672,30 @@ const swapStub = () => `
       if (window.__swapRefuse && !a.selfSettle) throw new Error('fee below the current floor');
       queued(a.selfSettle);
       await wait();
+      landed(a, q);
+      return { txHash: '0x' + 'ab'.repeat(32) };
+    };
+    const landed = (a, q) => {
       window.__moved = { next: a.path[0].assetNext, asset: a.inNote.asset, y: BigInt(a.amountIn) - BigInt(a.fee), out: BigInt(q.amountOut) };
       add.splice(add.findIndex((n) => n.cx === a.inNote.cx), 1);
       add.push(note(q.assetFinal, q.amountOut));
       if (BigInt(a.inNote.value) > BigInt(a.amountIn)) add.push(note(a.inNote.asset, BigInt(a.inNote.value) - BigInt(a.amountIn)));        // a partial spend: the rest comes back as change
-      return { txHash: '0x' + 'ab'.repeat(32) };
+    };
+    // A route proved ahead (the board's job, made by the stub at once) and its press: the proof is posted and the relay sends it.
+    window.__aheadRefuse = false;
+    ux.routeAhead = async (a) => {
+      const q = await ux.quoteRoute({ asset0: a.inNote.asset, amountIn: a.amountIn, path: a.path, fee: a.fee });
+      window.__swapCalls.push({ ahead: true, amountIn: String(a.amountIn), noteValue: String(a.inNote.value), fee: String(a.fee), minOut: String(a.minOut) });
+      await wait();
+      return { note: a.inNote, amountIn: BigInt(a.amountIn), path: a.path, minOut: BigInt(a.minOut), fee: BigInt(a.fee), hops: q.hops, out: q.amountOut, proven: { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: [] }, leaves: [], memos: [] };
+    };
+    ux.routeAheadSend = async (a) => {
+      window.__swapCalls.push({ posted: true, amountIn: String(a.amountIn), noteValue: String(a.note.value), fee: String(a.fee), refused: window.__aheadRefuse });
+      await wait();
+      if (window.__aheadRefuse) throw Object.assign(new Error('the relay would not take the proof made ahead'), { notPosted: true });
+      const q = await ux.quoteRoute({ asset0: a.note.asset, amountIn: a.amountIn, path: a.path, fee: a.fee });
+      landed({ inNote: a.note, amountIn: a.amountIn, path: a.path, fee: a.fee }, q);
+      return { txHash: '0x' + 'ac'.repeat(32) };
     };
     ux.lpBond = async (a) => { window.__join = { controller: a.controller, a: a.aNote.value, b: a.bNote.value, aAsset: a.aNote.asset, bAsset: a.bNote.asset, feeBps: a.feeBps, selfSettle: typeof a.selfSettle }; return { txHash: null, dShares: 1n }; };
     ux.transfer = async ({ notes, amount, selfSettle }) => {
@@ -10641,6 +10660,44 @@ await step('swapown', async () => {
       `swapown: proved by the holder's own prover and sent as one router transaction with no tip, nothing asked of the relay (${sent.map((x) => `${String(x.data).slice(0, 10)} ${BigInt(x.value)}`)}; ${spn.requests.length} request, ${(await q('#q')).slice(0, 90)})`);
     if (r.errors.length) { fails++; console.log('FAIL swapown page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
+
+// A swap out of the private balance into another private coin, proved ahead of its press. A key holding private tETH and nothing in the wallet:
+// the card on tETH into TAC, both private, asks the relay's board for the route once its quote has stood a moment (the stub makes it at once),
+// over part of the larger note with the relay's fee bound in, the receipt says the proof is made, and the press posts it for the relay to
+// send, asking no route of the relay. (tests/route-change-fork.mjs runs the posted proof through the real guest and the pool, and shows one
+// posted after its note was spent refused as `notPosted`, which private.js answers by sending the swap the usual way.)
+await step('routeahead', async () => {
+  const hex = '7d82'.padEnd(64, '5'), acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const r = await openFarmKey(hex, { notes: [[FARM_CETH, 25000000n]], fees: { route: 100000 }, swap: true }, undefined, () => rpc('anvil_setBalance', [acct, '0x0']));
+  const p = r.page, q = (x) => text(p, `#hx-swap ${x}`).then((t) => t.replace(/\s+/g, ' ')), calls = () => p.evaluate(() => window.__swapCalls);
+  const press = async (n0) => {
+    for (let i = 0; i < 4 && (await calls()).length === n0; i++) {
+      await until(p, () => { const b = document.querySelector('#hx-swap #go'); return !!b && !b.disabled && /^Swap/.test(b.textContent || ''); }, null, 300000).catch(() => {});
+      await p.click('#hx-swap #go');
+      await until(p, (n) => window.__swapCalls.length > n || /class="err"|Nothing was sent|read again|price moved/.test(document.querySelector('#hx-swap #q')?.innerHTML || ''), n0, 120000).catch(() => {});
+    }
+    await until(p, () => /Done\.|class="err"/.test(document.querySelector('#hx-swap #q')?.innerHTML || ''), null, 120000).catch(() => {});
+  };
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="swap"]');
+    await until(p, () => /^tETH/.test((document.querySelector('#hx-swap #pay-coin')?.textContent || '').trim()) && /Balance 0\.25 · Max/.test(document.querySelector('#hx-swap #pay-side')?.textContent || ''), null, 300000);
+    await p.click('#hx-swap #get-coin'); await p.waitForSelector('#pk .pk-r');
+    await p.evaluate(() => { let g = ''; for (const el of document.querySelectorAll('#pk .pk-g, #pk .pk-r')) { if (el.classList.contains('pk-g')) { g = el.textContent; continue; } if (/^Private/.test(g) && el.querySelector('b')?.textContent.trim() === 'TAC') { el.click(); return; } } });
+    await until(p, () => /^TAC/.test((document.querySelector('#hx-swap #get-coin')?.textContent || '').trim()) && /private/i.test(document.querySelector('#hx-swap #get-at')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | get: ${await text(p, '#hx-swap #get-coin')} / ${await text(p, '#hx-swap #get-at')}`); });
+    await p.fill('#hx-swap #amt', '0.05');
+    await until(p, () => /Proof\s*made: the relay only sends it/.test(document.querySelector('#hx-swap #rcpt')?.textContent || ''), null, 300000).catch(() => {});
+    const asked = (await calls()).filter((c) => c.ahead);
+    ok(asked.length === 1 && asked[0].amountIn === '5000000' && asked[0].noteValue === '25000000' && BigInt(asked[0].fee) === 100000n && /Proof\s*made: the relay only sends it/.test(await q('#rcpt')),
+      `routeahead: the quote stood, the route over part of the larger note is proved ahead with the relay's fee bound in, and the receipt says it is made (${JSON.stringify(asked)}; ${(await q('#rcpt')).match(/Proof.{0,40}/)?.[0]})`);
+    await press((await calls()).length);
+    let all = await calls();
+    ok(/Done\./.test(await q('#q')) && all.filter((c) => c.posted && !c.refused).length === 1 && !all.some((c) => !c.ahead && !c.posted && !c.split),
+      `routeahead: the press posts that proof for the relay to send and asks no route of the relay (${all.map((c) => (c.ahead ? 'ahead' : c.posted ? 'posted' : c.split ? 'split' : 'route')).join(' > ')}; ${(await q('#q')).slice(0, 100)})`);
+    if (r.errors.length) { fails++; console.log('FAIL routeahead page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // Adding PROVE from the wallet: the wallet sends the PROVE the Tacit account lacks, then the vApp's permitAndDeposit with a permit the

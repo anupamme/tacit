@@ -3,7 +3,8 @@
 // AMM: the settle guest's route takes a note that exceeds the amount and returns the remainder as change in the start asset, so no note has to be
 // cut to size first (a transfer proof of about 50 s and a relay fee of its own). The 0.02 tETH note is wrapped and settled, then 0.01 tETH of it is
 // swapped for TAC by one route op through the job queue, the pinned SETTLE GUEST in SP1 execute mode and pool.settle(); the key then holds the TAC
-// note and a 0.01 tETH change note. Only the pool's SP1 verifier is replaced.
+// note and a 0.01 tETH change note. Then the same swap proved AHEAD of its press (a prove-only job), its proof posted at the press for the relay
+// to send, and a proof posted after its note was spent refused with nothing sent. Only the pool's SP1 verifier is replaced.
 //
 //   node tests/route-change-fork.mjs        (FORK=<rpc url>; EXEC=<the exec-stdin binary>, built from tests/exec-stdin when not given)
 import { spawn, spawnSync } from 'node:child_process';
@@ -64,7 +65,14 @@ const poolAbi = (() => { try { return JSON.parse(readFileSync('/Users/z/tacit/co
 const why = (e) => { try { return decodeErrorResult({ abi: poolAbi, data: e.data }).errorName; } catch { return String(e.message || e).slice(0, 160) + (e.data ? ` ${String(e.data).slice(0, 74)}` : ''); } };
 const { makeConfidentialSettler } = await import('../worker/src/confidential-settle.js');
 const store = (() => { const m = new Map(); let pending = []; return { getPending: async () => pending.slice(), putPending: async (ids) => { pending = ids.slice(); }, getJob: async (id) => (m.has(id) ? JSON.parse(JSON.stringify(m.get(id))) : null), putJob: async (id, j) => { m.set(id, JSON.parse(JSON.stringify(j))); } }; })();
-const settler = makeConfidentialSettler({ storage: store, hash: (str) => keccak256(`0x${Buffer.from(str).toString('hex')}`), sleep: async () => {} });
+const settleAbi = parseAbi(['function settle(bytes publicValues, bytes proof, bytes[] memos)']);
+const settleData = (pv, pf, memos) => encodeFunctionData({ abi: settleAbi, functionName: 'settle', args: [pv, pf, (memos || []).map((m) => (String(m).startsWith('0x') ? m : `0x${m}`))] });
+// a posted proof is checked as the relay checks it: the pool must take its settle now
+const verifyPosted = async ({ publicValues, proof, memos }) => {
+  try { await rpcA('eth_estimateGas', [{ from: SETTLER, to: POOL, data: settleData(publicValues, proof, memos) }]); return { ok: true }; }
+  catch (e) { return { ok: false, error: why(e) }; }
+};
+const settler = makeConfidentialSettler({ storage: store, hash: (str) => keccak256(`0x${Buffer.from(str).toString('hex')}`), sleep: async () => {}, verifyPosted });
 let queue = Promise.resolve();
 const log = [];
 async function send(from, to, data, value = '0x0') {
@@ -91,7 +99,7 @@ async function runJob({ jobId: id, type, op, memos: jm, mode }) {
     const line = (r.stdout || '').split('\n').find((l) => l.startsWith('EXECUTE_OK')) || '';
     if (r.status !== 0 || !existsSync(out)) throw new Error(`the settle guest rejected the op: ${((r.stderr || '') + (r.stdout || '')).split('\n').filter((l) => /panick|assert|error|failed/i.test(l)).slice(0, 3).join(' | ').slice(0, 300)}`);
     log.push(`${type}${mode === 'prove' ? ' (prove only)' : ''}: ${line} in ${((Date.now() - t) / 1000).toFixed(1)} s`);
-    if (mode === 'prove') { await settler.ackJob(id, { publicValues: `0x${readFileSync(out, 'utf8').trim()}`, proof: '0x' }); return; }
+    if (mode === 'prove') { await settler.ackJob(id, { publicValues: `0x${readFileSync(out, 'utf8').trim()}`, proof: '0x' + '11'.repeat(32) }); return; }
     const data = encodeFunctionData({ abi: parseAbi(['function settle(bytes publicValues, bytes proof, bytes[] memos)']), functionName: 'settle', args: [`0x${readFileSync(out, 'utf8').trim()}`, '0x', body.memos.map((m) => (m.startsWith('0x') ? m : `0x${m}`))] });
     const s = await send(SETTLER, POOL, data);
     await settler.ackJob(id, { txHash: s.hash });
@@ -105,9 +113,18 @@ const server = createServer(async (req, res) => {
   if (u.pathname === '/confidential/quote') return json(200, { recommendedWrapTipWei: '60000000000000', tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9', gasAwareFloorUnits: '20000', staticFloorUnits: '20000' });
   if (u.pathname === '/confidential/submit' && req.method === 'POST') {
     let r;
-    try { r = await settler.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode || 'settle', feeAsset: body.feeAsset || null, exit: body.exit || null }); }
+    try { r = await settler.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode || 'settle', feeAsset: body.feeAsset || null, exit: body.exit || null,
+      publicValues: body.publicValues || null, proof: body.proof || null, early: body.mode === 'prove' && body.ahead === true }); }
     catch (e) { return json(400, { error: String(e.message || e) }); }
-    queue = queue.then(async () => { const claimed = await settler.nextJob(); if (claimed) await runJob(claimed); });
+    if (body.mode === 'preproven') {
+      // a posted proof sits on the open board; the relay takes it and sends its settle
+      if (!r.deduped) queue = queue.then(async () => {
+        const o = await settler.nextOpen({ id: r.jobId });
+        if (!o) return;
+        try { const s = await send(SETTLER, POOL, settleData(o.publicValues, o.proof, o.memos)); await settler.ackJob(o.jobId, { txHash: s.hash }); log.push(`posted ${o.type}: sent`); }
+        catch (e) { await settler.ackJob(o.jobId, { error: String(e.message || e).slice(0, 300) }); }
+      });
+    } else queue = queue.then(async () => { const claimed = await settler.nextJob(); if (claimed) await runJob(claimed); });
     return json(200, { ok: true, ...r });
   }
   if (u.pathname === '/confidential/status') { const j = await settler.jobStatus(u.searchParams.get('id')); return j ? json(200, j) : json(404, { error: 'unknown' }); }
@@ -167,6 +184,37 @@ let note;
   ok(!r.error, `the route from the larger note settles in one proof, its relay fee ${fee} units bound in (${r.error ? r.error.message : 'settled'}; ${log.slice(-1)[0] || ''})`);
   ok(tacNotes.some((n) => BigInt(n.value) >= minOut), `the key holds the TAC note: ${tacNotes.map((n) => fmtTac(n.value)).join(', ')} TAC (at least ${fmtTac(minOut)})`);
   ok(tethNotes.some((n) => BigInt(n.value) === UNITS - SPEND) && !tethNotes.some((n) => BigInt(n.value) === UNITS), `and a ${UNITS - SPEND} unit tETH change note; the 0.02 note is spent (${tethNotes.map((n) => n.value).join(', ')})`);
+}
+
+// ── 3. the same swap proved AHEAD: the key's 0.01 tETH change note, 0.003 of it swapped, its proof made first and posted at the press ──
+let change;
+{
+  const path = [{ assetNext: tac, feeBps }], fee = BigInt(await ux.quoteOpFee('cETH', 'route')), SPEND2 = 300_000n;
+  change = (await notesOf(teth)).find((n) => BigInt(n.value) === UNITS - SPEND);
+  const q = await ux.quoteRoute({ asset0: teth, amountIn: SPEND2, path, fee }), minOut = (q.amountOut * 99n) / 100n;
+  const tac0 = (await notesOf(tac)).length;
+  const a = await ux.routeAhead({ walletPriv: priv, inNote: change, amountIn: SPEND2, path, minOut, fee, waitOpts: wait }).catch((e) => ({ error: e }));
+  ok(!a.error && a.proven?.publicValues && a.hops.length === 1 && a.out === q.amountOut && a.fee === fee,
+    `the route is proved ahead as a prove-only job, its public values made by the guest, pinning the pool's reserves and the relay's fee (${a.error ? a.error.message : `${String(a.proven.publicValues).length / 2 - 1} bytes of public values`})`);
+  ok((await notesOf(teth)).some((n) => BigInt(n.value) === UNITS - SPEND) && (await notesOf(tac)).length === tac0, 'proving it ahead settles nothing: the change note is still held and no TAC note is added');
+  const r = await ux.routeAheadSend(a, { waitOpts: wait }).catch((e) => ({ error: e }));
+  const tacNotes = await notesOf(tac), tethNotes = await notesOf(teth);
+  ok(!r.error && r.txHash && tacNotes.length === tac0 + 1 && tacNotes.some((n) => BigInt(n.value) >= minOut),
+    `posted at the press, the relay sends it: one settle, a TAC note of at least ${fmtTac(minOut)} TAC (${r.error ? r.error.message : r.txHash.slice(0, 12)}; ${log.slice(-1)[0] || ''})`);
+  ok(tethNotes.some((n) => BigInt(n.value) === UNITS - SPEND - SPEND2) && !tethNotes.some((n) => BigInt(n.value) === UNITS - SPEND), `and the change is the rest of the note (${tethNotes.map((n) => n.value).join(', ')})`);
+}
+
+// ── 4. a proof posted after its note was spent: refused when it is posted, nothing sent ──
+{
+  const path = [{ assetNext: tac, feeBps }], fee = BigInt(await ux.quoteOpFee('cETH', 'route')), amt = 200_000n;
+  const now = (await notesOf(teth)).find((n) => BigInt(n.value) === UNITS - SPEND - 300_000n);
+  const q = await ux.quoteRoute({ asset0: teth, amountIn: amt, path, fee }), minOut = (q.amountOut * 99n) / 100n;
+  const a = await ux.routeAhead({ walletPriv: priv, inNote: now, amountIn: amt, path, minOut, fee, waitOpts: wait }).catch((e) => ({ error: e }));
+  const spent = await ux.route({ walletPriv: priv, inNote: now, amountIn: 100_000n, path, minOut: 1n, fee, waitOpts: wait }).catch((e) => ({ error: e }));
+  const tac1 = (await notesOf(tac)).length, sent0 = log.filter((l) => l.startsWith('posted')).length;
+  const r = await ux.routeAheadSend(a, { waitOpts: wait }).catch((e) => ({ error: e }));
+  ok(!a.error && !spent.error && r.error && r.error.notPosted === true && (await notesOf(tac)).length === tac1 && log.filter((l) => l.startsWith('posted')).length === sent0,
+    `after another swap spent its note the proof made ahead is refused when posted (notPosted), and nothing is sent (${a.error ? a.error.message : spent.error ? spent.error.message : r.error ? r.error.message.slice(0, 140) : 'it was taken'})`);
 }
 
 if (fails) console.error(log.join('\n'));

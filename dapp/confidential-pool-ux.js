@@ -2658,7 +2658,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { amountOut: curAmount, assetFinal: curAsset, hops };
   }
 
-  async function route({ walletPriv, inNote, amountIn, path, minOut, fee = 0n, selfRelay = false, selfSettle = null, waitOpts } = {}) {
+  // A route's op, the leaves and recovery descriptors of what it makes and their sealed memos: what a relayed route, one proved first and one
+  // proved ahead all send.
+  async function _routeBuild({ walletPriv, inNote, amountIn, path, minOut, fee = 0n } = {}) {
     const q = await quoteRoute({ asset0: inNote.asset, amountIn, path, fee });
     if (!q) throw new Error('route: a hop pool is not initialized');
     const id = identity(walletPriv);
@@ -2694,7 +2696,33 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const sealedMemos = guard.sealMemosForOutputs({ outputs, ephRand });
     // the change's opening (its value and blinding) stays here: the op carries only its commitment and owner
     const wireOp = { ...op, change: (op.change || []).map((c) => ({ cx: c.cx, cy: c.cy, owner: c.owner })) };
-    return _dispatch({ type: 'route', spec: { op: wireOp, leaves, outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
+    return { q, spec: { op: wireOp, leaves, outputs, ephRand }, sealedMemos };
+  }
+  async function route({ walletPriv, inNote, amountIn, path, minOut, fee = 0n, selfRelay = false, selfSettle = null, waitOpts } = {}) {
+    const { spec, sealedMemos } = await _routeBuild({ walletPriv, inNote, amountIn, path, minOut, fee });
+    return _dispatch({ type: 'route', spec, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
+  }
+  // A private swap proved before its press, as an exit is (exitAhead): a prove-only job the relay makes only on its board, whose proof is
+  // posted at the press for the relay to send. The proof pins the note it spends and the reserves of the pools it crosses (`hops`), so it holds
+  // only while the pool has not traded; the settle that finds otherwise is refused when the proof is posted, with nothing sent.
+  // → what routeAheadSend takes: { note, amountIn, path, minOut, fee, hops, out, proven, leaves, memos }
+  async function routeAhead({ walletPriv, inNote, amountIn, path, minOut, fee = 0n, waitOpts } = {}) {
+    const b = await _routeBuild({ walletPriv, inNote, amountIn, path, minOut, fee });
+    const proven = await relay.prove({ type: 'route', ...b.spec, memos: b.sealedMemos, ahead: true }, { ...waitOpts, viaRelay: true });
+    if (!proven || !proven.publicValues) throw new Error(proven && proven.error || 'routeAhead: no proof');
+    return { note: inNote, amountIn: BigInt(amountIn), path, minOut: BigInt(minOut), fee: BigInt(fee), hops: b.q.hops, out: b.q.amountOut, proven, leaves: b.spec.leaves, memos: proven.memos || b.sealedMemos };
+  }
+  // The press: the proof made ahead is posted for the relay to send, then waited for as a relayed route is, its memos checked.
+  async function routeAheadSend(a, { waitOpts } = {}) {
+    // a refusal (the pool would not take it now: its note spent, its pools traded) comes back as an error or as an answer with no job: either way nothing was posted
+    const posted = await relay.postProof({ type: 'route', publicValues: a.proven.publicValues, proof: a.proven.proof, memos: a.memos })
+      .catch((e) => ({ error: String(e && e.message || e) }));
+    if (!posted || !posted.jobId) throw Object.assign(new Error((posted && posted.error) || 'the relay would not take the proof made ahead'), { notPosted: true });
+    let st = posted.status === 'settled' ? { ...posted, status: 'settled' } : await relay.waitForSettle(posted.jobId, waitOpts);
+    if (!st.txHash && st.status === 'settled') {
+      try { const rs = await relay.status(posted.jobId); if (rs && rs.txHash) st = { ...st, txHash: rs.txHash }; } catch { }
+    }
+    return relay.verifyEmittedMemos(st, a.leaves, a.memos);
   }
 
   async function submitSettle({ settlerPriv, publicValues, proof, memos = [], gasLimit = 1200000n, broadcast = true, pair = null } = {}) {
@@ -3295,7 +3323,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
     deriveOutput, buildWrap, buildShareWrap, nextShareIndex, releaseShareIndex, shareDeposits, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, proveWrap, wrapProofFits, wrapSettleCall, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, exitAhead, exitAheadSend, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
-    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, buildWrapSwap, submitWrapSwap, proveWrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
+    settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, routeAhead, routeAheadSend, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, buildWrapSwap, submitWrapSwap, proveWrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };
 }
