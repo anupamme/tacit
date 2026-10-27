@@ -47,17 +47,44 @@ export function quoteFee({ token, gas, gasPrice, cfg, floor = true }) {
   return fee > min ? fee : min;
 }
 
-// What the keeper takes on itself of a sweep's cost, in `token` base units (nothing for a token with no price).
-export function subsidyOf({ token, cfg }) {
+// What the keeper has taken on itself of sweeps in the last day, in wei, per keeper (its config object).
+const ABSORBED = new WeakMap();
+const nowSecs = () => Math.floor(Date.now() / 1000);
+const absorbedSince = (cfg, at) => (ABSORBED.get(cfg) || []).filter((x) => at - x.at < 86_400).reduce((a, x) => a + x.wei, 0n);
+
+// What the keeper takes on itself of a sweep that costs `cost` (in `token` base units, as quoteFee gives it): the share
+// SWEEP_SUBSIDY_BPS of it, never more than SWEEP_SUBSIDY_WEI (that alone when no share is set) nor what is left of the day's
+// budget. Nothing for a token with no price, or with no subsidy set.
+export function subsidyOf({ token, cost, cfg, at = nowSecs() }) {
   const rate = cfg.rates.get(token.toLowerCase());
-  return rate === undefined || !cfg.sweepSubsidy ? 0n : (cfg.sweepSubsidy * E18 + rate - 1n) / rate;
+  if (rate === undefined || !cfg.sweepSubsidy) return 0n;
+  const toTok = (wei) => (wei * E18 + rate - 1n) / rate;
+  let s = toTok(cfg.sweepSubsidy);
+  if (cfg.sweepSubsidyBps) { const share = (cost * BigInt(cfg.sweepSubsidyBps)) / 10_000n; if (share < s) s = share; }
+  if (s > cost) s = cost;
+  if (cfg.sweepSubsidyDaily) { const left = cfg.sweepSubsidyDaily - absorbedSince(cfg, at), cap = left > 0n ? (left * E18) / rate : 0n; if (cap < s) s = cap; }
+  return s;
+}
+// Records what a sweep took from the keeper's own pocket (token units), against the day's budget.
+export function absorbed({ token, tokens, cfg, at = nowSecs() }) {
+  const rate = cfg.rates.get(token.toLowerCase());
+  if (rate === undefined || tokens <= 0n) return;
+  const list = (ABSORBED.get(cfg) || []).filter((x) => at - x.at < 86_400);
+  list.push({ at, wei: (tokens * rate) / E18 });
+  ABSORBED.set(cfg, list);
+}
+
+// The floor under the smallest balance a sweep of cost `cost` is done for: RECEIVE_MIN_MULT times the cost, and the token's own.
+export function receiveFloorOf({ token, cost, cfg }) {
+  const byCost = cost * BigInt(cfg.receiveMinMult || 0), own = cfg.minReceive?.get(token.toLowerCase()) ?? 0n;
+  return byCost > own ? byCost : own;
 }
 
 // The smallest balance a sweep of cost `sweepFee` is done for: the 25 bps cap pays what the subsidy does not (a deposit of
-// less leaves the box for its owner to take in), and never less than the token's own floor.
-export function receiveMinOf({ token, sweepFee, cfg }) {
-  const net = sweepFee > subsidyOf({ token, cfg }) ? sweepFee - subsidyOf({ token, cfg }) : 0n;
-  const byCap = (net * 10_000n + 24n) / 25n, floor = cfg.minReceive?.get(token.toLowerCase()) ?? 0n;
+// less leaves the box for its owner to take in), and never less than the floor.
+export function receiveMinOf({ token, sweepFee, cfg, at }) {
+  const sub = subsidyOf({ token, cost: sweepFee, cfg, at }), net = sweepFee > sub ? sweepFee - sub : 0n;
+  const byCap = (net * 10_000n + 24n) / 25n, floor = receiveFloorOf({ token, cost: sweepFee, cfg });
   return byCap > floor ? byCap : floor;
 }
 
@@ -199,9 +226,9 @@ export function createKeeper({
     const floor = !cfg.rates.has(r.token.toLowerCase());
     const cost = quoteFee({ token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     const feeFor = (amount) => { const cap = (amount * BigInt(feeBps)) / 10_000n; return cost < cap ? cost : cap; };
-    // What the keeper takes on itself of the cost counts toward the reward; a balance under the token's floor is left alone.
-    const sub = subsidyOf({ token: r.token, cfg });
-    if (sub > 0n && bal < (cfg.minReceive?.get(r.token.toLowerCase()) ?? 0n)) return { skipped: `balance ${bal} is below the ${cfg.minReceive.get(r.token.toLowerCase())} the keeper sweeps` };
+    // What the keeper takes on itself of the cost counts toward the reward; a balance under the floor is left alone.
+    const sub = subsidyOf({ token: r.token, cost, cfg, at: t }), floorMin = receiveFloorOf({ token: r.token, cost, cfg });
+    if (sub > 0n && bal < floorMin) return { skipped: `balance ${bal} is below the ${floorMin} the keeper sweeps at a loss` };
     const pre = coverCheck({ reward: feeFor(bal) + sub, token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     if (!pre.ok) return { skipped: pre.reason };
     for (let round = 0; round <= cfg.staleRetries; round++) {
@@ -244,7 +271,7 @@ export function createKeeper({
         throw e;
       }
       if (out === 'reverted') { log(`receive ${r.box}: sweep reverted on chain, re-proving`); continue; }
-      return { out, amount, fee: f };
+      return { out, amount, fee: f, took: sub > 0n && cost > f ? (cost - f < sub ? cost - f : sub) : 0n };
     }
     return { stale: true };
   }
@@ -259,7 +286,8 @@ export function createKeeper({
     }
     const res = await sweep(r, t);
     if (res.out === 'completed') {
-      log(`receive ${r.box}: swept ${res.amount} (fee ${res.fee})`);
+      absorbed({ token: r.token, tokens: res.took ?? 0n, cfg, at: t });
+      log(`receive ${r.box}: swept ${res.amount} (fee ${res.fee}${res.took ? `, the keeper took on ${res.took}` : ''})`);
       return soon(r, t, { tx_hash: null, tx_sent_at: null, checks: 0, attempts: 0, note: 'swept', deadline: t + cfg.receiveWatchSecs });
     }
     if (res.out === 'inflight') return soon(r, t);

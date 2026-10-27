@@ -131,10 +131,16 @@ export function loadKeeperConfig(env = process.env) {
     depositGas: big(env, 'EVM_POOL_KEEPER_DEPOSIT_GAS', 500000n),
     wrapGas: big(env, 'EVM_POOL_KEEPER_WRAP_GAS', 300000n),
     sweepGas: big(env, 'EVM_POOL_KEEPER_SWEEP_GAS', 600000n),
-    // Wei of a sweep's cost the keeper pays itself, so a small deposit is still worth moving in: its fee cap (25 bps) then
-    // has to cover only the rest. 0 (the default) is the plain cost. With it, EVM_POOL_KEEPER_MIN_RECEIVE (token:units, as
-    // the minimum fees are given) is the smallest balance a token's sweep is done for at all, so dust is never swept at a loss.
+    // A sweep's fee is capped at 25 bps of the box, so the smallest balance it pays for is 400 times its cost. To move smaller
+    // deposits in, the keeper absorbs part of the cost itself: SWEEP_SUBSIDY_BPS of it (of 10,000), never more than
+    // SWEEP_SUBSIDY_WEI per sweep (the bound when gas spikes) nor SWEEP_SUBSIDY_DAILY_WEI in a rolling day (0 = no daily bound).
+    // The cost is priced as the fee is, in the token through its rate or oracle, so it follows gas and the price by itself.
+    // RECEIVE_MIN_MULT floors the smallest balance at that many times the sweep's cost; MIN_RECEIVE (token:units) is an
+    // absolute floor per token. A subsidised sweep is done only for a balance at or above the floor, so dust is never swept at a loss.
     sweepSubsidy: big(env, 'EVM_POOL_KEEPER_SWEEP_SUBSIDY_WEI', 0n),
+    sweepSubsidyBps: int(env, 'EVM_POOL_KEEPER_SWEEP_SUBSIDY_BPS', 0),
+    sweepSubsidyDaily: big(env, 'EVM_POOL_KEEPER_SWEEP_SUBSIDY_DAILY_WEI', 0n),
+    receiveMinMult: int(env, 'EVM_POOL_KEEPER_RECEIVE_MIN_MULT', 0),
     minReceive: parseTokenMap(str(env, 'EVM_POOL_KEEPER_MIN_RECEIVE'), 'EVM_POOL_KEEPER_MIN_RECEIVE'),
     relayGas: big(env, 'EVM_POOL_KEEPER_RELAY_GAS', 450000n),
     // Receive boxes are watched indefinitely; this caps how many, and the smallest fee cap worth registering.

@@ -14,7 +14,7 @@ import { loadKeeperConfig, checkKeeperSigner, parseTokenMap, RELAY_EOA } from '.
 import { openKeeperStore } from '../src/lib/evm-pool-keeper-store.js';
 import { makeLeafSync, makeFactsSync, LeafSyncError, ChunkNotKept, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
 import { createIntakeHandler, parseDepositSubmission, parseWrapSubmission, parseReceiveSubmission, parseRelaySubmission, ipKey } from '../src/lib/evm-pool-keeper-intake.js';
-import { createKeeper, coverCheck, quoteFee, receiveMinOf, subsidyOf } from '../src/lib/evm-pool-keeper-loop.js';
+import { createKeeper, coverCheck, quoteFee, receiveMinOf, receiveFloorOf, subsidyOf, absorbed } from '../src/lib/evm-pool-keeper-loop.js';
 import { loadZk } from '../src/lib/evm-pool-keeper-prover.js';
 
 const zk = await loadZk();
@@ -981,6 +981,31 @@ await test('a sweep subsidy lowers the smallest balance a receive box is moved i
   d.chain.fund(TOKEN, dbox, 1_000_000n);
   await d.keeper.tick();
   assert.equal(d.chain.sent.length, 0, 'a balance under the floor is not swept at a loss');
+});
+
+await test('the subsidy is a bounded share of the live cost: it follows gas, is capped when gas spikes, and a day\'s budget ends it', () => {
+  const base = { rates: new Map([[ETH, 10n ** 18n]]), minFees: new Map(), marginBps: 0n, sweepSubsidy: 300_000n, sweepSubsidyBps: 9500, receiveMinMult: 20 };
+  const cfg = mkCfg(base);
+  // cost 100,000: 95% absorbed (95,000), the cap (25 bps) covers 5,000, so 2,000,000 by the cap; the 20x floor is 2,000,000 too
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg }), 95_000n);
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 100_000n, cfg }), 2_000_000n, '20 times the cost, not 400 times');
+  // gas ten times higher: the cap on the subsidy (300,000) binds and the minimum rises with it: the keeper's loss is bounded
+  assert.equal(subsidyOf({ token: ETH, cost: 1_000_000n, cfg }), 300_000n);
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 1_000_000n, cfg }), 280_000_000n, '(1,000,000 - 300,000) x 400');
+  // a priced token follows its rate: 1 token unit = 2 wei of value, so the same cost is half as many units
+  const tcfg = mkCfg({ ...base, rates: new Map([[TOKEN.toLowerCase(), 2n * 10n ** 18n]]) });
+  assert.equal(subsidyOf({ token: TOKEN, cost: 50_000n, cfg: tcfg }), 47_500n);
+  assert.equal(receiveFloorOf({ token: TOKEN, cost: 50_000n, cfg: tcfg }), 1_000_000n);
+  // a day's budget: once spent, the minimum is the plain one until it rolls off
+  const dcfg = mkCfg({ ...base, sweepSubsidyDaily: 150_000n });
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: dcfg, at: 1000 }), 95_000n);
+  absorbed({ token: ETH, tokens: 95_000n, cfg: dcfg, at: 1000 });
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: dcfg, at: 1100 }), 55_000n, 'what is left of the budget');
+  absorbed({ token: ETH, tokens: 55_000n, cfg: dcfg, at: 1100 });
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: dcfg, at: 1200 }), 0n, 'the budget is spent');
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 100_000n, cfg: dcfg, at: 1200 }), 40_000_000n, 'back to 400 times the cost');
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: dcfg, at: 1000 + 86_401 }), 95_000n, 'a day later it is back');
+  assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: mkCfg({ ...base, sweepSubsidy: 0n }) }), 0n, 'off by default');
 });
 
 await test('HTTP relay and receive: quote, submit, stale → 409, low fee → needFee, receive watch + nudge', async () => {
