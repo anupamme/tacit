@@ -43,6 +43,7 @@ export function openKeeperStore(dbPath) {
     due: db.prepare("SELECT * FROM intents WHERE status = 'pending' AND kind != 'receive' AND next_check <= ? ORDER BY next_check LIMIT ?"),
     nextDue: db.prepare("SELECT MIN(next_check) AS t FROM intents WHERE status = 'pending'"),
     lastLeaf: db.prepare('SELECT leaf, block FROM leaves ORDER BY idx DESC LIMIT 1'),
+    wakeNoted: db.prepare("UPDATE intents SET next_check = ?, checks = 0 WHERE status = 'pending' AND kind = 'receive' AND next_check > ? AND COALESCE(note, '') NOT IN ('', 'swept')"),
     dueReceive: db.prepare("SELECT * FROM intents WHERE status = 'pending' AND kind = 'receive' AND next_check <= ? ORDER BY next_check LIMIT ?"),
     pending: db.prepare("SELECT COUNT(*) AS n FROM intents WHERE status = 'pending' AND kind != 'receive'"),
     receiving: db.prepare("SELECT COUNT(*) AS n FROM intents WHERE status = 'pending' AND kind = 'receive'"),
@@ -82,6 +83,8 @@ export function openKeeperStore(dbPath) {
     // Deposit and wrap boxes, and receive boxes, are due on separate quotas so neither can starve the other.
     due: (now, limit) => st.due.all(now, limit).map(row),
     dueReceive: (now, limit) => st.dueReceive.all(now, limit).map(row),
+    // A receive box last left with a note (skipped, failed) is looked at again now: a restart is a new look, not the end of a wait that grew.
+    wakeNoted: (now) => st.wakeNoted.run(now, now).changes,
     nextDue: () => { const t = st.nextDue.get().t; return t == null ? null : Number(t); },
     lastLeaf: () => { const r = st.lastLeaf.get(); return r ? { leaf: r.leaf, block: Number(r.block) } : null; },
     // Boxes awaiting completion; receive boxes, which are watched indefinitely, are counted apart.

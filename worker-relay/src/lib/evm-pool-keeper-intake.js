@@ -24,7 +24,7 @@ import { getAddress, isAddress, encodeFunctionData, parseAbi } from 'viem';
 import { depositIntent, callIntent, callEscrowAddress } from '../../../dapp/evm-pool-gateway.js';
 import { P_FR } from '../../../dapp/btc-pool-zk.js';
 import { ETH } from './evm-pool-keeper-config.js';
-import { coverCheck, quoteFee, receiveMinOf, subsidyRoom } from './evm-pool-keeper-loop.js';
+import { coverCheck, quoteFee, receiveMinOf, subsidyRoom, sweepGasOf } from './evm-pool-keeper-loop.js';
 import { PipelineError } from './evm-pool-keeper-pipeline.js';
 import { revertName as defaultRevertName } from './evm-pool-keeper-chain.js';
 import { safeErr } from './safe-err.js';
@@ -432,7 +432,7 @@ export function createIntakeHandler({
     await mustFront((gas * 13n) / 10n);
     const q = quoteFee({ token: chain.asset, gas, gasPrice: price, cfg });
     // What collecting a receive box costs now, and the smallest balance whose 0.25% cap pays for it.
-    const sweep = quoteFee({ token: chain.asset, gas: cfg.sweepGas, gasPrice: price, cfg, floor: !cfg.rates.has(chain.asset.toLowerCase()) });
+    const sweep = quoteFee({ token: chain.asset, gas: sweepGasOf({ chain, cfg }), gasPrice: price, cfg, floor: !cfg.rates.has(chain.asset.toLowerCase()) });
     return {
       chainId: chain.chainId, pool: chain.pool, relayer: chain.address, asset: chain.asset, fee: q.toString(), gas: gas.toString(),
       sweepFee: sweep.toString(), receiveMin: receiveMinOf({ token: chain.asset, sweepFee: sweep, cfg, room: await subsidyRoom({ chain, cfg, at: now() }) }).toString(),

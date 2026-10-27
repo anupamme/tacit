@@ -15,7 +15,7 @@ import { loadKeeperConfig, checkKeeperSigner, parseTokenMap, RELAY_EOA } from '.
 import { openKeeperStore } from '../src/lib/evm-pool-keeper-store.js';
 import { makeLeafSync, makeFactsSync, LeafSyncError, ChunkNotKept, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
 import { createIntakeHandler, parseDepositSubmission, parseWrapSubmission, parseReceiveSubmission, parseRelaySubmission, ipKey } from '../src/lib/evm-pool-keeper-intake.js';
-import { createKeeper, coverCheck, quoteFee, receiveMinOf, receiveFloorOf, subsidyOf, subsidyRoom, absorbed } from '../src/lib/evm-pool-keeper-loop.js';
+import { createKeeper, coverCheck, quoteFee, receiveMinOf, receiveFloorOf, subsidyOf, subsidyRoom, absorbed, sweepGasOf, forgetSweepGas } from '../src/lib/evm-pool-keeper-loop.js';
 import { loadZk } from '../src/lib/evm-pool-keeper-prover.js';
 
 const zk = await loadZk();
@@ -1077,6 +1077,60 @@ await test('a sweep subsidy lowers the smallest balance a receive box is moved i
   d.chain.fund(TOKEN, dbox, 1_000_000n);
   await d.keeper.tick();
   assert.equal(d.chain.sent.length, 0, 'a balance under the floor is not swept at a loss');
+});
+
+await test('a sweep whose estimate is above the gas assumed is sized on the estimate: it still lands, and the next quote and floor follow it', async () => {
+  forgetSweepGas();
+  // 1 wei per token unit and per gas; assumed 385,000 gas, the chain estimates 400,000 (4% more); margin 20%, subsidy 97.5%, floor 10x
+  const base = { rates: new Map([[TOKEN.toLowerCase(), 10n ** 18n]]), minFees: new Map(), marginBps: 2000n, sweepGas: 385_000n, sweepSubsidy: 10n ** 9n, sweepSubsidyBps: 9750, receiveMinMult: 10 };
+  const s = setup({ cfg: base });
+  assert.equal(sweepGasOf({ chain: s.chain, cfg: s.cfg }), 385_000n);
+  // cost at the assumed gas 462,000, at the estimate 480,000; a box of 12x the first: the 25 bps cap pays 13,860, the subsidy 468,000
+  const box = await addReceive(s, 25);
+  s.chain.fund(TOKEN, box, 5_544_000n);
+  await s.keeper.tick();
+  assert.equal(s.chain.sent.length, 1, 'swept: the subsidy follows the estimate (sized on the assumed gas it would have fallen 15,000 short)');
+  assert.equal(sweepGasOf({ chain: s.chain, cfg: s.cfg }), 400_000n, 'the estimate is remembered');
+  // 10.17x the assumed cost, but under the 10x floor of the cost it really has: now left alone before any proof is made
+  const calls = s.prover.calls;
+  const b2 = await addReceive(s, 26);
+  s.chain.fund(TOKEN, b2, 4_700_000n);
+  await s.keeper.tick();
+  assert.equal(s.prover.calls, calls, 'no proof is made for a balance the learned cost puts under the floor');
+  assert.equal(s.chain.sent.length, 1);
+  assert.equal(s.logs.filter((m) => m.includes(b2) && /skipped/.test(m)).length, 1, 'and why is said');
+  await s.keeper.tick();
+  assert.equal(s.logs.filter((m) => m.includes(b2) && /skipped/.test(m)).length, 1, 'once');
+  forgetSweepGas();
+});
+
+await test('a funded box that was skipped is looked at again within two minutes, and a start looks at every box left with a note', async () => {
+  forgetSweepGas();
+  // priced token, no subsidy, the cap pays less than the cost: skipped, again and again
+  const cfg = { rates: new Map([[TOKEN.toLowerCase(), 10n ** 18n]]), minFees: new Map(), marginBps: 0n, sweepGas: 400_000n, pollSecs: 10, receiveMaxBackoffSecs: 1800 };
+  const s = setup({ cfg });
+  const box = await addReceive(s, 25);
+  s.chain.fund(TOKEN, box, 1_000_000n);   // cap 2,500 against a cost of 400,000
+  for (let i = 0; i < 12; i++) {
+    await s.keeper.tick();
+    const row = s.store.get(box);
+    assert.ok(row.next_check - s.clock.t <= 120, `look ${i + 1}: next in ${row.next_check - s.clock.t} s`);
+    s.advance(row.next_check - s.clock.t);
+  }
+  assert.equal(s.chain.sent.length, 0);
+  assert.equal(s.logs.filter((m) => /skipped/.test(m)).length, 1, 'said once');
+  // a long wait left by an earlier start (a note, a next check far off) is cut short by a start
+  s.store.update(box, { next_check: s.clock.t + 1800, checks: 9, note: 'reward worth 1 wei is below the 2 wei cost' });
+  const quiet = s.store.get(box).next_check;
+  const logs = [];
+  createKeeper({ store: s.store, chain: s.chain, prover: s.prover, zk, assetField, leafSync: s.leafSync, cfg: s.cfg, now: () => s.clock.t, log: (m) => logs.push(m) });
+  assert.ok(s.store.get(box).next_check < quiet && s.store.get(box).next_check <= s.clock.t, 'due now');
+  assert.equal(s.store.get(box).checks, 0);
+  assert.match(logs.join(''), /1 receive box left with a note/);
+  // swept boxes and boxes without a note keep their schedule
+  s.store.update(box, { next_check: s.clock.t + 1800, note: 'swept' });
+  createKeeper({ store: s.store, chain: s.chain, prover: s.prover, zk, assetField, leafSync: s.leafSync, cfg: s.cfg, now: () => s.clock.t, log: () => {} });
+  assert.equal(s.store.get(box).next_check, s.clock.t + 1800);
 });
 
 await test('the subsidy is a bounded share of the live cost: it follows gas, is capped when gas spikes, and a signer\'s budget and reserve end it', async () => {

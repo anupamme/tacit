@@ -107,15 +107,31 @@ export function receiveMinOf({ token, sweepFee, cfg, room = null }) {
   return byCap > floor ? byCap : floor;
 }
 
+// What a sweep of this pool really costs in gas: the SWEEP_GAS setting, or the highest estimate the chain gave for one in the last day if
+// that is more (a first sweep that makes the box costs more than a setting taken from a later one). The quote, the subsidy and the
+// minimum are sized on it, so they do not promise a sweep the estimate then shows the reward does not cover.
+const SEEN_GAS = new Map();   // chainId:pool → [{ at, gas }]
+const gasKey = (chain) => `${chain.chainId}:${String(chain.pool).toLowerCase()}`;
+export function noteSweepGas({ chain, gas, at = nowSecs() }) {
+  const key = gasKey(chain), list = (SEEN_GAS.get(key) || []).filter((x) => at - x.at < 86_400);
+  list.push({ at, gas: BigInt(gas) });
+  SEEN_GAS.set(key, list);
+}
+export const forgetSweepGas = () => SEEN_GAS.clear();
+export function sweepGasOf({ chain, cfg, at = nowSecs() }) {
+  const seen = (SEEN_GAS.get(gasKey(chain)) || []).filter((x) => at - x.at < 86_400).reduce((a, x) => (x.gas > a ? x.gas : a), 0n);
+  return seen > cfg.sweepGas ? seen : cfg.sweepGas;
+}
+
 const hexOf = (m) => (typeof m === 'string' ? m : '0x' + Buffer.from(m).toString('hex'));
 
 export function createKeeper({
   store, chain, prover, zk, assetField, leafSync, pipeline = null, cfg,
   now = () => Math.floor(Date.now() / 1000), log = () => {}, revertName = defaultRevertName,
 }) {
-  const backoff = (r, t, note) => {
+  const backoff = (r, t, note, limit = Infinity) => {
     const checks = (r.checks || 0) + 1;
-    const cap = r.kind !== 'receive' ? cfg.maxBackoffSecs : t > Number(r.deadline) ? cfg.receiveSlowSecs : cfg.receiveMaxBackoffSecs;
+    const cap = Math.min(limit, r.kind !== 'receive' ? cfg.maxBackoffSecs : t > Number(r.deadline) ? cfg.receiveSlowSecs : cfg.receiveMaxBackoffSecs);
     // A box registered just now is waiting for a payment that is usually seconds away (a swap's output, a transfer from an exchange):
     // for its first minutes it is looked at again after 3, 6, 12 … seconds, not after the poll interval doubled.
     // (counted from its last registration or sweep, which set its deadline, so a box asked about again is fresh again)
@@ -255,12 +271,14 @@ export function createKeeper({
     if (bal === 0n) return { idle: true };
     const gasPrice = await chain.gasPrice();
     const floor = !cfg.rates.has(r.token.toLowerCase());
-    const cost = quoteFee({ token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
+    const assumed = sweepGasOf({ chain, cfg, at: t });
+    const cost = quoteFee({ token: r.token, gas: assumed, gasPrice, cfg, floor });
     const feeFor = (amount) => { const cap = (amount * BigInt(feeBps)) / 10_000n; return cost < cap ? cost : cap; };
     // What the keeper takes on itself of the cost counts toward the reward; a balance under the floor is left alone.
-    const sub = subsidyOf({ token: r.token, cost, cfg, room: await subsidyRoom({ chain, cfg, at: t }) }), floorMin = receiveFloorOf({ token: r.token, cost, cfg });
+    const room = await subsidyRoom({ chain, cfg, at: t });
+    const sub = subsidyOf({ token: r.token, cost, cfg, room }), floorMin = receiveFloorOf({ token: r.token, cost, cfg });
     if (sub > 0n && bal < floorMin) return { skipped: `balance ${bal} is below the ${floorMin} the keeper sweeps at a loss` };
-    const pre = coverCheck({ reward: feeFor(bal) + sub, token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
+    const pre = coverCheck({ reward: feeFor(bal) + sub, token: r.token, gas: assumed, gasPrice, cfg, floor });
     if (!pre.ok) return { skipped: pre.reason };
     for (let round = 0; round <= cfg.staleRetries; round++) {
       const n = await chain.receiveCount(r.box);
@@ -284,9 +302,9 @@ export function createKeeper({
       if (p.publicInputs.length !== 11 || p.publicInputs.some((x, i) => BigInt(x) !== BigInt(w.publicSignals[i]))) { await release(); throw new Error('prover returned different public inputs'); }
       const tx = { pA: p.pA, pB: p.pB, pC: p.pC, publicInputs: p.publicInputs.map(BigInt), recipient: ETH, extAmount: amount, relayer: chain.address, fee: f, memo0: '0x', memo1: '0x' };
       const args = [BigInt(npk), Number(feeBps), tx];
-      let est = cfg.sweepGas;
+      let est = assumed;
       if (!queued) {
-        try { est = await chain.estimate('sweepReceive', args); }
+        try { est = await chain.estimate('sweepReceive', args); noteSweepGas({ chain, gas: est, at: t }); }
         catch (e) {
           await release();
           const name = revertName(e);
@@ -294,7 +312,10 @@ export function createKeeper({
           return { failed: name || safeErr(e) };
         }
       }
-      const cov = coverCheck({ reward: f + sub, token: r.token, gas: est, gasPrice: await chain.gasPrice(), cfg, floor });
+      // The fee is in the proof; what the keeper takes on is not, so the subsidy is sized on the estimate, not on the gas assumed.
+      const gp = await chain.gasPrice();
+      const costNow = quoteFee({ token: r.token, gas: est, gasPrice: gp, cfg, floor }), subNow = subsidyOf({ token: r.token, cost: costNow, cfg, room });
+      const cov = coverCheck({ reward: f + subNow, token: r.token, gas: est, gasPrice: gp, cfg, floor });
       if (!cov.ok) { await release(); return { skipped: cov.reason }; }
       let out;
       try { out = await submit(r, 'sweepReceive', args, cov.gas, t, slot, tx); }
@@ -304,7 +325,7 @@ export function createKeeper({
         throw e;
       }
       if (out === 'reverted') { log(`receive ${r.box}: sweep reverted on chain, re-proving`); continue; }
-      return { out, amount, fee: f, took: sub > 0n && cost > f ? (cost - f < sub ? cost - f : sub) : 0n };
+      return { out, amount, fee: f, took: subNow > 0n && costNow > f ? (costNow - f < subNow ? costNow - f : subNow) : 0n };
     }
     return { stale: true };
   }
@@ -331,7 +352,8 @@ export function createKeeper({
       log(`receive ${r.box}: ${res.failed}`);
       return backoff(r, t, res.failed);
     }
-    return backoff(r, t, res.skipped ?? null);
+    if (res.skipped && res.skipped !== r.note) log(`receive ${r.box}: skipped, ${res.skipped}`);
+    return backoff(r, t, res.skipped ?? null, res.skipped ? cfg.receiveSkipMaxBackoffSecs ?? 120 : undefined);
   }
 
   async function processIntent(r) {
@@ -381,6 +403,9 @@ export function createKeeper({
 
   // When the next pending row falls due (unix seconds), or null: the loop sleeps until then, not for a whole poll interval.
   const nextDue = () => store.nextDue();
+
+  const woken = store.wakeNoted?.(now());
+  if (woken) log(`${woken} receive box${woken === 1 ? '' : 'es'} left with a note before this start ${woken === 1 ? 'is' : 'are'} looked at again now`);
 
   return { tick, processIntent, nextDue };
 }

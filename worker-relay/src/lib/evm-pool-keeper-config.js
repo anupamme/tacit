@@ -153,6 +153,8 @@ export function loadKeeperConfig(env = process.env) {
     minReceiveFeeBps: checkReceiveFloor(int(env, 'EVM_POOL_KEEPER_MIN_RECEIVE_FEE_BPS', 1)),
     // An idle receive box is looked at least this often; re-posting it asks for a look now.
     receiveMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_MAX_BACKOFF_SECS', 1800),
+    // A box that holds funds but was skipped (its cost is not covered at today's gas) is looked at again at least this often: gas moves every block.
+    receiveSkipMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_SKIP_MAX_BACKOFF_SECS', 120),
     // A receive box registered in the last receiveFreshSecs is looked at again after receiveFastSecs, doubling, not after the poll interval.
     receiveFastSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_FAST_SECS', 3),
     receiveFreshSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_FRESH_SECS', 300),
