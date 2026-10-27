@@ -41,6 +41,8 @@ export function openKeeperStore(dbPath) {
                      VALUES (@box, @kind, @intent, @hint, 'pending', @reward, @token, @deadline, @now, @now, @now)`),
     get: db.prepare('SELECT * FROM intents WHERE box = ?'),
     due: db.prepare("SELECT * FROM intents WHERE status = 'pending' AND kind != 'receive' AND next_check <= ? ORDER BY next_check LIMIT ?"),
+    nextDue: db.prepare("SELECT MIN(next_check) AS t FROM intents WHERE status = 'pending'"),
+    lastLeaf: db.prepare('SELECT leaf, block FROM leaves ORDER BY idx DESC LIMIT 1'),
     dueReceive: db.prepare("SELECT * FROM intents WHERE status = 'pending' AND kind = 'receive' AND next_check <= ? ORDER BY next_check LIMIT ?"),
     pending: db.prepare("SELECT COUNT(*) AS n FROM intents WHERE status = 'pending' AND kind != 'receive'"),
     receiving: db.prepare("SELECT COUNT(*) AS n FROM intents WHERE status = 'pending' AND kind = 'receive'"),
@@ -80,6 +82,8 @@ export function openKeeperStore(dbPath) {
     // Deposit and wrap boxes, and receive boxes, are due on separate quotas so neither can starve the other.
     due: (now, limit) => st.due.all(now, limit).map(row),
     dueReceive: (now, limit) => st.dueReceive.all(now, limit).map(row),
+    nextDue: () => { const t = st.nextDue.get().t; return t == null ? null : Number(t); },
+    lastLeaf: () => { const r = st.lastLeaf.get(); return r ? { leaf: r.leaf, block: Number(r.block) } : null; },
     // Boxes awaiting completion; receive boxes, which are watched indefinitely, are counted apart.
     pendingCount: () => st.pending.get().n,
     receiveCount: () => st.receiving.get().n,

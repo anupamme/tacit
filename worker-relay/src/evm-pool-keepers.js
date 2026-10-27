@@ -33,6 +33,7 @@
 // which lists them all.
 
 import { createServer } from 'node:http';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -111,12 +112,48 @@ export function routeOf(url, ids) {
   return { id: list[0], path: url };
 }
 
-// One prover at a time across every chain: a groth16 proof is the only thing here that takes real memory.
-export function serialProver(prover) {
-  let last = Promise.resolve();
+// A chain's own pool has an id of digits; a token pool on it is `<chainId>-<name>`.
+export const isChainPool = (id) => /^\d+$/.test(id);
+
+// What GET /health says. `ok` (its status code, which Render restarts the whole service on) fails only for a chain pool whose loop has
+// finished no tick in `stuckMs` (a hang); `ready` is every chain pool's last tick having worked (a node's bad minute shows there).
+export function healthOf({ running, keepers, at = Date.now(), stuckMs = 600_000 }) {
+  const chains = running.filter(isChainPool);
+  // (a loop busy in a long history replay is making progress: its leaf sync says when it last stored a chunk)
+  const stuck = chains.filter((c) => at - Math.max(keepers.get(c).lastTickAt, keepers.get(c).leafSync?.progressAt ?? 0) > stuckMs);
+  return {
+    ok: stuck.length === 0,
+    ready: chains.every((c) => keepers.get(c).lastTickOk),
+    chains: Object.fromEntries(running.map((c) => [c, keepers.get(c).lastTickOk])),
+    ...(stuck.length ? { stuck } : {}),
+  };
+}
+
+// One prover at a time across every chain: a groth16 proof is the only thing here that takes real memory. They are made in the order
+// asked, except that a proof asked with a priority (a chain whose users are waiting on a swap) goes ahead of lower ones by that many
+// `headStartMs` of waiting, so it is never behind a long line of another chain's but cannot starve it either: a proof that has waited
+// longer than the head start is first. A failure does not block the next.
+export function serialProver(prover, { now = Date.now, headStartMs = 60_000 } = {}) {
+  const queue = [];
+  let running = false;
+  async function drain() {
+    if (running) return;
+    running = true;
+    while (queue.length) {
+      const at = now();
+      let best = 0;
+      const age = (j) => (at - j.since) + j.priority * headStartMs;      // how long it has waited, plus its head start
+      for (let i = 1; i < queue.length; i++) if (age(queue[i]) > age(queue[best])) best = i;
+      const job = queue.splice(best, 1)[0];
+      try { job.resolve(await prover.prove(job.input)); } catch (e) { job.reject(e); }
+    }
+    running = false;
+  }
   return {
     ...prover,
-    prove(input) { const run = last.then(() => prover.prove(input), () => prover.prove(input)); last = run.catch(() => {}); return run; },
+    prove(input, { priority = 0 } = {}) {
+      return new Promise((resolve, reject) => { queue.push({ input, priority: Number(priority) || 0, since: now(), resolve, reject }); drain(); });
+    },
   };
 }
 
@@ -160,7 +197,7 @@ async function main() {
   const keepers = new Map();
   const pools = new Map();    // chainId:pool → id, so two keepers never watch one pool
   const running = [];
-  const chainPool = (id) => /^\d+$/.test(id);
+  const chainPool = isChainPool;
 
   // One keeper, made ready to serve (its nodes, price, prover, store, intake), or an error. `needPrice`: a token pool found on chain starts
   // only once its token can be priced (one no pool trades is not worth a keeper's loop). → the keeper, or null when it is not configured.
@@ -203,8 +240,8 @@ async function main() {
     if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey) && !rates) clog(`warning: no EVM_POOL_KEEPER_MIN_FEES, _TOKEN_RATES or _RATE_FEED entry for the pool asset ${assetKey}; deposits will be skipped`);
     clog(`keeper ${account.address} on chain ${chain.chainId}: pool ${chain.pool} router ${chain.router} asset ${chain.asset} vk ${prover.vkHash.slice(0, 16)} store ${cfg.dbPath}${cfg.dryRun ? ' (dry run)' : ''}`);
     const poster = pointPosterFor({ chain, cfg, budgeted: !!dayBudgetWei, log: clog });
-    const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, poster, lastTickOk: true, log: clog };
-    k.handler = createIntakeHandler({ store, chain, zk, assetField, cfg, log: clog, leafSync, pipeline, isReady: () => k.lastTickOk });
+    const k = { id, chainId, cfg, chain, store, leafSync, keeper, rates, poster, lastTickOk: true, lastTickAt: Date.now(), wake: null, log: clog };
+    k.handler = createIntakeHandler({ store, chain, zk, assetField, cfg, log: clog, leafSync, pipeline, isReady: () => k.lastTickOk, onDue: () => k.wake?.() });
     pools.set(poolKey, id);
     return k;
   }
@@ -212,7 +249,7 @@ async function main() {
   // A keeper's loops: its price, the history's facts, and its ticks.
   let started = 0;   // the loops of 15 keepers starting together hash and read at once: each starts a little after the one before
   function runKeeper(k) {
-    const stagger = Math.min(started++, 20) * Number(process.env.EVM_POOL_KEEPER_STAGGER_MS ?? 2000);
+    const stagger = process.uptime() < 120 ? Math.min(started++, 20) * Number(process.env.EVM_POOL_KEEPER_STAGGER_MS ?? 2000) : 0;
     if (k.rates) setInterval(() => { k.rates.refresh().catch(() => {}); }, k.cfg.rateSecs * 1000).unref?.();
     // The history's public facts fill in on their own loop: a backfill or a slow node never delays a relay or a proof.
     if (k.cfg.facts) {
@@ -232,11 +269,18 @@ async function main() {
       for (;;) {
         try { await k.keeper.tick(); k.lastTickOk = true; }
         catch (e) { k.lastTickOk = false; k.log(`tick failed: ${safeErr(e)}`); }
+        k.lastTickAt = Date.now();
         if (Date.now() - lastHistory >= k.cfg.historySecs * 1000) {
           lastHistory = Date.now();
           await historyStep(k);
+          k.lastTickAt = Date.now();
         }
-        await sleep(k.cfg.pollSecs * 1000);
+        // Until the next pending row falls due (a box just registered is looked at again in seconds), a poll interval at most, and
+        // at once when a box is registered or asked about; never faster than twice a second.
+        const due = k.keeper.nextDue?.();
+        const ms = Math.min(k.cfg.pollSecs * 1000, due == null ? Infinity : Math.max(500, (due - Date.now() / 1000) * 1000));
+        await new Promise((resolve) => { const timer = setTimeout(resolve, ms); k.wake = () => { clearTimeout(timer); resolve(); }; });
+        k.wake = null;
       }
     })();
   }
@@ -259,6 +303,17 @@ async function main() {
   const asked = new Map();      // client → the times it named a pool in the last hour
   const askedOk = (who) => { const t = Date.now(), a = (asked.get(who) || []).filter((x) => t - x < 3_600_000); if (a.length >= 30) return false; a.push(t); asked.set(who, a); return true; };
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+
+  // How long the event loop was blocked, sampled: a minute's worst and its 99th percentile are in /health and logged when over a second,
+  // so a stall that fails a health check can be traced to its time and size.
+  const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+  loopDelay.enable();
+  let lagNow = { p99Ms: 0, maxMs: 0 };
+  setInterval(() => {
+    lagNow = { p99Ms: Math.round(loopDelay.percentile(99) / 1e6), maxMs: Math.round(loopDelay.max / 1e6) };
+    if (lagNow.maxMs > 1000) log(`the event loop was blocked up to ${lagNow.maxMs} ms in the last minute (p99 ${lagNow.p99Ms} ms)`);
+    loopDelay.reset();
+  }, 60_000).unref();
 
   const port = Number(process.env.PORT || 10000);
   createServer((req, res) => {
@@ -287,9 +342,10 @@ async function main() {
     }
     if (url === '/health' || url === '/health/') {
       // the chains' own pools decide the service's health; another pool's trouble (a token pool's node, its price) shows, and restarts nothing
-      const ok = running.filter(chainPool).every((c) => keepers.get(c).lastTickOk);
-      res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ ok, chains: Object.fromEntries(running.map((c) => [c, keepers.get(c).lastTickOk])) }));
+      // Render restarts the whole service, every chain with it, when this fails: so it fails only for a hang, not for a tick that failed.
+      const h = healthOf({ running, keepers, stuckMs: Number(process.env.EVM_POOL_KEEPER_STUCK_SECS || 600) * 1000 });
+      res.writeHead(h.ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ ...h, loop: lagNow, rssMb: Math.round(process.memoryUsage().rss / 1048576), uptimeS: Math.round(process.uptime()) }));
     }
     if (url === '/chains' || url === '/chains/') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=60' });

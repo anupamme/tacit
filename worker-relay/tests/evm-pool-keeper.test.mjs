@@ -4,12 +4,13 @@
 //   node worker-relay/tests/evm-pool-keeper.test.mjs
 
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import http, { createServer } from 'node:http';
+import { gunzipSync } from 'node:zlib';
 import { keccak_256 } from '../../dapp/vendor/tacit-deps.min.js';
 import { poolAsset } from '../../dapp/evm-pool-zk.js';
 import { encodeAbiParameters, keccak256 as viemKeccak, encodeFunctionData, decodeFunctionData, toHex } from 'viem';
 import { depositIntent, receiveRho, receiveKeys, callIntent, callIntentJson, callEscrowAddress, v1ZapShieldedNoteCall } from '../../dapp/evm-pool-gateway.js';
-import { ROUTER_ABI, frontFees, makeKeeperChain } from '../src/lib/evm-pool-keeper-chain.js';
+import { ROUTER_ABI, frontFees, makeKeeperChain, readerFor } from '../src/lib/evm-pool-keeper-chain.js';
 import { loadKeeperConfig, checkKeeperSigner, parseTokenMap, RELAY_EOA } from '../src/lib/evm-pool-keeper-config.js';
 import { openKeeperStore } from '../src/lib/evm-pool-keeper-store.js';
 import { makeLeafSync, makeFactsSync, LeafSyncError, ChunkNotKept, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
@@ -726,20 +727,28 @@ await test('a keeper that starts again reads its tree from the store, not by has
   assert.ok(!appended.includes(6), `the 6 stored leaves were hashed again at the start: ${appended}`);
   assert.equal(again.root, first.root, 'and it is the same tree');
   assert.equal(again.tree.root, zk.tree(chain.leaves).root);
-  // a tree kept for other leaves than the store holds is not trusted: the leaves are hashed
-  store.setMeta('base_tree', JSON.stringify({ ...JSON.parse(store.getMeta('base_tree')), size: 4 }));
-  appended.length = 0;
-  const healed = await mk().sync();
-  assert.ok(appended.includes(6), 'a tree of the wrong size is rebuilt from the leaves');
-  assert.equal(healed.tree.root, zk.tree(chain.leaves).root);
-  // a tree whose root was altered in the store (not the size) is not trusted either
-  const meta = JSON.parse(store.getMeta('base_tree'));
+  // a tree that does not agree with the leaves the store holds, in any of the ways it could, is not trusted: the leaves are hashed
+  const good = JSON.parse(store.getMeta('base_tree'));
+  assert.deepEqual(Object.keys(good).sort(), ['block', 'count', 'last', 'tree'], 'kept with the count, the block and the last leaf');
+  const wrong = {
+    'the leaf count': { ...good, count: 4 },
+    'the block': { ...good, block: good.block - 1 },
+    'the last leaf': { ...good, last: '12345' },
+    'its own size': { ...good, tree: { ...good.tree, size: 4 } },
+    'an older shape (the tree alone)': good.tree,
+  };
+  for (const [what, meta] of Object.entries(wrong)) {
+    store.setMeta('base_tree', JSON.stringify(meta));
+    appended.length = 0;
+    const healed = await mk().sync();
+    assert.ok(appended.includes(6), `a tree that disagrees in ${what} is rebuilt from the leaves`);
+    assert.equal(healed.tree.root, zk.tree(chain.leaves).root, `and the tree is right (${what})`);
+  }
   store.setMeta('base_tree', 'not json');
   appended.length = 0;
   const bad = await mk().sync();
   assert.ok(appended.includes(6), 'an unreadable tree is rebuilt from the leaves');
   assert.equal(bad.tree.root, zk.tree(chain.leaves).root);
-  void meta;
 });
 
 await test('hashing the stored leaves in slices gives the same tree, and many syncs at once rebuild it once', async () => {
@@ -1111,6 +1120,143 @@ await test('the subsidy is a bounded share of the live cost: it follows gas, is 
   assert.equal(await subsidyRoom({ chain, cfg: mkCfg({ ...base, sweepSubsidyDaily: 100_000n, subsidyReserve: 1_000_000n }), at: 200_000, maxAgeMs: 0 }), 100_000n, 'the lesser of the budget and the spare ETH');
   assert.equal(await subsidyRoom({ chain, cfg: mkCfg(base), at: 200_000, maxAgeMs: 0 }), null, 'no bound when neither is set');
   assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: mkCfg({ ...base, sweepSubsidy: 0n }) }), 0n, 'off by default');
+});
+
+await test('a receive box just registered is looked at again in seconds, an old one after the poll interval doubled; the loop can ask when the next is due', async () => {
+  const s = setup({ cfg: { pollSecs: 15, receiveFastSecs: 3, receiveFreshSecs: 300, receiveMaxBackoffSecs: 1800 } });
+  assert.equal(s.store.nextDue(), null, 'nothing pending, nothing due');
+  const box = await addReceive(s, 25);
+  assert.equal(s.store.nextDue(), s.store.get(box).next_check, 'a box registered is due at once');
+  const waits = [];
+  for (let i = 0; i < 5; i++) {
+    const at = s.clock.t;
+    await s.keeper.tick();                                          // empty box: nothing to sweep, looked at again later
+    const r = s.store.get(box);
+    waits.push(r.next_check - at);
+    assert.equal(s.keeper.nextDue(), r.next_check, 'the loop is told when it falls due');
+    s.advance(r.next_check - at);
+  }
+  assert.deepEqual(waits, [3, 6, 12, 24, 48], 'fresh: 3 s, doubling');
+  const old = setup({ cfg: { pollSecs: 15, receiveFastSecs: 3, receiveFreshSecs: 300, receiveMaxBackoffSecs: 1800 } });
+  const oldBox = await addReceive(old, 25);
+  old.advance(1000);                                                // registered over 300 s ago
+  const at = old.clock.t;
+  await old.keeper.tick();
+  assert.equal(old.store.get(oldBox).next_check - at, 30, 'an old box: the poll interval doubled, as before');
+  // asked about again (the deadline is renewed, as registering again does): fresh again
+  old.store.update(oldBox, { status: 'pending', next_check: old.clock.t, checks: 0, deadline: old.clock.t + old.cfg.receiveWatchSecs });
+  const again = old.clock.t;
+  await old.keeper.tick();
+  assert.equal(old.store.get(oldBox).next_check - again, 3, 'a box asked about again is looked at in seconds again');
+});
+
+await test('registering or asking again about a box wakes the keeper loop; a refused registration does not', async () => {
+  const cfg = mkCfg({ ratePerMin: 1000 });
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  let woken = 0;
+  const handler = createIntakeHandler({ store, chain, zk, assetField, cfg, now: () => T0, log: () => {}, onDue: () => { woken++; } });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}/evm-pool/keeper`;
+  try {
+    const bad = await fetch(base + '/receive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ npk: 'nope' }) });
+    assert.ok(bad.status >= 400);
+    assert.equal(woken, 0, 'nothing registered, nothing to look at');
+    const body = JSON.stringify({ chainId: CHAIN_ID, npk: receiveNpk.toString(), feeBps: 25 });
+    assert.equal((await fetch(base + '/receive', { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status, 200);
+    assert.equal(woken, 1, 'a box registered is looked at now');
+    assert.equal((await fetch(base + '/receive', { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status, 200);
+    assert.equal(woken, 2, 'and so is one asked about again');
+  } finally { server.close(); }
+});
+
+await test('a large answer is sent compressed to a client that takes it, whole and identical, and plain to one that does not', async () => {
+  const cfg = mkCfg({ ratePerMin: 1000 });
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  for (let i = 0; i < 40; i++) chain.foreignTx();
+  const leafSync = makeLeafSync({ store, chain, zk, startBlock: 0n, confirmations: 2n, logChunk: 50n });
+  await leafSync.sync();
+  const handler = createIntakeHandler({ store, chain, zk, assetField, cfg, now: () => T0, log: () => {}, leafSync });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, r));
+  const port = server.address().port;
+  const get = (path, enc) => new Promise((resolve, reject) => http.get({ port, path: `/evm-pool/keeper${path}`, headers: { 'accept-encoding': enc } }, (res) => {
+    const parts = []; res.on('data', (c) => parts.push(c)); res.on('end', () => resolve({ headers: res.headers, body: Buffer.concat(parts) }));
+  }).on('error', reject));
+  try {
+    const plain = await get('/events?from=0', 'identity');
+    const packed = await get('/events?from=0', 'gzip');
+    assert.ok(plain.body.length > 2048, `a page worth compressing (${plain.body.length} B)`);
+    assert.equal(plain.headers['content-encoding'], undefined);
+    assert.equal(packed.headers['content-encoding'], 'gzip');
+    assert.equal(packed.headers.vary, 'Accept-Encoding');
+    assert.ok(packed.body.length < plain.body.length / 2, `smaller: ${packed.body.length} against ${plain.body.length}`);
+    assert.equal(gunzipSync(packed.body).toString(), plain.body.toString(), 'the same answer');
+    const small = await get('/info', 'gzip');
+    assert.equal(small.headers['content-encoding'], undefined, 'a small one is not worth it');
+  } finally { server.close(); }
+});
+
+await test('a quote a little old is given at once while a new one is made, so a slow node never makes a page wait', async () => {
+  const cfg = mkCfg({ ratePerMin: 1000, quoteCacheMs: 40, quoteStaleMs: 60_000 });
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  let slow = 0;
+  chain.canFront = async () => { if (slow) await new Promise((r) => setTimeout(r, slow)); return { ok: true }; };
+  const handler = createIntakeHandler({ store, chain, zk, assetField, cfg, now: () => T0, log: () => {} });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}/evm-pool/keeper`;
+  const ask = async () => { const t = Date.now(); const r = await fetch(`${base}/quote`); return { ms: Date.now() - t, status: r.status, body: await r.json() }; };
+  try {
+    const first = await ask();
+    assert.equal(first.status, 200);
+    await new Promise((r) => setTimeout(r, 80));                    // past the shared window, inside the stale one
+    slow = 600;                                                      // the node behind the quote is now slow
+    const second = await ask();
+    assert.equal(second.status, 200);
+    assert.ok(second.ms < 300, `answered from the last good quote at once (${second.ms} ms)`);
+    assert.deepEqual(second.body, first.body);
+    chain.gas = 9n;                                                  // the price moves while the renewal runs
+    const during = await ask();
+    assert.ok(during.ms < 300, 'a second ask while it renews is also at once');
+    await new Promise((r) => setTimeout(r, 900));                    // the renewal is done
+    slow = 0;
+    const later = await ask();
+    assert.equal(later.status, 200);
+    // a refusal is shown, not hidden behind an old answer
+    chain.canFront = async () => ({ ok: false });
+    await new Promise((r) => setTimeout(r, 80));
+    const refused = await ask();                                     // served stale once while the refusal is found …
+    await new Promise((r) => setTimeout(r, 100));
+    const then = await ask();
+    assert.equal(then.status, 503, `the refusal shows once it is found (${refused.status} then ${then.status})`);
+    chain.canFront = async () => ({ ok: true });
+    assert.equal((await ask()).status, 200, 'and is gone as soon as it is');
+  } finally { server.close(); }
+});
+
+await test('a read node that does not answer is left for the next after the timeout, and a list of dead nodes fails in bounded time', async () => {
+  const listen = (handler) => new Promise((r) => { const sv = createServer(handler); sv.listen(0, '127.0.0.1', () => r(sv)); });
+  const hung = [await listen(() => {}), await listen(() => {})];                                    // accept the request, never answer
+  const good = await listen((req, res) => {
+    let b = ''; req.on('data', (c) => { b += c; });
+    req.on('end', () => { const j = JSON.parse(b); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: j.id, result: j.method === 'eth_chainId' ? '0x1' : '0x10' })); });
+  });
+  const url = (sv) => `http://127.0.0.1:${sv.address().port}`;
+  try {
+    const reader = readerFor([url(hung[0]), url(good)], { ms: 300, rankSecs: 0 });
+    let t0 = Date.now();
+    assert.equal(await reader.getBlockNumber(), 16n, 'answered by the second node');
+    assert.ok(Date.now() - t0 < 1500, `after one timeout, not after viem's 10 s (${Date.now() - t0} ms)`);
+    assert.equal(readerFor([url(hung[0]), url(good)], { ms: 300, rankSecs: 0 }), reader, 'one client for one list, shared by every keeper that reads it');
+    const dead = readerFor([url(hung[0]), url(hung[1])], { ms: 300, rankSecs: 0 });
+    t0 = Date.now();
+    await assert.rejects(dead.getBlockNumber());
+    assert.ok(Date.now() - t0 < 4000, `a list that never answers gives up in seconds, not minutes (${Date.now() - t0} ms)`);
+  } finally { for (const sv of [...hung, good]) { sv.closeAllConnections?.(); sv.close(); } }
 });
 
 await test('HTTP relay and receive: quote, submit, stale → 409, low fee → needFee, receive watch + nudge', async () => {

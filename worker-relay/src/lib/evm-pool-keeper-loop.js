@@ -116,7 +116,11 @@ export function createKeeper({
   const backoff = (r, t, note) => {
     const checks = (r.checks || 0) + 1;
     const cap = r.kind !== 'receive' ? cfg.maxBackoffSecs : t > Number(r.deadline) ? cfg.receiveSlowSecs : cfg.receiveMaxBackoffSecs;
-    const wait = Math.min(cfg.pollSecs * 2 ** Math.min(checks, 16), cap);
+    // A box registered just now is waiting for a payment that is usually seconds away (a swap's output, a transfer from an exchange):
+    // for its first minutes it is looked at again after 3, 6, 12 … seconds, not after the poll interval doubled.
+    // (counted from its last registration or sweep, which set its deadline, so a box asked about again is fresh again)
+    const fresh = r.kind === 'receive' && t - (Number(r.deadline) - (cfg.receiveWatchSecs ?? 0)) < (cfg.receiveFreshSecs ?? 300);
+    const wait = Math.min((fresh ? Math.min(cfg.receiveFastSecs ?? 3, cfg.pollSecs) : cfg.pollSecs) * 2 ** Math.min(checks - (fresh ? 1 : 0), 16), cap);
     store.update(r.box, { checks, next_check: t + wait, updated: t, ...(note !== undefined ? { note } : {}) });
   };
   // A stale proof means the pool moved while it was made. Looking again at once only makes another, so the wait doubles from pollSecs
@@ -188,7 +192,9 @@ export function createKeeper({
         leafSync.invalidate();
         throw new Error('rebuilt leaves do not reach the pool root; resyncing');
       }
-      const p = await prover.prove(w.input).catch(async (e) => { await release(); throw e; });
+      const proofAt = Date.now();
+      const p = await prover.prove(w.input, { priority: cfg.proofPriority ?? 0 }).catch(async (e) => { await release(); throw e; });
+      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s`);
       if (p.publicInputs.length !== 11 || p.publicInputs.some((x, i) => BigInt(x) !== BigInt(w.publicSignals[i]))) { await release(); throw new Error('prover returned different public inputs'); }
       const tx = {
         pA: p.pA, pB: p.pB, pC: p.pC, publicInputs: p.publicInputs.map(BigInt),
@@ -272,7 +278,9 @@ export function createKeeper({
         leafSync.invalidate();
         throw new Error('rebuilt leaves do not reach the pool root; resyncing');
       }
-      const p = await prover.prove(w.input).catch(async (e) => { await release(); throw e; });
+      const proofAt = Date.now();
+      const p = await prover.prove(w.input, { priority: cfg.proofPriority ?? 0 }).catch(async (e) => { await release(); throw e; });
+      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s`);
       if (p.publicInputs.length !== 11 || p.publicInputs.some((x, i) => BigInt(x) !== BigInt(w.publicSignals[i]))) { await release(); throw new Error('prover returned different public inputs'); }
       const tx = { pA: p.pA, pB: p.pB, pC: p.pC, publicInputs: p.publicInputs.map(BigInt), recipient: ETH, extAmount: amount, relayer: chain.address, fee: f, memo0: '0x', memo1: '0x' };
       const args = [BigInt(npk), Number(feeBps), tx];
@@ -371,5 +379,8 @@ export function createKeeper({
     return rows.length;
   }
 
-  return { tick, processIntent };
+  // When the next pending row falls due (unix seconds), or null: the loop sleeps until then, not for a whole poll interval.
+  const nextDue = () => store.nextDue();
+
+  return { tick, processIntent, nextDue };
 }

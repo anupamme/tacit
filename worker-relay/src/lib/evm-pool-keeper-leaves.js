@@ -50,19 +50,25 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     return v === null ? BigInt(startBlock) - 1n : BigInt(v);
   };
   let base = null; // incTree over the persisted leaves
+  let progressAt = Date.now();   // when a sync last started or stored a chunk: a replay of a pool's history takes hours, and is not a hang
 
-  // That tree's right edge, size and root are kept beside the leaves: starting up then costs nothing, where hashing every leaf of a pool
-  // (109,000 on Base) again stalls the process for tens of seconds, long enough for its health check to fail. It is used only when it
-  // holds exactly the stored leaves; any doubt and the leaves are hashed as before, a slice at a time with the event loop let in between
-  // (the same tree as one append: a slice is an append like any other).
-  const keepBase = () => store.setMeta('base_tree', JSON.stringify(base.toJSON()));
+  // That tree's right edge, size and root are kept beside the leaves, with the leaf count, the block they are read through and the last
+  // leaf, so a start can take it from the store: hashing every leaf of a pool (109,000 on Base) again stalls the process for tens of
+  // seconds, long enough for its health check to fail. It is used only when all of those agree with the leaves the store holds; any doubt
+  // and the leaves are hashed as before, a slice at a time with the event loop let in between (the same tree as one append: a slice is
+  // an append like any other).
+  const baseMark = () => ({ count: store.leafCount(), block: store.syncedBlock(), last: store.lastLeaf()?.leaf ?? null });
+  const keepBase = () => store.setMeta('base_tree', JSON.stringify({ tree: base.toJSON(), ...baseMark() }));
   const later = () => new Promise((r) => setImmediate(r));
   async function loadBase() {
     try {
       const raw = store.getMeta('base_tree');
       if (raw) {
-        const s = JSON.parse(raw), t = zk.incTree(s);
-        if (t.size === store.leafCount() && String(t.root) === String(s.root)) return t;
+        const m = JSON.parse(raw), now = baseMark();
+        if (m.tree && m.count === now.count && m.block === now.block && m.last === now.last) {
+          const t = zk.incTree(m.tree);
+          if (t.size === now.count) return t;
+        }
       }
     } catch { /* hashed again below */ }
     const t = zk.incTree(), all = store.leaves();
@@ -102,6 +108,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
   // Returns { tree, root, nextIndex, head, confirmed }: an incTree over every leaf the pool holds at `head`, and its root
   // there; `confirmed` is the tree over the persisted leaves alone and the block they are read through.
   async function sync() {
+    progressAt = Date.now();
     const head = BigInt(await chain.blockNumber());
     const safe = head - BigInt(confirmations);
     try {
@@ -122,6 +129,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
         store.appendLeaves(items, to, events);
         base.append(items.map((x) => x.leaf));
         keepBase();
+        progressAt = Date.now();
         from = to + 1n;
       }
     } catch (e) {
@@ -190,7 +198,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     return { size: Number(base.size), block: Number(synced()), filled: base.toJSON().filled.map((x) => `0x${BigInt(x).toString(16).padStart(64, '0')}`) };
   }
 
-  return { sync, eventsFrom, totals, point, invalidate: reset };
+  return { sync, eventsFrom, totals, point, invalidate: reset, get progressAt() { return progressAt; } };
 }
 
 // Fills in the stored events' facts, behind the leaf sync and apart from it, so a slow or failing node here never holds up

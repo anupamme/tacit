@@ -79,6 +79,9 @@ export function loadKeeperConfig(env = process.env) {
     pool: getAddress(pool),
     router: getAddress(router),
     chainId,
+    // A read node that does not answer in this long is left for the next (ms); the nodes are ranked by a ping every rpcRankSecs (0 = off).
+    rpcTimeoutMs: int(env, 'EVM_POOL_RPC_TIMEOUT_MS', 6000),
+    rpcRankSecs: int(env, 'EVM_POOL_RPC_RANK_SECS', 30),
     rpcUrls: [rpcUrl, ...list(str(env, 'EVM_POOL_RPC_URLS_FALLBACK'))].filter((u, i, a) => a.indexOf(u) === i),
     // Through the same normaliser the settle path uses: these carry a fee payable to whoever sends them,
     // so an endpoint in its searcher-visible mode invites a copy landed first for that fee.
@@ -150,6 +153,9 @@ export function loadKeeperConfig(env = process.env) {
     minReceiveFeeBps: checkReceiveFloor(int(env, 'EVM_POOL_KEEPER_MIN_RECEIVE_FEE_BPS', 1)),
     // An idle receive box is looked at least this often; re-posting it asks for a look now.
     receiveMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_MAX_BACKOFF_SECS', 1800),
+    // A receive box registered in the last receiveFreshSecs is looked at again after receiveFastSecs, doubling, not after the poll interval.
+    receiveFastSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_FAST_SECS', 3),
+    receiveFreshSecs: int(env, 'EVM_POOL_KEEPER_RECEIVE_FRESH_SECS', 300),
     // A receive box is watched closely this long after its last registration or sweep (re-posting renews it), and
     // after that checked at least every receiveSlowSecs. At capacity, the oldest lapsed box that was never swept
     // makes room for a new one.
@@ -171,8 +177,14 @@ export function loadKeeperConfig(env = process.env) {
     staleMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_STALE_MAX_BACKOFF_SECS', 120),
     // How many worker threads a proof may start (snarkjs starts one per CPU it is told of, and a container is told of its host's).
     proverThreads: int(env, 'EVM_POOL_KEEPER_PROVER_THREADS', 2),
+    // A submission endpoint that does not answer in this long (ms) is given up on (one retry after a network error); the private ones are
+    // sent to at once, so a hung one does not hold a relay up.
+    sendTimeoutMs: int(env, 'EVM_POOL_KEEPER_SEND_TIMEOUT_MS', 8000),
+    // The proofs of every pool share one queue; a pool with a priority of 1 goes ahead of the others by a minute of their waiting.
+    proofPriority: int(env, 'EVM_POOL_KEEPER_PROOF_PRIORITY', 0),
     // How long a /quote answer is shared by everyone who asks (ms).
     quoteCacheMs: int(env, 'EVM_POOL_KEEPER_QUOTE_CACHE_MS', 4000),
+    quoteStaleMs: int(env, 'EVM_POOL_KEEPER_QUOTE_STALE_MS', 15_000),
     maxAttempts: int(env, 'EVM_POOL_KEEPER_MAX_ATTEMPTS', 5),
     receiptWaitSecs: int(env, 'EVM_POOL_KEEPER_RECEIPT_WAIT_SECS', 180),
     reclaim: str(env, 'EVM_POOL_KEEPER_RECLAIM', '0') === '1',

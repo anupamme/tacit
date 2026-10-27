@@ -134,17 +134,37 @@ const signerOf = (chainId, address) => {
   return s;
 };
 
+// A read client over a list of nodes, shared by every keeper that reads the same list (seven Ethereum keepers ask the same nodes, and each
+// ranking them would ping them seven times). viem waits 10 s for a node that does not answer and goes round all of them up to four
+// times, so one hung node stalled a call for 10 s and a dead list for minutes: here a node that does not answer in `ms` is left for the
+// next, the round is repeated once, and the nodes are ranked by how fast and how steadily they answer (a ping each `rankSecs`), so a
+// slow or failing one is no longer tried first (pinged with eth_blockNumber: viem's own ping, net_listening, is not on every node,
+// and a node that lacked it would rank as failing). One node: asked, and once more.
+const READERS = new Map();
+export function readerFor(urls, { ms = 6000, rankSecs = 30 } = {}) {
+  const key = `${urls.join('|')}|${ms}|${rankSecs}`;
+  if (!READERS.has(key)) {
+    const node = (u) => http(u, { timeout: ms, retryCount: 0 });
+    const transport = urls.length > 1
+      ? fallback(urls.map(node), { retryCount: 1, ...(rankSecs > 0 ? { rank: { interval: rankSecs * 1000, sampleCount: 4, timeout: Math.min(ms, 2500), ping: ({ transport }) => transport.request({ method: 'eth_blockNumber' }) } } : {}) })
+      : http(urls[0], { timeout: ms, retryCount: 1 });
+    READERS.set(key, createPublicClient({ transport }));
+  }
+  return READERS.get(key);
+}
+
 export async function makeKeeperChain({ cfg, account, log = () => {} }) {
-  const pub = createPublicClient({ transport: fallback(cfg.rpcUrls.map((u) => http(u))) });
+  const rpc = { ms: cfg.rpcTimeoutMs ?? 6000, rankSecs: cfg.rpcRankSecs ?? 0 };
+  const pub = readerFor(cfg.rpcUrls, rpc);
   // History facts (a transaction's sender and target, a block's time, an old range of logs) are read from their own list of
   // nodes (EVM_POOL_FACTS_RPC_URLS, else the read nodes), so a backfill does not crowd the node that relays and proofs read.
   // A node that keeps only recent history answers an old range with nothing, not an error, and a fallback stops at that
   // answer, so a range of logs is asked of each node in turn until one returns every event the store holds for it.
   const factsUrls = cfg.factsRpcUrls?.length ? cfg.factsRpcUrls : cfg.rpcUrls;
-  const factsPub = factsUrls.length > 1 ? createPublicClient({ transport: fallback(factsUrls.map((u) => http(u))) }) : createPublicClient({ transport: http(factsUrls[0]) });
-  const factsEach = factsUrls.map((u) => createPublicClient({ transport: http(u) }));
+  const factsPub = readerFor(factsUrls, rpc);
+  const factsEach = factsUrls.map((u) => readerFor([u], rpc));
   const logUrls = cfg.logRpcUrls?.length ? cfg.logRpcUrls : null;
-  const logPub = logUrls ? (logUrls.length > 1 ? createPublicClient({ transport: fallback(logUrls.map((u) => http(u))) }) : createPublicClient({ transport: http(logUrls[0]) })) : pub;
+  const logPub = logUrls ? readerFor(logUrls, rpc) : pub;
   const chainId = await pub.getChainId();
   if (cfg.chainId && chainId !== cfg.chainId) throw new Error(`RPC is on chain ${chainId}, EVM_POOL_CHAIN_ID is ${cfg.chainId}`);
   const viemChain = defineChain({ id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [cfg.rpcUrls[0]] } } });
@@ -279,20 +299,31 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     send: (functionName, args, { gas, simulate = true }) => serial(async () => {
       if (simulate) await pub.estimateContractGas({ ...target(functionName), args, account });
       let lastErr;
+      const sendMs = cfg.sendTimeoutMs ?? 8000;
       const via = async (urls, nonce, fee, firstWins = false) => {
-        let hash = null;
-        for (const url of urls) {
-          try {
-            const wallet = createWalletClient({ account, chain: viemChain, transport: http(url) });
-            hash = (await wallet.writeContract({ ...target(functionName), args, gas, nonce, ...fee })) || hash;
-            if (firstWins && hash) break;
-          } catch (e) {
-            lastErr = e;
-            log(`  submit via ${new URL(url).host} failed: ${safeErr(e)}`);
-            if (revertName(e)) throw e;
+        const send1 = (url) => createWalletClient({ account, chain: viemChain, transport: http(url, { timeout: sendMs, retryCount: 1 }) })
+          .writeContract({ ...target(functionName), args, gas, nonce, ...fee });
+        if (firstWins) {
+          // the public nodes, one after another: the first that takes it
+          let hash = null;
+          for (const url of urls) {
+            try { hash = (await send1(url)) || hash; if (hash) break; }
+            catch (e) { lastErr = e; log(`  submit via ${new URL(url).host} failed: ${safeErr(e)}`); if (revertName(e)) throw e; }
           }
+          return hash;
         }
-        return hash;
+        // The private endpoints, all at once. The hash is the same at each, so whichever takes it first is the answer and the others go on
+        // in the background: one that hangs no longer holds the relay up for the sum of the timeouts, one that refuses does not stop the
+        // others, and a revert fails the send only when no endpoint took it.
+        return new Promise((resolve, reject) => {
+          let left = urls.length, done = false, reverted = null;
+          for (const url of urls) {
+            send1(url).then(
+              (h) => { if (h && !done) { done = true; resolve(h); } },
+              (e) => { lastErr = e; log(`  submit via ${new URL(url).host} failed: ${safeErr(e)}`); if (revertName(e) && !reverted) reverted = e; },
+            ).finally(() => { if (--left === 0 && !done) { done = true; if (reverted) reject(reverted); else resolve(null); } });
+          }
+        });
       };
       for (const urls of [privateUrls, publicUrls]) {
         if (!urls.length) continue;

@@ -2,7 +2,7 @@
 // node --test tests/evm-pool-keepers.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chainsOf, instancesOf, envFor, routeOf, serialProver } from '../src/evm-pool-keepers.js';
+import { chainsOf, instancesOf, envFor, routeOf, serialProver, healthOf, isChainPool } from '../src/evm-pool-keepers.js';
 
 test('the chains are read in order; a bad id refuses', () => {
   assert.deepEqual(chainsOf({ EVM_POOL_CHAINS: '1, 8453,4663,10' }), [1, 8453, 4663, 10]);
@@ -78,6 +78,30 @@ test('proofs are made one at a time across chains, in the order asked, and a fai
   assert.equal(s.vkHash, 'vk'); assert.equal(s.verify(), true);
 });
 
+test('a proof with a priority goes ahead of a line of others by a head start, and one that has waited longer is first', async () => {
+  let t = 0; const order = []; let release;
+  const gate = new Promise((r) => { release = r; });
+  const prover = { prove: async (x) => { if (x === 'first') await gate; order.push(x); return x; } };
+  const s = serialProver(prover, { now: () => t, headStartMs: 60_000 });
+  const first = s.prove('first');                                         // being made
+  const all = [s.prove('base1'), s.prove('base2'), s.prove('eth1', { priority: 1 }), s.prove('base3'), s.prove('eth2', { priority: 1 })];
+  release();
+  await Promise.all([first, ...all]);
+  assert.deepEqual(order, ['first', 'eth1', 'eth2', 'base1', 'base2', 'base3'], 'ahead of the line, each group in its order');
+  // aging: a priority-0 proof that has waited over the head start is ahead of a priority-1 one asked just now
+  order.length = 0; t = 0;
+  let free; const gate2 = new Promise((r) => { free = r; });
+  const prover2 = { prove: async (x) => { if (x === 'busy') await gate2; order.push(x); return x; } };
+  const s2 = serialProver(prover2, { now: () => t, headStartMs: 60_000 });
+  const busy = s2.prove('busy');
+  const old = s2.prove('old');                                           // asked at t = 0
+  t = 90_000;                                                            // 90 s later
+  const fresh = s2.prove('fresh', { priority: 1 });
+  free();
+  await Promise.all([busy, old, fresh]);
+  assert.deepEqual(order, ['busy', 'old', 'fresh'], 'a proof is never starved by a stream of priority ones');
+});
+
 // ── catch-up points: the ETH pool's to its registry, every other pool's to the hub ──
 const { pointPosterFor, historyStep } = await import('../src/evm-pool-keepers.js');
 const { loadKeeperConfig, CHECKPOINTS, CHECKPOINT_HUB } = await import('../src/lib/evm-pool-keeper-config.js');
@@ -137,4 +161,29 @@ test('a pool served on a day\'s allowance of gas posts no points; a failed sync 
   k.leafSync.sync = async () => edge(400); k.chain.hubLatest = async () => { throw new Error('hub read failed'); };
   assert.equal(await historyStep(k), null); assert.match(logs.join(), /catch-up point: hub read failed/);
   assert.equal(await historyStep({ leafSync: { sync: async () => edge(400) }, poster: null, log: () => {} }), null, 'a keeper with no poster only syncs');
+});
+
+test('health fails (and Render restarts every chain) only for a hang, not for a tick that failed; a token pool never decides it', () => {
+  const k = (lastTickAt, lastTickOk = true) => ({ lastTickAt, lastTickOk });
+  const T = 1_000_000, stuckMs = 600_000;
+  const keepers = new Map([['1', k(T - 20_000)], ['8453', k(T - 5_000)], ['1-tac', k(T - 9_000_000)], ['1-xa0b86991c6', k(T - 9_000_000, false)]]);
+  const running = ['1', '8453', '1-tac', '1-xa0b86991c6'];
+  assert.ok(isChainPool('1') && isChainPool('8453') && !isChainPool('1-tac'));
+  let h = healthOf({ running, keepers, at: T, stuckMs });
+  assert.equal(h.ok, true, 'a token pool whose loop is long silent does not fail the service');
+  assert.equal(h.ready, true);
+  keepers.get('8453').lastTickOk = false;                         // Base's last tick failed (a node's bad minute)
+  h = healthOf({ running, keepers, at: T, stuckMs });
+  assert.equal(h.ok, true, 'a failed tick is not a reason to restart every chain');
+  assert.equal(h.ready, false, 'but it shows, for whoever watches');
+  assert.equal(h.chains['8453'], false);
+  keepers.get('8453').lastTickAt = T - 700_000;                    // and no tick has finished for over ten minutes: a hang
+  h = healthOf({ running, keepers, at: T, stuckMs });
+  assert.equal(h.ok, false, 'a loop that has finished no tick in ten minutes is stuck');
+  assert.deepEqual(h.stuck, ['8453']);
+  keepers.get('8453').leafSync = { progressAt: T - 30_000 };       // but a history replay that stored a chunk 30 s ago is progress
+  h = healthOf({ running, keepers, at: T, stuckMs });
+  assert.equal(h.ok, true, 'a long replay of a pool\'s history is not a hang');
+  keepers.get('8453').leafSync = { progressAt: T - 700_000 };
+  assert.equal(healthOf({ running, keepers, at: T, stuckMs }).ok, false, 'one that has stored nothing for ten minutes is');
 });

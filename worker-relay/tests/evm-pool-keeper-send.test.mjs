@@ -57,9 +57,24 @@ const args = [1n, 25, [[0n, 0n], [[0n, 0n], [0n, 0n]], [0n, 0n], Array(11).fill(
   const chain = await makeKeeperChain({ cfg: { ...base, rpcUrls: [pubUrl], sendRpcUrls: [a.url, b.url] }, account });
   const hash = await chain.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
   ok(typeof hash === 'string' && /^0x[0-9a-f]{64}$/.test(hash), 'a send returns the hash', String(hash?.message || hash).slice(0, 80));
+  for (let i = 0; i < 40 && !(a.seen.length && b.seen.length); i++) await new Promise((r) => setTimeout(r, 25));   // the endpoints are sent to at once: the slower may answer after the send returned
   ok(a.seen.length === 1 && b.seen.length === 1 && a.seen[0] === b.seen[0], 'the same signed transaction reached both private endpoints', `${a.seen.length} + ${b.seen.length}`);
   ok(pubSeen.length === 0, 'and the public node got nothing');
   a.close(); b.close();
+}
+{
+  // one private endpoint takes the request and never answers: the other's answer is the send's, in a moment, not after the first's timeout
+  const hungSeen = [];
+  const hung = http.createServer(async (q, r) => { let body = ''; for await (const c of q) body += c; hungSeen.push(JSON.parse(body).method); });
+  hung.listen(0);
+  const a = { url: `http://127.0.0.1:${hung.address().port}/` }, b = endpoint('take');
+  const chain = await makeKeeperChain({ cfg: { ...base, rpcUrls: [pubUrl], sendRpcUrls: [a.url, b.url], sendTimeoutMs: 4000 }, account });
+  const t0 = Date.now(), hash = await chain.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
+  const took = Date.now() - t0;
+  ok(typeof hash === 'string' && /^0x[0-9a-f]{64}$/.test(hash) && b.seen.length === 1, 'a hung private endpoint does not stop the other from taking it', String(hash?.message || hash).slice(0, 80));
+  ok(took < 3000, `and the send does not wait for the hung one's timeout (${took} ms)`);
+  ok(hungSeen.length > 0, 'which was asked as well (and never answered)');
+  hung.closeAllConnections?.(); hung.close(); b.close();
 }
 {
   const a = endpoint('refuse'), b = endpoint('take');

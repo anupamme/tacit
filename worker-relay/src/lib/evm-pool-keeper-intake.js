@@ -19,6 +19,7 @@
 //                                  wrap intent (withdrawToV1) through the router
 // Request bodies are capped before parsing. Hints are never echoed back or logged.
 
+import { gzip } from 'node:zlib';
 import { getAddress, isAddress, encodeFunctionData, parseAbi } from 'viem';
 import { depositIntent, callIntent, callEscrowAddress } from '../../../dapp/evm-pool-gateway.js';
 import { P_FR } from '../../../dapp/btc-pool-zk.js';
@@ -288,6 +289,7 @@ const EVENTS_PAGE = 5000;
 export function createIntakeHandler({
   store, chain, zk, assetField, cfg, now = () => Math.floor(Date.now() / 1000), log = () => {}, isReady = () => true,
   revertName = defaultRevertName, leafSync = null, pipeline = null,
+  onDue = () => {},   // called when a box is registered or asked about again: the keeper's loop looks at once instead of at its next poll
 }) {
   const limited = makeRateLimiter({ perMin: cfg.ratePerMin, burst: Math.max(1, Math.min(10, cfg.ratePerMin)) });
   // Reads a wallet makes around every spend (head, quote, events) have their own, larger allowance.
@@ -324,11 +326,13 @@ export function createIntakeHandler({
         // Registering again renews the watch and asks for a look now.
         if (known.kind !== kind) throw bad('box already registered under another kind');
         store.update(box, { status: 'pending', next_check: t, checks: 0, deadline: watchUntil, updated: t });
+        onDue();
         return view(store.get(box));
       }
       if (store.receiveCount() >= cfg.maxReceive && !store.evictLapsedReceive(t)) throw new IntakeError(503, 'the keeper is at capacity; try again later');
       store.addIntent({ box, kind, intent: parsed.intent, reward: 0n, token: chain.asset, deadline: watchUntil, now: t });
       log(`watching receive box ${box} (fee cap ${parsed.intent.feeBps} bps)`);
+      onDue();
       return view(store.get(box));
     }
     if (store.pendingCount() >= cfg.maxPending && !store.evictUnfundedPending()) throw new IntakeError(503, 'the keeper is at capacity; try again later');
@@ -348,6 +352,7 @@ export function createIntakeHandler({
     const r = store.get(box);
     if (r.kind !== kind) throw bad('box already registered under another kind');
     if (fresh) log(`accepted ${kind} box ${box} reward ${parsed.reward}`);
+    onDue();
     return view(r);
   }
 
@@ -376,15 +381,38 @@ export function createIntakeHandler({
   }
 
   // A quote is the same for everyone for a few seconds (gas, prices and balances are read through caches too), so the many that ask
-  // while a page is open, or while the keeper is busy, share one answer; a refusal is not kept.
-  const quoteMemo = new Map();
+  // while a page is open, or while the keeper is busy, share one answer, and those that ask while one is being made share that.
+  // A good one a little old (under quoteStaleMs) is given at once while a new one is made behind it, so a slow node never makes a
+  // page wait. A refusal or an error is never kept: the next ask works it out again, so a relay that has recovered shows as one at
+  // once. The memo is keyed by the gas the answer is for and kept small.
+  const quoteMemo = new Map();   // gas → { at, p, good: { value, at } | null, refreshing }
   function quote(gasParam) {
-    const key = gasParam ?? '', hit = quoteMemo.get(key), t = Date.now();
-    if (hit && t - hit.at < (cfg.quoteCacheMs ?? 4000)) return hit.p;
-    const p = quoteNow(gasParam);
-    quoteMemo.set(key, { at: t, p });
-    p.catch(() => { if (quoteMemo.get(key)?.p === p) quoteMemo.delete(key); });
-    return p;
+    let key = null;
+    if (gasParam == null) key = cfg.relayGas.toString();
+    else if (/^\d{1,9}$/.test(gasParam)) { const g = BigInt(gasParam); key = (g < cfg.relayGas ? cfg.relayGas : g).toString(); }
+    if (key === null || BigInt(key) > cfg.gasCap) return quoteNow(gasParam);    // refused in quoteNow, nothing kept
+    const t = Date.now(), fresh = cfg.quoteCacheMs ?? 4000, stale = cfg.quoteStaleMs ?? 15_000, hit = quoteMemo.get(key);
+    if (hit) {
+      if (!hit.refreshing && t - hit.at < fresh) return hit.p;
+      if (hit.good && t - hit.good.at < stale) { if (!hit.refreshing) renew(key, gasParam, hit); return Promise.resolve(hit.good.value); }
+      if (hit.refreshing) return hit.p;
+    }
+    return renew(key, gasParam, hit);
+  }
+  function renew(key, gasParam, prev) {
+    const t = Date.now();
+    const entry = { at: t, p: null, good: prev?.good ?? null, refreshing: true };
+    entry.p = quoteNow(gasParam).then(
+      (value) => { entry.good = { value, at: Date.now() }; entry.refreshing = false; return value; },
+      (e) => { entry.refreshing = false; if (quoteMemo.get(key) === entry) quoteMemo.delete(key); throw e; },
+    );
+    entry.p.catch(() => {});
+    quoteMemo.set(key, entry);
+    if (quoteMemo.size > 32) {
+      for (const [k, v] of quoteMemo) if (t - v.at >= 60_000) quoteMemo.delete(k);
+      for (const k of quoteMemo.keys()) { if (quoteMemo.size <= 16) break; if (k !== key) quoteMemo.delete(k); }
+    }
+    return entry.p;
   }
   // The fee for `gas` (default relayGas; a withdrawal that also runs calls asks for more), within the gas cap.
   async function quoteNow(gasParam) {
@@ -515,8 +543,18 @@ export function createIntakeHandler({
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname.replace(/\/$/, '');
     const send = (code, body) => {
-      res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store', ...(code === 429 ? { 'Retry-After': '10' } : {}) });
-      res.end(JSON.stringify(body));
+      const text = JSON.stringify(body);
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store', ...(code === 429 ? { 'Retry-After': '10' } : {}) };
+      // A history page is megabytes of repeated JSON: sent compressed to a client that takes it (a fresh browser reads dozens of them).
+      if (text.length > 2048 && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+        return gzip(text, (err, z) => {
+          if (err) { res.writeHead(code, headers); return res.end(text); }
+          res.writeHead(code, { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+          res.end(z);
+        });
+      }
+      res.writeHead(code, headers);
+      res.end(text);
     };
     if (req.method === 'OPTIONS') {
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
