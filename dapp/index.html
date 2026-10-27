@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-YHHHOAv6XHm179B9E5LFkeg//E0SIFU3GOtEUtX3bJ0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UnmE8YNlQwUVulcvV4DAB7qDjNyEU7BDaPtgYOMorRs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1768,7 +1768,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=d0b266f4","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=8dcfd140","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-invoice.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4526,7 +4526,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=d0b266f4'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=8dcfd140'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -4535,7 +4535,7 @@ const getUx = lazy(async () => {
 });
 // `coming`: tETH a one-transaction wrap just put in the pool, known at its confirmation (the note is derived from the key), counted in what the
 // sheet and the dashboard show until a scan that began after the confirmation lands (`comingAt`). What can be spent waits for that scan.
-const P = { scan: null, scanning: null, err: null, coming: 0n, comingAt: 0 };
+const P = { scan: null, scanning: null, full: null, err: null, coming: 0n, comingAt: 0 };
 // The sheet is not drawn again while its action runs, so the balance line is set here, and the dashboard drawn.
 const noteLanded = (wei) => {
   if (!(wei > 0n)) return;
@@ -4544,7 +4544,7 @@ const noteLanded = (wei) => {
   if (v) v.textContent = fmt((P.scan ? BigInt(P.scan.eth.value) : lastSeen('teth') ?? 0n) + P.coming, 8, 6);
   dashSoon();
 };
-function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; P.coming = 0n; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null, quote: null, qFail: 0, self: false }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
+function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.full = null; P.err = null; P.coming = 0n; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null, quote: null, qFail: 0, self: false }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
   try { for (const x of Object.values(HOLD.byKey)) x.w = {}; FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.auto = {}; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
   dropTacitKey();
   SWC.card?.keyChanged(); }
@@ -4555,7 +4555,9 @@ async function scanPrivate(force = false) {
   const pub = S.key.pubHex, prev = P.scanning || Promise.resolve();
   const p = P.scanning = prev.catch(() => {}).then(async () => {
     const t = await getUx(), since = Date.now();
-    const r = await t.balance(walletPriv(), { spent: true, positions: true });
+    // The first read of a visit asks for a quick one: a device with nothing kept for this key reads its newest notes first (a note just made is
+    // among them) and shows them at once, marked `reading`, while the full read goes on behind it; one that has the key's checkpoint reads as ever.
+    const r = await t.balance(walletPriv(), { spent: true, positions: true, recent: P.scan ? 0 : 150 });
     if (S.key?.pubHex !== pub) return null;
     if (since >= P.comingAt) P.coming = 0n;                 // this scan began after the wrap landed: the note is in it
     const of = (tk) => { const id = String(t.assetByTicker[tk]?.assetId || '').toLowerCase(); const g = r.byAsset[id]; return { id, value: g ? g.value : 0n, notes: g ? g.notes : [] }; };
@@ -4569,13 +4571,20 @@ async function scanPrivate(force = false) {
     const rid = String(t.cfg.farm?.rewardAsset || '').toLowerCase(), rg = rid ? r.byAsset[rid] : null;
     P.scan = { at: Date.now(), since, notes: r.notes, eth: of('cETH'), cusd: of('cUSD'), tac: of('cTAC'), rtac: { id: rid, value: rg ? rg.value : 0n, notes: rg ? rg.notes : [] }, cbtc: { id: String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase(), notes: r.notes.filter((n) => String(n.asset).toLowerCase() === String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase()) },
       pending: [...pending.values()].map((d) => depositOf(t, d)), others, spentNotes: r.spentNotes || [], partial: Object.keys(r.diag?.errors || {}).length > 0, cbtcUnread: !!r.diag?.errors?.cbtc,
-      farmPositions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, leafCount: r.leafCount ?? null };
+      farmPositions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, leafCount: r.leafCount ?? null, reading: !!r.reading };
     P.err = null;
     runsPrune();
     dashSoon();
+    if (r.reading) P.full = new Promise((ok) => setTimeout(ok, 0)).then(() => scanPrivate(true)).catch(() => null).finally(() => { P.full = null; });          // the full read, behind the quick one
     return P.scan;
   }).catch((e) => { if (S.key?.pubHex === pub) P.err = e; dashSoon(); throw e; }).finally(() => { if (P.scanning === p) P.scanning = null; });
   return p;
+}
+// A read that has opened every leaf. A choice of what is free (a share note's index) waits for the full read behind a quick one, which could
+// have missed an older note of the key's.
+async function scanDone() {
+  const s = await scanPrivate();
+  return s?.reading ? (await P.full) || scanPrivate(true) : s;
 }
 function erc20AssetId(chainId, token) {
   const b = new Uint8Array(46);
@@ -4792,7 +4801,7 @@ function renderV1(el) {
   mount(el, html`
     <div class="bal">
       <svg class="tk md" aria-hidden="true"><use href="#tk-teth"/></svg>
-      <div><div class="v num">${bal}</div><div class="u">tETH, private</div>${xoBtcLine(S.key.pubHex)}</div>
+      <div><div class="v num">${bal}</div><div class="u">tETH, private${s?.reading ? ' · reading older notes…' : ''}</div>${xoBtcLine(S.key.pubHex)}</div>
       <div class="side">${s?.partial ? html`<span class="err">part not read</span> <button class="link" type="button" id="v1-rescan">retry</button>` : P.err ? html`<button class="link" type="button" id="v1-rescan">retry</button>` : s ? html`<button class="link" type="button" id="v1-rescan">refresh</button>` : 'updating…'}</div>
     </div>
     ${depositCallout('eth', 'v1-finish')}
@@ -5227,7 +5236,7 @@ function v1Swap(el, status) {
     setOut('');
     try {
       const t = await getUx();
-      const exact = freeNotes(P.scan[from].notes).some((n) => BigInt(n.value) === units), own = ownNow(['route', 'transfer']);
+      const exact = freeNotes(P.scan[from].notes).some((n) => BigInt(n.value) >= units), own = ownNow(['route', 'transfer']);       // a note that covers it: a route spends part of one and returns the rest as change
       const [fee, split] = own ? [0n, 0n] : await Promise.all([swapFee(t, from, to), exact ? 0n : t.quoteOpFee(POOL_TK[from], 'transfer').then(BigInt)]);
       if (my !== seq || !amt.isConnected) return;
       mount(rc, html``);
@@ -5264,7 +5273,7 @@ function v1Swap(el, status) {
     run.go({ label, status: () => $('#v1-status'), clear: () => clearField(amt) });
     try {
       const t = await getUx(), priv = walletPriv();
-      const note = await noteFor(run, t, priv, x.units, (n) => BigInt(n.value) === x.units, status, x.from);
+      const note = await noteFor(run, t, priv, x.units, (n) => BigInt(n.value) >= x.units, status, x.from);        // part of a bigger note, its change back in the same proof
       const now = await swapPlan(t, x.from, x.to, x.units, x.fee);
       if (!now || now.amountOut < x.minOut) throw new Error('The price moved while your note was made. Your note is ready: check the new price and press again.');
       run.say(status, 'The relay is proving your swap…');
@@ -8624,10 +8633,12 @@ const lpStored = () => (S.key ? store.get(LP_KEEP_PREF + S.key.pubHex) || [] : [
 const lpShown = () => (FZ.pid != null ? (FARM.program?.pools || []).find((x) => Number(x.pid) === Number(FZ.pid))?.poolId : null);
 const lpKept = () => (S.key ? [...new Set([...lpStored(), ...(devOn() ? [] : [lpShown()].filter(Boolean))])] : []);
 const lpKeep = (poolId) => { if (S.key && poolId && !lpStored().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpStored(), poolId].slice(-4)); };
+// Every note this key holds or has spent, from a read that opened every leaf.
+const scanOwned = async () => { const s = await scanDone(); return [...(s?.notes || []), ...(s?.spentNotes || [])]; };
 // A share note of `shares` in pool `poolId`, at an index no note, zap or voucher of this key holds.
 async function lpBuild(t, priv, poolId, shares, at = null) {
   const pub = S.key.pubHex, used = [...zapsKept().filter((x) => x.pub === pub && x.poolId === poolId), ...(await vouchers()).list(pub, lpTicker(poolId))].map((x) => x.index);
-  const index = at ?? t.nextShareIndex({ walletPriv: priv, poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])], used });
+  const index = at ?? t.nextShareIndex({ walletPriv: priv, poolId, owned: await scanOwned(), used });
   return t.buildShareWrap({ walletPriv: priv, poolId, shares, index });
 }
 const lpRec = (poolId, b, extra) => ({ ticker: lpTicker(poolId), poolId, amount: String(b.amount), index: b.index, commit: b.commit, depositId: b.depositId, leaf: b.leaf,
@@ -10617,7 +10628,7 @@ async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved 
       }
     }
     // an index no note of this key has used: not one it holds, has spent (bonded), has a zap waiting on or a voucher keeps
-    const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: [...(P.scan?.notes || []), ...(P.scan?.spentNotes || [])],
+    const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: await scanOwned(),
       used: [...zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId), ...(await vouchers()).list(pub, lpTicker(p.poolId))].map((x) => x.index) });
     built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
     // Proved here or with your own credit (a single-pool zap): the share note first, then the zap and its settle together.
@@ -12250,7 +12261,7 @@ const markColor = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 +
 function dashItems() {
   const k = S.key?.pubHex, s = k ? P.scan : null, scanErr = !!(k && !s && P.err), out = [];
   if (k) {
-    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value + P.coming : P.coming > 0n ? P.coming : null, err: scanErr && !(P.coming > 0n), meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
+    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value + P.coming : P.coming > 0n ? P.coming : null, err: scanErr && !(P.coming > 0n), meta: s?.reading ? 'private, reading older notes…' : 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
     let dev = null;
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.chainId); } }
@@ -14045,7 +14056,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=0d93d030').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=33c42b49').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

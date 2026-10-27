@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6625,6 +6625,7 @@ const swapStub = () => `
       window.__moved = { next: a.path[0].assetNext, asset: a.inNote.asset, y: BigInt(a.amountIn) - BigInt(a.fee), out: BigInt(q.amountOut) };
       add.splice(add.findIndex((n) => n.cx === a.inNote.cx), 1);
       add.push(note(q.assetFinal, q.amountOut));
+      if (BigInt(a.inNote.value) > BigInt(a.amountIn)) add.push(note(a.inNote.asset, BigInt(a.inNote.value) - BigInt(a.amountIn)));        // a partial spend: the rest comes back as change
       return { txHash: '0x' + 'ab'.repeat(32) };
     };
     ux.lpBond = async (a) => { window.__join = { controller: a.controller, a: a.aNote.value, b: a.bNote.value, aAsset: a.aNote.asset, bAsset: a.bNote.asset, feeBps: a.feeBps, selfSettle: typeof a.selfSettle }; return { txHash: null, dShares: 1n }; };
@@ -7933,8 +7934,8 @@ await step('fastzap', async () => {
     await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 240000 });
     await p.click('#hx-routes [data-hxr="0"]');
     await until(p, () => !!document.querySelector('#hx-sub [data-hxq="0.01"].rd'), null, 240000).catch(() => {});
-    ok(!!(await p.$('#hx-sub [data-hxq="0.01"].rd')) && !(await p.$('#hx-sub [data-hxq="1"].rd')) && (await p.$$('#hx-sub [data-hxq]')).length === 3,
-      `fastzap: the Earn tab offers 0.01, 0.1 and 1 ETH, the one whose share is proved marked ready (${(await p.$$eval('#hx-sub [data-hxq]', (bs) => bs.map((b) => b.dataset.hxq + (b.classList.contains('rd') ? '*' : '')))).join(' ')})`);
+    ok(!!(await p.$('#hx-sub [data-hxq="0.01"].rd')) && (await p.$$('#hx-sub [data-hxq]')).length === 3,
+      `fastzap: the Earn tab offers 0.01, 0.1 and 1 ETH, the one whose share is proved marked ready, with any the kept stock has made by now (${(await p.$$eval('#hx-sub [data-hxq]', (bs) => bs.map((b) => b.dataset.hxq + (b.classList.contains('rd') ? '*' : '')))).join(' ')})`);
     await p.click('#hx-sub [data-hxq="0.01"]');
     await until(p, () => /made already/.test(document.querySelector('#hx-receipt')?.textContent || '') && document.querySelector('#hx-go')?.textContent === 'Zap into the farm', null, 240000).catch(() => {});
     ok(/Proof\s*made already: no wait/.test(await text(p, '#hx-receipt')) && /Network fee\s*about 0\.0\d+ ETH/.test(await text(p, '#hx-receipt')),
@@ -9091,14 +9092,15 @@ await step('swap', async () => {
     ok(held > 500, `swap: the TAC arrives as a private balance (${(await text(p, '#sw-max')).trim()})`);
     ok(!(await p.$('#sheet-eth [data-swt="tac"]')), 'swap: what is paid is not offered as what is bought');
 
-    // No note of that size: it is cut first.
+    // No note of that size, but one larger covers it: one route over part of it, the rest coming back as change, and nothing cut first.
     await choose('swt', 'eth');
     await typed('100');
-    ok(/Relay fee to (split a note|combine notes)/.test(await text(p, '#sw-rcpt')), 'swap: an amount no note matches shows the relay fee to cut one');
+    ok(!/Relay fee to (split a note|combine notes)/.test(await text(p, '#sw-rcpt')), 'swap: an amount a larger note covers shows no relay fee to cut one');
     await p.click('#sw-go');
-    await until(p, () => window.__swapCalls.length >= 3, null, 900000);
-    const cut = await calls();
-    ok(cut[1].split === '10000000000' && cut[2].amountIn === '10000000000' && cut[2].noteValue === '10000000000' && cut[2].path[0].endsWith(FARM_CETH), `swap: the note is cut to the amount, then that note is swapped (${JSON.stringify(cut.slice(1))})`);
+    await until(p, () => window.__swapCalls.length >= 2, null, 900000);
+    const part = await calls();
+    ok(part.length === 2 && !part.some((x) => x.split) && part[1].amountIn === '10000000000' && BigInt(part[1].noteValue) > 10000000000n && part[1].path[0].endsWith(FARM_CETH),
+      `swap: one route over part of the larger note, the rest back as change, no cut first (${JSON.stringify(part.slice(1))})`);
 
     // Between two assets that are not tETH: through tETH.
     await choose('swf', 'cusd');
@@ -9107,8 +9109,8 @@ await step('swap', async () => {
     await typed('100');
     ok(/Through\s*tETH, two pools in one settle/.test((await text(p, '#sw-rcpt')).replace(/\s+/g, ' ')) && /[1-9]/.test(await text(p, '#sw-outv')), 'swap: cUSD for TAC says it goes through tETH');
     await p.click('#sw-go');
-    await until(p, () => window.__swapCalls.length >= 4, null, 300000);
-    c = (await calls())[3];
+    await until(p, () => window.__swapCalls.length >= 3, null, 300000);
+    c = (await calls())[2];
     ok(c.path.length === 2 && c.path[0].endsWith(FARM_CETH) && c.path[1].endsWith(FARM_CTAC) && c.amountIn === '10000000000', `swap: two pools in one route, tETH between (${JSON.stringify(c.path.map((x) => x.slice(0, 6) + '…' + x.slice(-4)))})`);
 
     // A relay that refuses: the swap is offered from the paying account, with no relay fee.
@@ -10509,16 +10511,27 @@ await step('holdpublic', async () => {
 // network (succinct-net.js), whose credit, delay and answer window.__spn sets. Nothing reaches the network.
 const PROVE_TKN = '0x6bef15d938d4e72056ac92ea4bdd0d76b1c4ad29', VAPP_ADDR = '0x5ad5bc4b18f7c173dce17a57682cb0dc8788951f';
 const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], types: null, privateOff: false }, cfg || {}); };
-const SP_TYPES = ['wrap', 'unwrap', 'sendunwrap', 'transfer', 'route', 'stealthlock', 'stealthclaim', 'stealthrefund', 'lpremove', 'lpbond', 'bridgeburn', 'bridgemint', 'bridgestealthmint',
+const SP_TYPES = ['wrap', 'wrapswap', 'unwrap', 'sendunwrap', 'transfer', 'route', 'stealthlock', 'stealthclaim', 'stealthrefund', 'lpremove', 'lpbond', 'bridgeburn', 'bridgemint', 'bridgestealthmint',
   'farmbond', 'farmharvest', 'farmunbond', 'cdpmint', 'cdpclose', 'cdptopup', 'cbtcmint'];
 const stubSelfProver = (page) => Promise.all([
   page.route(/\/sp1-stdin\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
     const all = ${JSON.stringify(SP_TYPES)};
     export const SELF_PROVE_TYPES = (window.__spn && window.__spn.types) || all;
     export const LIMITS = Object.fromEntries(all.map((t) => [t, { cycleLimit: 1000000n, gasLimit: 1000000n }]));
-    export const stdinFor = (type, op) => { window.__spn.inputs.push({ type, memos: (op.memoHashes || []).length }); return new Uint8Array([1, 2, 3]); };
+    export const stdinFor = (type, op) => { window.__spn.inputs.push({ type, memos: (op.memoHashes || []).length }); window.__spn.wsop = type === 'wrapswap' ? op : null; return new Uint8Array([1, 2, 3]); };
     export const zstdFrame = (b) => b;` })),
   page.route(/\/succinct-net\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import { secp, keccak_256, sha256 } from '/vendor/tacit-deps.min.js';
+    import { makeConfidentialPool } from '/confidential-pool.js';
+    const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+    const w = (v) => BigInt(v).toString(16).padStart(64, '0');
+    // a deposit swapped in one proof, as the pool reads its public values: the swap's note inserted, its deposit consumed
+    const swapPv = (op) => {
+      const d = Number(op.direction) === 0, inA = d ? op.assetA : op.assetB, outA = d ? op.assetB : op.assetA;
+      const leaf = pool.leaf(outA, op.out.cx, op.out.cy, op.out.owner), dep = pool.depositId(inA, BigInt(op.amountIn), op.deposit.cx, op.deposit.cy, op.deposit.owner);
+      const head = Array(40).fill(w(0)); head[4] = w(40 * 32); head[5] = w(42 * 32); head[3] = w(44 * 32); head[7] = w(45 * 32);
+      return '0x' + w(32) + head.join('') + w(1) + leaf.replace(/^0x/, '') + w(1) + dep.replace(/^0x/, '') + w(0) + w(0);
+    };
     export function makeSuccinctNetwork() {
       const S = () => window.__spn, wait = (ms) => new Promise((r) => setTimeout(r, ms));
       return {
@@ -10539,11 +10552,46 @@ const stubSelfProver = (page) => Promise.all([
           await wait(S().delay);
           if (S().notProved) throw Object.assign(new Error('the request was not proved in time'), { code: 'not_proved' });
           if (onUpdate) onUpdate({ status: 'proved' });
-          return { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32) };
+          return { publicValues: S().wsop ? swapPv(S().wsop) : '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32) };
         },
       };
     }` })),
 ]);
+
+// The holder's own prover on the swap card. With "your own credit" chosen, a wallet-to-private swap through one pool is proved by the Succinct network
+// before anything is deposited, with no tip (nobody to pay) and nothing asked of the relay, then one router transaction deposits and settles it;
+// the relay is not asked for early or kept proofs either. (The router on the fork takes any call here: a stand-in proof cannot settle.)
+await step('swapown', async () => {
+  const hex = '5a1e'.padEnd(64, '6'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT, arg: { credit: String(10n ** 18n), delay: 2000 } } });
+  await stubSelfProver(r.page);
+  const p = r.page, q = (x) => text(p, `#hx-swap ${x}`).then((t) => t.replace(/\s+/g, ' '));
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992', routerCode = await rpc('eth_getCode', [ROUTER_ADDR, 'latest']);
+  try {
+    proveStub = true;
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-body .hx-h');
+    await pasteKey(p, hex);
+    await p.evaluate((k) => { localStorage.setItem('tacit-lite-prove-self-v1:' + k, 'true'); document.querySelectorAll('dialog[open]').forEach((d) => d.close()); }, pub);
+    await p.reload();
+    await p.waitForSelector('#hx-body .hx-h');
+    await pasteKey(p, hex);
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); location.hash = '#card=swap:ether:tac:private&amt=0.01'; });
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    const s0 = submits.length;
+    await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
+    const w0 = walletTxs.length;
+    for (let i = 0; i < 4 && walletTxs.length === w0; i++) {
+      await until(p, () => { const b = document.querySelector('#hx-swap #go'); return !!b && !b.disabled && /^Swap/.test(b.textContent || ''); }, null, 600000).catch(() => {});
+      await p.click('#hx-swap #go');
+      await until(p, () => /Done\.|class="err"|Nothing was sent|read again|price moved/.test(document.querySelector('#hx-swap #q')?.innerHTML || ''), null, 300000).catch(() => {});
+    }
+    const sent = walletTxs.slice(w0), spn = await p.evaluate(() => window.__spn);
+    ok(/Done\./.test(await q('#q')) && sent.length === 1 && sent[0].data.startsWith('0x50de88e1') && BigInt(sent[0].value) === 10n ** 16n && spn.requests.length === 1 && spn.inputs.some((x) => x.type === 'wrapswap') && !submits.slice(s0).some((x) => x.type === 'wrapswap'),
+      `swapown: proved by the holder's own prover and sent as one router transaction with no tip, nothing asked of the relay (${sent.map((x) => `${String(x.data).slice(0, 10)} ${BigInt(x.value)}`)}; ${spn.requests.length} request, ${(await q('#q')).slice(0, 90)})`);
+    if (r.errors.length) { fails++; console.log('FAIL swapown page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; await rpc('anvil_setCode', [ROUTER_ADDR, routerCode]); await r.browser.close(); }
+});
 
 // Adding PROVE from the wallet: the wallet sends the PROVE the Tacit account lacks, then the vApp's permitAndDeposit with a permit the
 // Tacit account signs in the page, which the real vApp on the fork takes (the Tacit account spends no ETH). Then the switch, and its note.

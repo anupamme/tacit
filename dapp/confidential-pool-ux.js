@@ -531,7 +531,10 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return waiting;
   }
 
-  async function _scanNotes({ walletPriv, events, deep = false, cbtc = true, btcHistory = null, bridge = true, bridgeAmounts = [] }) {
+  // `recent`: a quick first read. With nothing kept for this key on this device (no valid memo checkpoint) only the newest `recent` leaves are
+  // opened with the key, a note it made itself is found by derivation as ever (walkWraps), and nothing is kept as covered, so the full read that
+  // follows still opens every older leaf. With a checkpoint it is ignored: the read is the same incremental one. `diag.quick` says it was one.
+  async function _scanNotes({ walletPriv, events, deep = false, cbtc = true, btcHistory = null, bridge = true, bridgeAmounts = [], recent = 0 }) {
     const R = recovery();
     const id = identity(walletPriv);
     const { leaves, spent } = indexer.index(events);
@@ -553,6 +556,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       all.set(lf, { value: BigInt(n.value), blinding: n.blinding, secret: n.secret, asset: n.asset, owner: n.owner, cx: n.cx, cy: n.cy, leaf: n.leaf, leafIndex, nullifier: nu(n, n.leaf), source, ...extra });
       return true;
     };
+    const _ck = _ckKey(id.pubHex), covered = deep ? null : _loadMemoCk(_ck, leaves);
+    const quick = recent > 0 && !covered;
+    if (quick) { cbtc = false; bridge = false; }       // a quick read leaves the long searches to the full read behind it
     const emptyLeaves = leaves.filter((l) => l && (!l.memo || l.memo === '0x'));
     diag.leaves = leaves.filter(Boolean).length; diag.emptyMemoLeaves = emptyLeaves.length;
     // The Bitcoin history the cBTC search reads is asked for now, while the pool's own steps run, and that search comes last: a
@@ -562,9 +568,10 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       : null;
     if (btcHist) btcHist.catch(() => {});
 
-    const _ck = _ckKey(id.pubHex), covered = deep ? null : _loadMemoCk(_ck, leaves);
-    const fromMemos = await memo.scanSliced(_scanKeyHex(id.priv), leaves.filter(Boolean), [], nu, { covered });
-    _saveMemoCk(_ck, leaves, fromMemos);
+    const held = leaves.filter(Boolean);
+    const fromMemos = await memo.scanSliced(_scanKeyHex(id.priv), quick ? held.slice(-recent) : held, [], nu, { covered });
+    if (!quick) _saveMemoCk(_ck, leaves, fromMemos);
+    diag.quick = quick;
     for (const n of fromMemos) all.set(lc(n.leaf), { ...n, inboundUnverified: true });
     diag.memoNotes = all.size;
 
@@ -720,7 +727,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   async function balance(scanPriv, opts) {
     const o = opts || {};
     const events = withSavedMemos(await fetchEvents({ fromBlock: o.fromBlock, toBlock: o.toBlock, include: o.positions ? ['wraps', 'bonds'] : ['wraps'] }));
-    const st = await _scanNotes({ walletPriv: scanPriv, events, cbtc: o.cbtc !== false, btcHistory: o.btcHistory || null, bridge: o.bridge !== false, bridgeAmounts: o.bridgeAmounts || [] });
+    const st = await _scanNotes({ walletPriv: scanPriv, events, cbtc: o.cbtc !== false, btcHistory: o.btcHistory || null, bridge: o.bridge !== false, bridgeAmounts: o.bridgeAmounts || [], recent: o.recent || 0 });
     const notes = st.notes;
     const byAsset = {};
     for (const n of notes) {
@@ -745,9 +752,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
         } catch { }
       }
     }
-    const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag, leafCount: st.leaves.length };
+    const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag, leafCount: st.leaves.length, reading: !!(st.diag && st.diag.quick) };
     if (o.spent) out.spentNotes = (st.owned || []).filter((n) => st.spent.has(lc(n.nullifier))).map((n) => ({ nullifier: n.nullifier, asset: n.asset, value: n.value, owner: n.owner }));
-    if (o.positions && cfg.farm && cfg.farm.manager && o.fromBlock == null && o.toBlock == null) {
+    if (o.positions && !out.reading && cfg.farm && cfg.farm.manager && o.fromBlock == null && o.toBlock == null) {
       out.diag = { ...st.diag, errors: { ...((st.diag && st.diag.errors) || {}) } };
       try { out.farmPositions = await farmPositions({ walletPriv: scanPriv, events, _scan: st, _diag: {} }); }
       catch (e) { out.diag.errors.farm = String((e && e.message) || e); }
@@ -2593,7 +2600,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { from: acct.address, to, amount: amount.toString(), commit: invoice.commit, signedRaw: signed.raw, txHash };
   }
 
-  const _route = makeConfidentialRoute({ keccak256, pool, kernelSign: (a) => _ct.kernelSign(a), rangeProve: (a) => _ct.rangeProve(a) });
+  const _route = makeConfidentialRoute({ keccak256, pool, kernelSign: (a) => _ct.kernelSign(a), rangeProve: (...a) => _ct.rangeProve(...a) });
   async function poolReserves(poolIdHex) {
     const data = '0x' + _selector('pools(bytes32)') + _word(poolIdHex);
     const res = await ethCall(cfg.pool, data);
@@ -2672,7 +2679,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const op = _route.buildRoute({
       asset0: inNote.asset, chainBinding: chainBindingHex(), inNote, amountIn: spend,
       rIn: BigInt(inNote.blinding), hops: q.hops, minOut: BigInt(minOut), outOwner, rOut,
-      deadline: 0n, fee: BigInt(fee), change,
+      deadline: 0n, fee: BigInt(fee), change, noteValue: total,
     });
     op.spendRoot = inNote.root;
     const beHex = (n) => '0x' + n.toString(16).padStart(64, '0');
@@ -2685,7 +2692,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     }
     const ephRand = freshEph;
     const sealedMemos = guard.sealMemosForOutputs({ outputs, ephRand });
-    return _dispatch({ type: 'route', spec: { op, leaves, outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
+    // the change's opening (its value and blinding) stays here: the op carries only its commitment and owner
+    const wireOp = { ...op, change: (op.change || []).map((c) => ({ cx: c.cx, cy: c.cy, owner: c.owner })) };
+    return _dispatch({ type: 'route', spec: { op: wireOp, leaves, outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
   }
 
   async function submitSettle({ settlerPriv, publicValues, proof, memos = [], gasLimit = 1200000n, broadcast = true, pair = null } = {}) {

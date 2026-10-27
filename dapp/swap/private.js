@@ -1,14 +1,14 @@
 // The private swap made on the swap card, with the Tacit key opened here. A swap paid from the wallet's ETH through one pool is a deposit swapped in
 // one proof: proved ahead while the quote stands, one transaction deposits and settles it; else a wrap kept ready makes the ETH private in one
 // transaction and the relay swaps that note; else the deposit goes first and the relay proves the swap in one step. Through two pools the ETH is
-// made private first (the tETH page's deposit, which the relay settles) and then that note is swapped in the Tacit pool; one paid from the private balance swaps a note of
-// exactly the amount, cutting one to size first (a send to itself) when none is, as the front page does: a swap spends its note whole. A swap
+// made private first (the tETH page's deposit, which the relay settles) and then that note is swapped in the Tacit pool; one paid from the private balance swaps part of the
+// smallest note that covers it, the rest coming back as change in the same proof (notes too small singly are combined first). A swap
 // out of the pool (to ETH or a token, at an address) routes the note to tETH and then exits that note, through an exit recipe for a token. The
 // relay proves and sends each step. Nothing here is loaded until the first private swap, or the first ask for a private balance; the key is
 // held in this visit's memory only.
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=88028d84';
-import { forgetUx } from '/trade/poolux.js?cb=f4b7b030';
-import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=8054284a';
+import { forgetUx } from '/trade/poolux.js?cb=a33a61e0';
+import { wrapEth, wrapFirst, wrapCalldata, settle, relayState, relayStopped, relayWords } from '/teth/wrap.js?cb=7c6e9f78';
 import { wrapQuote, WRAP_TIP } from '/teth/read.js?cb=f00ab10f';
 import { secp, keccak_256, sha256, bytesToHex } from '/vendor/tacit-deps.min.js';
 import { makeRunner } from '/activity.js?cb=994f4169';
@@ -117,6 +117,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   };
   async function ahead({ wei, toAsset, feeBps }) {
     if (!key.unlocked || !wei || !toAsset) return null;
+    if ((await getUx()).relay.ownProving?.()) return null;         // they chose their own prover: nothing is asked of the relay's
     const k = aheadKey(wei, toAsset, feeBps), pub = key.key.pubHex, have = AH.get(k);
     if (have?.pub === pub && !have.failed) return have.p;
     if (aheadAsked >= AHEAD_MAX || !(await relayState())?.proving) return null;
@@ -134,7 +135,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     if (!key.unlocked || !toAsset || keeping) return keeping;
     const pub = key.key.pubHex;
     keeping = (async () => {
-      if (!(await relayState())?.proving) return;
+      if ((await getUx()).relay.ownProving?.() || !(await relayState())?.proving) return;
       const t = await getUx(), idx = slotIdx(pub);
       for (const wei of sizes) {
         const k = aheadKey(wei, toAsset, feeBps);
@@ -190,6 +191,14 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   // A slot whose swap went out: its index is spent, and the next swap of that size takes a new one.
   const spent = (slot) => { AH.delete(slot.k); if (slot.typed) typedIndex = null; else { slotIdxPut(slot.pub, slot.k, null); proofPut(slot.pub, slot.k, null); } };
   const wordOf = (h) => { try { return BigInt(String(h).slice(0, 66)); } catch { return 1n; } };
+  // A wallet swap through one pool proved by the holder's own prover before anything is deposited: no ahead flag (the relay's board only), no fee bound in.
+  async function ownProveSwap(plan, say) {
+    const t = await getUx(), hop = plan.path[0], priv = key.priv();
+    say('own');
+    const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'cETH' });
+    try { return await t.proveWrapSwap({ walletPriv: priv, toAsset: hop.assetNext, amountWei: plan.wei, feeBps: hop.feeBps, index, waitOpts: { timeoutMs: 6 * 60e3, intervalMs: 3000 } }); }
+    catch (e) { try { t.releaseWrapIndex?.({ walletPriv: priv, ticker: 'cETH', index }); } catch { } throw e; }
+  }
   // A wallet that declined: nothing more is asked of it.
   const declined = (e) => e?.code === 4001 || !!e?.userStopped || /user (rejected|denied)|rejected the request|denied transaction/i.test(String(e?.shortMessage || e?.message || e || ''));
   // One router transaction for a proof made before anything was deposited (a swap proved ahead, or a wrap kept ready): null when the router
@@ -227,6 +236,14 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
       await sleep(5000);
     }
     throw Object.assign(new Error('Your note was cut to size, but it is not showing yet. Press again in a minute to swap it.'), { said: true });
+  }
+
+  // The note a swap spends: the smallest one that covers the amount. A route spends part of a note and returns the rest as change, in the same
+  // proof, so no note is cut to size first (a transfer proof of its own, about 50 s, and its relay fee); notes too small singly are combined as before.
+  async function coveringNote({ asset, units, ticker, say }) {
+    await read(true);
+    const big = of(asset).notes.filter((n) => BigInt(n.value) >= units).sort(byValue)[0];
+    return big || exactNote({ asset, units, ticker, say });
   }
 
   // The relay is asked before anything is sent: a swap is a step that expires, so it cannot wait in line while the relay is held.
@@ -345,7 +362,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
       return exitNote({ note, out: plan.out, label: plan.label, say });
     }
     await price(plan.asset, plan.units, plan.path, plan.fee, plan.minOut);
-    const n = await exactNote({ asset: plan.asset, units: plan.units, ticker: plan.ticker, say });
+    const n = await coveringNote({ asset: plan.asset, units: plan.units, ticker: plan.ticker, say });
     const before = new Set((held?.byAsset?.[lc(plan.eth)]?.notes || []).map((x) => lc(x.leaf)));
     const r = await route({ note: n, ...plan, say });
     say('note');
@@ -370,7 +387,11 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   // `say(step, hash)`: 'prepare' | 'confirm' | 'sent' | 'proving' (the deposit) | 'note' | 'route'.
   async function swap(plan, { wallet, from, say = () => {} }) {
     await open();
-    await relayOpen();
+    // The holder's own prover (their Succinct credit; a computer's prover takes only ops that can wait) is the last resort the relay's refusal
+    // leaves, and the first choice when they turned it on: a wallet swap through one pool is proved with it before anything is deposited.
+    const own = !!(await getUx()).relay.ownProving?.();
+    let relayDown = false;
+    await relayOpen().catch((e) => { if (!own || !plan.wallet || plan.path?.length !== 1) throw e; relayDown = true; });
     // a payment to the key's own address is refused before anything is sent: it would be a swap into the same balance, by a longer way
     if (plan.sendTo && lc(plan.sendTo.pubHex) === lc(key.key.pubHex)) throw new Error('That is your own address. Leave it empty to keep the swap in your private balance.');
     let note = null, before = new Set();
@@ -381,11 +402,19 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
       if (plan.path?.length === 1) {
         await read(true).catch(() => null);
         before = new Set((held?.byAsset?.[lc(outAsset)]?.notes || []).map((n) => lc(n.leaf)));
+        // 0. the holder's own prover, when on: their proof, so no tip; a prover that takes no such op leaves it to the relay's prove-mode
+        let r = null, mine = false;
+        if (own) {
+          r = await ownProveSwap(plan, say).catch(() => null);
+          mine = !!r && /^spn:/.test(String(r.proven?.jobId || ''));
+        }
         // 1. proved ahead: one transaction, the wrap's tip and the swap's fee paid on top in ETH as the quote showed them
-        const r = await aheadFor(plan, say);
-        const one = r && await oneTx(r, { wei: plan.wei, tip: tq.tip + BigInt(plan.fee) * E10, to: tq.to, from, wallet, say });
+        if (!r && !relayDown) r = await aheadFor(plan, say);
+        const one = r && await oneTx(r, { wei: plan.wei, tip: mine ? 0n : tq.tip + BigInt(plan.fee) * E10, to: mine ? null : tq.to, from, wallet, say });
+        if (!one && relayDown) throw new Error('The relay isn’t taking private swaps right now and your own prover could not prove this one, so nothing was sent. Try again in a few minutes.');
         if (one) {
-          spent(r.slot); held = null;
+          if (r.slot) spent(r.slot);
+          held = null;
           const made = { txHash: one.hash, out: r.built.amountOut, one: true };
           return plan.sendTo ? sendOn({ plan, made, before, say }) : made;
         }
@@ -418,7 +447,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
       if (!plan.path?.length) return sendOn({ plan, made: { made: plan.units, txHash: hash }, before, say, direct: note });
     } else {
       await price(plan.asset, plan.units, plan.path, plan.fee, plan.minOut);
-      note = await exactNote({ asset: plan.asset, units: plan.units, ticker: plan.ticker, say });
+      note = await coveringNote({ asset: plan.asset, units: plan.units, ticker: plan.ticker, say });
     }
     // the notes the swap's own asset has now, so the one the route makes is told from them
     const outAsset = plan.path?.length ? plan.path[plan.path.length - 1].assetNext : plan.asset;

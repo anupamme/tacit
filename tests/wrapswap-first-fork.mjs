@@ -208,6 +208,32 @@ const ETH = 10n ** 16n;
   ok(!s.error && await depositStatus(built.depositId) === 2n && got.length >= 1, `it settles as a wrap: a private 0.01 tETH note, ready to swap from (${s.error ? s.error.message : 'settled'}; ${log.slice(-1)[0] || ''})`);
 }
 
+// ── 5. the holder's own prover: it proves the swap before anything is deposited (here by running the guest, as the Succinct network would), the
+// relay is asked for nothing, and one router transaction with no tip deposits and settles it ──
+{
+  const own = async ({ type, op, memos: ms }) => {
+    const memoHashes = (ms || []).map((m) => keccak256(m.startsWith('0x') ? m : `0x${m}`));
+    const f = join(tmp, 'own.stdin'), out = join(tmp, 'own.pv');
+    writeFileSync(f, stdinFor(type, { ...JSON.parse(JSON.stringify(op)), memoHashes }));
+    const r = await execGuest({ ...process.env, STDIN: f, OUT: out });
+    if (r.status !== 0 || !existsSync(out)) throw new Error('the guest rejected the op');
+    return { requestId: 'own-1', publicValues: `0x${readFileSync(out, 'utf8').trim()}`, proof: '0x', private: true };
+  };
+  own.supports = (t) => t === 'wrapswap';
+  const ox = mkUx();
+  ox.relay.useProver(own);
+  const before = log.length;
+  const r = await ox.proveWrapSwap({ walletPriv: crypto.getRandomValues(new Uint8Array(32)), toTicker: 'cTAC', amountWei: ETH, feeBps, waitOpts: wait }).catch((e) => ({ error: e }));
+  ok(!r.error && /^spn:/.test(String(r.proven?.jobId || '')) && log.length === before, `the holder's own prover proves it, the relay's queue untouched (${r.error ? r.error.message : r.proven.jobId})`);
+  if (!r.error) {
+    const b0 = BigInt(await rpcA('eth_getBalance', [TIPTO, 'latest']));
+    const c = ox.wrapSettleCall({ built: r.built, proven: r.proven });
+    const s2 = await sendCall(c).catch((e) => ({ error: e }));
+    ok(!s2.error && await depositStatus(r.built.depositId) === 2n && c.value === ETH && BigInt(await rpcA('eth_getBalance', [TIPTO, 'latest'])) === b0,
+      `one transaction deposits and settles it with no tip: the ${fmtTac(r.built.amountOut)} TAC note is in the pool (${s2.error ? s2.error.message : `${BigInt(s2.rc.gasUsed)} gas`}; value ${c.value})`);
+  }
+}
+
 if (fails) console.error(log.join('\n'));
 console.log(`\n${n} passed, ${fails} failed (${Math.round((Date.now() - t0) / 1000)} s)`);
 stop();

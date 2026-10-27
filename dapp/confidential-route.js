@@ -11,7 +11,7 @@
 const ZERO32 = '0x' + '00'.repeat(32);
 const MAX_ROUTE_HOPS = 4;
 
-export function makeConfidentialRoute({ keccak256, pool, kernelSign }) {
+export function makeConfidentialRoute({ keccak256, pool, kernelSign, rangeProve }) {
   const { leaf, nullifier, nkToOwner, nativeNu, commitXY, openingSigma, verifyOpeningSigma, openingPokBlind, verifyOpeningPokBlind, deriveOpeningNonce, intentContext } = pool;
 
   // The nullifier the guest records for a spent native note: leaf-bound for a bearer note (owner 0), otherwise
@@ -71,14 +71,19 @@ export function makeConfidentialRoute({ keccak256, pool, kernelSign }) {
 
   // hops: [{ assetNext, feeBps, reserveAPre, reserveBPre }] in route order. rIn/rOut are the input/output
   // note blindings (stay CLIENT-SIDE; only the opening sigmas reach the witness).
-  function buildRoute({ asset0, chainBinding, inNote, amountIn, rIn, hops, minOut, outOwner, rOut, deadline, fee = 0n, change = [] }) {
+  // `noteValue`: the spent note's own value, when it exceeds `amountIn` (a partial spend): the remainder is `change` ([{ value, blinding, owner }]), in
+  // the route's start asset, and `rIn` is the note's own blinding. Omitted, the whole note is spent (`noteValue` = `amountIn`).
+  function buildRoute({ asset0, chainBinding, inNote, amountIn, rIn, hops, minOut, outOwner, rOut, deadline, fee = 0n, change = [], noteValue = null }) {
     if (!(hops.length >= 1 && hops.length <= MAX_ROUTE_HOPS)) throw new Error('route: hop count out of range');
     const feeBig = BigInt(fee);
     if (!(feeBig < BigInt(amountIn))) throw new Error('route: fee >= input (note too small for a gasless route — self-settle)');
     // Only amountIn − fee routes; the relay is paid `fee` in the input asset (asset0) as a public
     // FeePayment. The input note still commits to the gross amountIn (its opening binds that).
     const { amountOut, assetFinal } = walk(asset0, BigInt(amountIn) - feeBig, hops);
-    const inC = commitXY(amountIn, rIn), outC = commitXY(amountOut, rOut);
+    const total = noteValue == null ? BigInt(amountIn) : BigInt(noteValue);
+    if (total < BigInt(amountIn)) throw new Error('route: amountIn exceeds the note');
+    if (total !== BigInt(amountIn) + change.reduce((a, c) => a + BigInt(c.value), 0n)) throw new Error('route: the note is not the amount plus its change');
+    const inC = commitXY(total, rIn), outC = commitXY(amountOut, rOut);
     const op = {
       asset0, assetFinal, chainBinding, deadline: BigInt(deadline ?? 0), fee: feeBig,
       // nk accompanies the spent note: the guest re-derives its leaf and asserts nk_to_owner(nk) == owner.
@@ -89,7 +94,7 @@ export function makeConfidentialRoute({ keccak256, pool, kernelSign }) {
     };
     const ctx = routeCtx(op);
     // Value-HIDING input opening (blind PoK), matching the guest; output amount is public (sigma).
-    op.inPok = openingPokBlind(op.amountIn, rIn, ctx, deriveOpeningNonce(rIn, ctx, 'route-in-v'), deriveOpeningNonce(rIn, ctx, 'route-in-r'));
+    op.inPok = openingPokBlind(total, rIn, ctx, deriveOpeningNonce(rIn, ctx, 'route-in-v'), deriveOpeningNonce(rIn, ctx, 'route-in-r'));
     op.outSig = openingSigma(op.amountOut, rOut, ctx, deriveOpeningNonce(rOut, ctx, 'route-out'));
     // The box harness (exec-route.rs) reads the input's blind PoK nested under `in` (in.pokR/pokZv/pokZr),
     // not the flat `inPok` verifyRoute checks locally — mirror both so the wire shape matches the harness
@@ -102,22 +107,19 @@ export function makeConfidentialRoute({ keccak256, pool, kernelSign }) {
     // unconditional) proving `note_value == amount_in + Σ change` via the same Σr_in − Σr_out Schnorr
     // kernel every other op's change leg uses (mirrors confidential-lp.js buildAdd's aKernel/bKernel).
     if (typeof kernelSign !== 'function') throw new Error('route: kernelSign dependency required (the change kernel is mandatory even with no change)');
-    // A genuine partial spend (amountIn < the note's real value) needs the kernel's `inputs` leg to carry
-    // the NOTE's own {value, blinding} — not amountIn/rIn, which only coincide with it in the whole-note
-    // case below. Not yet threaded through (inNote's real value isn't read here), so fail closed rather
-    // than silently emitting a kernel that proves the wrong equation.
-    if (change.length) throw new Error('route: partial-spend change is not yet implemented in buildRoute (spend the note in full, or pre-split it with a transfer)');
+    // A partial spend: the kernel's `inputs` leg carries the NOTE's own {value, blinding} (`total`, `rIn`), which for a whole-note route are
+    // amountIn and rIn, and the change gets one aggregated range proof (a legal size: 1, 2, 4 or 8 outputs).
+    if (change.length && typeof rangeProve !== 'function') throw new Error('route: rangeProve dependency required for a change output');
     const changeOut = change.map((c) => {
       const cc = commitXY(BigInt(c.value), BigInt(c.blinding));
       return { cx: cc.cx, cy: cc.cy, owner: c.owner, value: BigInt(c.value), blinding: BigInt(c.blinding) };
     });
     op.change = changeOut;
     const changeLeaves = changeOut.map((c) => leaf(asset0, c.cx, c.cy, c.owner));
-    // The note's REAL opening is (amountIn, rIn) for a whole-note route (change == []); a genuine partial
-    // spend would need `inNote`'s own {value,blinding} here instead (TODO: thread it through).
-    const k = kernelSign({ inputs: [{ value: BigInt(amountIn), blinding: BigInt(rIn) }], outputs: changeOut, fee: BigInt(amountIn), outLeaves: changeLeaves });
+    const k = kernelSign({ inputs: [{ value: total, blinding: BigInt(rIn) }], outputs: changeOut, fee: BigInt(amountIn), outLeaves: changeLeaves });
     op.changeKernelR = bytesToHex(k.R.toRawBytes(true));
     op.changeKernelZ = bytesToHex(be32(k.z));
+    if (changeOut.length) op.changeRangeProof = bytesToHex(rangeProve(changeOut.map((c) => c.value), changeOut.map((c) => c.blinding)).proof);
     return op;
   }
 

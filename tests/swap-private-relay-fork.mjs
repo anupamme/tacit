@@ -225,7 +225,7 @@ const routePlan = async (u, extra = {}) => {
 };
 const notesOf = async (asset) => ((await P.read(true))?.byAsset?.[asset]?.notes || []).map((x) => BigInt(x.value));
 
-// ── 2. a private swap from the balance: no note is the amount, so one is cut to size (a transfer to itself), then routed through the pool's AMM ──
+// ── 2. a private swap from the balance: no note is the amount, so the larger note is spent in one route through the pool's AMM and the rest comes back as change ──
 const u2 = 2_000_000n;
 {
   const { plan, best } = await routePlan(u2);
@@ -235,7 +235,7 @@ const u2 = 2_000_000n;
   const tac = await notesOf(TAC_ID), eth = await notesOf(ETH_ID);
   ok(tac.length === tac0 + 1 && tac.some((v) => v >= plan.minOut), `a cTAC note of at least the least asked is in the balance (${tac.join(',')})`);
   ok(!eth.includes(u2) && eth.reduce((a, b) => a + b, 0n) > 0n && eth.reduce((a, b) => a + b, 0n) < units - u2 + 1n, `the tETH left is the change, less the fees (${eth.join(',')})`);
-  ok(steps.includes('split') && steps.includes('route'), `it cut a note to size first, then routed (${steps.join(' > ')})`);
+  ok(!steps.includes('split') && steps.includes('route'), `the larger note covers it, so no note is cut first: one route, the rest back as change (${steps.join(' > ')})`);
 }
 
 // ── 3. out of the pool as ETH: a note cut to size, then an unwrap to the address ──
