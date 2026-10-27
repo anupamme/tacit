@@ -259,7 +259,8 @@ const server = createServer((req, res) => {
   res.end(readFileSync(f));
 }).listen(WEB);
 
-const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co', 'cloudflare-eth.com', 'rpc.flashbots.net'];
+const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co', 'cloudflare-eth.com', 'rpc.flashbots.net',
+  'rpc.mevblocker.io', 'eth-mainnet.public.blastapi.io', 'ethereum-json-rpc.stakely.io', 'eth.rpc.blxrbdn.com', '1.rpc.thirdweb.com'];   // and the TAC vaults' own (vault/chain.js)
 const submits = [], refused = [], relays = [], walletTxs = [];
 // What the wallet stub does beyond sending: takes EIP-5792 batches (batch), cannot sign typed data (noTyped), turns it down (rejectTyped),
 // or signs a permit for another amount than the one asked (badPermit). The batches it was sent, and where each one landed.
@@ -1567,10 +1568,11 @@ await step('borrow', async () => {
 });
 
 // Borrow against TAC from the tile: the Borrow tab takes TAC from the wallet into a TAC vault (TACD or TACE), quotes what it borrows at the
-// vault page's safe line after the fee (an estimate at the oracle's spot while the vault's prices wait to be recorded), and its button opens
-// the vault page's ticket with that amount in it, which records what prices are missing, then deposits and borrows.
+// vault page's safe line after the fee, and its button runs the vault page's own engine in place: it records what prices are missing, then
+// deposits and borrows. The vault then shows under Yours with its ratio, and Add TAC, Repay and Withdraw each open in the tile and run there.
 await step('hxvault', async () => {
-  const r = await openPage({ account: A0, key: null });
+  if ((await tacOf(A0)) < 2000n * 10n ** 18n) await fundTac(A0, 2000n * 10n ** 18n);
+  const r = await openPage({ account: A0, key: K0 });
   const p = r.page;
   try {
     await p.goto(r.url);
@@ -1578,23 +1580,71 @@ await step('hxvault', async () => {
     await p.click('[data-hxm="borrow"]');
     await p.selectOption('#hx-from', 'wtac');
     await p.fill('#hx-amt', '1000');
-    const quoted = (sym) => document.querySelector('#hx-go')?.textContent === `Borrow ${sym}` && /[1-9]/.test(document.querySelector('#hx-out')?.textContent || '') && /Vault ratio/.test(document.querySelector('#hx-receipt')?.textContent || '');
-    await until(p, quoted, 'TACD', 180000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-panel')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    // with no wallet connected, the button connects one first
+    await until(p, () => /^(Connect a wallet to borrow|Deposit [\d,.]+ TAC and borrow|Record \d+ prices? to open borrowing)$/.test(document.querySelector('#hx-go')?.textContent || ''), null, 180000);
+    if ((await text(p, '#hx-go')) === 'Connect a wallet to borrow') {
+      await p.click('#hx-go');
+      if (await p.waitForSelector('#sheet-pick[open] [data-uuid]', { timeout: 5000 }).catch(() => null)) await p.click('#sheet-pick[open] [data-uuid]');
+    }
+    const ready = /^(Deposit [\d,.]+ TAC and borrow|Borrow TAC[DE]|Record \d+ prices? to open borrowing)$/;
+    const quoted = ([sym, re]) => new RegExp(re).test(document.querySelector('#hx-go')?.textContent || '') && /[1-9]/.test(document.querySelector('#hx-out')?.textContent || '') && /Vault ratio/.test(document.querySelector('#hx-receipt')?.textContent || '') && document.querySelector('#hx-receipt').textContent.includes(sym === 'TACE' ? 'ETH' : '$');
+    await until(p, quoted, ['TACD', ready.source], 180000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | go: ${await text(p, '#hx-go')} | line: ${await text(p, '#hx-q')} | head: ${(await text(p, 'header')).replace(/\s+/g, ' ').slice(0, 120)}`); });
     const rc = (await text(p, '#hx-receipt')).replace(/\s+/g, ' '), out = await text(p, '#hx-out');
-    ok(/Vault ratio\s*400%, the safe line/.test(rc) && /Borrow fee\s*1%, once/.test(rc) && /Liquidation\s*if TAC falls under \$/.test(rc) && /Prices/.test(rc), `hxvault: TAC from the wallet borrows TACD at the safe line after the fee, and says when it is liquidated and where its prices stand (${out}; ${rc})`);
+    ok(/Vault ratio\s*400%, the safe line/.test(rc) && /(Borrow fee\s*1%, once|Fee \(1%\))/.test(rc) && /Liquidation\s*if TAC falls under \$/.test(rc), `hxvault: TAC from the wallet borrows TACD at the safe line after the fee, and says when it is liquidated (${out}; ${rc})`);
     ok(await p.evaluate(() => document.querySelector('#hx-pts')?.hidden !== false && !document.querySelector('#hx-go').classList.contains('priv')), 'hxvault: with no points said for it, and a plain button (TACD comes to the wallet, not private)');
     await shot(p, 'hxvault');
     await p.click('[data-hxd="tace"]');
-    await until(p, quoted, 'TACE', 120000);
+    await until(p, quoted, ['TACE', ready.source], 120000);
     ok(/falls under [\d.]+ ETH/.test(await text(p, '#hx-receipt')), 'hxvault: and TACE, priced in ETH');
     await p.click('[data-hxd="tacd"]');
-    await until(p, quoted, 'TACD', 120000);
-    const want = (await text(p, '#hx-out')).replace(/[^\d.]/g, '');
+    await until(p, quoted, ['TACD', ready.source], 120000);
+    // pressed in place, its missing prices are recorded first, by the vault page's own engine, its steps said in the tile's line (a fork cannot
+    // answer the block proofs a record is built from, so here it stops there; the vault page's suite runs the records and the borrow end to end)
+    await until(p, () => !document.querySelector('#hx-go')?.disabled && /^Record \d+ prices? to open borrowing$/.test(document.querySelector('#hx-go').textContent), null, 120000);
     await p.click('#hx-go');
-    await p.waitForURL(/\/vault\//, { timeout: 60000 });
-    const got = await until(p, (w) => document.querySelector('#amt')?.value === w, want, 120000).then(() => true, () => false);
-    ok(got, `hxvault: its button opens the vault page's ticket with ${want} TACD in it`);
+    await until(p, () => /Building \d+ records? \(batch 1\)|Confirm batch 1|Failed|could not|no RPC/i.test(document.querySelector('#hx-vs')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | line: ${await text(p, '#hx-vs')}`); });
+    ok(!/\/vault\//.test(p.url()), `hxvault: the press runs in the tile, with no trip to the vault page, and its line says the records it builds (${await text(p, '#hx-vs')})`);
+    await until(p, () => !document.querySelector('#hx-go')?.disabled, null, 300000).catch(() => {});
+    // a vault the wallet holds TAC in (deposited straight to the vault, which needs no prices): it shows under Yours, and Add TAC and Withdraw run in the tile
+    const VAULT = '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F';
+    await rpc('eth_sendTransaction', [{ from: A0, to: TAC, data: '0x095ea7b3' + addrWord(VAULT) + word(100n * 10n ** 18n) }]);
+    await rpc('eth_sendTransaction', [{ from: A0, to: VAULT, data: '0xb6b55f25' + word(100n * 10n ** 18n) }]);
+    const t1 = await tacOf(A0);
+    await p.reload();
+    await p.waitForSelector('#hx-body .hx-h', { timeout: 120000 });
+    await p.click('[data-hxm="borrow"]');
+    await until(p, () => /TACD owed/.test(document.querySelector('#hx-bwl-l')?.textContent || '') && !document.querySelector('#hx-bwl').hidden, null, 180000);
+    const row = (await text(p, '#hx-bwl-l')).replace(/\s+/g, ' ');
+    ok(/0(\.0+)? TACD owed\s*100(\.0+)? TAC in the vault\s*Repay\s*Add TAC\s*Withdraw/.test(row), `hxvault: the vault shows under Yours with what it owes and its TAC, and Repay, Add TAC and Withdraw (${row})`);
+    // Add TAC, in the tile
+    await p.click('[data-bva="usd:deposit"]');
+    await p.waitForSelector('#hx-va-amt', { timeout: 60000 });
+    ok(/TAC Dollar vault/.test(await text(p, '#hx-va')) && await p.evaluate(() => document.querySelector('[data-va-k="deposit"]')?.getAttribute('aria-selected') === 'true'), 'hxvault: Add TAC opens the vault in the tile on its Add TAC tab');
+    await p.fill('#hx-va-amt', '10');
+    await until(p, () => document.querySelector('#hx-va-go')?.textContent === 'Deposit TAC' && !document.querySelector('#hx-va-go').disabled && /Collateral after/.test(document.querySelector('#hx-va')?.textContent || ''), null, 60000);
+    await p.click('#hx-va-go');
+    await chainUntil(async () => (await tacOf(A0)) === t1 - 10n * 10n ** 18n, 180000);
+    ok((await tacOf(A0)) === t1 - 10n * 10n ** 18n, `hxvault: and 10 TAC goes into the vault (${await text(p, '#hx-va-s')})`);
+    await until(p, () => !document.querySelector('[data-va-k="repay"]')?.disabled, null, 120000);
+    await p.click('[data-va-k="repay"]');
+    await until(p, () => document.querySelector('#hx-va-go')?.textContent === 'Nothing to repay', null, 60000);
+    ok(true, 'hxvault: Repay, with nothing owed, says so');
+    await p.click('[data-va-k="withdraw"]');
+    await until(p, () => /Up to 110(\.0+)? · Max/.test(document.querySelector('#hx-va')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-va')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    await p.click('[data-va-max]');
+    await until(p, () => /^Withdraw/.test(document.querySelector('#hx-va-go')?.textContent || '') && !document.querySelector('#hx-va-go').disabled, null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-va')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    const t2 = await tacOf(A0);
+    await p.click('#hx-va-go');
+    await chainUntil(async () => (await tacOf(A0)) === t2 + 110n * 10n ** 18n, 180000);
+    ok((await tacOf(A0)) === t2 + 110n * 10n ** 18n, `hxvault: Max withdraws all 110 TAC back to the wallet, from the tile (${await text(p, '#hx-va-s')})`);
+    await shot(p, 'hxvault-manage');
+    await p.click('[data-va-close]');
+    await p.waitForSelector('#hx-amt', { timeout: 30000 });
+    ok(!(await p.$('#hx-va')), 'hxvault: Back returns to the Borrow form');
     if (r.errors.length) { fails++; console.log('FAIL hxvault page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -1610,7 +1660,7 @@ await step('hxvaultkey', async () => {
     await p.click('[data-hxm="borrow"]');
     await p.selectOption('#hx-from', 'wtac');
     await p.fill('#hx-amt', '1000');
-    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Borrow TACD', null, 180000);
+    await until(p, () => /^(Deposit [\d,.]+ TAC and borrow|Borrow TACD|Record \d+ prices? to open borrowing)$/.test(document.querySelector('#hx-go')?.textContent || ''), null, 180000);
     await p.evaluate(() => { document.querySelector('#hx-amt').__kept = 1; });
     await sleep(20000);
     const st = await p.evaluate(() => ({ kept: document.querySelector('#hx-amt')?.__kept === 1, have: document.querySelector('#hx-have')?.hidden === false ? document.querySelector('#hx-have').textContent.replace(/\s+/g, ' ').trim() : '' }));
