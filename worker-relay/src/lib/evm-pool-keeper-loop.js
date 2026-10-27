@@ -47,31 +47,45 @@ export function quoteFee({ token, gas, gasPrice, cfg, floor = true }) {
   return fee > min ? fee : min;
 }
 
-// What the keeper has taken on itself of sweeps in the last day, in wei, per keeper (its config object).
-const ABSORBED = new WeakMap();
+// What a keeper's signer has taken on itself of sweeps in the last day, in wei: one budget per signer (chain and address), shared
+// by every pool it serves, since it is the signer's ETH that pays.
+const ABSORBED = new Map();
 const nowSecs = () => Math.floor(Date.now() / 1000);
-const absorbedSince = (cfg, at) => (ABSORBED.get(cfg) || []).filter((x) => at - x.at < 86_400).reduce((a, x) => a + x.wei, 0n);
+export const signerKey = (chain) => `${chain.chainId}:${String(chain.address).toLowerCase()}`;
+const absorbedSince = (key, at) => (ABSORBED.get(key) || []).filter((x) => at - x.at < 86_400).reduce((a, x) => a + x.wei, 0n);
+
+// How much of its own ETH (wei) the signer may still take on: what is left of its day's budget (SWEEP_SUBSIDY_DAILY_WEI) and what
+// it holds over its reserve (SUBSIDY_RESERVE_WEI), whichever is less; null when neither is set. A balance that cannot be read
+// counts as none, so the subsidy stops rather than spends blind.
+export async function subsidyRoom({ chain, cfg, at = nowSecs() }) {
+  let room = null;
+  if (cfg.sweepSubsidyDaily) { const left = cfg.sweepSubsidyDaily - absorbedSince(signerKey(chain), at); room = left > 0n ? left : 0n; }
+  if (cfg.subsidyReserve) {
+    const held = BigInt(await chain.balanceOf(ETH, chain.address).catch(() => 0n)), spare = held > cfg.subsidyReserve ? held - cfg.subsidyReserve : 0n;
+    if (room === null || spare < room) room = spare;
+  }
+  return room;
+}
 
 // What the keeper takes on itself of a sweep that costs `cost` (in `token` base units, as quoteFee gives it): the share
-// SWEEP_SUBSIDY_BPS of it, never more than SWEEP_SUBSIDY_WEI (that alone when no share is set) nor what is left of the day's
-// budget. Nothing for a token with no price, or with no subsidy set.
-export function subsidyOf({ token, cost, cfg, at = nowSecs() }) {
+// SWEEP_SUBSIDY_BPS of it, never more than SWEEP_SUBSIDY_WEI (that alone when no share is set) nor `room` (wei, from subsidyRoom;
+// null for no bound). Nothing for a token with no price, or with no subsidy set.
+export function subsidyOf({ token, cost, cfg, room = null }) {
   const rate = cfg.rates.get(token.toLowerCase());
   if (rate === undefined || !cfg.sweepSubsidy) return 0n;
-  const toTok = (wei) => (wei * E18 + rate - 1n) / rate;
-  let s = toTok(cfg.sweepSubsidy);
+  let s = (cfg.sweepSubsidy * E18 + rate - 1n) / rate;
   if (cfg.sweepSubsidyBps) { const share = (cost * BigInt(cfg.sweepSubsidyBps)) / 10_000n; if (share < s) s = share; }
   if (s > cost) s = cost;
-  if (cfg.sweepSubsidyDaily) { const left = cfg.sweepSubsidyDaily - absorbedSince(cfg, at), cap = left > 0n ? (left * E18) / rate : 0n; if (cap < s) s = cap; }
+  if (room !== null) { const cap = room > 0n ? (room * E18) / rate : 0n; if (cap < s) s = cap; }
   return s;
 }
-// Records what a sweep took from the keeper's own pocket (token units), against the day's budget.
-export function absorbed({ token, tokens, cfg, at = nowSecs() }) {
+// Records what a sweep took from the signer's own pocket (token units), against its day's budget.
+export function absorbed({ token, tokens, cfg, chain, at = nowSecs() }) {
   const rate = cfg.rates.get(token.toLowerCase());
   if (rate === undefined || tokens <= 0n) return;
-  const list = (ABSORBED.get(cfg) || []).filter((x) => at - x.at < 86_400);
+  const key = signerKey(chain), list = (ABSORBED.get(key) || []).filter((x) => at - x.at < 86_400);
   list.push({ at, wei: (tokens * rate) / E18 });
-  ABSORBED.set(cfg, list);
+  ABSORBED.set(key, list);
 }
 
 // The floor under the smallest balance a sweep of cost `cost` is done for: RECEIVE_MIN_MULT times the cost, and the token's own.
@@ -82,8 +96,8 @@ export function receiveFloorOf({ token, cost, cfg }) {
 
 // The smallest balance a sweep of cost `sweepFee` is done for: the 25 bps cap pays what the subsidy does not (a deposit of
 // less leaves the box for its owner to take in), and never less than the floor.
-export function receiveMinOf({ token, sweepFee, cfg, at }) {
-  const sub = subsidyOf({ token, cost: sweepFee, cfg, at }), net = sweepFee > sub ? sweepFee - sub : 0n;
+export function receiveMinOf({ token, sweepFee, cfg, room = null }) {
+  const sub = subsidyOf({ token, cost: sweepFee, cfg, room }), net = sweepFee > sub ? sweepFee - sub : 0n;
   const byCap = (net * 10_000n + 24n) / 25n, floor = receiveFloorOf({ token, cost: sweepFee, cfg });
   return byCap > floor ? byCap : floor;
 }
@@ -227,7 +241,7 @@ export function createKeeper({
     const cost = quoteFee({ token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     const feeFor = (amount) => { const cap = (amount * BigInt(feeBps)) / 10_000n; return cost < cap ? cost : cap; };
     // What the keeper takes on itself of the cost counts toward the reward; a balance under the floor is left alone.
-    const sub = subsidyOf({ token: r.token, cost, cfg, at: t }), floorMin = receiveFloorOf({ token: r.token, cost, cfg });
+    const sub = subsidyOf({ token: r.token, cost, cfg, room: await subsidyRoom({ chain, cfg, at: t }) }), floorMin = receiveFloorOf({ token: r.token, cost, cfg });
     if (sub > 0n && bal < floorMin) return { skipped: `balance ${bal} is below the ${floorMin} the keeper sweeps at a loss` };
     const pre = coverCheck({ reward: feeFor(bal) + sub, token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     if (!pre.ok) return { skipped: pre.reason };
@@ -286,7 +300,7 @@ export function createKeeper({
     }
     const res = await sweep(r, t);
     if (res.out === 'completed') {
-      absorbed({ token: r.token, tokens: res.took ?? 0n, cfg, at: t });
+      absorbed({ token: r.token, tokens: res.took ?? 0n, cfg, chain, at: t });
       log(`receive ${r.box}: swept ${res.amount} (fee ${res.fee}${res.took ? `, the keeper took on ${res.took}` : ''})`);
       return soon(r, t, { tx_hash: null, tx_sent_at: null, checks: 0, attempts: 0, note: 'swept', deadline: t + cfg.receiveWatchSecs });
     }
