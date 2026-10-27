@@ -13,7 +13,8 @@
 //   farmgate nobody connected: the public farm offers a browser wallet or, in place, the ways into a Tacit wallet, and back
 //   farmpos  a private farm's card with positions: each named and leading the card, unbond held back while a real reward is
 //            unharvested, harvested rewards and unbonded liquidity above the farms, a harvest pointing at its next step
-//   hxpos    Earn's own positions: farming ones in a ring with what each has earned and Harvest, Add and Exit; liquidity not farming with the way to farm it
+//   hxpos    Earn's own positions: farming ones in a ring with what each has earned and Harvest, Add and Exit; liquidity not farming with the way to farm it;
+//            Your Tacit's one To claim row, whose Private farms press opens them
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
@@ -915,10 +916,17 @@ await step('farm', async () => {
   await until(page, () => /to claim/.test(document.querySelector('[data-dash-open="farm"] .di-m')?.textContent || ''), null, 60000).catch(() => {});
   const dm = (await text(page, '[data-dash-open="farm"] .di-m')).trim();
   ok(/^(≈ [\d.,]+|< 0\.00001) ETH to claim$/.test(dm), `farm: the dashboard's farm rewards say what there is to claim, in ETH (${dm})`);
+  // the Earn tab lists the stake too: its pair in a ring, public, with Claim, Add and Withdraw
+  await page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  await page.click('[data-hxm="earn"]');
+  await until(page, () => [...document.querySelectorAll('#hx-pos .hx-pr')].some((x) => /TAC \/ ETH/.test(x.textContent) && /public/.test(x.textContent) && !!x.querySelector('.pair.farm') && !!x.querySelector('[data-pclaim]') && !!x.querySelector('a[data-link="farm/public"]')), null, 120000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(page, '#hx-pos').catch(() => '?')).replace(/\s+/g, ' ')}`); });
+  ok(true, 'farm: the Earn tab lists the public stake in a ring, with Claim, Add and Withdraw');
+  // its Claim opens the farm and presses the farm's own Claim
   const before = await tacOf(A0);
-  await page.click('#pf-claim');
+  await page.click('#hx-pos [data-pclaim]');
   await until(page, () => /TAC claimed/.test(document.querySelector('#toast-container')?.textContent || ''));
-  ok((await tacOf(A0)) > before, 'farm: claim pays TAC');
+  ok((await tacOf(A0)) > before && await page.evaluate(() => !!document.querySelector('#sheet-farm')?.open), 'farm: claim pays TAC, from the Earn tab\'s Claim');
   const got = Number((await tacOf(A0)) - before) / 1e18;
   await until(page, () => /Claimed so far/.test(document.querySelector('#farm-precision')?.textContent || ''), null, 180000);
   const shown = parseFloat(((await text(page, '#farm-precision')).match(/Claimed so far\s*([\d.,]+) TAC/) || [])[1]?.replace(/,/g, ''));
@@ -6920,7 +6928,7 @@ await step('rsend', async () => {
 // Earn's own positions: each one the key holds, farming in a ring with what it has earned and its presses (Harvest, Add, Exit), and liquidity
 // not farming with the way to farm it; Harvest runs the farm's own step and says where to turn the reward into TAC, and Add picks that pool above.
 await step('hxpos', async () => {
-  const r = await openFarmKey('b05f'.padEnd(64, '6'), { notes: [[FARM_LP0, 50000000n]], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(8, 20000000, 0, '0')] });
+  const r = await openFarmKey('b05f'.padEnd(64, '6'), { notes: [[FARM_LP0, 50000000n]], positions: [farmPos(7, 150000000, 123456000000, '1234.56'), farmPos(8, 20000000, 0, '0')] });
   const p = r.page;
   try {
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
@@ -6928,13 +6936,22 @@ await step('hxpos', async () => {
     await until(p, () => !document.querySelector('#hx-pos')?.hidden && document.querySelectorAll('#hx-pos .hx-pr').length === 3, null, 300000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-pos').catch(() => '?')).replace(/\s+/g, ' ')}`); });
     const rows = await p.$$eval('#hx-pos .hx-pr', (rs) => rs.map((x) => ({ t: x.textContent.replace(/\s+/g, ' ').trim(), ring: !!x.querySelector('.pair.farm'), harv: x.querySelector('[data-pharv]') ? !x.querySelector('[data-pharv]').disabled : null, farm: !!x.querySelector('a[data-link="farm/private-0"]') })));
-    ok(rows[0].ring && /tETH \/ TAC/.test(rows[0].t) && /\+12\.3456 TAC/.test(rows[0].t) && rows[0].harv === true, `hxpos: a farming position is its pair in a ring, with what it has earned and Harvest (${rows[0].t})`);
+    ok(rows[0].ring && /tETH \/ TAC/.test(rows[0].t) && /\+1234\.56 TAC/.test(rows[0].t) && rows[0].harv === true, `hxpos: a farming position is its pair in a ring, with what it has earned and Harvest (${rows[0].t})`);
     ok(rows[1].ring && /farming/.test(rows[1].t) && rows[1].harv === false, `hxpos: one with nothing earned yet cannot be harvested (${rows[1].t})`);
     await p.$eval('#hx', (e) => e.scrollIntoView({ block: 'end' })); await shot(p, 'hxpos');
     ok(!rows[2].ring && /not farming/.test(rows[2].t) && rows[2].farm, `hxpos: liquidity not farming is the pair alone, with the way to farm it (${rows[2].t})`);
     await p.click('#hx-pos [data-padd="0"]');
     await until(p, () => document.querySelector('#hx-routes [data-hxr="0"]')?.getAttribute('aria-checked') === 'true', null, 120000);
     ok(true, 'hxpos: Add picks that pool in the card above');
+    // what is yours to claim is one row in Your Tacit, a press for each source; private farm rewards are harvested here, in Earn
+    await until(p, () => /To claim:.*TAC from private farms/.test(document.querySelector('#dash-due .callout.claim')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#dash-due')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    await p.$eval('#dash', (e) => e.scrollIntoView()); await shot(p, 'claimrow');
+    ok((await p.$$('#dash-due .callout.claim')).length === 1 && !!(await p.$('#dash-due .callout.claim [data-dash-do="pfarm"]')), 'hxpos: Your Tacit says what is to claim in one row, with a press for the private farms');
+    await p.click('[data-hxm="swap"]');
+    await p.click('#dash-due [data-dash-do="pfarm"]');
+    await until(p, () => document.querySelector('[data-hxm="earn"]')?.getAttribute('aria-selected') === 'true' && !document.querySelector('#hx-pos')?.hidden, null, 60000);
+    ok(true, 'hxpos: its Private farms press opens the Earn tab on your positions');
     await p.click('#hx-pos [data-pharv="0"]');
     await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#hx-pos-s')?.textContent || ''), null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-pos-s')}`); });
@@ -6973,9 +6990,9 @@ await step('farmpos', async () => {
     ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('harvest:')), 'farmpos: a harvest says where to turn it into TAC, and the link takes you to that button');
     // the dashboard: the pool's liquidity farming (its pair in a ring) and not (the pair alone), each with its worth in ETH
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); document.querySelector('#dash')?.scrollIntoView(); });
-    await until(p, () => [...document.querySelectorAll('#dash .di')].some((d) => /tETH \/ TAC LP/.test(d.textContent)), null, 120000).catch(() => {});
-    const lpRows = await p.evaluate(() => [...document.querySelectorAll('#dash .di')].filter((x) => /tETH \/ TAC (LP|farm)/.test(x.textContent)).map((d) => ({ t: d.textContent.replace(/\s+/g, ' '), marks: d.querySelectorAll('.pair .tk').length, ring: !!d.querySelector('.pair.farm'), open: d.dataset.dashOpen })));
-    const lf = lpRows.find((x) => /farm/.test(x.t) && x.ring), ll = lpRows.find((x) => /LP/.test(x.t) && !x.ring);
+    await until(p, () => [...document.querySelectorAll('#dash .di')].some((d) => /not farmed/.test(d.textContent)), null, 120000).catch(() => {});
+    const lpRows = await p.evaluate(() => [...document.querySelectorAll('#dash .di')].filter((x) => /tETH \/ TAC/.test(x.textContent)).map((d) => ({ t: d.textContent.replace(/\s+/g, ' '), marks: d.querySelectorAll('.pair .tk').length, ring: !!d.querySelector('.pair.farm'), open: d.dataset.dashOpen })));
+    const lf = lpRows.find((x) => /farming/.test(x.t) && x.ring), ll = lpRows.find((x) => /not farmed/.test(x.t) && !x.ring);
     ok(lpRows.length === 2 && lf && ll && lf.marks === 2 && /private, farming/.test(lf.t) && /private, not farmed/.test(ll.t) && /[\d.]+ ETH/.test(lf.t) && lf.open === 'farm/private-0',
       `farmpos: the dashboard shows the pool's farmed liquidity (its pair in a ring) and its loose liquidity (the pair alone), each with its worth (${JSON.stringify(lpRows)})`);
     if (r.errors.length) { fails++; console.log('FAIL farmpos page errors: ' + r.errors.slice(0, 3).join(' | ')); }

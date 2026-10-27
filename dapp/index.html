@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-REafO9+Lu78MMp5xcToz2Y036SfiaVx9haqEjh7mLkA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0O4EU5UYBg+wKqHKHwPeL90g+aHo+X8DAuMpEdrB6KI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -150,6 +150,7 @@ main:focus { outline: none; }
 .pair .tk + .tk { margin-left: -16px; box-shadow: 0 0 0 3px var(--card); }
 /* liquidity in a farm: its pair inside a ring (the pair alone is liquidity held, not farming) */
 .pair.farm { padding: 2px; border-radius: 999px; box-shadow: 0 0 0 1.5px var(--orange); }
+.di-k .pair.farm { padding: 1px; }
 .pair .tk.sm + .tk.sm { margin-left: -7px; box-shadow: 0 0 0 2px var(--card); }
 .pair .tk.md + .tk.md { margin-left: -12px; }
 
@@ -916,6 +917,8 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .callout { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin: 0 0 16px;
   font-size: 13px; background: var(--field); border-left: 2px solid var(--orange); }
 .callout .btn { width: auto; min-height: 36px; margin: 0; padding: 6px 14px; flex: none; }
+.callout.claim { flex-wrap: wrap; }
+.callout .cl-do { display: flex; flex-wrap: wrap; gap: 6px; }
 .hl { padding: 12px 14px; margin: 0 0 16px; background: var(--field); border: 1px solid var(--hair); border-left: 2px solid var(--ok); }
 .hl-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hl-h b { font-weight: 500; }
@@ -12282,8 +12285,8 @@ function dashItems() {
       const loose = (s ? freeNotes(s.notes).filter(isLp(p)) : []).reduce((a, n) => a + BigInt(n.value), 0n);
       const farmed = (FARM.positions ?? s?.farmPositions ?? []).filter((y) => Number(y.pid) === Number(p.pid)).reduce((a, y) => a + (big(y.shares) || 0n), 0n);
       const icons = ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'];
-      if (farmed) out.push({ key: `lpf-${p.pid}`, icons, ring: true, label: `${pairName(p.pair)} farm`, unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, farmed) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, farming' });
-      if (loose) out.push({ key: `lp-${p.pid}`, icons, label: `${pairName(p.pair)} LP`, unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, loose) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, not farmed', send: `lp${p.pid}` });
+      if (farmed) out.push({ key: `lpf-${p.pid}`, icons, ring: true, label: pairName(p.pair), unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, farmed) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, farming' });
+      if (loose) out.push({ key: `lp-${p.pid}`, icons, label: pairName(p.pair), unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, loose) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, not farmed', send: `lp${p.pid}` });
     }
   }
   // wTAC held privately (harvested farm rewards) and in the wallet, one row at TAC's 18 decimals: sent on from the card's Send, turned into TAC in the farm sheet
@@ -12302,7 +12305,7 @@ function dashItems() {
   return out;
 }
 const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac-finish'], borrow: ['borrow', 'borrow', 'bw-finish'], claim: ['private', 'eth', 'v1-claim'], back: ['private', 'eth', 'v1-back'],
-  pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
+  pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], rtac: ['farm', 'farm', 'fn-redeem'], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
 const DASH_PX = { teth: 'eth', dev: 'eth', devtac: 'tac', devtacd: 'usd', devtace: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
 const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'devtacd', 'devtace', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
 function dashWorth(items) {
@@ -12383,13 +12386,19 @@ function paintDash() {
       else if (xs.length) due.push([xs.length === 1 ? `${xoAmtRaw(xs[0])} is on its way from Ethereum to Bitcoin, ${xoWhere(xs[0])}. It finishes while this page is open with your wallet.`
         : `${xs.length} bridges of ${a.ticker} are on their way from Ethereum to Bitcoin. They finish while this page is open with your wallet.`, link, 'Follow']);
     }
+    // what is yours to claim, one row: each source with its own press (they are claimed differently: points by the key's account, the public
+    // farm from the wallet, private farms harvested through the relay, wTAC turned into TAC, the airdrop from the wallet)
+    const claims = [];
     const pw = pointsWho(), prow = PTS.key && PTS.key === pw.map(([a]) => a).join() ? PTS.rows || [] : [], owed = prow.reduce((a, r) => a + r.owed, 0n);
-    if (owed > 0n) due.push([`${tacShort(owed)} TAC from points is yours to claim${prow.filter((r) => r.owed > 0n).length > 1 ? ', from more than one address' : ''}.`, 'pts', 'Claim']);
+    if (owed > 0n) claims.push([`${tacShort(owed)} TAC from points`, 'pts', 'Points']);
     const pf = FARM.precision && FARM.precision.who === S.address ? FARM.precision : null, pfe = pf ? earnedNow(pf) : 0n;
-    if (pfe > 0n && ethOfTac(pfe, FARM.precision) >= 10n ** 15n) due.push([`${tacShort(pfe)} TAC from the TAC/ETH farm is yours to claim (${aboutEth(ethOfTac(pfe, FARM.precision))}).`, 'farm', 'Claim']);
+    if (pfe > 0n && ethOfTac(pfe, FARM.precision) >= 10n ** 15n) claims.push([`${tacShort(pfe)} TAC from the public farm`, 'farm', 'Public farm']);
     const scale = big(FARM.program?.unitScale) || E10, pend = (FARM.positions || []).reduce((a, x) => a + (big(x.pendingUnits) || 0n) * scale, 0n);
-    if (pend > 0n && ethOfTac(pend, FARM.precision) >= 10n ** 15n) due.push([`${tacShort(pend)} TAC from your private farms is yours to claim.`, 'pfarm', 'Open']);
-    if (S.wallet && AIR?.claimable && !AIR.claimed) due.push([`${fmt(BigInt(AIR.amountWei || 0), 18, 2)} TAC from the airdrop is yours to claim, by ${dayFmt(AIR.deadline)}.`, 'air', 'Claim']);
+    if (pend > 0n && ethOfTac(pend, FARM.precision) >= 10n ** 15n) claims.push([`${tacShort(pend)} TAC from private farms`, 'pfarm', 'Private farms']);
+    const rw = P.scan ? spendable('rtac') * scale : 0n;
+    if (rw > 0n && ethOfTac(rw, FARM.precision) >= 10n ** 15n) claims.push([`${tacShort(rw)} wTAC to turn into TAC`, 'rtac', 'wTAC']);
+    if (S.wallet && AIR?.claimable && !AIR.claimed) claims.push([`${fmt(BigInt(AIR.amountWei || 0), 18, 2)} TAC from the airdrop, by ${dayFmt(AIR.deadline)}`, 'air', 'Airdrop']);
+    if (claims.length) due.push([`To claim: ${claims.map(([t]) => t).join(' · ')}.`, claims.map(([, go, label]) => [go, label])]);
     const farmIds = new Set([FARM.program?.rewardAsset, ...(FARM.program?.pools || []).map((p) => p.lpAsset)].filter(Boolean).map((a) => String(a).toLowerCase()));
     const other = (P.scan?.others || []).filter((g) => !farmIds.has(g.id));
     if (other.length) {
@@ -12402,7 +12411,8 @@ function paintDash() {
     const n = window.tacitBridges?.().under || 0;
     if (n) due.push([n === 1 ? 'A bridge is under way in this browser. Open your Tacit wallet to follow it and send its next step.' : `${n} bridges are under way in this browser. Open your Tacit wallet to follow them and send their next steps.`, 'key', 'Open your Tacit wallet']);
   }
-  const dueHtml = html`${due.map(([t, go, label, href]) => html`<div class="callout"><span>${t}</span>${href ? html`<a class="btn ghost" href="${href}" target="_blank" rel="noopener">${label}</a>`
+  const dueHtml = html`${due.map(([t, go, label, href]) => html`<div class="callout${Array.isArray(go) ? ' claim' : ''}"><span>${t}</span>${Array.isArray(go) ? html`<span class="cl-do">${go.map(([g, l]) => html`<button class="btn ghost" type="button" data-dash-do="${g}">${l}</button>`)}</span>`
+    : href ? html`<a class="btn ghost" href="${href}" target="_blank" rel="noopener">${label}</a>`
     : html`<button class="btn ghost" type="button" data-dash-do="${go}">${label}</button>`}</div>`)}`.s;
   const gridHtml = html`${items.map(cell)}`.s, view = dueHtml + gridHtml;
   sec.hidden = false;
@@ -12415,11 +12425,16 @@ function paintDash() {
       if (b.dataset.btcAsset) { BTC.mode = 'send'; BTC.asset = b.dataset.btcAsset; }
       return b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen);
     });
-    $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => { if (b.dataset.dashDo === 'act') return openAct(); if (b.dataset.dashDo === 'key') { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); return; } if (b.dataset.dashDo === 'bridge' || b.dataset.dashDo.includes('/')) return openLink(b.dataset.dashDo); const [link, sheet, btn] = DASH_DO[b.dataset.dashDo], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {}); });
+    $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => dashDo(b.dataset.dashDo));
     if (was) $(was, sec)?.focus();
   }
   clearTimeout(dashSaveT);
   dashSaveT = setTimeout(dashWrite, 1000);
+  hxPosPaint();
+}
+// A press of the panel's: open where it is done and press its button there (the Earn tab's list, for private farm rewards)
+function dashDo(go) {
+  if (go === 'pfarm') { hxPreset('earn'); setTimeout(() => $('#hx-pos')?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }), 400); return; } if (go === 'act') return openAct(); if (go === 'key') { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); return; } if (go === 'bridge' || go.includes('/')) return openLink(go); const [link, sheet, btn] = DASH_DO[go], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {});
 }
 function dashWrite() {
   clearTimeout(dashSaveT); dashSaveT = 0;
@@ -14133,12 +14148,14 @@ function paintHx() {
   hxBrLine();
   hxPosPaint();
 }
-// ── Earn's own: what the key holds in each private pool, farming (its pair in a ring, with what it has earned) or not (the pair alone). A
+// ── Earn's own: the public farm's stake (from the wallet), and what the key holds in each private pool, farming (its pair in a ring, with what it has earned) or not (the pair alone). A
 // farming one is harvested, added to (the pool is picked above) or exited here; one not farming opens its farm, which bonds it or takes it out.
 // The presses are the farm sheet's own steps (stepHarvest, exitPosition); one runs at a time. ──
 function hxPosRows() {
-  if (!S.key || !FARM.program?.pools) return [];
-  const out = [], s = P.scan;
+  const out = [], s = P.scan, x = FARM.precision && FARM.precision.who === S.address ? FARM.precision : null;
+  // the public farm's stake, from the wallet: claimed, added to and withdrawn from its own form
+  if (x?.staked > 0n) out.push({ pub: x, icons: ['tk-tac', 'tk-eth'] });
+  if (!S.key || !FARM.program?.pools) return out;
   for (const p of FARM.program.pools) {
     const icons = ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'];
     for (const pos of (FARM.positions || []).filter((y) => Number(y.pid) === Number(p.pid))) out.push({ p, pos, icons });
@@ -14153,8 +14170,15 @@ function hxPosPaint() {
   if (S.key && FARM.positions == null && !HX.posAsk) { HX.posAsk = true; loadPositions().then(hxPosPaint, () => {}).finally(() => { HX.posAsk = false; }); }
   const rows = hxPosRows();
   el.hidden = !rows.length;
-  const pair = (r) => html`<span class="pair${r.pos ? ' farm' : ''}">${r.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>`;
+  const pair = (r) => html`<span class="pair${r.pos || r.pub ? ' farm' : ''}">${r.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>`;
   const row = (r, i) => {
+    if (r.pub) {
+      const e = earnedNow(r.pub), has = e > 0n;
+      return html`<div class="hx-pr">${pair(r)}<span class="rt"><b>TAC / ETH</b><small>${aboutEth(r.pub.mine.eth * 2n)} · ${has ? `+${tacShort(e)} TAC` : 'farming'} · public</small></span><span class="hx-pa">
+        <button class="link" type="button" data-pclaim${has ? '' : ' disabled'}>Claim</button>
+        <button class="link" type="button" data-padd="${i}">Add</button>
+        <a class="link" href="#farm/public" data-link="farm/public">Withdraw</a></span></div>`;
+    }
     const worth = sharesEth(r.p, r.pos ? big(r.pos.shares) : r.loose), name = pairName(r.p.pair), off = HX.posBusy ? ' disabled' : '';
     if (!r.pos) return html`<div class="hx-pr">${pair(r)}<span class="rt"><b>${name}</b><small>${worth != null ? `${aboutEth(worth)} · ` : ''}not farming</small></span><span class="hx-pa"><a class="link" href="#farm/private-${r.p.pid}" data-link="farm/private-${r.p.pid}">Farm it</a></span></div>`;
     const locked = Number(r.pos.unlockAt || 0) > chainNow(), earned = BigInt(r.pos.pendingUnits || 0) > 0n;
@@ -14166,11 +14190,12 @@ function hxPosPaint() {
   const view = html`${rows.map(row)}`;
   if (list.__h !== view.s) { list.__h = view.s; mount(list, view); }
   el.onclick = (e) => {
-    const b = e.target.closest('[data-pharv], [data-padd], [data-pexit]');
+    const b = e.target.closest('[data-pharv], [data-padd], [data-pexit], [data-pclaim]');
     if (!b || b.disabled) return;
+    if (b.hasAttribute('data-pclaim')) return dashDo('farm');
     const r = rows[Number(b.dataset.pharv ?? b.dataset.padd ?? b.dataset.pexit)], st = $('#hx-pos-s');
     if (!r) return;
-    if (b.dataset.padd != null) { HX.pool = HX.earnPick = String(r.p.pid); HX.q = null; hxQuote(); $('#hx-amt')?.focus(); return; }
+    if (b.dataset.padd != null) { if (r.pub) HX.ern = HX.ern === 'wtac' ? 'wtac' : 'ether'; HX.pool = HX.earnPick = r.pub ? 'precision' : String(r.p.pid); HX.q = null; paintHx(); $('#hx-amt')?.focus(); return; }
     HX.posBusy = true; list.__h = ''; hxPosPaint();
     busy(b, async (run) => {
       const tell = (m) => say(st, m);
