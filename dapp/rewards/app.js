@@ -468,7 +468,7 @@ async function openFarm() {
     if (!r) farmNote.textContent = want != null ? 'Your TAC has not arrived yet. Close this and open it again in a moment.' : '';
     else if (r.mode === 'tac') farmNote.textContent = 'This wallet has no spare ETH, so the TAC is added alone. The pool first swaps half of it to ETH.';
     else if (r.left > 0n) farmNote.textContent = `Your ETH covers ${tac(r.tac)} of the ${tac(r.all)} TAC. All of it needs ${eth4(r.need)} ETH.`;
-  } catch { $('#farm-host').innerHTML = '<p class="note err">Could not load the farm. <a href="/swap/#earn">Open it on the swap page</a>.</p>'; }
+  } catch { $('#farm-host').innerHTML = '<p class="note err">Could not load the farm. <a href="/#farm/public">Open it on the front page</a>.</p>'; }
 }
 farm.addEventListener('toggle', () => { if (farm.open) openFarm(); });
 $('#farm-host').addEventListener('input', () => { farmNote.textContent = ''; });
@@ -523,7 +523,7 @@ async function paintEarn() {
     ['holding', 'Hold ETH in the private pools', '/#points', (r) => `${n(r)} points per ETH a day, proven on your device`, mark('eth')],
     ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`, mark('eth')],
     ['evmpooldeposit', 'Deposit ETH in a device pool', '/#device', (r) => `${n(r)} points per ETH`, mark('eth'), ` ${chains}`],
-    ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/swap/', (r) => `${n(r)} points per ETH`, mark('eth')],
+    ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/?from=ETH&to=TAC', (r) => `${n(r)} points per ETH`, mark('eth')],
     ['cbtcmint', 'Post a bond toward cBTC', '/vault/#btc', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`, mark('cbtc')],
     ['cusdmint', 'Borrow cUSD', '/vault/#btc', (r) => `${n(r)} points per dollar, when you send the loan yourself`, mark('cusd')],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);

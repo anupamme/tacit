@@ -1,0 +1,541 @@
+<!doctype html>
+<!-- The test harness for the swap card (tests/swap-page.mjs, tests/swap-bitcoin-lane.mjs), made from the retired /swap/ page; the tests serve it at /swap/. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-evm-pool-keepers.onrender.com https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta name="color-scheme" content="light dark">
+<title>tacit swap</title>
+<meta name="description" content="Swap any token to any token at the best onchain price, from your wallet or your private balance, into your wallet or privately.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="tacit">
+<link rel="canonical" href="https://tacit.finance/swap/">
+<meta property="og:url" content="https://tacit.finance/swap/">
+<meta property="og:title" content="tacit swap">
+<meta property="og:description" content="Any token to any token at the best onchain price. Either side can be private.">
+<meta property="og:image" content="https://tacit.finance/tacit-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://api.tacit.finance" crossorigin>
+<link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
+<!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
+<!-- preload:begin -->
+<link rel="modulepreload" href="/swap/app.js?cb=c0916471">
+<link rel="modulepreload" href="/trade/connect.js?cb=de979716">
+<link rel="modulepreload" href="/walletconnect.js?cb=e0b29a34">
+<link rel="modulepreload" href="/trade/wallet.js?cb=6778fe25">
+<link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
+<link rel="modulepreload" href="/trade/util.js?cb=dcf3a4f2">
+<link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
+<link rel="modulepreload" href="/rpc-body.js">
+<link rel="modulepreload" href="/trade/fmt.js?cb=32b1744b">
+<link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
+<link rel="modulepreload" href="/swap/card.js?cb=18fdf5cc">
+<link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=5a940508">
+<link rel="modulepreload" href="/zrouter-guard.js">
+<link rel="modulepreload" href="/swap/route.js?cb=ce610210">
+<link rel="modulepreload" href="/swap/aggregate.js?cb=3c73982e">
+<link rel="modulepreload" href="/zrouter-guard.js?cb=f5ae4bcd">
+<link rel="modulepreload" href="/swap/solvers.js?cb=94e1df0a">
+<link rel="modulepreload" href="/reward-pop.js?cb=1b53f6d4">
+<link rel="modulepreload" href="/points-note.js?cb=dc44d257">
+<link rel="modulepreload" href="/evm-pool-tokens.js?cb=e1ab5d24">
+<!-- preload:end -->
+<link rel="stylesheet" href="/swap/card.css?cb=d9be557f">
+<style>
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+
+
+:root {
+  --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
+  --ink: #1A1A1A; --mute: #625C4F;
+  --hair: rgba(26,26,26,.12); --hair-2: rgba(26,26,26,.28);
+  --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d; --eth: #627eea;
+  --scrim: rgba(26,26,26,.36); --lift: 0 22px 44px -28px rgba(26,26,26,.45);
+  --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
+  --soft: color-mix(in srgb, #fff 40%, var(--card));
+  --float: 0 1px 2px rgba(26,26,26,.05), 0 26px 50px -34px rgba(26,26,26,.38);
+  --skel: rgba(26,26,26,.08);
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: 'Instrument Serif', 'Instrument Serif Fallback', 'Instrument Serif Fallback T', 'Instrument Serif Fallback N', Georgia, serif;
+  --tap: 44px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130E; --card: #1F1C15; --field: #191711;
+    --ink: #EDE5CF; --mute: #A39B85;
+    --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
+    --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c; --eth: #8ea2f4;
+    --scrim: rgba(0,0,0,.6); --lift: 0 22px 44px -28px rgba(0,0,0,.9);
+    --soft: color-mix(in srgb, var(--ink) 4.5%, var(--card));
+    --float: 0 0 0 1px rgba(237,229,207,.04), 0 34px 70px -30px rgba(0,0,0,.95);
+    --skel: rgba(237,229,207,.07);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font: 14px/1.6 var(--mono); letter-spacing: -.01em; overflow-x: hidden;
+  background-image: radial-gradient(var(--hair) 1px, transparent 1px); background-size: 24px 24px;
+  padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left));
+}
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+@media (hover: hover) { a:hover { text-decoration-thickness: 2px; } }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); } .ok { color: var(--ok); } .err { color: var(--err); } .warn { color: var(--warn); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: 16px; top: -64px; z-index: 100; padding: 10px 16px; background: var(--ink); color: var(--paper); border-radius: 8px; text-decoration: none; font-size: 13px; transition: top .15s; }
+.skip:focus { top: 12px; }
+.tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
+.tk.sm { width: 18px; height: 18px; } .tk.xs { width: 14px; height: 14px; }
+.tk.inl { display: inline-block; vertical-align: -3px; margin-right: 5px; }
+.pairtk { display: inline-flex; flex: none; } .pairtk .tk + .tk { margin-left: -6px; box-shadow: 0 0 0 2px var(--card); }
+.shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
+
+/* header (the trade pages') */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0 8px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; flex: none; }
+.brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
+.brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
+
+/* the page: one card in the middle, a quiet line under it */
+.stage { display: grid; grid-template-columns: minmax(0, 470px); justify-content: center; gap: 14px; padding: 20px 0 10px; }
+.hero { order: 1; text-align: center; padding-top: 6px; }
+.hero h1 { font: 400 24px/1.15 var(--serif); letter-spacing: -.01em; margin: 0; }
+.hero h1 em { font-style: italic; }
+.hero .lede { margin: 0 auto; max-width: 46ch; font-size: 13px; line-height: 1.55; color: var(--mute); text-wrap: pretty; }
+.hero .lede b { color: var(--ink); font-weight: 500; }
+.pxs { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; min-height: 22px; margin: 8px 0 0; font-size: 12px; color: var(--mute); opacity: 0; transition: opacity .3s; }
+.pxs.on { opacity: 1; }
+.pxs span { display: inline-flex; align-items: center; gap: 6px; } .pxs b { color: var(--ink); font-weight: 500; }
+
+
+/* the card: the front page's console, two verbs */
+.sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; box-shadow: var(--float); }
+.sw-h { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
+.sw-h::after { content: ''; position: absolute; bottom: -1px; left: calc(8px + (100% - 16px) / 2 * var(--i, 0) + (100% - 16px) / 2 * .22); width: calc((100% - 16px) / 2 * .56); height: 2px; border-radius: 2px; background: var(--ink); transition: left .3s var(--ease); }
+.sw-h button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; padding: 13px 0 12px; background: none; border: 0; cursor: pointer; font: italic 400 22px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
+.sw-h button[aria-selected="true"] { color: var(--ink); }
+@media (hover: hover) { .sw-h button:hover { color: var(--ink); } }
+.sw-h svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sw-b { padding: 14px 16px 16px; }
+#p-swap:empty { min-height: 467px; }                                  /* the card is drawn by its script (swap/card.js): its height is kept until then */
+
+
+/* Earn: the farms to choose between, then the chosen one */
+.sw .rows .c { grid-template-columns: 38px minmax(0, 1fr) auto 18px; }
+.farm-host { margin-top: 14px; }
+.privfarm { margin-top: 14px; }
+
+/* the Precision farm (trade/farm.js), in the card */
+.farm-host .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
+.farm-host h3 { font: 400 20px/1.15 var(--serif); margin: 0 0 12px; }
+.farm-host .note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; } .farm-host .note a { color: var(--ink); }
+.seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, auto); border: 1px solid var(--hair-2); border-radius: 10px; overflow: hidden; }
+.seg button { min-height: 34px; padding: 4px 13px; background: none; border: 0; cursor: pointer; color: var(--mute); font: 12.5px var(--mono); }
+.seg button + button { border-left: 1px solid var(--hair-2); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+.seg.big { display: grid; grid-auto-columns: minmax(0, 1fr); margin-bottom: 14px; } .seg.big button { min-height: 40px; font-size: 13px; }
+.farm-host #fm-h { display: none; }                                   /* the farm's row above names it */
+@media (pointer: coarse) { .seg button { min-height: var(--tap); } }
+.lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--mute); margin: 14px 0 6px; }
+.farm-host .amt { display: flex; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; font: inherit; }
+.farm-host .amt:focus-within { border-color: var(--ink); }
+.farm-host .amt input { flex: 1; min-width: 0; font: 400 32px/1.15 var(--serif); color: var(--ink); background: none; border: 0; padding: 10px 14px; outline: none; }
+.farm-host .amt .u { display: inline-flex; align-items: center; gap: 8px; padding: 0 14px 0 4px; color: var(--mute); white-space: nowrap; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; } .kv b.err { color: var(--err); }
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; margin-top: 14px; padding: 10px 16px; font-weight: 500; text-decoration: none; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s; }
+.btn:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.ghost { color: var(--ink); background: transparent; border-color: var(--hair-2); }
+.btn.sm { width: auto; min-height: 28px; padding: 2px 12px; font-size: 12px; margin: 0; border-radius: 8px; }
+.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; }
+.linkbtn:hover { color: var(--ink); }
+.status { font-size: 12.5px; margin-top: 12px; overflow-wrap: anywhere; } .status:empty { margin-top: 0; } .status a { color: var(--ink); }
+.fm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0 0 12px; }
+.fm-stats > div { display: grid; gap: 2px; align-content: start; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
+.fm-prog { display: none; }                                           /* the picker above lists the private farms, each with its APR and a way in */
+.fm-pos, .fm-add { border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px; }
+.fm-how { margin: 0 0 4px; }
+.fm-rcpt { margin: 12px 0 0; padding: 10px 12px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 10px; }
+.fm-rcpt .note { margin: 6px 0 0; }
+.fm-rcpt .ack { margin: 10px 0 0; padding: 0; background: none; }
+.fm-rcpt .ack input:not([type="checkbox"]) { width: 72px; height: auto; margin: 0; padding: 6px 8px; font: 500 16px var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--err); border-radius: 8px; }
+.fm-out { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.kv.earned { align-items: center; } .kv .rt { display: inline-flex; align-items: center; gap: 10px; }
+.wd { margin: 6px 0 0; border-top: 1px solid var(--hair); padding-top: 6px; }
+.wd > summary { cursor: pointer; list-style: none; font-size: 12.5px; color: var(--mute); display: flex; align-items: center; gap: 6px; padding: 6px 0; }
+.wd > summary::-webkit-details-marker { display: none; }
+.wd > summary::before { content: '▸'; font-size: 10px; transition: transform .15s; } .wd[open] > summary::before { transform: rotate(90deg); }
+.fm-out .seg button { min-height: 30px; padding: 2px 10px; font-size: 12px; }
+.privnote { margin: 10px 0 0; font-size: 12px; color: var(--mute); text-align: center; } .privnote a { color: var(--mute); }
+
+/* the wallet's sheets (trade/connect.js) */
+.bsheet { position: fixed; inset: 0; z-index: 900; display: grid; grid-template-columns: minmax(0, 1fr); place-items: start center; padding: 16px; overflow: auto; overscroll-behavior: contain; background: var(--scrim); backdrop-filter: blur(2px); }
+.bsheet.top { z-index: 1100; place-items: center; }
+.bsheet-in { min-width: 0; width: min(480px, 100%); padding: 22px 22px 24px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; box-shadow: var(--sheet-shadow); }
+.bsheet-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.bsheet-head h2 { font: italic 400 28px/1 var(--serif); letter-spacing: -.01em; margin: 0 auto 0 0; } .bsheet-head h2:focus { outline: none; }
+.bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
+.bsheet-actions { display: grid; grid-auto-flow: column; gap: 10px; } .bsheet-actions .btn { margin-top: 0; }
+.bsheet .note { font-size: 12.5px; color: var(--mute); }
+@media (max-width: 560px) { .bsheet { padding: 0; place-items: end center; } .bsheet-in { width: 100%; border-radius: 16px 16px 0 0; } }
+.picker { display: grid; gap: 8px; }
+.way { display: grid; gap: 3px; width: 100%; padding: 12px 14px; text-align: left; cursor: pointer; background: var(--field); border: 1px solid var(--hair-2); border-radius: 12px; }
+@media (hover: hover) { .way:hover { border-color: var(--ink); } }
+.way-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.wc-qr { margin: 0 auto 14px; width: 224px; padding: 10px; background: #fff; border-radius: 8px; } .wc-qr svg { display: block; width: 100%; height: auto; }
+.addr-s { font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* how it works */
+.how { margin: 64px 0 0; }
+.how .more { display: inline-block; margin: -10px 0 0; font-size: 13px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); }
+.how .more:hover, .how .more:focus-visible { border-bottom-color: var(--ink); }
+.how .more::after { content: " \2192"; }
+.how > h2 { font: 400 clamp(26px, 3.4vw, 36px)/1.05 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
+.how > h2 em { font-style: italic; }
+.how > h2 { margin-bottom: 26px; }
+.how > p.lede { max-width: 64ch; margin: 0 0 28px; font-size: 14px; line-height: 1.65; color: var(--mute); }
+.lanes { display: grid; gap: 34px; max-width: 920px; margin: 0 0 34px; padding: 0; list-style: none; }
+.lanes li { display: grid; grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); align-items: center; }
+.lanes .end { position: relative; z-index: 1; padding: 14px 16px 13px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; }
+.lanes .end.priv { border-style: dashed; }
+.lanes b { display: block; font: 400 21px/1.15 var(--serif); letter-spacing: -.01em; }
+.lanes small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.lanes b.tks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.lanes .tks span { display: inline-flex; align-items: center; gap: 6px; }
+.lanes .tks .tk { width: 22px; height: 22px; }
+.lanes .door small { margin-top: 30px; }
+.door { position: relative; display: grid; justify-items: center; gap: 4px; padding: 0 8px; text-align: center; font-size: 11.5px; line-height: 1.4; color: var(--mute); }
+.door::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--c); border-radius: 2px; }
+.door::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -5px; border-top: 2px solid var(--c); border-right: 2px solid var(--c); }
+.door.pub { --c: var(--eth); } .door.pub::after { right: 1px; transform: rotate(45deg); }
+.door.priv { --c: var(--ink); } .door.priv::before { background: none; border-top: 2px dashed var(--c); height: 0; } .door.priv::after { right: 1px; transform: rotate(45deg); }
+.door span { position: relative; z-index: 1; padding: 2px 8px; font: italic 400 17px/1.2 var(--serif); color: var(--ink); background: var(--paper); border-radius: 6px; }
+.door small { position: relative; z-index: 1; margin-top: 30px; max-width: 18ch; background: var(--paper); }
+.door span { transform: translateY(-14px); }
+@media (max-width: 860px) {
+  .lanes { gap: 18px; }
+  .lanes li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .door { min-height: 84px; align-content: center; justify-items: start; padding: 10px 0 10px 40px; text-align: left; }
+  .door::before { left: 22px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; margin: 0; }
+  .door.priv::before { border-top: 0; border-left: 2px dashed var(--c); width: 0; height: auto; }
+  .door::after { left: 18px; right: auto; top: auto; bottom: 2px; margin: 0; transform: rotate(135deg); }
+  .door span, .door small { transform: none; margin: 0; max-width: none; background: none; }
+  .door span { padding: 0; }
+}
+.addrs { margin: 40px 0 0; }
+.addrs > summary { cursor: pointer; font-size: 12.5px; color: var(--mute); list-style: none; } .addrs > summary::-webkit-details-marker { display: none; } .addrs > summary::after { content: " ▾"; } .addrs[open] > summary::after { content: " ▴"; }
+@media (hover: hover) { .addrs > summary:hover { color: var(--ink); } }
+.addrs ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 28px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 12.5px; }
+.addrs li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--hair); }
+.addrs li span { color: var(--mute); } .addrs li a { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+<!-- chrome:head:begin inline -->
+<style>
+/* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
+   into the pages (`npm run build`); a page keeps only its own tokens (--ink --mute --card --hair --hair-2 --orange --mono --spring)
+   and its brand, chips and spacing. Nothing here is a size the page has to agree with: the header's width is read from the header. */
+
+header.top { position: relative; z-index: 30; container: top / inline-size; }
+header.top .top-r { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* page links: six in the header (icons, then icons and names as the header gets wide), the rest in the menu; on a phone all of them are there */
+.sn { display: flex; align-items: center; gap: 2px; }
+.sn > a, .sn summary {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; flex: none;
+  height: 40px; min-width: 40px; padding: 0 9px; border-radius: 12px; color: var(--mute);
+  font: 500 12.5px/1 var(--mono); text-decoration: none; list-style: none; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+  transition: color .15s, background-color .15s, transform .25s var(--spring, ease);
+}
+.sn summary::-webkit-details-marker { display: none; }
+/* the menu is a <details>: a page's own rules for details and summary (a border, a "+", a margin) are not for it */
+header.top .sm { margin: 0; padding: 0; border: 0; font: inherit; }
+header.top .sm > summary { display: flex; min-height: 0; }
+header.top .sm > summary::before, header.top .sm > summary::after { content: none; }
+.sn svg, .sf svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sn svg.fill, .sf svg.fill { fill: currentColor; stroke: none; }
+.sn > a { display: none; }
+.sn > a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sn > a[aria-current="page"], .sn summary.here, .sm[open] > summary { color: var(--ink); background: var(--hair); }
+@media (hover: hover) { .sn > a:hover, .sn summary:hover { color: var(--ink); background: var(--hair); } }
+.sn > a:active, .sn summary:active { transform: scale(.93); }
+.sn a:focus-visible, .sn summary:focus-visible, .sf a:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
+@container top (min-width: 540px) { .sn > a { display: inline-flex; } }
+.sn > a[href="/rewards/"], .sn .sm > summary { position: relative; }
+.sn[data-owed] > a[href="/rewards/"]::after, .sn[data-owed] .sm > summary::after { content: ''; position: absolute; top: 8px; left: 26px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); }
+@container top (min-width: 540px) { .sn[data-owed] .sm > summary::after { display: none; } }
+@container top (max-width: 539px) { .sn[data-owed] > a[href="/rewards/"]::after { display: none; } }
+/* a bridge under way: a dot on the header's Bridge link, or on the menu button where the links are in the menu (chrome.js adds both) */
+.sn .bd { position: absolute; top: 5px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); pointer-events: none; }
+.sn > a > .bd { top: 8px; right: auto; left: 26px; width: 7px; height: 7px; }
+@container top (min-width: 540px) { .sn .sm > summary > .bd { display: none; } }
+/* the Activity link chrome.js adds on a page without its own chip: at every width, once there is something in it, with the count still going */
+.sn > a.sa:not([hidden]) { display: inline-flex; }
+.sn > a.sa .n { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--orange); color: #fff; font: 600 10px/16px var(--mono); text-align: center; }
+@container top (min-width: 900px) {
+  .sn > a { padding: 0 13px 0 11px; }
+  .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+}
+
+/* a very narrow header keeps the mark and the name; the page's label, and the Activity and total chips' room, go first */
+@container top (max-width: 340px) { header.top .brand i { display: none; } }
+
+/* the account chip (and, on the front page, Activity and the total): a quiet outline on the page's own ground, not a block; the dot says whether a wallet is open */
+header.top .chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; flex: 0 1 auto; min-width: 0; height: 40px; margin: 0; padding: 0 16px 0 13px;
+  color: var(--ink); background: transparent; border: 1px solid var(--hair-2, var(--hair-strong, var(--hair))); border-radius: 999px;
+  font: 500 12.5px/1 var(--mono); white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, background-color .15s, transform .25s var(--spring, ease);
+}
+header.top .chip > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+header.top .chip .dot { width: 7px; height: 7px; margin: 0; border-radius: 50%; background: var(--hair-2, var(--hair-strong, var(--hair))); flex: none; vertical-align: 0; }
+header.top .chip .dot.on { background: var(--ok); }
+header.top .chip .dot.warn, header.top .chip .dot.live { background: var(--orange); }
+header.top .chip.act { position: relative; width: 40px; padding: 0; color: var(--mute); border-color: transparent; }
+header.top .chip.act[aria-expanded="true"], header.top .chip.act:hover { color: var(--ink); }
+@media (hover: hover) { header.top .chip:hover { border-color: var(--mute); background: var(--hair); } header.top .chip.act:hover { border-color: transparent; } }
+header.top .chip:active { transform: scale(.97); }
+header.top .chip:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+@container top (max-width: 480px) { header.top .chip { padding: 0 12px 0 11px; } header.top .chip.act { padding: 0; } }
+@media (pointer: coarse) { .sn > a, .sn summary, header.top .chip, footer.sf nav a { height: var(--tap, 44px); } }
+
+/* the menu: under the header's right edge, whatever the width */
+.sm-p {
+  position: absolute; z-index: 5; top: calc(100% + 8px); right: 0; display: grid; gap: 1px; box-sizing: border-box;
+  width: max-content; min-width: 220px; max-width: calc(100vw - 32px); padding: 6px;
+  background: var(--card); border: 1px solid var(--hair-2, var(--hair)); border-radius: 16px;
+  box-shadow: 0 24px 48px -26px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.06);
+  transform-origin: 100% 0; animation: sm-in .16s ease-out;
+}
+@keyframes sm-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.sm-p a { display: flex; align-items: center; gap: 12px; box-sizing: border-box; min-height: 42px; padding: 0 12px; border-radius: 10px; color: var(--ink); font: 400 13px/1 var(--mono); text-decoration: none; }
+.sm-p a svg { width: 18px; height: 18px; color: var(--mute); }
+.sm-p a[aria-current="page"] { background: var(--hair); }
+.sm-p a:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.sm-p hr { margin: 4px 8px; border: 0; border-top: 1px solid var(--hair); }
+.sm-p .pr { display: flex; }
+@container top (min-width: 540px) { .sm-p .pr { display: none; } }
+@media (hover: hover) { .sm-p a:hover { background: var(--hair); } }
+@media (prefers-reduced-motion: reduce) { .sm-p { animation: none; } .sn > a, .sn summary, header.top .chip { transition: none; } }
+
+/* the footer: where it is said to be, then the places outside the app, as icons that say their name on hover and to a screen reader */
+footer.sf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 20px; margin-top: 56px; padding: 10px 0 22px; border-top: 1px solid var(--hair); color: var(--mute); font: 400 12px/1.4 var(--mono); }
+footer.sf nav { display: flex; align-items: center; margin: 0 -10px 0 auto; }
+footer.sf nav a { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 40px; height: 40px; border-radius: 12px; color: var(--mute); transition: color .15s, background-color .15s, transform .25s var(--spring, ease); }
+footer.sf nav a:active { transform: scale(.92); }
+footer.sf svg { width: 18px; height: 18px; }
+footer.sf svg.fill { width: 16px; height: 16px; }
+@media (hover: hover) { footer.sf nav a:hover { color: var(--ink); background: var(--hair); } }
+@media (max-width: 480px) { footer.sf nav { margin: 0 0 0 -11px; } }
+
+/* what only one page has to point at (papers, the pool on each chain): a quiet line above the footer */
+.sf-x { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px; margin-top: 48px; color: var(--mute); font: 400 12px/1.4 var(--mono); }
+.sf-x + footer.sf { margin-top: 12px; }
+.sf-x span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.sf-x a { display: inline-flex; align-items: center; min-height: 32px; color: var(--mute); text-decoration: underline; text-decoration-color: var(--hair-2, var(--hair)); text-underline-offset: 3px; }
+@media (hover: hover) { .sf-x a:hover { color: var(--ink); text-decoration-color: currentColor; } }
+
+/* A serif scaled to Instrument Serif's width and line metrics (Georgia, Times or Noto Serif, whichever the device has) shows until the font arrives, so the swap moves nothing */
+@font-face { font-family: 'Instrument Serif Fallback'; src: local('Georgia'); size-adjust: 75.8%; ascent-override: 130.6%; descent-override: 40.9%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback'; font-style: italic; src: local('Georgia Italic'), local('Georgia-Italic'); size-adjust: 78.8%; ascent-override: 125.6%; descent-override: 39.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; src: local('Times New Roman'), local('TimesNewRomanPSMT'), local('Liberation Serif'), local('Tinos'); size-adjust: 83.1%; ascent-override: 119.1%; descent-override: 37.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; font-style: italic; src: local('Times New Roman Italic'), local('TimesNewRomanPS-ItalicMT'), local('Liberation Serif Italic'), local('Tinos Italic'); size-adjust: 87.8%; ascent-override: 112.8%; descent-override: 35.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
+</style>
+<script src="/chrome.js?cb=3b060430" defer></script>
+<!-- chrome:head:end -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to the swap</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="tk-peth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="#8ea2f0"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="tk-teth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#627eea" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#627eea" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#627eea" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
+    <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-base" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><circle cx="16" cy="16" r="6.6" fill="#3c78ff"/></symbol>
+    <symbol id="c-rh" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M21.6 8.6C15.2 8.9 11 13 10.3 22.2L12.6 20.4C13.4 17.6 15.4 15.2 18.4 13.6C16.4 15.4 15 17.4 14.4 19.8C18.6 19.2 21.2 15.6 21.6 8.6Z" fill="#c8f23a"/></symbol>
+  </defs>
+</svg>
+<div class="shell">
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="tacit"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>swap</i></a>
+    <div class="top-r">
+      <!-- chrome:nav:begin -->
+      <nav class="sn" aria-label="Pages">
+          <a href="/assets/" title="Assets"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.1 9.3h7.2"/><path d="M13 6.1L10 16.3Q10 17.9 13.3 17.2"/></svg><span>Assets</span></a>
+          <a href="/swap/" title="Swap" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></svg><span>Swap</span></a>
+          <a href="/pay/" title="Pay"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></svg><span>Pay</span></a>
+          <a href="/bridge/" title="Bridge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17h18"/><path d="M5 17v-3a7 7 0 0 1 14 0v3"/><path d="M9 17v-4.5M15 17v-4.5M12 17v-6"/></svg><span>Bridge</span></a>
+          <a href="/vault/" title="Borrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/></svg><span>Borrow</span></a>
+          <a href="/rewards/" title="Rewards"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 1 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 1 1 0 5"/></svg><span>Rewards</span></a>
+          <details class="sm">
+            <summary aria-label="More pages" title="More"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.7"/></svg></summary>
+            <div class="sm-p">
+            <a class="pr" href="/assets/"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.1 9.3h7.2"/><path d="M13 6.1L10 16.3Q10 17.9 13.3 17.2"/></svg>Assets</a>
+            <a class="pr" href="/swap/" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></svg>Swap</a>
+            <a class="pr" href="/pay/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></svg>Pay</a>
+            <a class="pr" href="/bridge/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17h18"/><path d="M5 17v-3a7 7 0 0 1 14 0v3"/><path d="M9 17v-4.5M15 17v-4.5M12 17v-6"/></svg>Bridge</a>
+            <a class="pr" href="/vault/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/></svg>Borrow</a>
+            <a class="pr" href="/rewards/"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 1 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 1 1 0 5"/></svg>Rewards</a>
+            <hr class="pr">
+            <a href="/tac/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>Shielded TAC</a>
+            <a href="/etch/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4.2-1 10.6-10.6a2.1 2.1 0 0 0-3-3L5.2 16z"/><path d="M13.6 7.4l3 3"/></svg>Etch</a>
+            <a href="/tasks/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Tasks</a>
+            <hr>
+            <a href="/weld/stats/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-6"/><path d="M12 20V5"/><path d="M19 20v-10"/></svg>Stats</a>
+            <a href="/build/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/><path d="M14 4l-4 16"/></svg>Build</a>
+            <a href="/weld/keeper/"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16.5 5.3a3 3 0 0 1 0 5.6"/><path d="M18 14.2c1.8.7 3 2.6 3 5.8"/></svg>Community ops</a>
+            <a href="/classic.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/></svg>Classic app</a>
+            </div>
+          </details>
+        </nav>
+      <!-- chrome:nav:end -->
+      <button class="chip" id="wallet-chip" type="button" aria-label="Connect a wallet"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Connect</span></button>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+
+  <div class="stage">
+    <section class="hero" aria-labelledby="hero-h">
+      <h1 id="hero-h" class="sr">Swap</h1>
+      <p class="lede">Any token at the best onchain price. Either side can be private.</p>
+      <p class="pxs" id="pxs" aria-live="off"></p>
+      <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
+    </section>
+
+    <section class="sw swc" id="sw" aria-label="Swap">
+      <div class="sw-h" role="tablist" aria-label="What to do">
+        <button type="button" role="tab" id="tab-swap" aria-controls="p-swap" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v15m0 0-3.5-3.5M7 19l3.5-3.5M17 20V5m0 0-3.5 3.5M17 5l3.5 3.5"/></svg>Swap</button>
+        <button type="button" role="tab" id="tab-earn" aria-controls="p-earn" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V10m0 0c0-3.3 2.7-6 6-6 0 3.3-2.7 6-6 6Zm0 3c0-2.8-2.2-5-5-5 0 2.8 2.2 5 5 5Z"/></svg>Earn</button>
+      </div>
+
+      <div class="sw-b" id="p-swap" role="tabpanel" aria-labelledby="tab-swap"></div>
+
+      <div class="sw-b" id="p-earn" role="tabpanel" aria-labelledby="tab-earn" hidden>
+        <div class="rows" id="farms" role="radiogroup" aria-label="Farm"></div>
+        <div class="farm-host" id="farm"></div>
+        <div class="privfarm" id="privfarm" hidden></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="how" id="how" aria-labelledby="how-h">
+    <h2 id="how-h">Three ways <em>to swap</em></h2>
+    <ol class="lanes">
+      <li><div class="end"><b>Your wallet</b></div><div class="door pub"><span>public</span><small>best onchain route</small></div><div class="end"><b>Any token</b><small>in your wallet</small></div></li>
+      <li><div class="end priv"><b>Private balance</b></div><div class="door priv"><span>private</span><small>a proof the relay sends</small></div><div class="end priv"><b class="tks"><span><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span><span><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span><span><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg>cUSD</span><span><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</span></b><small>still private, or out to any token</small></div></li>
+      <li><div class="end"><b class="tks"><span><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>Your ETH</span></b></div><div class="door priv"><span>Swap privately</span><small>deposit, wait, swap out</small></div><div class="end"><b>Any token</b><small>at an address, no trail back</small></div></li>
+    </ol>
+    <a class="more" href="/build/#amm-doors">How the pool trades</a>
+  </section>
+
+  <details class="addrs">
+    <summary>Contracts</summary>
+    <ul>
+      <li><span>Tacit pool</span><a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" target="_blank" rel="noopener noreferrer">0x0000…7febFC</a></li>
+      <li><span>Public door (TacitPublicAmm)</span><a href="https://etherscan.io/address/0x00000000E36C7EC997CC59DCda9E03673B448119" target="_blank" rel="noopener noreferrer">0x0000…448119</a></li>
+      <li><span>Tacit router (permits, zaps)</span><a href="https://etherscan.io/address/0x000000005dA3E3B73726af3c774Deeb9472D4992" target="_blank" rel="noopener noreferrer">0x0000…2D4992</a></li>
+      <li><span>zRouter</span><a href="https://etherscan.io/address/0x000000000000FB114709235f1ccBFfb925F600e4" target="_blank" rel="noopener noreferrer">0x0000…F600e4</a></li>
+      <li><span>zQuoter</span><a href="https://etherscan.io/address/0x000000bd2DB80567c23E353ca95a251c573cBf9B" target="_blank" rel="noopener noreferrer">0x0000…3cBf9B</a></li>
+      <li><span>PrecisionRoute</span><a href="https://etherscan.io/address/0x0000007Be74558A1F8c9045301c6F44C8eD0c9eB" target="_blank" rel="noopener noreferrer">0x0000…D0c9eB</a></li>
+      <li><span>Precision pool TAC/ETH</span><a href="https://etherscan.io/address/0x0155358241411dB868BA714aE7c83A27087e3D6E" target="_blank" rel="noopener noreferrer">0x0155…7e3D6E</a></li>
+      <li><span>TAC</span><a href="https://etherscan.io/token/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279" target="_blank" rel="noopener noreferrer">0xA131…858279</a></li>
+    </ul>
+  </details>
+
+  </main>
+
+  <!-- chrome:foot:begin -->
+  <footer class="sf">
+    <span>tacit.finance · mainnet</span>
+    <nav aria-label="Elsewhere">
+      <a href="/tacit-v1.pdf" title="Whitepaper" aria-label="Whitepaper"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></a>
+      <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" title="Security" aria-label="Security" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></a>
+      <a href="https://github.com/src-company/tacit" title="Source" aria-label="Source" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>
+      <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" title="Pool contract" aria-label="Pool contract" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg></a>
+      <a href="https://defillama.com/protocol/tacit" title="DefiLlama" aria-label="DefiLlama" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><g transform="translate(2.2 1) scale(.34375)"><path d="M17.62 51.872 17.21 64H5.786a5.8 5.8 0 0 1-4.09-1.691A5.77 5.77 0 0 1 0 58.23v-2.58a42.7 42.7 0 0 0 17.62-3.78"/><path d="M14.08 20.449a1.46 1.46 0 0 1-.121 1.149 1.46 1.46 0 0 1-.938.677 1.43 1.43 0 0 1-1.137-.234l-3.618-2.605a.973.973 0 0 1 .976-1.675l4.067 1.821a1.43 1.43 0 0 1 .772.867m0 23.74a1.42 1.42 0 0 1-.776.861l-4.067 1.826a.98.98 0 0 1-1.267-.39.97.97 0 0 1 .29-1.29l3.619-2.6a1.434 1.434 0 0 1 1.997.322c.029.039.053.083.078.122a1.46 1.46 0 0 1 .122 1.149M6.752 33.72 5.2 33.19a1.19 1.19 0 0 1-.804-1.12 1.18 1.18 0 0 1 .804-1.12l1.552-.531a1.75 1.75 0 0 1 1.892.49 1.742 1.742 0 0 1-.769 2.81 1.77 1.77 0 0 1-1.123 0M24.763 0H15.79a15.73 15.73 0 0 1-4.625 11.134A15.82 15.82 0 0 1 0 15.75v39.9a42.7 42.7 0 0 0 17.62-3.779l.698-20.623c-1.235-.609-2.118-2.226-2.118-4.114 0-2.128 1.113-3.896 2.582-4.295.2-1.28.655-2.509 1.338-3.612a2.13 2.13 0 0 1-1.567-1.013c-1.328-1.947-3.12-3.944-4.492-7.172a1.71 1.71 0 0 1 .186-1.728.855.855 0 0 1 1.303-.063c2.124 2.006 4.677 2.604 6.089 4.528q.155-.36.405-.663a2.96 2.96 0 0 1 3.496-.915 3 3 0 0 1 1.089-1.559 3.028 3.028 0 0 1 4.706 1.56 2.8 2.8 0 0 1 2.03-.098A42.2 42.2 0 0 1 39.372 3.5 32 32 0 0 0 24.763 0"/><path d="m51.668 33.185-1.557.53a1.75 1.75 0 0 1-2.197-1.097 1.74 1.74 0 0 1 1.074-2.204 1.77 1.77 0 0 1 1.123 0l1.557.531a1.19 1.19 0 0 1 .804 1.12 1.18 1.18 0 0 1-.804 1.12m-3.286 13.282a.976.976 0 0 1-1.245.404l-4.067-1.826a1.42 1.42 0 0 1-.722-1.87l.073-.14a1.42 1.42 0 0 1 1.425-.704c.186.025.366.087.528.182l.122.078 3.618 2.6a.973.973 0 0 1 .273 1.276m-6.093-26.019a1.43 1.43 0 0 1 .776-.862l4.067-1.82a.98.98 0 0 1 1.247.397.97.97 0 0 1-.27 1.277l-3.618 2.605a1.44 1.44 0 0 1-2.002-.336l-.068-.107a1.43 1.43 0 0 1-.132-1.154m-.161-15.356A32 32 0 0 0 39.37 3.5a42.2 42.2 0 0 0-6.006 8.603 3.05 3.05 0 0 1 1.465 1.013q.244.305.405.662c1.323-1.806 3.652-2.215 5.693-4.153a1.198 1.198 0 0 1 1.816.112 1.17 1.17 0 0 1 .142 1.217l-.059.136c-1.367 3.165-3.149 5.18-4.467 7.123a2.14 2.14 0 0 1-1.592 1.013 9.6 9.6 0 0 1 1.314 3.613c1.323.36 2.353 1.82 2.548 3.66q.036.316.034.634c0 1.777-.78 3.315-1.909 3.992a1.3 1.3 0 0 1-.21.122v.307l.977 28.852A32.05 32.05 0 0 0 52.163 48.62a31.93 31.93 0 0 0 4.666-16.618 31.9 31.9 0 0 0-3.906-15.325 32 32 0 0 0-10.79-11.585"/><path d="M15.79 0a15.73 15.73 0 0 1-4.626 11.134A15.82 15.82 0 0 1 0 15.75V5.77A5.77 5.77 0 0 1 1.696 1.69 5.8 5.8 0 0 1 5.786 0z"/><path d="M34.535 30.187a1.91 1.91 0 0 1-.107 2.03c-1.392 2.025-3.34 3.564-5.82 3.564h-.527c-2.144-.185-4.395-1.582-5.786-3.262a1.945 1.945 0 0 1-.18-2.206 5.83 5.83 0 0 0 .834-3.004c0-.993-.244-1.971-.713-2.848a1.9 1.9 0 0 1 .108-2.01q.16.212.366.384a2.856 2.856 0 0 0 3.462.049c0 1.105 1.118 2 2.49 2q.187.015.376 0c1.2-.146 2.118-.973 2.118-1.976a2.86 2.86 0 0 0 3.51-.073l.138-.122a1.94 1.94 0 0 1-.181 1.631 5.8 5.8 0 0 0-.82 2.985 6 6 0 0 0 .732 2.872m8.197-20.463a1 1 0 0 0-.268-.263 1.2 1.2 0 0 0-1.528.151c-2.041 1.947-4.394 2.347-5.693 4.153a3.2 3.2 0 0 0-.405-.662 3.05 3.05 0 0 0-1.465-1.013 2.8 2.8 0 0 0-2.031.098 3 3 0 0 0-1.09-1.56 3.028 3.028 0 0 0-4.705 1.56 2.966 2.966 0 0 0-3.496.915q-.25.302-.405.662c-1.411-1.923-3.965-2.522-6.089-4.528a.85.85 0 0 0-1.206-.063.7.7 0 0 0-.117.126 1.71 1.71 0 0 0-.185 1.729c1.372 3.228 3.163 5.214 4.492 7.171a2.13 2.13 0 0 0 1.586 1.013 9.7 9.7 0 0 0-1.337 3.613c-1.465.399-2.583 2.166-2.583 4.294 0 1.889.883 3.505 2.119 4.114l-.698 20.624L17.218 64h7.547a32 32 0 0 0 14.608-3.5l.171-.093-.971-28.852v-.307q.11-.051.21-.122c1.127-.677 1.909-2.215 1.909-3.992q0-.318-.035-.633c-.195-1.84-1.225-3.301-2.548-3.661a9.5 9.5 0 0 0-1.338-3.613 2.15 2.15 0 0 0 1.592-1.013c1.318-1.947 3.1-3.958 4.467-7.122l.059-.137a1.17 1.17 0 0 0-.142-1.217" fill-opacity="0.3"/><path d="m31.334 27.854-1.626 1.49c-.14.131-.24.3-.288.486-.107.429-.317 1.271-.488 2.07a.49.49 0 0 1-.488.37.49.49 0 0 1-.489-.37l-.517-2.07a.97.97 0 0 0-.288-.487l-1.626-1.49a.486.486 0 0 1 0-.686.49.49 0 0 1 .415-.15l2.441.33h.132l.19-.024 2.251-.307a.49.49 0 0 1 .488.273.485.485 0 0 1-.112.565m2.441-.546a5.8 5.8 0 0 1 .85-2.965 1.94 1.94 0 0 0 .156-1.611l-.112.102a2.86 2.86 0 0 1-3.486.03c0 .992-.908 1.83-2.12 1.966q-.187.015-.375 0c-1.372 0-2.49-.896-2.49-2.001a2.856 2.856 0 0 1-3.486-.03 2.3 2.3 0 0 1-.366-.384 1.9 1.9 0 0 0-.108 2.011 6 6 0 0 1 .713 2.882 5.8 5.8 0 0 1-.81 2.975 1.94 1.94 0 0 0-.255 1.13c.033.395.137.788.388 1.094 1.4 1.68 3.69 3.059 5.833 3.244h.527c2.48 0 4.428-1.539 5.82-3.564a1.91 1.91 0 0 0 .083-2.001 6 6 0 0 1-.732-2.873" fill-rule="evenodd" fill-opacity="0.3"/><path d="m31.337 27.854-1.626 1.49c-.14.131-.24.3-.288.486a64 64 0 0 0-.488 2.07.486.486 0 0 1-.488.37.49.49 0 0 1-.488-.37l-.518-2.07a.97.97 0 0 0-.288-.486l-1.626-1.49a.486.486 0 0 1 0-.687.49.49 0 0 1 .415-.15l2.441.33h.132l.19-.024 2.251-.307a.49.49 0 0 1 .489.273.485.485 0 0 1-.113.565" fill-rule="evenodd"/></g></svg></a>
+      <a href="https://x.com/tacitfi" title="@tacitfi on X" aria-label="@tacitfi on X" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg></a>
+      <a href="https://discord.gg/VxYx9XSBrM" title="Tacit Discord community" aria-label="Tacit Discord community" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg></a>
+    </nav>
+  </footer>
+  <!-- chrome:foot:end -->
+</div>
+<!-- warm:begin -->
+<template id="warm">
+<link rel="modulepreload" href="/confidential-pool-ux.js?cb=d0b266f4">
+<link rel="modulepreload" href="/confidential-deployments.js">
+<link rel="modulepreload" href="/confidential-deployments.generated.js">
+<link rel="modulepreload" href="/evm-account.js">
+<link rel="modulepreload" href="/confidential-indexer.js">
+<link rel="modulepreload" href="/confidential-pool.js">
+<link rel="modulepreload" href="/evm-confidential.js">
+<link rel="modulepreload" href="/bulletproofs.js">
+<link rel="modulepreload" href="/bulletproofs-plus.js">
+<link rel="modulepreload" href="/burn-deposit-bitcoin.js">
+<link rel="modulepreload" href="/burn-deposit-provenance.js">
+<link rel="modulepreload" href="/burn-deposit-assembler.js">
+<link rel="modulepreload" href="/confidential-memo.js">
+<link rel="modulepreload" href="/confidential-evm-log.js">
+<link rel="modulepreload" href="/confidential-relay.js">
+<link rel="modulepreload" href="/confidential-invoice.js">
+<link rel="modulepreload" href="/evm-tx.js">
+<link rel="modulepreload" href="/confidential-recovery-guard.js">
+<link rel="modulepreload" href="/confidential-router.js">
+<link rel="modulepreload" href="/confidential-transfer.js">
+<link rel="modulepreload" href="/confidential-route.js">
+<link rel="modulepreload" href="/confidential-swap.js">
+<link rel="modulepreload" href="/confidential-swap-coordinator.js">
+<link rel="modulepreload" href="/confidential-lp.js">
+<link rel="modulepreload" href="/confidential-cdp.js">
+<link rel="modulepreload" href="/confidential-farm.js">
+<link rel="modulepreload" href="/confidential-farm-program.js">
+<link rel="modulepreload" href="/confidential-defi-actions.js">
+<link rel="modulepreload" href="/confidential-stealth.js">
+<link rel="modulepreload" href="/confidential-airdrop.js">
+<link rel="modulepreload" href="/tac-airdrop.js">
+<link rel="modulepreload" href="/confidential-lock-scan.js">
+<link rel="modulepreload" href="/confidential-bridge-mint.js">
+<link rel="modulepreload" href="/bridge-burn-broadcast.js">
+<link rel="modulepreload" href="/confidential-recovery.js">
+<link rel="modulepreload" href="/bridge-mint-recovery.js">
+<link rel="modulepreload" href="/confidential-secret-store.js">
+<link rel="modulepreload" href="/confidential-recovery-btc.js">
+<link rel="modulepreload" href="/bitcoin-taproot-wallet.js">
+<link rel="modulepreload" href="/cbtc-note-recovery.js">
+</template>
+<!-- warm:end -->
+<script type="module" src="/swap/app.js?cb=c0916471"></script>
+</body>
+</html>

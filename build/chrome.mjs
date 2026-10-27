@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 // page → which link is the page it is ('' for none); a page not listed here does not wear the chrome
 export const CHROME_PAGES = {
-  'index.html': '', 'swap/index.html': 'swap', 'assets/index.html': 'assets', 'rewards/index.html': 'rewards', 'trade/index.html': 'assets', 'teth/index.html': 'assets', 'cbtc/index.html': 'assets',
+  'index.html': '', 'assets/index.html': 'assets', 'rewards/index.html': 'rewards', 'trade/index.html': 'assets', 'teth/index.html': 'assets', 'cbtc/index.html': 'assets',
   'vault/index.html': 'borrow', 'pay/index.html': 'pay', 'pay/eth/index.html': 'pay', 'tac/index.html': 'tac', 'tasks/index.html': 'tasks',
   'build/index.html': 'build', 'etch/index.html': 'etch', 'weld/stats/index.html': 'stats', 'weld/keeper/index.html': 'community', 'relay/index.html': '',
   'splitter/index.html': '', 'sats/index.html': '', 'bridge/index.html': 'bridge',
@@ -51,9 +51,10 @@ const G = {
 const FILLED = new Set(['github', 'x', 'llama', 'discord']);
 const svg = (k) => `<svg viewBox="0 0 24 24"${FILLED.has(k) ? ' class="fill"' : ''} aria-hidden="true">${G[k]}</svg>`;
 
-// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them (swap, pay, bridge,
-// borrow), then what they pay (rewards: farms, points, the airdrop). The menu holds the rest in two groups: more for a holder, then the network's own pages
-const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/swap/', 'Swap'], ['pay', '/pay/', 'Pay'], ['bridge', '/bridge/', 'Bridge'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
+// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them (swap and
+// bridge, the front page's tile; pay; borrow), then what they pay (rewards: farms, points, the airdrop). The menu holds the rest in two groups: more for a
+// holder, then the network's own pages
+const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/#card=swap', 'Swap'], ['bridge', '/#card=bridge', 'Bridge'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
 const MORE = [
   [['tac', '/tac/', 'Shielded TAC'], ['etch', '/etch/', 'Etch'], ['tasks', '/tasks/', 'Tasks']],
   [['stats', '/weld/stats/', 'Stats'], ['build', '/build/', 'Build'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']],

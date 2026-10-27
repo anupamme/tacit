@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. A bridge is started on the front page (its sheets are linked); this page
 // reads the journals (track.js) and the chains, and moves a bridge on only once the holder opens the key here (mover.js).
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=f2e85f93';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine, ethSpan, costLine } from '/bridge/track.js?cb=2a64cc38';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -174,7 +174,7 @@ function paintTile() {
     steps.innerHTML = route.steps.map((s, i) => `<li style="--i:${i}"><span class="dot" aria-hidden="true"></span>${stepHtml(s)}</li>`).join('');
   }
   const go = $('#bt-go');
-  go.href = route.href;
+  go.href = route.start;
   go.querySelector('span').textContent = route.go;
   const way = $('#bt-way');
   way.innerHTML = wayInner(PICK.dir, 'sm');
@@ -187,7 +187,6 @@ function paintTile() {
   const cost = costLine(PICK.asset, PICK.dir, COST);
   $('#bt-cost').textContent = cost;
   $('#bt-cost').hidden = !cost;
-  paintHere();
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
 }
@@ -325,25 +324,6 @@ function paintAge() {
   if (t && LIVE.at) t.textContent = `checked ${ago(LIVE.at)}`;
 }
 
-// Starting a bridge from here, once the key is open: to Bitcoin (out-form.js) for the assets that go, from Bitcoin (in-form.js) for TAC; the door above
-// stays the front page's.
-let FORM = null, FORM_KEY = '';
-const canHere = () => (PICK.dir === 'out' && (PICK.asset === 'tac' || PICK.asset === 'teth')) || (PICK.dir === 'in' && PICK.asset === 'tac');
-function paintHere() {
-  const b = $('#bt-here'), box = $('#bt-form');
-  if (!b || !box) return;
-  const want = canHere() && MV?.open ? `${PICK.asset}/${PICK.dir}` : '', asset = PICK.asset, dir = PICK.dir;
-  b.hidden = !canHere() || !!want;
-  if (want === FORM_KEY) return;
-  FORM?.destroy(); FORM = null; FORM_KEY = '';
-  if (!want) { box.hidden = true; return; }
-  FORM_KEY = want;
-  const repaint = () => { readMine.sig = null; readMine(); };
-  (dir === 'in' ? import('/bridge/in-form.js?cb=b123156a') : import('/bridge/out-form.js?cb=cef1f683')).then((m) => {
-    if (FORM_KEY !== want || !MV?.open) { if (FORM_KEY === want) FORM_KEY = ''; return; }              // the key was locked while the form loaded: it is mounted the next time
-    FORM = dir === 'in' ? m.mountInForm(box, { mover: MV, say: mineSay, repaint }) : m.mountOutForm(box, { asset, mover: MV, say: mineSay, repaint });
-  }).catch((e) => { FORM_KEY = ''; mineSay(String(e?.message || e).slice(0, 160)); });
-}
 function mineSay(text, front = false) {
   const el = $('#mine').hidden ? $('#lost-s') : $('#mine-s');           // with no bridge listed there is no list to put it under
   for (const o of [$('#mine-s'), $('#lost-s')]) if (o && o !== el) { o.hidden = true; o.innerHTML = ''; }
@@ -351,10 +331,10 @@ function mineSay(text, front = false) {
   el.hidden = !text;
   el.innerHTML = text ? `${esc(text)}${front ? ' <a href="/#bridge">Do it on the front page →</a>' : ''}` : '';
 }
-const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=ff9116ba').then((m) => {
+const loadMover = () => (MVP ||= import('/bridge/mover.js?cb=13fa52db').then((m) => {
   const b = $('#mine-mv');
   MV = m.mountMover({ repaint: () => { readMine.sig = null; readMine(); }, say: mineSay,
-    onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } paintHere(); } });
+    onState: (on) => { if (b) { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Moving them on here' : 'Move them on here'; } } });
   return MV;
 }).catch((e) => { MVP = null; mineSay(String(e?.message || e).slice(0, 160)); throw e; }));
 function wireMove() {
@@ -375,10 +355,6 @@ function wireMove() {
     const b = $('#lf-go');
     b.disabled = true;
     try { if (await MV?.findOut($('#lf-tx').value, $('#lf-amt').value)) { $('#lf-tx').value = ''; $('#lf-amt').value = ''; } } finally { b.disabled = false; readMine.sig = null; readMine(); }
-  });
-  $('#bt-here')?.addEventListener('click', async () => {
-    try { const m = await loadMover(); if (!m.open) await m.toggle(); } catch { return; }
-    paintHere();
   });
   $('#mine-l').addEventListener('click', (e) => {
     const a = e.target.closest('[data-mv-act]');

@@ -234,7 +234,9 @@ function moveOf(pay = S.pay, pa = atOf('pay'), get = S.get, ga = atOf('get')) {
   const k = H.moves.key(pay, pa, get, ga);
   return k && (sameMoney(pay, get) || !native(pay, pa, get, ga)) ? k : null;
 }
-const pairOk = (pay, pa, get, ga) => !!(native(pay, pa, get, ga) || moveOf(pay, pa, get, ga));
+// both sides on Bitcoin, two coins: a swap in the Bitcoin pool, which the Bitcoin lane makes in place of the card's own fields
+const lanePair = (pay, pa, get, ga) => moving() && !!$('#btc') && pa === 'btc' && ga === 'btc' && !sameMoney(pay, get);
+const pairOk = (pay, pa, get, ga) => !!(native(pay, pa, get, ga) || moveOf(pay, pa, get, ga) || lanePair(pay, pa, get, ga));
 const PLACES = ['defi', 'wallet', 'pay', 'btc'];
 const goes = (side, k, at) => PLACES.some((oa) => placeCoins(side === 'pay' ? 'get' : 'pay', oa).some((o) => (side === 'pay' ? pairOk(k, at, o, oa) : pairOk(o, oa, k, at))));
 const placed = () => moving() && !!(S.at.pay || S.at.get || moveOf());
@@ -633,7 +635,15 @@ function vsMarket(q = S.q, r = picked(q)) {
 const BAD = -0.03, GATE = -0.1;
 
 function paint() {
-  paintMode(); paintSides(); paintQuote(); paintRecent(); paintNudge();
+  paintMode(); paintSides(); paintQuote(); paintRecent(); paintNudge(); syncLane();
+}
+// On the front page the lane opens when both sides are put on Bitcoin, on the coin the From side holds
+function syncLane() {
+  if (!moving() || !$('#btc')) return;
+  const on = lanePair(S.pay, atOf('pay'), S.get, atOf('get'));
+  if (on === S.btc) return;
+  setBtc(on);
+  if (on) lane?.pair(S.pay === 'teth' ? 'teth' : 'tac');
 }
 // What a key last read as bridged to its Taproot address (the front page and the Bitcoin lane keep it, per key, in the browser): tETH or TAC that
 // waits to be moved to the trading address before it can swap on Bitcoin. The Bitcoin switch carries a dot and says so; the lane has the move.
@@ -1770,7 +1780,7 @@ async function readFarms() {
 // The pair, the amount and the private sides, as /swap/'s address bar names them (from, to, amt, private=to|from|both).
 function params() {
   const p = new URLSearchParams(), sym = (k) => { const t = tokenOf(k); return t?.custom ? t.addr : t?.sym; };
-  if (S.btc) return p;
+  if (S.btc && !moving()) return p;
   if (S.pay !== lc(R.ZERO)) p.set('from', sym(S.pay));
   if (S.get !== lc(R.TAC)) p.set('to', sym(S.get));
   if (S.amt) p.set('amt', S.amt);
@@ -1841,7 +1851,7 @@ let lane = null;
 const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
 async function openLane() {
   try {
-    lane ||= (await import('/swap/bitcoin.js?cb=72c2a2a7')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge });
+    lane ||= (await import('/swap/bitcoin.js?cb=2f6bc101')).makeBitcoinLane({ host: $('#btc'), notify: (m) => live(m), wallet: pageWallet, onBridged: paintNudge, from: moving() && S.pay === lc(R.TAC) ? 'tac' : 'teth' });
     if (S.btc) await lane.show();
   } catch (e) { $('#btc').innerHTML = `<p class="q err">Could not load the Bitcoin lane: ${esc(e?.message || e)}</p>`; lane = null; }
 }
@@ -2004,6 +2014,8 @@ function wire() {
   $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
   $('.mode')?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-mode]'); if (!b) return;
+    // on the front page the switch shows only in the lane, and Ethereum leaves it for the card's first swap
+    if (moving()) { if (b.dataset.mode !== 'bitcoin' && S.btc) load(new URLSearchParams()); return; }
     if (b.dataset.mode === 'bitcoin') { setBtc(!S.btc); return; }
     if (S.btc) setBtc(false);
   });
@@ -2032,6 +2044,7 @@ export function mountSwapCard(root, host = {}) {
   if (ROOT) throw new Error('This page already has a swap card.');
   ROOT = root; H = host; wallet = host.wallet; W = host.W;
   root.classList.add('swc');
+  root.classList.toggle('mv', !!host.moves);
   root.innerHTML = markup(host);
   wire();
   slipPaint();

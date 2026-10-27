@@ -15,6 +15,9 @@
 .swc .mode button[data-mode="bitcoin"] { position: relative; } .swc .mode button[data-mode="bitcoin"][data-nudge] .tk { opacity: 1; }
 .swc .mode button[data-mode="bitcoin"][data-nudge]::after { content: ''; position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--card); }
 .swc.btc > :not(.mode):not(#btc):not(.sr) { display: none; }
+/* the front page's card reaches the lane by its places: the switch shows only in the lane, as the way back */
+.swc.mv:not(.btc) > .mode { display: none; }
+.swc .tk.xs { width: 14px; height: 14px; }
 .swc #btc .coin { cursor: default; } .swc #btc .ack label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--mute); }
 .swc .brd { display: grid; gap: 6px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); } .swc .brd em { font-style: normal; color: var(--warn); }
 .swc .brd button.link { padding: 0; font: 12px var(--mono); color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

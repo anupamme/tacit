@@ -4,7 +4,7 @@ One set of reserves, two ways to trade it. A swap or a liquidity position can be
 transaction with no proof, or **private**, a note and a proof. Both move the same pool, so liquidity is never
 split between them.
 
-The app: [tacit.finance/swap](https://tacit.finance/swap/) (Swap and Earn). The short version, on the site: [tacit.finance/build/#amm-doors](https://tacit.finance/build/#amm-doors). The rules: [`SPEC.md` §5.5](../SPEC.md#55-amm).
+The app: [tacit.finance](https://tacit.finance/#card=swap), the front page's Swap and Earn tabs. The short version, on the site: [tacit.finance/build/#amm-doors](https://tacit.finance/build/#amm-doors). The rules: [`SPEC.md` §5.5](../SPEC.md#55-amm).
 The contracts: [`DEPLOYMENTS.md`](./DEPLOYMENTS.md).
 
 ## The pool
@@ -42,7 +42,7 @@ swapPublic(assetIn, assetOut, feeBps, amountIn, minAmountOut, deadline, to)
   passes. `quoteSwap(assetIn, assetOut, feeBps, amountIn)` returns exactly what the swap pays.
 - **Atomic with other calls.** `swapPublic` is an ordinary synchronous call, so anything that can call a contract
   can put it in one transaction with other calls, and the transaction either does all of it or none. The repository
-  has several: the [swap page](../dapp/swap/) takes any token through another pool to the asset, and the asset to any token, in one transaction;
+  has several: the [swap card](../dapp/swap/) (the front page's Swap tab) takes any token through another pool to the asset, and the asset to any token, in one transaction;
   an order can be [split across the Precision pool and the Tacit pool](./TAC.md#trading-tac) in one transaction; and
   `ConfidentialRouter` has the swap, the liquidity add and the shielding of the position as single calls
   (`swapPublicPathWithPermit2`, `zapETHIntoLP`, `zapTokenIntoShieldedLP`, `zapETHIntoFarm`).

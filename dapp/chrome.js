@@ -15,7 +15,7 @@
   const m = document.querySelector('.sm');
   if (!m) return;
   const OUT = 'tacit-crossout-bridge-v1:mainnet:', IN = 'tacit-burndep-bridge-v1:mainnet:';
-  const summary = m.querySelector('summary'), link = m.querySelector('.sm-p a[href="/bridge/"]'), bar = document.querySelector('.sn > a[href="/bridge/"]');
+  const summary = m.querySelector('summary'), link = m.querySelector('.sm-p a[href="/#card=bridge"]'), bar = document.querySelector('.sn > a[href="/#card=bridge"]');
   if (!summary) return;
   const mark = () => { const d = document.createElement('i'); d.className = 'bd'; d.setAttribute('aria-hidden', 'true'); d.hidden = true; return d; };
   const dot = mark(), barDot = mark(), tag = document.createElement('span');

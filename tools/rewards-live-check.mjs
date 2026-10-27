@@ -65,7 +65,7 @@ try {
   await p.waitForURL('**/rewards/**', { timeout: 15000 }).catch(() => {});
   ok(new URL(p.url()).pathname === '/rewards/', `/airdrop lands on the rewards page (${p.url()})`);
   p = await open(POOL);
-  await p.goto(`${BASE}/swap/`);
+  await p.goto(`${BASE}/teth/`);
   await p.waitForSelector('#wallet-chip');
   await connectBrowserWallet(p);
   await wait(p, () => /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), 20000);
@@ -75,7 +75,7 @@ try {
   ok(true, "another page's wallet sheet links to the account's airdrop and points");
   // the header's dot: a wallet on an account that still has its airdrop to claim (the stub never signs)
   p = await open(LISTED);
-  await p.goto(`${BASE}/swap/`);
+  await p.goto(`${BASE}/teth/`);
   await p.waitForSelector('#wallet-chip');
   await connectBrowserWallet(p);
   await wait(p, () => document.querySelector('header.top .sn')?.hasAttribute('data-owed'), 60000);

@@ -1,12 +1,11 @@
 // The bridge page moving the holder's bridges on, with the key opened here: the same pass the front page makes every minute (bridge-tick.js),
 // and the two presses that need only the relay (the burn of a moved bridge, the mint of a recorded one). Nothing is loaded until the holder asks:
-// this module, the key sheet and tacit.js (four megabytes) all come in on that press. Starting a bridge is the forms' (in-form.js, out-form.js). Merging, bridging all, minting to another address, paying
-// the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
+// this module, the key sheet and tacit.js (four megabytes) all come in on that press. Starting a bridge is the front page's Bridge tab. Merging, bridging all, minting to another address,
+// paying the mint from a wallet and proving it oneself stay on the front page, which these rows link to.
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=88028d84';
 import { makeTacitSession } from '/tacit-session.js?cb=a2d34bb2';
 import { stepIn, stepOut, advanceOut, outPubs, discoverIn, unsearched, discoverEvery } from '/bridge-tick.js?cb=db96a3a9';
-import { ROUTES } from '/bridge/track.js?cb=f2e85f93';
-import { makeRunner } from '/activity.js?cb=994f4169';
+import { ROUTES } from '/bridge/track.js?cb=2a64cc38';
 import { parseUnits } from '/trade/util.js?cb=dcf3a4f2';
 import { forgetUx } from '/trade/poolux.js?cb=f4b7b030';
 import { relayWords } from '/relay-outcome.js?cb=26298b8e';
@@ -14,7 +13,6 @@ import { secp, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 
 const TACIT_URL = '/tacit.js?cb=c8afb432';
 const PLAN_KEY = 'tacit-lite-bridge-plan-v1', SELF_PROVE = 'tacit-lite-prove-self-v1:';
-const API = 'https://api.tacit.finance';
 const EVERY = 75e3;                                                                  // as often as the front page's pass
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const memory = { get: read, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage is a convenience */ } } };
@@ -33,10 +31,8 @@ const BURN_SENT = ['burn-submitted', 'burn-mined', 'registered', 'folded', 'mint
 export function mountMover({ pick, repaint = () => {}, say = () => {}, onState = () => {} } = {}) {
   const key = makeKeySession({ moved: (why) => { lockNow(); say(why); } });
   const TS = makeTacitSession({ url: TACIT_URL, key: () => (key.unlocked ? { pubHex: key.key.pubHex, priv: bytesToHex(key.priv()) } : null), secp, bytesToHex, hexToBytes });
-  let timer = null, busy = false, pressing = false, last = 0, runner = null, loadSaid = false;     // pressing: a press is running (the tick waits for it, so a ready step is not taken by itself meanwhile)
+  let timer = null, busy = false, pressing = false, last = 0, loadSaid = false;     // pressing: a press is running (the tick waits for it, so a ready step is not taken by itself meanwhile)
   const rechecked = {};                                                              // when a burn whose claim was not matched was last looked at again (stepOut waits ten minutes)
-  // the relay's jobs this page starts, named and followed in the activity journal it shares with the other pages
-  const run = () => (runner ||= makeRunner({ api: API, base: async () => (await import('/confidential-deployments.js')).getConfidentialDeployment('mainnet')?.relayBase || API, pub: () => key.key?.pubHex || null }));
 
   const journaledIn = (pub) => { try { return /"stage":"(?!minted"|reclaimed")/.test(localStorage.getItem(`tacit-burndep-bridge-v1:mainnet:${pub}`) || ''); } catch { return false; } };
   const planOf = (pub) => (rec) => read(PLAN_KEY)?.[pub]?.[rec.id] || null;
@@ -211,5 +207,5 @@ export function mountMover({ pick, repaint = () => {}, say = () => {}, onState =
     } finally { busy = false; pressing = false; repaint(); }
   }
 
-  return { toggle, press, tick, find, findOut, armed, session: { key, TS, run, esplora }, get pressing() { return pressing; }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
+  return { toggle, press, tick, find, findOut, armed, get pressing() { return pressing; }, get open() { return key.unlocked; }, get pub() { return key.key?.pubHex || null; } };
 }

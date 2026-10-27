@@ -14,7 +14,7 @@
   var CLASSIC_QUERY = ['ceremony', 'coordinator', 'amm', 'ammceremony'];
   // Readable paths for this page's own views (/lock, /farm, /device/base/withdraw): each becomes its link, the part after
   // the #, on this same page, with no reload. Names the classic app used for its tabs (/points) stay its own, except /airdrop,
-  // which is the rewards page. /swap is a page of its own (dapp/swap/); this page's own swap is still #swap.
+  // which is the rewards page. /swap forwards to this page's Swap tab (dapp/swap/index.html), keeping the swap it names; #swap is still this page's.
   var VIEWS = ['lock', 'borrow', 'farm', 'leaderboard', 'bitcoin', 'private', 'device', 'buy', 'sell', 'activity', 'asset', 'airdrop'];
   // Leaving for another page: the front page's own module sees the flag and stays idle until the browser moves on.
   var away = function (to) { window.__tacitAway = true; window.location.replace(to); };

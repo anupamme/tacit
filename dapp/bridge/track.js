@@ -20,24 +20,25 @@ export const TAC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43
 export const TETH_ID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
 export const CBTC_ID = '62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
 
-// Every asset's routes, and where the front page does each one. `in` is from Bitcoin to Ethereum, `out` the other way.
+// Every asset's routes: where one starts (the front page's Bridge tab, or the Borrow page for a lock) and where the front page's sheet moves one on
+// that is under way. `in` is from Bitcoin to Ethereum, `out` the other way.
 export const ROUTES = {
   tac: {
     ticker: 'TAC', icon: 'tk-tac', dp: 4,
-    in: { href: '/#bridge', go: 'Bridge TAC', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#bridge/out', go: 'Bridge TAC', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { start: '/#card=bridge:btc', href: '/#bridge', go: 'Bridge TAC', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { start: '/#card=bridge:tac', href: '/#bridge/out', go: 'Bridge TAC', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   teth: {
     ticker: 'tETH', icon: 'tk-teth', dp: 6,
-    in: { href: '/#private/bitcoin/back', go: 'Bring tETH back', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#private/bitcoin/out', go: 'Bridge tETH', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { start: '/#card=bridge:tb', href: '/#private/bitcoin/back', go: 'Bring tETH back', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { start: '/#card=bridge:eth', href: '/#private/bitcoin/out', go: 'Bridge tETH', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
   // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow page's (Lock, Bond, Mint, Borrow), and its Bitcoin side lists
   // the key's locks and follows them, so it is a route here, not a tracked row.
   cbtc: {
     ticker: 'cBTC', icon: 'tk-cbtc', dp: 8,
-    in: { href: '/vault/#btc', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
+    in: { start: '/vault/#btc', href: '/vault/#btc', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
   },
 };
 

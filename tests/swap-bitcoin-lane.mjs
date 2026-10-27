@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// dapp/swap/ in a real browser, under its own CSP: the Bitcoin lane (the third switch under the card's title) swaps tETH and TAC in the Bitcoin pool with a
-// Tacit key. The page and the lane are the real files; tacit.js (through /trade/btc.js) is a stand-in that holds a key, a pool and a few balances and
+// The swap card on its test harness (tests/swap-harness/, the retired /swap/ page, served at /swap/) in a real browser, under the page's own CSP: the Bitcoin lane (the third switch under the card's title) swaps tETH and TAC in the Bitcoin pool with a
+// Tacit key. The lane is the real files (on the harness page); tacit.js (through /trade/btc.js) is a stand-in that holds a key, a pool and a few balances and
 // records what the lane asks of it, so nothing here reaches Bitcoin or Ethereum. The stand-in's quote is the pool's constant-product formula.
 //   checks: the switch and its address; the pool and a quote before any key is open; the price warning and the acknowledgement it asks for; opening the key;
 //   balances; the bridged note's move (asked first, then made); the swap (its floor, the exact amount, what it says while it settles and after);
@@ -14,11 +14,14 @@ import { join, extname } from 'node:path';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
+// /swap/ is the swap card's test harness (tests/swap-harness/, made from the retired /swap/ page); everything else is dapp/
+const SH = new URL('./swap-harness/', import.meta.url).pathname;
+const HARNESS = { '/swap/': join(SH, 'index.html'), '/swap/index.html': join(SH, 'index.html'), '/swap/app.js': join(SH, 'app.js') };
 const TETH = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 const server = http.createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  let f = join(DAPP, p);
+  let f = HARNESS[p] || join(DAPP, p);
   if (existsSync(f) && statSync(f).isDirectory()) f = p.endsWith('/') ? join(f, 'index.html') : join(DAPP, 'index.html');
   if (!existsSync(f) && !extname(p)) f = join(DAPP, 'index.html');
   if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }

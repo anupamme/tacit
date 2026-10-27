@@ -1,3 +1,4 @@
+// The test harness for the swap card (tests/swap-page.mjs, tests/swap-bitcoin-lane.mjs), made from the retired /swap/ page; the tests serve it at /swap/app.js.
 // /swap/: the swap card (swap/card.js) with this page's wallet, its Earn tab, the prices under the title, and the address bar kept in step
 // with the card (from, to, amt, private; #earn and #bitcoin).
 import { makeConnect } from '/trade/connect.js?cb=de979716';

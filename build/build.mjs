@@ -196,10 +196,10 @@ const ETCH_CB_FILES = ['etch/minter.js', 'etch/eth.js', 'etch/find.js', 'etch/ap
 // dapp/rewards/ looks up the airdrop and the points of an address or name: its one script, then the page.
 const REWARDS_CB_FILES = ['rewards/farms.js', 'rewards/app.js', 'rewards/index.html'];
 // dapp/bridge/ follows this browser's bridges and shows how each way is proven: its reading of the journals first, then app.js, then the page.
-const BRIDGE_CB_FILES = ['bridge/track.js', 'bridge/mover.js', 'bridge/out-form.js', 'bridge/in-form.js', 'bridge/app.js', 'bridge/index.html'];
-// dapp/swap/ is the swap page: its routes first (and the aggregated route over them), the private swaps (later.js reads the aggregated
-// route), then app.js, then the page.
-const SWAP_CB_FILES = ['swap/route.js', 'swap/aggregate.js', 'swap/solvers.js', 'swap/bitcoin.js', 'swap/private.js', 'swap/later.js', 'swap/card.js', 'swap/app.js', 'swap/index.html'];
+const BRIDGE_CB_FILES = ['bridge/track.js', 'bridge/mover.js', 'bridge/app.js', 'bridge/index.html'];
+// dapp/swap/ is the swap card the front page's Swap tab draws (its own address only forwards there): its routes first (and the aggregated route
+// over them), the private swaps (later.js reads the aggregated route), then the card.
+const SWAP_CB_FILES = ['swap/route.js', 'swap/aggregate.js', 'swap/solvers.js', 'swap/bitcoin.js', 'swap/private.js', 'swap/later.js', 'swap/card.js'];
 // dapp/splitter/ is the tip splitter page: its encodings and the contract's creation code first, then app.js, then the page.
 const SPLITTER_CB_FILES = ['splitter/abi.js', 'splitter/bytecode.js', 'splitter/app.js', 'splitter/index.html'];
 // dapp/relay/ is the public page on what the relay earns and spends and what the buyback has bought, the settles it holds for any sender, and
@@ -296,7 +296,7 @@ function pageCacheBust(files, write) {
 // A page whose script is a file (a CSP without inline script) has a `<!-- warm:begin --><!-- warm:end -->` block instead: the same links inside an inert
 // <template>, which the script clones into the head. The root of this group may be named by the page's own modules rather than by the page.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'etch/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html', 'discord/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'etch/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html', 'discord/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const WARM_BLOCK = /<!-- warm:begin -->[\s\S]*?<!-- warm:end -->/;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/, INTENT_BLOCK = /\/\/ preload-intent:begin\n[\s\S]*?\/\/ preload-intent:end/;

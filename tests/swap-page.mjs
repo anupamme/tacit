@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dapp/swap/ in a real browser, under its own CSP, with Ethereum an anvil fork of mainnet (zQuoter's scan of every pool, a read a fork
+// The swap card on its test harness (tests/swap-harness/, the retired /swap/ page, served at /swap/) in a real browser, under the page's own CSP, with Ethereum an anvil fork of mainnet (zQuoter's scan of every pool, a read a fork
 // makes slowly, goes to the upstream node at the fork's block). Checks the page loads clean; the quotes for ETH → TAC (with its routes),
 // USDC → TAC, ETH → tacUSD (a price far under the market has to be accepted first) and a private swap (priced here, made on the card
 // once the Tacit key is opened there); then, with a wallet that signs with a real key, buys TAC with ETH, buys TAC with USDC by permit, sells TAC by permit,
@@ -25,6 +25,9 @@ const tokenQuote = (url) => {
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
+// /swap/ is the swap card's test harness (tests/swap-harness/, made from the retired /swap/ page); everything else is dapp/
+const SH = new URL('./swap-harness/', import.meta.url).pathname;
+const HARNESS = { '/swap/': join(SH, 'index.html'), '/swap/index.html': join(SH, 'index.html'), '/swap/app.js': join(SH, 'app.js') };
 const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com', SHOTS = process.env.SHOTS || null;
 const PORT = 22000 + Math.floor(Math.random() * 1000), WEB = PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -56,7 +59,7 @@ for (let i = 0; ; i++) { try { await (await fetch(ANVIL, { method: 'POST', heade
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 server = http.createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  let f = join(DAPP, p);
+  let f = HARNESS[p] || join(DAPP, p);
   if (existsSync(f) && statSync(f).isDirectory()) f = p.endsWith('/') ? join(f, 'index.html') : join(DAPP, 'index.html');
   if (!existsSync(f) && !extname(p)) f = join(DAPP, 'index.html');
   if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }

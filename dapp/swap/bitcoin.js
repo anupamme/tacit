@@ -29,22 +29,22 @@ function loadSent() {
 // Where the explorer has a transaction: { block } (null while it is in the mempool), { gone } when it does not know it, undefined when it did not answer.
 const whereIs = (txid) => fetch(`${MEMPOOL}/api/tx/${txid}`, { signal: AbortSignal.timeout(8000) }).then((r) => (r.status === 404 ? { gone: true } : r.ok ? r.json().then((j) => ({ block: j.status?.confirmed ? j.status.block_height ?? null : null })) : undefined)).catch(() => undefined);
 
-export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, onBridged = () => {} }) {
+export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, onBridged = () => {}, from = 'teth' }) {
   let slip = 100;
   try { const s = Number(localStorage.getItem(SLIP_KEY)); if (SLIPS.includes(s)) slip = s; } catch { /* storage is a convenience */ }
-  const L = { pay: TETH, get: TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: loadSent(), asking: null, line: '', cls: '', open: false };
+  const L = { pay: from === 'tac' ? TAC : TETH, get: from === 'tac' ? TETH : TAC, amt: '', q: null, pool: null, noPool: false, bal: {}, sats: null, need: null, notes: [], unread: 0, bridgedAt: 0, ack: false, busy: false, sent: loadSent(), asking: null, line: '', cls: '', open: false };
   let moveNeed = MOVE_SATS_FLAT, bitcoin = null, T = null, mounted = false, seq = 0, qTimer = 0, poll = 0, refreshTimer = 0, reading = null;
   const $ = (id) => host.querySelector(`#${id}`);
 
   host.innerHTML = `
     <div class="f" id="b-pay">
-      <div class="fh"><span>You pay</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
+      <div class="fh"><span>From</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
       <div class="fm"><input class="amt" id="b-amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><span class="coin" id="b-pay-coin"></span></div>
       <div class="ff"><span id="b-bal" class="num"></span><span class="quick" id="b-quick"></span></div>
     </div>
     <div class="mid"><button class="flip" id="b-flip" type="button" aria-label="Swap the two sides"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <div class="f" id="b-get">
-      <div class="fh"><span>You get</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
+      <div class="fh"><span>To</span><span class="where"><svg class="tk xs" aria-hidden="true"><use href="#c-btc"/></svg>Bitcoin</span></div>
       <div class="fm"><output class="big ph num" id="b-out" for="b-amt">0</output><span class="coin" id="b-get-coin"></span></div>
       <div class="ff"><span id="b-get-bal" class="num"></span><span></span></div>
     </div>
@@ -336,6 +336,13 @@ export function makeBitcoinLane({ host, notify = () => {}, wallet = () => null, 
       refreshTimer = setInterval(() => { if (!document.hidden && L.open) { readPool().then(() => requote(true)).catch(() => {}); readMe(true); } }, 45e3);
     },
     hide() { L.open = false; clearInterval(refreshTimer); },
+    // the side it pays from, as the page names it ('teth' or 'tac'): the other is what it gets
+    pair(f) {
+      const pay = f === 'tac' ? TAC : TETH;
+      if (L.pay === pay || L.busy) return;
+      [L.pay, L.get] = [L.get, L.pay]; L.amt = ''; $('b-amt').value = ''; L.q = null; L.ack = false;
+      if (L.open) { paint(); requote(true); }
+    },
     get unlocked() { return unlocked(); },
   };
 }
