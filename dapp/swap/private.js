@@ -79,39 +79,98 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   const of = (id) => { const g = held?.byAsset?.[lc(id)]; const notes = (g?.notes || []).filter(free); return { value: notes.reduce((a, n) => a + BigInt(n.value), 0n), notes }; };
   const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.value) > BigInt(b.value) ? 1 : 0);
 
-  // The swap proved ahead: the wallet's ETH deposited and swapped through one pool in one proof (the pool module's proveWrapSwap), asked of the
-  // relay's prover board while the card's quote stands (`{ wei, toAsset, feeBps }`), with no fee bound in. At the press one transaction
-  // deposits and settles it (the router's wrapAndSettleETH, the relay's tip on top) if the pool has not traded since: its proof pins the
-  // reserves. One at a time, at one wrap index kept for it (a proof for an amount since changed is let go, the next made at the same index),
-  // only while the relay is proving, and at most AHEAD_MAX a visit.
-  const AHEAD_MAX = 6;
-  let ah = null, aheadAsked = 0;
+  // Swaps proved ahead: the wallet's ETH deposited and swapped through one pool in one proof (the pool module's proveWrapSwap), asked of the
+  // relay's prover board with no fee bound in. At the press one transaction deposits and settles it (the router's wrapAndSettleETH, the
+  // relay's tip on top) if the pool has not traded since: its proof pins the reserves. Two kinds, each a slot keyed by amount, asset and
+  // fee tier: the amount the card's quote stands on (`ahead`), at one wrap index kept for whatever is typed, and the sizes kept ready for a
+  // pool (`keep`: 0.01 and 0.1 ETH into TAC, say), each at a wrap index of its own kept in this browser, proved as the card shows the pair and
+  // proved again at that index once the pool has traded. An index is spent only by the swap that uses it, so recovery from the key meets no
+  // run of unused ones. Only while the relay is proving, one proof at a time, and at most AHEAD_MAX a visit.
+  const AHEAD_MAX = 12, SLOTS_KEY = 'tacit-swap-slots-v1:';
+  const AH = new Map();
+  let aheadAsked = 0, typedIndex = null, typedPub = null, proving = Promise.resolve();
   const aheadKey = (wei, toAsset, feeBps) => `${wei}:${lc(toAsset)}:${feeBps}`;
+  const slotIdx = (pub) => { try { return JSON.parse(localStorage.getItem(SLOTS_KEY + pub) || '{}') || {}; } catch { return {}; } };
+  const slotIdxPut = (pub, k, i) => { try { const m = slotIdx(pub); if (i == null) delete m[k]; else m[k] = i; localStorage.setItem(SLOTS_KEY + pub, JSON.stringify(m)); } catch { } };
+  // the slot's proof, asked of the board at its index; one asked at a time, so the board's line keeps the ones people pressed ahead of these
+  function proveSlot(slot, { wei, toAsset, feeBps }) {
+    aheadAsked++;
+    slot.r = null;
+    const me = slot.p = proving.then(async () => {
+      const t = await getUx();
+      return t.proveWrapSwap({ walletPriv: key.priv(), toAsset, amountWei: BigInt(wei), feeBps, index: slot.index, ahead: true, waitOpts: { viaRelay: true, timeoutMs: 6 * 60e3, intervalMs: 3000 } });
+    }).then((r) => { if (slot.p === me) slot.r = r; return r; }, () => { if (slot.p === me) slot.failed = Date.now(); return null; });
+    proving = me.then(() => {}, () => {});
+    return me;
+  }
+  const stale = async (slot) => {
+    const res = slot.r && await (await getUx()).poolReserves(slot.r.built.pid).catch(() => null);
+    return !res || BigInt(res.reserveA) !== slot.r.built.reserveA || BigInt(res.reserveB) !== slot.r.built.reserveB;
+  };
   async function ahead({ wei, toAsset, feeBps }) {
     if (!key.unlocked || !wei || !toAsset) return null;
-    const k = aheadKey(wei, toAsset, feeBps), pub = key.key.pubHex;
-    if (ah?.k === k && ah.pub === pub) return ah.p;
+    const k = aheadKey(wei, toAsset, feeBps), pub = key.key.pubHex, have = AH.get(k);
+    if (have?.pub === pub && !have.failed) return have.p;
     if (aheadAsked >= AHEAD_MAX || !(await relayState())?.proving) return null;
-    const t = await getUx(), index = ah?.pub === pub && ah.index != null ? ah.index : await t.nextWrapIndex({ walletPriv: key.priv(), ticker: 'cETH' });
-    aheadAsked++;
-    const me = ah = { k, pub, index, r: null };
-    me.p = t.proveWrapSwap({ walletPriv: key.priv(), toAsset, amountWei: BigInt(wei), feeBps, index, ahead: true, waitOpts: { viaRelay: true, timeoutMs: 6 * 60e3, intervalMs: 3000 } })
-      .then((r) => { if (ah === me) me.r = r; return r; }, () => { if (ah === me) me.k = null; return null; });
-    return me.p;
+    const t = await getUx();
+    if (typedPub !== pub || typedIndex == null) { typedIndex = await t.nextWrapIndex({ walletPriv: key.priv(), ticker: 'cETH' }); typedPub = pub; }
+    // the typed amount's index moves to this amount: a proof for the one before is let go
+    for (const [x, s] of AH) if (s.typed) AH.delete(x);
+    const slot = { k, pub, index: typedIndex, typed: true, r: null };
+    AH.set(k, slot);
+    return proveSlot(slot, { wei, toAsset, feeBps });
+  }
+  // The sizes kept ready for a pool, proved (or proved again, the pool having traded) one after the other.
+  let keeping = null;
+  function keep({ sizes, toAsset, feeBps, onReady = () => {} }) {
+    if (!key.unlocked || !toAsset || keeping) return keeping;
+    const pub = key.key.pubHex;
+    keeping = (async () => {
+      if (!(await relayState())?.proving) return;
+      const t = await getUx(), idx = slotIdx(pub);
+      for (const wei of sizes) {
+        const k = aheadKey(wei, toAsset, feeBps);
+        if (aheadAsked >= AHEAD_MAX) return;
+        let slot = AH.get(k);
+        if (slot?.pub === pub && !slot.typed && slot.p && !slot.failed && (!slot.r || !(await stale(slot)))) continue;
+        let index = idx[k];
+        if (index == null) { index = await t.nextWrapIndex({ walletPriv: key.priv(), ticker: 'cETH' }); slotIdxPut(pub, k, index); }
+        slot = { k, pub, index, r: null };
+        AH.set(k, slot);
+        onReady();
+        if (await proveSlot(slot, { wei, toAsset, feeBps })) onReady();
+      }
+    })().catch(() => {}).finally(() => { keeping = null; });
+    return keeping;
   }
   // Where the proof made ahead for this swap is: 'ready', 'proving', or null (none asked, or it failed).
-  const aheadOf = ({ wei, toAsset, feeBps }) => (ah && ah.pub === key.key?.pubHex && ah.k === aheadKey(wei, toAsset, feeBps) ? (ah.r ? 'ready' : 'proving') : null);
+  const aheadOf = ({ wei, toAsset, feeBps }) => { const s = AH.get(aheadKey(wei, toAsset, feeBps)); return s && s.pub === key.key?.pubHex && !s.failed ? (s.r ? 'ready' : 'proving') : null; };
   // The proof made ahead for this swap, if it still holds: waited for while the board finishes it, and only while the pool's reserves are the
   // ones it pins and it pays at least the swap's least.
   async function aheadFor(plan, say) {
-    const hop = plan.path[0];
-    if (!ah || ah.k !== aheadKey(plan.wei, hop.assetNext, hop.feeBps) || ah.pub !== key.key.pubHex) return null;
-    if (!ah.r) { say('ahead'); await Promise.race([ah.p, sleep(75e3)]); }
-    const r = ah?.r;
-    if (!r) return null;
-    const res = await (await getUx()).poolReserves(r.built.pid).catch(() => null);
-    return res && BigInt(res.reserveA) === r.built.reserveA && BigInt(res.reserveB) === r.built.reserveB && r.built.amountOut >= BigInt(plan.minOut) ? r : null;
+    const hop = plan.path[0], slot = AH.get(aheadKey(plan.wei, hop.assetNext, hop.feeBps));
+    if (!slot || slot.pub !== key.key.pubHex || slot.failed) return null;
+    if (!slot.r) { say('ahead'); await Promise.race([slot.p, sleep(75e3)]); }
+    const r = slot.r;
+    if (!r || await stale(slot) || r.built.amountOut < BigInt(plan.minOut)) return null;
+    return Object.assign(r, { slot });
   }
+  // The fee tier of the deepest pool between tETH and `toAsset` (the one a kept size is proved in), read once a visit.
+  const TIERS = new Map();
+  async function tierOf(toAsset) {
+    const k = lc(toAsset);
+    if (TIERS.has(k)) return TIERS.get(k);
+    const t = await getUx(), eth = lc(t.assetByTicker.cETH.assetId), lo = BigInt(eth) < BigInt(k);
+    let best = null;
+    for (const f of [30, 5, 100, 1]) {
+      const r = await t.poolReserves(t.routePoolId(lo ? eth : k, lo ? k : eth, f)).catch(() => null), d = r ? BigInt(lo ? r.reserveA : r.reserveB) : 0n;
+      if (d > 0n && (!best || d > best.d)) best = { f, d };
+    }
+    TIERS.set(k, best?.f ?? null);
+    return best?.f ?? null;
+  }
+  // A slot whose swap went out: its index is spent, and the next swap of that size takes a new one.
+  const spent = (slot) => { AH.delete(slot.k); if (slot.typed) typedIndex = null; else slotIdxPut(slot.pub, slot.k, null); };
   // A wallet that declined: nothing more is asked of it.
   const declined = (e) => e?.code === 4001 || !!e?.userStopped || /user (rejected|denied)|rejected the request|denied transaction/i.test(String(e?.shortMessage || e?.message || e || ''));
   // One router transaction for a proof made before anything was deposited (a swap proved ahead, or a wrap kept ready): null when the router
@@ -307,7 +366,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
         const r = await aheadFor(plan, say);
         const one = r && await oneTx(r, { wei: plan.wei, tip: tq.tip + BigInt(plan.fee) * E10, to: tq.to, from, wallet, say });
         if (one) {
-          ah = null; held = null;
+          spent(r.slot); held = null;
           const made = { txHash: one.hash, out: r.built.amountOut, one: true };
           return plan.sendTo ? sendOn({ plan, made, before, say }) : made;
         }
@@ -442,7 +501,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   }
 
   return {
-    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate, ahead, aheadOf,
+    open, lock, reset, read, swap, swapOut, exitCalls, of, most, keyHex, sendPrivate, ahead, aheadOf, keep, tierOf,
     // the checks a swap makes before anything leaves a wallet, for a page that first sells a token for the ETH it will make private
     relayOpen, priceOk: (asset, units, path, fee, minOut) => (path?.length ? price(asset, units, path, fee, minOut) : Promise.resolve(null)),
     get unlocked() { return key.unlocked; },

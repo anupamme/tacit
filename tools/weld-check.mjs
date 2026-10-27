@@ -6711,9 +6711,9 @@ await step('lpsend', async () => {
 // as farm rewards, a Tacit address and an amount hand it to the farm sheet's form with both in it, quoted as private TAC is (the claim's fee
 // in wTAC), an Ethereum address is quoted as arriving there as wTAC, the sheet's Send wTAC opens the same form, and a press splits the note
 // to the amount first (tests/farm-reward-send-fork.mjs runs the harvest, the split, the lock, the claim and the send out through the real guest).
-// Public ETH into private TAC in one transaction. With the key open, an amount standing on the card's wallet-to-private swap through one pool
-// is asked of the relay as a deposit swapped in one proof, prove-only and ahead (its board only), with no fee bound in; the receipt says the
-// proof is made, and the press sends one router transaction (wrapAndSettleETH: the 0.01 ETH, and the relay's tip on top) that deposits it and
+// Public ETH into private TAC in one transaction. With the key open, the card on the wallet-to-private swap through one pool shows the sizes
+// kept ready (0.01 and 0.1 ETH), each asked of the relay as a deposit swapped in one proof, prove-only and ahead (its board only), with no fee
+// bound in, and marked once made; one picked, the receipt says the proof is made, and the press sends one router transaction (wrapAndSettleETH: the 0.01 ETH, and the relay's tip on top) that deposits it and
 // settles the swap, with nothing more asked of the relay. (The router on the fork takes any call here: a stand-in proof cannot settle;
 // tests/wrapswap-first-fork.mjs settles real ones through the guest, and shows a stale one refused.)
 await step('swapahead', async () => {
@@ -6728,12 +6728,19 @@ await step('swapahead', async () => {
     await pasteKey(p, hex);
     await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     const s0 = submits.length;
-    await p.evaluate(() => { location.hash = '#card=swap:ether:tac:private&amt=0.01'; });
+    // the sizes kept ready: shown as the card opens on the pair with the key open, each proved ahead and marked once made
+    await p.evaluate(() => { location.hash = '#card=swap:ether:tac:private'; });
     await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await until(p, () => document.querySelectorAll('#hx-swap #pay-usd button.rd').length === 2, null, 300000).catch(() => {});
+    const kept = submits.slice(s0).filter((x) => x.type === 'wrapswap');
+    const chips = await p.evaluate(() => [...document.querySelectorAll('#hx-swap #pay-usd button')].map((b) => `${b.textContent.trim()}${b.classList.contains('rd') ? '*' : ''}`).join(' '));
+    ok(kept.length === 2 && kept.every((x) => x.mode === 'prove' && x.ahead === true && BigInt(x.op?.fee ?? 1) === 0n) && kept.map((x) => String(x.op?.amountIn)).sort().join() === '1000000,10000000' && chips === '0.01* 0.1*',
+      `swapahead: the card shows the sizes kept ready, each proved ahead as one swap with no fee in it and marked once made (${chips}; ${kept.map((x) => `${x.op?.amountIn}/${x.mode}/ahead ${x.ahead}`)})`);
+    await p.click('#hx-swap #pay-usd button[data-quick="0.01"]');
     await until(p, () => /Proof\s*made: one transaction/.test(document.querySelector('#hx-swap #rcpt')?.textContent || ''), null, 300000).catch(() => {});
     const asked = submits.slice(s0).filter((x) => x.type === 'wrapswap');
-    ok(asked.length === 1 && asked[0].mode === 'prove' && asked[0].ahead === true && BigInt(asked[0].op?.fee ?? 1) === 0n && BigInt(asked[0].op?.amountIn ?? 0) === 1000000n && /Proof\s*made: one transaction/.test(await q('#rcpt')),
-      `swapahead: the amount standing, the swap is asked of the relay ahead as one proof, no fee in it, and the receipt says it is made (${asked.map((x) => `${x.type}/${x.mode}/ahead ${x.ahead}`)}; ${(await q('#rcpt')).match(/Proof.{0,30}/)?.[0]})`);
+    ok(asked.length === 2 && /Proof\s*made: one transaction/.test(await q('#rcpt')),
+      `swapahead: 0.01 picked, the receipt says its proof is made, and nothing more is asked (${asked.length} asked; ${(await q('#rcpt')).match(/Proof.{0,30}/)?.[0]})`);
     await rpc('anvil_setCode', [ROUTER_ADDR, '0x00']);
     const w0 = walletTxs.length, s1 = submits.length;
     // a press on a quote over a minute old reads the price again and waits for the next (a slow fork can take that long to quote)

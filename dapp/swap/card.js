@@ -698,7 +698,7 @@ function paintSides() {
   const homes = $('#homes'), chain = $('#chain');
   if (homes) { const h = homesHtml(); homes.hidden = !h; if (h !== homes.dataset.h) { homes.innerHTML = h; homes.dataset.h = h; } }
   if (chain) { const c = chainHtml(); chain.hidden = !c; if (c !== chain.dataset.h) { chain.innerHTML = c; chain.dataset.h = c; } }
-  const side = $('#pay-side'), mk = !S.amt && !fixed ? moveOf() : null, sizes = mk ? H.moves?.sizes?.(mk) || null : null;
+  const side = $('#pay-side'), mk = !S.amt && !fixed ? moveOf() : null, sizes = mk ? H.moves?.sizes?.(mk) || null : !S.amt && !fixed ? keptChips() : null;
   if (payPriv && bal == null && !S.at.pay && !moveOf()) side.innerHTML = PV?.unlocked ? `<span>Reading your private balance…${PV.readFailed ? ' <button type="button" id="pv-read">Read again</button>' : ''}</span>` : '<button type="button" id="pv-open">Your private balance</button>';
   else if (bal != null) side.innerHTML = fixed ? `<span>Balance ${esc(amtFmt(bal, pay.dec))}</span>` : `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
   else if (!S.amt && !fixed && !sizes) side.innerHTML = `<span class="quick">${((poolUnits() ? QUICK_PRIV : QUICK)[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
@@ -1416,7 +1416,7 @@ function stepsClick(e) {
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──
 let PVP = null, PV = null;
 const pickWallet = (list) => { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; };
-const pvLoad = () => (PVP ||= import('/swap/private.js?cb=38d1d1a2').then((m) => {
+const pvLoad = () => (PVP ||= import('/swap/private.js?cb=af59ab16').then((m) => {
   PV = m.makePrivate({ getUx, pick: pickWallet, ...H.key, onKey: (why) => { if (why) say(esc(why), 'err', true); else { PV.read().then(paint, () => {}); if (plans().some((x) => x.state === 'waiting')) ltLoad().then(readBlend, () => {}); } paint(); } });
   PV.mod = m;
   return PV;
@@ -1424,6 +1424,18 @@ const pvLoad = () => (PVP ||= import('/swap/private.js?cb=38d1d1a2').then((m) =>
 // A swap of the wallet's ETH into the private balance through one pool is proved ahead (private.js `ahead`) once its quote has stood a moment
 // with the key open: the press then sends one transaction that deposits it and settles the swap.
 const aheadArgs = (q) => { const p = q?.pools; const units = parseUnits(S.amt, 8); return q?.kind === 'private' && !S.inP && isEth(S.pay) && S.get !== 'teth' && p?.length === 1 && units && IDS[p[0].b] ? { wei: units * E10, toAsset: IDS[p[0].b], feeBps: p[0].feeBps } : null; };
+// Wallet ETH into the private balance through one pool: the sizes kept ready (private.js `keep`), proved as the card shows the pair with the
+// key open and proved again a minute on if the pool has traded; they stand where the dollar value goes, marked once proved.
+const KEEP_SWAP = ['0.01', '0.1'];
+const KS = { tier: {}, at: 0 };
+const keptPair = () => (!S.inP && isEth(S.pay) && S.get !== 'teth' && PK[S.get] && kindOf(S.pay, S.get) === 'private' && IDS[PK[S.get]] && (PV?.unlocked || H.key?.session?.unlocked) ? IDS[PK[S.get]] : null);
+function keptChips() {
+  const to = keptPair(), f = to ? KS.tier[to] : null;
+  if (!to) return null;
+  if (f === undefined) { KS.tier[to] = null; pvLoad().then((pv) => pv.tierOf(to)).then((x) => { KS.tier[to] = x; paint(); }, () => {}); }
+  if (Date.now() - KS.at > 60e3 && f) { KS.at = Date.now(); pvLoad().then((pv) => pv.keep({ sizes: KEEP_SWAP.map((v) => String(parseUnits(v, 8) * E10)), toAsset: to, feeBps: f, onReady: paint })).catch(() => {}); }
+  return f ? KEEP_SWAP.map((v) => ({ v, rd: PV?.aheadOf?.({ wei: parseUnits(v, 8) * E10, toAsset: to, feeBps: f }) === 'ready' })) : null;
+}
 let ahT = 0;
 function aheadSoon() {
   clearTimeout(ahT);
