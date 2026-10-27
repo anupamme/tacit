@@ -26,7 +26,6 @@ export const CHROME_PAGES = {
 // 24×24 line drawings, the lander's tabs' hand; drawn by chrome.css (stroke, round caps) unless a glyph is .fill. The assets glyph is the TAC logo's t in its ring, at the logo's proportions (slanted stem, wide high bar, foot sweeping right). The llama is DefiLlama's mark in one colour
 // (its badge, the llama paler, as the logo has it), the GitHub, X and Discord glyphs are theirs
 const G = {
-  swap: '<path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/>',
   assets: '<circle cx="12" cy="12" r="8.5"/><path d="M8.1 9.3h7.2"/><path d="M13 6.1L10 16.3Q10 17.9 13.3 17.2"/>',
   pay: '<path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/>',
   borrow: '<path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/>',
@@ -51,12 +50,12 @@ const G = {
 const FILLED = new Set(['github', 'x', 'llama', 'discord']);
 const svg = (k) => `<svg viewBox="0 0 24 24"${FILLED.has(k) ? ' class="fill"' : ''} aria-hidden="true">${G[k]}</svg>`;
 
-// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them (swap and
-// bridge, the front page's tile; pay; borrow), then what they pay (rewards: farms, points, the airdrop). The menu holds the rest in two groups: more for a
-// holder, then the network's own pages
-const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/#card=swap', 'Swap'], ['bridge', '/#card=bridge', 'Bridge'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
+// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then pages of their own for what is
+// done with them (pay, borrow), then what they pay (rewards: farms, points, the airdrop). Swapping and bridging are the front page's tile, which the
+// logo opens. The menu holds the rest in two groups: more for a holder (the bridge page follows bridges under way), then the network's own pages
+const MAIN = [['assets', '/assets/', 'Assets'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
 const MORE = [
-  [['tac', '/tac/', 'Shielded TAC'], ['etch', '/etch/', 'Etch'], ['tasks', '/tasks/', 'Tasks']],
+  [['bridge', '/bridge/', 'Bridges'], ['tac', '/tac/', 'Shielded TAC'], ['etch', '/etch/', 'Etch'], ['tasks', '/tasks/', 'Tasks']],
   [['stats', '/weld/stats/', 'Stats'], ['build', '/build/', 'Build'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']],
 ];
 

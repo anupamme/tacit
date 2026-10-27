@@ -131,11 +131,11 @@ try {
     ok((await page.textContent('#pf-eth')).includes('26,225,800'), 'Ethereum’s proof for Bitcoin, live');
     ok((await page.textContent('#pf-eth')).includes('12 min behind the head') && await page.getAttribute('#pf-eth', 'data-state') === 'on', 'and how far it is from the head, in minutes');
     ok(await page.getAttribute('#pf-btc', 'data-state') === 'on' && !(await page.textContent('#bt-wait')).includes('behind'), 'a proof close to its chain is not called slow, and the tile’s wait line adds nothing');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#bridge', 'TAC from Bitcoin opens the Bridge tab');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:btc', "TAC from Bitcoin opens the front page's Bridge tab on it");
     ok((await page.$$('#bt-steps li')).length === 4, 'four steps');
     ok((await page.$$('#bt-steps li svg.tk')).length === 2 && /Burned\s+on Bitcoin/.test(await page.textContent('#bt-steps')), 'the steps that happen on a chain show its mark, and keep its name for a screen reader');
     await page.click('#bt-flip');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#bridge/out' && await page.evaluate(() => location.hash) === '#tac/out', 'the flip: TAC to Bitcoin, and the link says so');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:tac' && await page.evaluate(() => location.hash) === '#tac/out', 'the flip: TAC to Bitcoin, and the link says so');
     ok((await page.textContent('#bt-from')) === 'Ethereum', 'from Ethereum');
     await page.click('[data-asset="teth"]');
     ok((await page.textContent('#bt-limit')) === '0.001 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
@@ -148,7 +148,7 @@ try {
     ok((await page.textContent('#bt-go')).includes('Bring tETH back') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Bitcoin to Ethereum' && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
     ok((await page.textContent('#bt-cost')) === 'About $0.80 now: 1,000 sats on Bitcoin; Tacit covers the Ethereum side', 'and the way back says its own cost');
     await page.click('#bt-flip');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('Bridge tETH') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Ethereum to Bitcoin', 'tETH to Bitcoin');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:eth' && (await page.textContent('#bt-go')).includes('Bridge tETH') && (await page.getAttribute('#bt-way', 'aria-label')) === 'Ethereum to Bitcoin', 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
     ok(await page.getAttribute('.lost a', 'href') === '/vault/#btc', 'a cBTC lock that cannot be seen is looked for on the Borrow page, which lists the key\'s locks');
     ok(await page.isHidden('#bt-limit') && await page.isHidden('#bt-cost'), 'cBTC has no per-bridge limit line and no cost line');
@@ -244,7 +244,7 @@ try {
   {
     const { browser, page, errors } = await openPage({ width: 390, height: 844 }, { scheme: 'dark', path: '/bridge/#teth/out' });
     await page.waitForFunction(() => document.querySelector('#bt').dataset.asset === 'teth', null, { timeout: 10000 });
-    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && await page.$eval('#bt', (b) => b.dataset.dir) === 'out', 'the link #teth/out opens on tETH to Bitcoin');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#card=bridge:eth' && await page.$eval('#bt', (b) => b.dataset.dir) === 'out', 'the link #teth/out opens on tETH to Bitcoin');
     await page.waitForTimeout(800);
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     ok(await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(21, 19, 14)', 'dark paper');
@@ -332,16 +332,16 @@ try {
   }
 
   // ── the header menu shows a bridge under way, on this page and on any other that has the menu ──
-  for (const path of ['/bridge/', '/swap/']) {
+  for (const path of ['/bridge/', '/vault/']) {
     const { browser, page } = await openPage({ width: 1024, height: 800 }, { path });
     await page.waitForSelector('.sm summary', { state: 'attached' });
     await page.waitForTimeout(500);
     const read = () => page.evaluate(() => {
-      const s = document.querySelector('.sm summary'), t = document.querySelector('.sm-p a[href="/bridge/"]'), d = s.querySelector(':scope > .bd'), bd = document.querySelector('.sn > a[href="/bridge/"] > .bd');
-      return { dot: !!d && !d.hidden, bar: !!bd && !bd.hidden && getComputedStyle(bd).display !== 'none', label: s.getAttribute('aria-label'), tag: t?.lastElementChild && !t.lastElementChild.hidden ? t.lastElementChild.textContent : '' };
+      const s = document.querySelector('.sm summary'), t = document.querySelector('.sm-p a[href="/bridge/"]'), d = s.querySelector(':scope > .bd');
+      return { dot: !!d && !d.hidden, label: s.getAttribute('aria-label'), tag: t?.lastElementChild && !t.lastElementChild.hidden ? t.lastElementChild.textContent : '' };
     });
     let m = await read();
-    ok(m.dot && m.bar && m.tag === '1 needs you' && /4 bridges under way, 1 needs you/.test(m.label), `${path}: the Bridge link (1024px wide) carries a dot, and the Bridge entry says what waits on the holder (${JSON.stringify(m)})`);
+    ok(m.dot && m.tag === '1 needs you' && /4 bridges under way, 1 needs you/.test(m.label), `${path}: the menu button carries a dot, and the menu's Bridges entry says what waits on the holder (${JSON.stringify(m)})`);
     await page.evaluate(([pub, a, b]) => {
       localStorage.setItem('tacit-burndep-bridge-v1:mainnet:' + pub, a); localStorage.setItem('tacit-crossout-bridge-v1:mainnet:' + pub, b);
       window.dispatchEvent(new StorageEvent('storage', { key: 'tacit-crossout-bridge-v1:mainnet:' + pub }));
@@ -355,7 +355,7 @@ try {
     }, [PUB, JSON.stringify(OUT.map((r) => ({ ...r, stage: 'minted' })))]);
     await page.waitForTimeout(300);
     m = await read();
-    ok(!m.dot && !m.bar && !m.tag && m.label === 'More pages', `${path}: once every bridge has arrived the dot and the count go (${JSON.stringify(m)})`);
+    ok(!m.dot && !m.tag && m.label === 'More pages', `${path}: once every bridge has arrived the dot and the count go (${JSON.stringify(m)})`);
     await browser.close();
   }
 

@@ -20,6 +20,7 @@
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
 //   hxborrow the card's Borrow tab with a key open: the lock it follows step by step with what the key holds, and the bond posted from
 //           the card with wstETH already held (a permit and the post in one transaction), after which the lock waits to mint
+//   hxheld  the Borrow tab on cBTC already held: three ratios, where it liquidates, and the press borrows through the sheet's steps (a note cut first)
 //   hxborrowback a return visit with a bond still on its way (in Activity): the Borrow tab says so in place of its button, and the
 //           dashboard's cBTC opens that tab
 //   hxteth  a key holding private tETH: Shield says so with Send, Swap and Back to ETH a press away; Back to ETH and Send quote their relay
@@ -193,7 +194,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -667,7 +668,7 @@ await step('swapurl', async () => {
     await f.page.waitForSelector('#hx-swap #pay-coin', { timeout: 60000 }).catch(() => {});
     await f.page.waitForTimeout(1500);
     ok(new URL(f.page.url()).search === '', 'swapurl: the first pair leaves the address plain');
-    // The swap page's own address forwards to the Swap tab: the swap it names, a bare visit, and the header's Swap and Bridge from another tab
+    // The swap page's own address forwards to the Swap tab: the swap it names, a bare visit, and the Bridge tab's own link
     await f.page.goto(f.url + 'swap/?from=TAC&to=ETH&amt=3');
     ok((await cardIs(f.page, 'TAC>ETH')) && new URL(f.page.url()).pathname === '/' && await f.page.waitForFunction(() => document.querySelector('#hx-swap #amt')?.value === '3', null, { timeout: 30000 }).then(() => true, () => false),
       `swapurl: /swap/?from=TAC&to=ETH&amt=3 forwards to the front page's Swap tab on that swap, with its amount (${f.page.url()})`);
@@ -675,10 +676,9 @@ await step('swapurl', async () => {
     await f.page.goto(f.url + 'swap/');
     ok(await f.page.waitForFunction(() => location.pathname === '/' && document.querySelector('[data-hxm="swap"]')?.getAttribute('aria-selected') === 'true', null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: /swap/ alone opens the Swap tab, even where another was left open');
     await f.page.click('[data-hxm="send"]');
-    await f.page.click('.sn > a[href="/#card=bridge"]');
-    ok(await f.page.waitForFunction(() => document.querySelector('[data-hxm="bridge"]')?.getAttribute('aria-selected') === 'true' && !/card=/.test(location.hash), null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: the header\'s Bridge opens the Bridge tab, and the link leaves the address');
-    await f.page.click('.sn > a[href="/#card=swap"]');
-    ok(await f.page.waitForFunction(() => document.querySelector('[data-hxm="swap"]')?.getAttribute('aria-selected') === 'true', null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: and its Swap the Swap tab');
+    await f.page.evaluate(() => { location.hash = 'card=bridge'; });
+    ok(await f.page.waitForFunction(() => document.querySelector('[data-hxm="bridge"]')?.getAttribute('aria-selected') === 'true' && !/card=/.test(location.hash), null, { timeout: 30000 }).then(() => true, () => false), 'swapurl: #card=bridge opens the Bridge tab, and the link leaves the address');
+    ok(!(await f.page.$('.sn > a[href*="card="], .sn > a[href="/swap/"], .sn > a[href="/bridge/"]')), 'swapurl: the header has no Swap or Bridge link: both are the tile\'s');
   } finally { await f.browser.close(); }
 });
 
@@ -8824,9 +8824,9 @@ await step('tradelinks', async () => {
           scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
-      if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/#card=swap Bridge:/#card=bridge Pay:/pay/ Borrow:/vault/ Rewards:/rewards/', `tradelinks (${name}): and Assets, Swap, Bridge, Pay, Borrow and Rewards beside it (${seen.order})`);
-      else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/#card=swap Bridge:/#card=bridge Pay:/pay/ Borrow:/vault/ Rewards:/rewards/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
-      ok(seen.more === 'Shielded TAC:/tac/ Etch:/etch/ Tasks:/tasks/ Stats:/weld/stats/ Build:/build/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
+      if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Pay:/pay/ Borrow:/vault/ Rewards:/rewards/', `tradelinks (${name}): and Assets, Pay, Borrow and Rewards beside it (${seen.order})`);
+      else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Pay:/pay/ Borrow:/vault/ Rewards:/rewards/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
+      ok(seen.more === 'Bridges:/bridge/ Shielded TAC:/tac/ Etch:/etch/ Tasks:/tasks/ Stats:/weld/stats/ Build:/build/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
       await p.click('.sn .sm > summary');
       ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/assets/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Assets only where the header has not`);
       await p.keyboard.press('Escape');
@@ -10240,52 +10240,54 @@ await step('bridgefindhere', async () => {
   } finally { await r.browser.close(); }
 });
 
+// cBTC held privately (two notes, 30,000 and 20,000 sats) and the pool's cut, open and close of a loan answered here: window.__hb keeps the calls
+const holdStub = (page) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+  import * as real from '/confidential-pool-ux.js?stub=real';
+  export * from '/confidential-pool-ux.js?stub=real';
+  export function makeConfidentialPoolUx(o) {
+    const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+    const CB = String(ux.pool.CBTC_ZK_ASSET_ID).toLowerCase(), USD = String(ux.cdp.debtAssetId(ux.cfg.collateralEngine)).toLowerCase();
+    const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+    let seq = 0, leaves = 700000;
+    const note = (asset, value) => { const i = ++seq; return { asset, value: String(value), leaf: h(0xc0b000 + i), leafIndex: 700000 + i, cx: h(0x100 + i), cy: h(2), owner: h(3), secret: h(0x5100 + i), blinding: h(0x7700 + i), root: h(1), path: [] }; };
+    const S = window.__hb = { notes: [note(CB, 30000n), note(CB, 20000n)], calls: [], loans: [] };
+    ux.poolLeafCount = async () => ++leaves;
+    ux.quoteOpFee = async () => 100n;
+    ux.balance = async (priv, opts) => {
+      const b = await balance(priv, opts);
+      b.notes = [...b.notes, ...S.notes];
+      for (const n of S.notes) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
+      return b;
+    };
+    ux.recoverCdpPositions = async () => ({ nextKeyNonce: S.loans.length, positions: S.loans.map((l, i) => ({ controller: l.controller, keyNonce: i, debtValue: String(l.debtValue), rateSnapshot: l.rateSnapshot,
+      positionOwner: l.positionOwner, nonce: h(0), basket: [{ asset: CB, value: String(l.collateral[0].value) }], live: true })) });
+    ux.cdpPositionTree = async () => ({ indexOf: () => 0, pathFor: () => ({ path: [] }), root: h(9) });
+    ux.transfer = async (a) => {
+      S.calls.push({ kind: 'cut', amount: String(a.amount), fee: String(a.fee), from: a.notes.map((n) => String(n.value)).join('+') });
+      const sum = a.notes.reduce((t, n) => t + BigInt(n.value), 0n), gone = new Set(a.notes.map((n) => n.leaf));
+      S.notes = [...S.notes.filter((n) => !gone.has(n.leaf)), note(CB, BigInt(a.amount)), ...(sum - BigInt(a.amount) - BigInt(a.fee) > 0n ? [note(CB, sum - BigInt(a.amount) - BigInt(a.fee))] : [])];
+      return { txHash: h(0xd1) };
+    };
+    const defi = ux.defiActions;
+    ux.defiActions = (priv) => ({ ...defi(priv),
+      openCdp: async (a) => {
+        S.calls.push({ kind: 'open', value: String(a.collateral[0].value), debt: String(a.debtValue), fee: String(a.fee), owner: a.positionOwner });
+        S.loans.push(a); S.notes = S.notes.filter((n) => n.leafIndex !== a.collateral[0].leafIndex); S.notes.push(note(USD, BigInt(a.debtValue)));
+        return { txHash: h(0xee) };
+      },
+      closeCdp: async (a) => {
+        S.calls.push({ kind: 'close', debt: String(a.debtValue) });
+        const l = S.loans.shift();
+        S.notes = [...S.notes.filter((n) => n.asset !== USD), note(CB, BigInt(l.collateral[0].value))];
+        return { txHash: h(0xef) };
+      },
+    });
+    return ux;
+  }` }));
 await step('holdborrow', async () => {
   const hex = 'b0d1'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
   const r = await openPage({ account: A0, key: K0 });
-  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
-    import * as real from '/confidential-pool-ux.js?stub=real';
-    export * from '/confidential-pool-ux.js?stub=real';
-    export function makeConfidentialPoolUx(o) {
-      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
-      const CB = String(ux.pool.CBTC_ZK_ASSET_ID).toLowerCase(), USD = String(ux.cdp.debtAssetId(ux.cfg.collateralEngine)).toLowerCase();
-      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
-      let seq = 0, leaves = 700000;
-      const note = (asset, value) => { const i = ++seq; return { asset, value: String(value), leaf: h(0xc0b000 + i), leafIndex: 700000 + i, cx: h(0x100 + i), cy: h(2), owner: h(3), secret: h(0x5100 + i), blinding: h(0x7700 + i), root: h(1), path: [] }; };
-      const S = window.__hb = { notes: [note(CB, 30000n), note(CB, 20000n)], calls: [], loans: [] };
-      ux.poolLeafCount = async () => ++leaves;
-      ux.quoteOpFee = async () => 100n;
-      ux.balance = async (priv, opts) => {
-        const b = await balance(priv, opts);
-        b.notes = [...b.notes, ...S.notes];
-        for (const n of S.notes) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
-        return b;
-      };
-      ux.recoverCdpPositions = async () => ({ nextKeyNonce: S.loans.length, positions: S.loans.map((l, i) => ({ controller: l.controller, keyNonce: i, debtValue: String(l.debtValue), rateSnapshot: l.rateSnapshot,
-        positionOwner: l.positionOwner, nonce: h(0), basket: [{ asset: CB, value: String(l.collateral[0].value) }], live: true })) });
-      ux.cdpPositionTree = async () => ({ indexOf: () => 0, pathFor: () => ({ path: [] }), root: h(9) });
-      ux.transfer = async (a) => {
-        S.calls.push({ kind: 'cut', amount: String(a.amount), fee: String(a.fee), from: a.notes.map((n) => String(n.value)).join('+') });
-        const sum = a.notes.reduce((t, n) => t + BigInt(n.value), 0n), gone = new Set(a.notes.map((n) => n.leaf));
-        S.notes = [...S.notes.filter((n) => !gone.has(n.leaf)), note(CB, BigInt(a.amount)), ...(sum - BigInt(a.amount) - BigInt(a.fee) > 0n ? [note(CB, sum - BigInt(a.amount) - BigInt(a.fee))] : [])];
-        return { txHash: h(0xd1) };
-      };
-      const defi = ux.defiActions;
-      ux.defiActions = (priv) => ({ ...defi(priv),
-        openCdp: async (a) => {
-          S.calls.push({ kind: 'open', value: String(a.collateral[0].value), debt: String(a.debtValue), fee: String(a.fee), owner: a.positionOwner });
-          S.loans.push(a); S.notes = S.notes.filter((n) => n.leafIndex !== a.collateral[0].leafIndex); S.notes.push(note(USD, BigInt(a.debtValue)));
-          return { txHash: h(0xee) };
-        },
-        closeCdp: async (a) => {
-          S.calls.push({ kind: 'close', debt: String(a.debtValue) });
-          const l = S.loans.shift();
-          S.notes = [...S.notes.filter((n) => n.asset !== USD), note(CB, BigInt(l.collateral[0].value))];
-          return { txHash: h(0xef) };
-        },
-      });
-      return ux;
-    }` }));
+  await holdStub(r.page);
   const calls = () => r.page.evaluate(() => (window.__hb?.calls || []).map((c) => c.kind + (c.value ? ':' + c.value : '') + (c.amount ? ':' + c.amount : '')).join(','));
   const sheet = () => r.page.evaluate(() => (document.querySelector('#borrow-body')?.textContent || '').replace(/\s+/g, ' '));
   try {
@@ -10298,7 +10300,7 @@ await step('holdborrow', async () => {
     await r.page.evaluate(() => { location.hash = ''; });
     await r.page.click('[data-hxm="borrow"]');
     await r.page.waitForSelector('#hx-bw-hold:not([hidden])', { timeout: 240000 }).catch(() => {});
-    ok(/You hold 0\.0005 cBTC\. Borrow against it/.test(await text(r.page, '#hx-bw-hold')) && (await r.page.$eval('#hx-bw-hold a', (a) => a.getAttribute('href'))) === '#borrow', `holdborrow: the card's Borrow tab says the key holds cBTC and points at the sheet (${(await text(r.page, '#hx-bw-hold')).trim()})`);
+    ok(/You hold 0\.0005 cBTC\. Borrow against it/.test(await text(r.page, '#hx-bw-hold')) && (await r.page.$eval('#hx-bw-hold button', (a) => a.dataset.hxin)) === 'borrow:held', `holdborrow: the card's Borrow tab says the key holds cBTC and turns to it (${(await text(r.page, '#hx-bw-hold')).trim()})`);
     await go(r.page, '#borrow');
     await r.page.waitForSelector('#bw-hold #bw-borrow', { timeout: 300000 }).catch(async (e) => {
       throw new Error(`${e.message.split('\n')[0]} | sheet: ${(await sheet()).slice(0, 300)} | errors: ${r.errors.slice(0, 2).join(' | ')}`);
@@ -10344,6 +10346,45 @@ await step('holdborrow', async () => {
     await until(r.page, () => /Repaid\./.test([...document.querySelectorAll('#bw-status, #bw-s4')].map((e) => e.textContent).join(' ')), null, 180000).catch(() => {});
     ok((await calls()).endsWith('close') && /Repaid\./.test(await bwText(r.page)), `holdborrow: a loan is repaid from its row (${await calls()} | ${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 80)})`);
     if (r.errors.length) { fails++; console.log('FAIL holdborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// The Borrow tab on cBTC already held: its line about the cBTC turns the tab to it, the From side is private cBTC (the picker lists it under
+// Private), the rows are three collateral ratios each with what it borrows, the receipt says where it liquidates, and the press borrows through the
+// sheet's own steps (an amount no note matches is cut first), with no lock in sight.
+await step('hxheld', async () => {
+  const hex = 'b0d2'.padEnd(64, '5');
+  const r = await openPage({ account: A0, key: K0 });
+  await holdStub(r.page);
+  const calls = () => r.page.evaluate(() => (window.__hb?.calls || []).map((c) => c.kind + (c.value ? ':' + c.value : '') + (c.amount ? ':' + c.amount : '')).join(','));
+  try {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate(() => { location.hash = ''; });
+    await r.page.click('[data-hxm="borrow"]');
+    await r.page.waitForSelector('#hx-bw-hold:not([hidden]) button', { timeout: 240000 });
+    await r.page.click('#hx-bw-hold button');
+    await until(r.page, () => document.querySelector('#hx-from')?.value === 'cbtc' && document.querySelectorAll('#hx-dest [data-hxd]').length === 3, null, 60000);
+    ok((await heldAt(r.page)) === 'private' && (await r.page.$eval('[data-hxd="200"]', (b) => b.getAttribute('aria-checked'))) === 'true', 'hxheld: the line turns the tab to private cBTC, three ratios to borrow at, 200% picked');
+    await r.page.fill('#hx-amt', '0.0002');
+    await until(r.page, () => /^[\d,]+\.\d\d$/.test(document.querySelector('#hx-out')?.textContent || '') && /Liquidation: if BTC falls under \$[\d,]+/.test(window.__said()), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await said(r.page)} | out ${await text(r.page, '#hx-out')}`); });
+    const at200 = Number((await text(r.page, '#hx-out')).replace(/,/g, ''));
+    await r.page.click('[data-hxd="250"]');
+    await until(r.page, (v) => { const x = Number((document.querySelector('#hx-out')?.textContent || '').replace(/,/g, '')); return x > 0 && x < v; }, at200, 60000);
+    ok(true, `hxheld: 0.0002 cBTC borrows ${at200} cUSD at 200%, and less at 250%, with where it liquidates`);
+    await r.page.fill('#hx-amt', '0.001');
+    await until(r.page, () => /You hold 0\.0005 cBTC privately/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    ok(true, 'hxheld: more than the key holds is said');
+    await r.page.fill('#hx-amt', '0.00015');
+    await until(r.page, () => document.querySelector('#hx-go')?.textContent === 'Borrow cUSD' && !/You hold/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    await r.page.click('#hx-go');
+    await until(r.page, () => (window.__hb?.calls || []).some((c) => c.kind === 'open'), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | calls ${await calls()} | ${await text(r.page, '#hx-bw-s')}`); });
+    ok(/^cut:15000,open:15000$/.test(await calls()), `hxheld: the press cuts a note of exactly 0.00015 cBTC, then opens the loan on it (${await calls()})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxheld page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

@@ -9,20 +9,19 @@
   m.addEventListener('click', (e) => { if (e.target.closest('.sm-p a')) shut(); });
 })();
 
-// A bridge under way shows on every page: a dot on the header's Bridge link (on the menu button where the links are in the menu), and its count on the menu's Bridge entry. It reads the journals the front page keeps for
+// A bridge under way shows on every page: a dot on the menu button, and its count on the menu's Bridges entry (the bridge page that follows them). It reads the journals the front page keeps for
 // its bridges in this browser (the stage and any error, nothing else), so it shows with no key open, and it follows another tab through the storage event.
 (() => {
   const m = document.querySelector('.sm');
   if (!m) return;
   const OUT = 'tacit-crossout-bridge-v1:mainnet:', IN = 'tacit-burndep-bridge-v1:mainnet:';
-  const summary = m.querySelector('summary'), link = m.querySelector('.sm-p a[href="/#card=bridge"]'), bar = document.querySelector('.sn > a[href="/#card=bridge"]');
+  const summary = m.querySelector('summary'), link = m.querySelector('.sm-p a[href="/bridge/"]');
   if (!summary) return;
   const mark = () => { const d = document.createElement('i'); d.className = 'bd'; d.setAttribute('aria-hidden', 'true'); d.hidden = true; return d; };
-  const dot = mark(), barDot = mark(), tag = document.createElement('span');
+  const dot = mark(), tag = document.createElement('span');
   tag.style.cssText = 'margin-left:auto;font-size:12px;color:var(--orange,#c2410c)';
   tag.hidden = true;
   summary.append(dot);
-  if (bar) bar.append(barDot);
   if (link) link.append(tag);
   const label = summary.getAttribute('aria-label') || 'More pages';
   // stages that wait on the holder: the Bitcoin step to send (or its sats to add), a note not credited, a bridge in ready to mint
@@ -48,11 +47,10 @@
   window.tacitBridges = count;
   const paint = () => {
     const { under, needs } = count();
-    dot.hidden = barDot.hidden = tag.hidden = !under;
+    dot.hidden = tag.hidden = !under;
     tag.textContent = under ? (needs ? `${needs} needs you` : `${under} under way`) : '';
     const says = under ? `, ${under} bridge${under === 1 ? '' : 's'} under way${needs ? `, ${needs} needs you` : ''}` : '';
     summary.setAttribute('aria-label', label + says);
-    if (bar) bar.title = 'Bridge' + says;
   };
   paint();
   addEventListener('storage', (e) => { if (!e.key || e.key.startsWith(OUT) || e.key.startsWith(IN)) paint(); });
