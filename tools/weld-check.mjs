@@ -1945,6 +1945,10 @@ await step('redeem', async () => {
     let r = await open(false);
     try {
       ok(!(await r.page.$('[data-redeem]')) && !(await r.page.$('#bw-redeem')), 'redeem: with the setting off the sheet offers no Redeem');
+      await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+      await r.page.click('[data-hxm="borrow"]');
+      await until(r.page, () => /0\.0002 BTC locked/.test(document.querySelector('#hx-bwl')?.textContent || ''), null, 240000).catch(() => {});
+      ok(/0\.0002 BTC locked/.test(await text(r.page, '#hx-bwl')) && !(await r.page.$('#hx-bwl [data-brd]')), `redeem: nor does the tile's lock row (${(await text(r.page, '#hx-bwl')).replace(/\s+/g, ' ').slice(0, 120)})`);
       if (r.errors.length) { fails++; console.log('FAIL redeem (dark) page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }
     r = await open(true);
@@ -1962,6 +1966,26 @@ await step('redeem', async () => {
       await r.page.click('#bw-redeem-x');
       await until(r.page, () => !document.querySelector('#bw-redeem'), null, 20000);
       ok(true, 'redeem: closing the panel takes it away');
+      // the tile: the lock's row offers Redeem, which follows the redeem step by step in the Borrow tab
+      await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+      await r.page.click('[data-hxm="borrow"]');
+      await until(r.page, () => !!document.querySelector('#hx-bwl [data-brd]'), null, 240000)
+        .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#hx-bwl').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+      await r.page.click('#hx-bwl [data-brd]');
+      await until(r.page, () => /more\./.test(document.querySelector('#hx-rd')?.textContent || '') || !!document.querySelector('#hx-rd .err'), null, 180000)
+        .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#hx-rd').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 240)}`); });
+      const rd = (await text(r.page, '#hx-rd')).replace(/\s+/g, ' ');
+      await shot(r.page, 'redeem-tile');
+      ok(/Redeeming burns 0\.0002 cBTC on Bitcoin; moving it there costs [\d.]+ cBTC\. You hold [\d.]+ cBTC: get [\d.]+ cBTC more\./.test(rd) && (await r.page.$eval('#hx-rd .hx-st [aria-current="step"]', (x) => x.textContent)).includes('cBTC'),
+        `redeem: the tile's Redeem shows the steps, at getting the cBTC, and says what is short (${rd.slice(0, 220)})`);
+      await r.page.click('#hx-rd [data-rd="swap"]');
+      ok(await cardIs(r.page, 'ETH>cBTC'), 'redeem: Get cBTC opens the Swap tab on ETH for private cBTC');
+      await r.page.click('[data-hxm="borrow"]');
+      await until(r.page, () => !!document.querySelector('#hx-rd [data-rd="swap"]'), null, 60000);
+      ok(true, 'redeem: back on Borrow, the redeem is where it was left');
+      await r.page.click('#hx-rd [data-rd="close"]');
+      await until(r.page, () => !document.querySelector('#hx-rd') && !!document.querySelector('#hx-bwl [data-brd]'), null, 60000);
+      ok(true, 'redeem: Back to your lock leaves it');
       if (r.errors.length) { fails++; console.log('FAIL redeem page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }
   } finally {
