@@ -213,7 +213,9 @@ fn main() {
     // restarted, and once it hung there. So the worker exits, and the loop starts a fresh server, when two proofs in a row took longer than
     // SLOW_PROOF_SECS (at once: the next job would be slow too), and after JOBS_PER_SERVER jobs at the first moment it has nothing in hand,
     // so the planned restart (about a minute) falls between jobs and not in front of one; 2 x JOBS_PER_SERVER is the most it waits for that.
-    let jobs_per_server = env_or("JOBS_PER_SERVER", "40").parse::<u32>().unwrap_or(40);
+    // The slow regime's warning (below) restarts a server that is going slow, so the planned one is only a backstop: measured 2026-10-27, 121 of
+    // 224 servers warned (after 18 jobs, the median) and 73 reached 40 jobs with no warning at all, each then restarted for nothing.
+    let jobs_per_server = env_or("JOBS_PER_SERVER", "100").parse::<u32>().unwrap_or(100);
     let slow_secs = env_or("SLOW_PROOF_SECS", "90").parse::<f64>().unwrap_or(90.0);
     let mut jobs_done = 0u32;
     let mut slow_in_a_row = 0u32;
@@ -230,6 +232,14 @@ fn main() {
     let pool_min_age_ms = env_or("POOL_MIN_AGE_SECS", "600").parse::<u64>().unwrap_or(600) * 1000;
     let pool_every = Duration::from_secs(env_or("POOL_EVERY_SECS", "30").parse::<u64>().unwrap_or(30));
     let mut pool_last: Option<Instant> = None;
+    // Users first on a single box. A proof cannot be stopped once it starts, so a user's job that arrives while a pool wrap runs waits
+    // for it (measured 2026-10-26: 41 of 247 user jobs started the moment a pool wrap ended). So pool wraps fill quiet stretches only:
+    // a lease is asked for after POOL_IDLE_SECS (default 20) with no board job claimed or in hand, and at most POOL_MAX_PER_HOUR
+    // (default 60) an hour, so the kept-ready wraps people's first deposits use still fill the quiet stretches. The pool's wraps are kept-ready vouchers, never on a user's path, and miners still lease them first.
+    let pool_idle = Duration::from_secs(env_or("POOL_IDLE_SECS", "20").parse::<u64>().unwrap_or(20));
+    let pool_max_hour = env_or("POOL_MAX_PER_HOUR", "60").parse::<usize>().unwrap_or(60);
+    let mut board_last = Instant::now();
+    let mut pool_hour: std::collections::VecDeque<Instant> = std::collections::VecDeque::new();
     // The Ethereum-state program: claimed while ETH_STATE is on and its key has not been refused (set up on the first job).
     let eth_on = env_or("ETH_STATE", "1") == "1";
     let mut eth_key: Option<Result<_, String>> = None;
@@ -284,7 +294,8 @@ fn main() {
                     println!("[{name}] {jobs_done} jobs on this GPU server and nothing waiting; exiting so the loop starts a fresh worker and GPU server");
                     std::process::exit(4);
                 }
-                if pool_on && pool_last.map_or(true, |t| t.elapsed() >= pool_every) {
+                while pool_hour.front().map_or(false, |t| t.elapsed() >= Duration::from_secs(3600)) { pool_hour.pop_front(); }
+                if pool_on && board_last.elapsed() >= pool_idle && pool_hour.len() < pool_max_hour && pool_last.map_or(true, |t| t.elapsed() >= pool_every) {
                     pool_last = Some(Instant::now());
                     if let Some(outcome) = pool_job(&agent, &base, &auth, pool_min_age_ms, &job_since, |stdin| {
                         let p = client.prove(&pk, stdin).groth16().cycle_limit(512_000_000).run().map_err(|e| format!("groth16 proof failed: {e}"))?;
@@ -292,6 +303,7 @@ fn main() {
                     }) {
                         quiet = 0;
                         jobs_done += 1;
+                        pool_hour.push_back(Instant::now());
                         match outcome {
                             Ok(secs) => { failed_in_a_row = 0; println!("[{name}] pool wrap: proved in {secs:.1} s"); }
                             Err(e) => {
@@ -345,6 +357,7 @@ fn main() {
             Ok((proof.public_values.as_slice().to_vec(), format!("0x{}", hex::encode(proof.bytes()))))
         })();
         job_since.store(0, std::sync::atomic::Ordering::Relaxed);
+        board_last = Instant::now();
         let body = match &outcome {
             Ok((pv, proof)) => {
                 println!("[{name}] job {} {label}: proved in {:.1} s", &job.job_id[..job.job_id.len().min(12)], t.elapsed().as_secs_f64());
