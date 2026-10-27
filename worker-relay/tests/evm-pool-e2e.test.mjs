@@ -265,6 +265,18 @@ try {
     const tx = await pub.getTransaction({ hash: sent });
     await assert.rejects(pub.call({ account: payer.account, to: pool, data: tx.input }), /AlreadyNullified|StaleRoot|revert/);
   });
+
+  // run with EVM_POOL_KEEPER_NATIVE_PROVER=<rapidsnark prover> to try the keeper's native path end to end
+  if (process.env.EVM_POOL_KEEPER_NATIVE_PROVER) {
+    await test('with the native prover set, every proof the keeper made came from it and none fell back', () => {
+      const log = keeperLog.join('');
+      const via = [...log.matchAll(/proved in [\d.]+ s \((\w+)\)/g)].map((m) => m[1]);
+      assert.match(log, /native prover \S+ starts/);
+      assert.ok(via.length > 0 && via.every((v) => v === 'native'), `proofs by: ${via.join(', ') || 'none'}`);
+      assert.doesNotMatch(log, /native prover \(/);
+      console.log(`  (${via.length} keeper proofs, all native)`);
+    });
+  }
 } catch (e) {
   console.error(keeperLog.join('').split('\n').slice(-30).join('\n'));
   throw e;

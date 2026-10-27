@@ -5,6 +5,30 @@
 # point at the finalized ceremony files by URL, pinned by EVM_POOL_WASM_SHA256 / EVM_POOL_ZKEY_SHA256 /
 # EVM_POOL_VK_HASH, and are cached on the service disk.
 #   docker build -f worker-relay/Dockerfile.evm-pool-keeper .
+#
+# The native prover (rapidsnark: a proof in about 2.5 CPU-seconds where snarkjs takes 21) is bundled under /opt/rapidsnark and used only
+# when EVM_POOL_KEEPER_NATIVE_PROVER=/opt/rapidsnark/prover is set; snarkjs makes any proof it does not give. It is an optimization: a
+# bundle that cannot be made (a download, the SHA-256 check) or does not start in this image is left out and said so in the build log,
+# never a failed build.
+
+# rapidsnark's official release (iden3/rapidsnark v0.0.8), pinned by SHA-256. Its binary asks for a newer C++ runtime (GLIBCXX_3.4.32, GCC 13)
+# than this image's Debian 12 has, and that runtime for a newer glibc, so the bundle carries Debian 13's runtime and loader beside it and the
+# binary is started through that loader: none of the image's own libraries are involved. The Debian image is pinned by digest (x86_64 only,
+# as the service is); to move it, take the current one from `docker buildx imagetools inspect debian:trixie-slim`.
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS rapidsnark
+ARG RAPIDSNARK_URL=https://github.com/iden3/rapidsnark/releases/download/v0.0.8/rapidsnark-linux-x86_64-v0.0.8.zip
+ARG RAPIDSNARK_SHA256=2ec59e3aa5ff498e862d60b3b7abdcd094ea484271750ec1ea14fb7c1305e423
+RUN mkdir -p /opt/rapidsnark/bin /opt/rapidsnark/lib \
+    && { apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+        && curl -fsSL "$RAPIDSNARK_URL" -o /tmp/rapidsnark.zip \
+        && echo "$RAPIDSNARK_SHA256  /tmp/rapidsnark.zip" | sha256sum -c - \
+        && unzip -q /tmp/rapidsnark.zip -d /tmp/rapidsnark \
+        && cp /tmp/rapidsnark/rapidsnark-linux-x86_64-v0.0.8/bin/prover /opt/rapidsnark/bin/prover \
+        && cp -L /lib64/ld-linux-x86-64.so.2 /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/libm.so.6 \
+            /lib/x86_64-linux-gnu/libstdc++.so.6 /lib/x86_64-linux-gnu/libgcc_s.so.1 /opt/rapidsnark/lib/ \
+        && printf '#!/bin/sh\nexec /opt/rapidsnark/lib/ld-linux-x86-64.so.2 --library-path /opt/rapidsnark/lib /opt/rapidsnark/bin/prover "$@"\n' > /opt/rapidsnark/prover \
+        && chmod 755 /opt/rapidsnark/prover /opt/rapidsnark/bin/prover /opt/rapidsnark/lib/ld-linux-x86-64.so.2; \
+    } || { echo 'rapidsnark could not be bundled: the image has no native prover'; rm -rf /opt/rapidsnark; mkdir -p /opt/rapidsnark; }
 
 FROM node:20-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
@@ -21,6 +45,16 @@ WORKDIR /app/worker-relay
 COPY worker-relay/package.json worker-relay/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 && npm cache clean --force
 COPY worker-relay/src ./src
+
+# The bundle must start in this image, whose own C++ runtime is too old for the binary: it prints its usage, or it is left out.
+COPY --from=rapidsnark /opt/rapidsnark /opt/rapidsnark
+RUN if [ -x /opt/rapidsnark/prover ]; then \
+        out=$(/opt/rapidsnark/prover 2>&1 || true); \
+        case "$out" in \
+            *'Usage: prover'*) echo 'native prover starts';; \
+            *) echo "native prover does not start in this image, so it is left out: $out"; rm -rf /opt/rapidsnark; mkdir -p /opt/rapidsnark;; \
+        esac; \
+    else echo 'native prover not bundled'; fi
 
 # The witness model must load and reproduce the canonical receive-address vector here, or the image is unusable.
 RUN node -e "Promise.all([import('./src/lib/evm-pool-keeper-prover.js'), import('../dapp/evm-pool-gateway.js')]).then(async ([p, g]) => { const zk = await p.loadZk(); const w = g.evmPoolWallet(zk, new Uint8Array(32).fill(0x11)); const a = g.receiveBoxAddress(g.receiveKeys(zk, w, 0).npk); if (a !== '0x52fc37ee7741468a15CE879320a7a41CEBaeb232') { console.error('receive vector mismatch', a); process.exit(1); } console.log('receive vector ok'); })"

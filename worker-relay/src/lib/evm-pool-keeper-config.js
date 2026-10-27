@@ -177,6 +177,13 @@ export function loadKeeperConfig(env = process.env) {
     staleMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_STALE_MAX_BACKOFF_SECS', 120),
     // How many worker threads a proof may start (snarkjs starts one per CPU it is told of, and a container is told of its host's).
     proverThreads: int(env, 'EVM_POOL_KEEPER_PROVER_THREADS', 2),
+    // rapidsnark's `prover` binary: the proof comes from it (about 2.5 CPU-seconds, against snarkjs's 21), each one checked against the
+    // verification key, and snarkjs makes any it does not give. Unset: snarkjs only. After BREAK_AFTER failures in a row it is not tried
+    // for BREAK_SECS.
+    nativeProver: str(env, 'EVM_POOL_KEEPER_NATIVE_PROVER'),
+    nativeTimeoutMs: int(env, 'EVM_POOL_KEEPER_NATIVE_TIMEOUT_SECS', 60) * 1000,
+    nativeBreakAfter: int(env, 'EVM_POOL_KEEPER_NATIVE_BREAK_AFTER', 3),
+    nativeBreakSecs: int(env, 'EVM_POOL_KEEPER_NATIVE_BREAK_SECS', 600),
     // A submission endpoint that does not answer in this long (ms) is given up on (one retry after a network error); the private ones are
     // sent to at once, so a hung one does not hold a relay up.
     sendTimeoutMs: int(env, 'EVM_POOL_KEEPER_SEND_TIMEOUT_MS', 8000),

@@ -194,7 +194,7 @@ export function createKeeper({
       }
       const proofAt = Date.now();
       const p = await prover.prove(w.input, { priority: cfg.proofPriority ?? 0 }).catch(async (e) => { await release(); throw e; });
-      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s`);
+      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s${p.via ? ` (${p.via})` : ''}`);
       if (p.publicInputs.length !== 11 || p.publicInputs.some((x, i) => BigInt(x) !== BigInt(w.publicSignals[i]))) { await release(); throw new Error('prover returned different public inputs'); }
       const tx = {
         pA: p.pA, pB: p.pB, pC: p.pC, publicInputs: p.publicInputs.map(BigInt),
@@ -280,7 +280,7 @@ export function createKeeper({
       }
       const proofAt = Date.now();
       const p = await prover.prove(w.input, { priority: cfg.proofPriority ?? 0 }).catch(async (e) => { await release(); throw e; });
-      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s`);
+      log(`${r.kind} ${r.box}: proved in ${((Date.now() - proofAt) / 1000).toFixed(1)} s${p.via ? ` (${p.via})` : ''}`);
       if (p.publicInputs.length !== 11 || p.publicInputs.some((x, i) => BigInt(x) !== BigInt(w.publicSignals[i]))) { await release(); throw new Error('prover returned different public inputs'); }
       const tx = { pA: p.pA, pB: p.pB, pC: p.pC, publicInputs: p.publicInputs.map(BigInt), recipient: ETH, extAmount: amount, relayer: chain.address, fee: f, memo0: '0x', memo1: '0x' };
       const args = [BigInt(npk), Number(feeBps), tx];

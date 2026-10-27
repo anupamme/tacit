@@ -223,7 +223,7 @@ async function main() {
     if (rates) await rates.refresh();
     if (needPrice && !rates?.rate()) throw Object.assign(new Error(`no price for ${chain.asset} yet`), { noPrice: true });
     const assetField = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token: chain.asset });
-    const pk = [cfg.wasm, cfg.zkey, cfg.vk, cfg.vkHash, cfg.wasmSha256, cfg.zkeySha256].join('|');
+    const pk = [cfg.wasm, cfg.zkey, cfg.vk, cfg.vkHash, cfg.wasmSha256, cfg.zkeySha256, cfg.nativeProver].join('|');
     if (!provers.has(pk)) provers.set(pk, serialProver(await makeKeeperProver(cfg)));
     const prover = provers.get(pk);
     const store = openKeeperStore(cfg.dbPath);
