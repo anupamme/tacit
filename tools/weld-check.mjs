@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,zapresume,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,zapresume,zapresume2,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -11034,6 +11034,56 @@ await step('zapresume', async () => {
     ok(spn.requests.length === 1 && mine.length === 1 && mine[0].input.startsWith('0xc4294fac') && calls.some((c) => c.startsWith('bond:')) && !(await p.$('#sheet-prove[open]')),
       `zapresume: Go on sends the zap by itself, proved with their credit, in one transaction (${spn.requests.length} request; ${mine.map((x) => x.input.slice(0, 10))}; ${calls.join(', ')}; ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 160)})`);
     if (r.errors.length) { fails++; console.log('FAIL zapresume page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
+});
+
+// The same resume from the landing's farm card and from the farm sheet's zap form: no prover to be had, the offer, "Prove it yourself", the Prove sheet with the zap
+// waiting, their own credit chosen and funded, and Go on sends it by itself, proved with that credit, as one transaction from the account.
+await step('zapresume2', async () => {
+  const hex = '6b0d'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const PREF = 'tacit-lite-prove-self-v1:' + pub;
+  const restore = await stubPoolSettle('ok');
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT, arg: { credit: '0', delay: 2000 } } }), p = r.page;
+  await stubSelfProver(p);
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  await stubFarmUx(p, { notes: [], positions: [], zap: true });
+  const mine = async (from) => { const b1 = BigInt(await rpc('eth_blockNumber', [])), out = []; for (let b = from + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct.toLowerCase()) out.push(tx); return out; };
+  const bonds = () => p.evaluate(() => (window.__farmCalls || []).filter((c) => c.startsWith('bond:')).length);
+  const offerThenResume = async (what, press) => {
+    const b0 = BigInt(await rpc('eth_blockNumber', [])), n0 = await bonds(), q0 = (await p.evaluate(() => window.__spn.requests.length));
+    await p.evaluate((k) => { localStorage.removeItem(k); window.__spn.credit = '0'; window.__zapWay = null; }, PREF);
+    await press();
+    await p.waitForSelector('[data-zapway="own"]', { timeout: 300000 });
+    await p.click('[data-zapway="own"]');
+    await p.waitForSelector('#sheet-prove[open] #sp-then', { timeout: 60000 });
+    ok(/Waiting to go on: Zap 0\.01 ETH into/.test(await text(p, '#sheet-prove')), `zapresume2: from ${what} the Prove sheet opens with the zap waiting`);
+    await p.evaluate((k) => { localStorage.setItem(k, 'true'); window.__spn.credit = '1000000000000000000'; document.querySelector('#sp-then').disabled = false; }, PREF);
+    await p.click('#sp-then');
+    await until(p, (n) => (window.__farmCalls || []).filter((c) => c.startsWith('bond:')).length > n, n0, 400000).catch(() => {});
+    const txs = await mine(b0), reqs = (await p.evaluate(() => window.__spn.requests.length)) - q0;
+    ok(txs.length === 1 && txs[0].input.startsWith('0xc4294fac') && reqs === 1 && (await bonds()) === n0 + 1, `zapresume2: from ${what} Go on sends the zap by itself, proved with their credit, in one transaction (${reqs} request; ${txs.map((x) => x.input.slice(0, 10))}; ${(await bonds()) - n0} bond)`);
+  };
+  try {
+    proveStub = false; poolDone = false;
+    await p.goto(r.url + '#wallet');
+    await p.click('#wallet-body [data-in="paste"]'); await p.fill('#ws-hex', hex); await p.click('#wallet-body [data-in="key"]');
+    await until(p, () => !!document.querySelector('#wallet-dot.on'));
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    // the landing's farm card
+    await p.evaluate(() => document.querySelector('#fz').scrollIntoView({ block: 'center' }));
+    await until(p, () => document.querySelectorAll('#fz-r [data-fzp]').length > 0, null, 300000);
+    await p.click('#fz-r [data-fzp="0"]');
+    await p.click('#fz-r [data-fzs="0.01"]');
+    await until(p, () => /Farm 0\.01 ETH privately/.test(document.querySelector('#fz-go')?.textContent || '') && !document.querySelector('#fz-go').disabled && /Network fee|Proof/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 300000);
+    await offerThenResume('the landing farm card', () => p.click('#fz-go'));
+    // the farm sheet's zap form
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
+    await go(p, '#farm/private-0');
+    await p.waitForSelector('#sheet-farm[open] #sz-a-0', { timeout: 300000 });
+    await p.fill('#sz-a-0', '0.01');
+    await until(p, () => /Swaps/.test(document.querySelector('#sz-rcpt-0')?.textContent || '') && !document.querySelector('#sz-go-0').disabled, null, 420000);
+    await offerThenResume('the farm sheet', () => p.click('#sz-go-0'));
+    if (r.errors.length) { fails++; console.log('FAIL zapresume2 page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
 });
 

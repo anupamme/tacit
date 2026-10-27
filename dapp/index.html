@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vrNB5NN0odDzrPkiEDLkMJTWMldJ3UbHcw31AXSj9qg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BmeIWygBU8WAs7He7R47A14LzRl6DR67q3hqc/9Hblo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -9361,6 +9361,14 @@ function fzPaintQ() {
 }
 // One press: the zap quoted, sent as it stands (priced again first if the quote is old). A split swap, or one that moves the pool far, goes
 // to the farm sheet, which shows both venues and asks before a large loss.
+// The zap sent again once the Prove sheet's Go on is pressed: after the press that offered the choice has finished, and only if the card still shows the same
+// pool, size and way (it is not sent as something else).
+async function fzGoAgain(was) {
+  for (let i = 0; i < 120 && (FZ.busy || $('#fz-go')?.getAttribute('aria-busy') === 'true'); i++) await sleep(1000);
+  const cur = fzCur();
+  if (!cur || cur.p.pid !== was.pid || FZ.size !== was.size || FZ.mode !== was.mode) { toast('The farm card changed meanwhile, so press it again.', true); return; }
+  return fzGo();
+}
 async function fzGo() {
   if (!S.key) return openSheet('wallet');
   if (FZ.busy) return;
@@ -9371,8 +9379,9 @@ async function fzGo() {
   if (z.sp || z.impact >= 15) { (FARM.jm ||= {})[cur.p.pid] = 'eth'; hxDraft({ mode: 'zap', pid: cur.p.pid, amt: FZ.size }); return openLink(`farm/private-${cur.p.pid}`); }
   if (z.over) return say($('#fz-s'), html`<span class="err">More ETH than ${your()} holds, with the network fee.</span>`);
   FZ.busy = true;
+  const was = { pid: cur.p.pid, size: FZ.size, mode: FZ.mode };
   try {
-    await busy($('#fz-go'), (run) => zapNow({ run, p: cur.p, z, status: $('#fz-s'), bond: FZ.mode !== 'lp', moved: () => { FZ.q = null; } }));
+    await busy($('#fz-go'), (run) => zapNow({ run, p: cur.p, z, status: $('#fz-s'), bond: FZ.mode !== 'lp', again: () => fzGoAgain(was), moved: () => { FZ.q = null; } }));
   } finally {
     // the size just used is proved again through the community pool (kept ready), so nothing is asked of the relay ahead now
     FZ.busy = false; FZ.touched = false; FZ.qk = ''; fzForm(); fzQuote();
@@ -10910,7 +10919,12 @@ function farmZap(el, p, status, has, top) {
   go.onclick = () => busy(go, async (run) => {
     const z = q;
     if (!z || z.over || !lossOk(ackBox, z.impact || 0)) return;
-    await zapNow({ run, p, z, status, clear: () => clearField(aIn), moved: requote });
+    await zapNow({ run, p, z, status, clear: () => clearField(aIn), moved: requote, again: async () => {
+      // the form is drawn again once the press that offered the choice ends: its button now, once it has quoted again
+      const now = () => $(`#sz-go-${pid}`);
+      for (let i = 0; i < 120 && (!now() || now().disabled || now().getAttribute('aria-busy') === 'true'); i++) await sleep(1000);
+      if (now() && !now().disabled) now().click(); else toast('Open the farm again and press the zap.', true);
+    } });
   });
 }
 // A zap whose share note is proved before anything is sent (its OP_WRAP binds only the LP share asset, the share count and the commitment):
