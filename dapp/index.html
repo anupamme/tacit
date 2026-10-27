@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-TwFLN64cIdMRqdB3iH0Jgsv23A1vYBejPLY3X2Bgi7k=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+6aX8HqGkXRWVbWc8OTNpFims7s5ItOhl5ofT7eKvxg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -10678,6 +10678,30 @@ function zapAhead(p, z, still) {
   if (z.plan && !z.sp && !z.ready && S.key && !ownNow(['wrap'])) VOUCH.zapTyping = setTimeout(async () => { if (still() && (await relayProving())) lpProve(p.poolId, { shares: z.plan.shares, relay: true }); }, 1500);
 }
 const zapTkB = (p) => String(p.pair).split('/').find((x) => x !== 'cETH');
+// The holder's own Succinct credit, when it covers one wrap proof and they have not set it as their prover: Tacit's prover failing or running long, a zap's share
+// is proved with it (theirs to spend, and they hold some) before they are asked anything. → the prover, or null.
+async function ownCreditCovers(type = 'wrap') {
+  if (devOn() || spOn() || !S.key || !S.acct) return null;
+  try {
+    const p = await spProver();
+    if (!p || !p.supports(type)) return null;
+    const [have, need] = await Promise.all([p.balance(), p.needWei(type)]);
+    return BigInt(have || 0n) >= BigInt(need) ? p : null;
+  } catch { return null; }
+}
+// A zap's share proved with that credit: its note built at a free index, its proof asked of Succinct for this one call (the relay client's `prover` option).
+// A proof that does not come back gives the index back and returns null, and the holder is asked as ever.
+async function proveWithCredit({ run, t, p, plan, prover, tell, pub, priv }) {
+  const index = t.nextShareIndex({ walletPriv: priv, poolId: p.poolId, owned: await scanOwned(),
+    used: [...zapsKept().filter((x) => x.pub === pub && x.poolId === p.poolId), ...(await vouchers()).list(pub, lpTicker(p.poolId))].map((x) => x.index) });
+  const built = t.buildShareWrap({ walletPriv: priv, poolId: p.poolId, shares: plan.shares, index });
+  tell('Tacit’s prover is taking longer than usual, so your own Succinct credit proves it, about a minute. Nothing has left your wallet yet…');
+  try {
+    const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
+    const proven = await t.relay.prove(spec, { ...spTell(run.wait(null, 10 * 60e3, { deps: [kDep(built)] }), tell), prover: prover.prove });
+    return { built, index, proven };
+  } catch { try { t.releaseShareIndex({ walletPriv: priv, poolId: p.poolId, index }); } catch { } return null; }
+}
 // The share could not be proved by Tacit's prover in time (or it cannot prove now): which way on is the holder's. Their own prover (a Succinct credit, or this
 // computer's) proves it and the zap goes in one transaction from the wallet; or the zap goes first and the relay finishes its share after (its settle and
 // gas, which is what was being avoided). The proof Tacit's prover is still making goes at once if it lands while this waits. → 'ready' | 'own' | 'relay'
@@ -10718,16 +10742,35 @@ async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved 
       // The ways a share is proved, in the order tried (a deposit is no secret, so the aim is that it goes through, from this wallet, with no waiting on
       // the relay's settle or gas): one kept; Tacit's prover, pressed, with the relay's own Succinct credit behind it where the board is away; then
       // the holder's own prover (their credit, or this computer's) if they have set one; else the way on is theirs to pick (zapWay).
-      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved, about a minute. Nothing has left your wallet yet…'); await Promise.race([VOUCH.ahead.p, sleep(90e3)]); }
+      // their own credit is read at once, beside Tacit's prover, so it adds no wait: with it behind, Tacit's prover is given 45 s (its proofs run about 35 s), else 75 s
+      // a prover of their own that is set but not answering (this computer's, not running) counts as none set: the rest of the ways are tried, not the relay's settle
+      const ownUsable = ownNow(['wrap']) && await ownCan(['wrap']).catch(() => false);
+      const creditP = ownUsable ? null : ownCreditCovers();
+      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved, about a minute. Nothing has left your wallet yet…'); await Promise.race([VOUCH.ahead.p, sleep((await creditP) ? 45e3 : 90e3)]); }
       // none made: the relay proves it first, as it does a wrap (pressed, so ahead of the early ones), and one transaction then zaps, mints and settles it
       // from this account; not the zap first with the relay's settle and gas left to wait on
-      else if (!(await lpReady(p.poolId, z.wei, res)) && !ownNow(['wrap']) && await relayProving()) {
+      else if (!(await lpReady(p.poolId, z.wei, res)) && !ownUsable && await relayProving()) {
         tell('Tacit’s relay is proving your share first, about a minute. Nothing has left your wallet yet…');
-        await Promise.race([lpProve(p.poolId, { shares: plan.shares, relay: true, now: true }) || Promise.resolve(), sleep(75e3)]).catch(() => {});
+        const proving = lpProve(p.poolId, { shares: plan.shares, relay: true, now: true }) || Promise.resolve();
+        await Promise.race([proving, sleep((await creditP) ? 45e3 : 75e3)]).catch(() => {});
+      }
+      // Tacit's prover gave no share (away, capped, or slow) and they hold credit that covers one: it is proved with that, and the zap goes in one transaction
+      if (creditP && !(await lpReady(p.poolId, z.wei, res))) {
+        const prover = await creditP, c = prover && await proveWithCredit({ run, t, p, plan, prover, tell, pub, priv });
+        if (c) {
+          run.go({ label: `Zap ${fmt(plan.value, 18, 6)} ETH into ${label}`, status: () => status, clear });
+          run.take(kDep(c.built));
+          ZAP_LIVE++; guarded = true; built = c.built;
+          const r = await zapShareFirst({ run, t, p, built: c.built, index: c.index, shares: plan.shares, maxEth: z.wei + z.wei / 50n, tokenB, from, tell, status, proven: c.proven });
+          hash = r.hash; landed = true;
+          if ((await zapFinish(run, p, r.rec, c.built, tell, status, { bond })) === 'landing') throw Object.assign(new Error('Your zap landed, but the pool does not show it yet. Press Finish it in a minute to put its share in the farm.'), { said: true });
+          clear();
+          return;
+        }
       }
       // not made in time, or the relay cannot prove it now, and no prover of their own set: the way on is the holder's, and a proof that lands meanwhile goes at once
       let flying = VOUCH.ahead?.poolId === p.poolId ? VOUCH.ahead.p : null;
-      for (let asked = 0; !ownNow(['wrap']) && !(await lpReady(p.poolId, z.wei, res)) && asked < 2; asked++) {
+      for (let asked = 0; !ownUsable && !(await lpReady(p.poolId, z.wei, res)) && asked < 2; asked++) {
         const way = await zapWay({ tell, inflight: flying, down: !(await relayProving()) });
         flying = null;
         if (way === 'own') throw Object.assign(new Error('Choose how to prove it, then press the zap again. Nothing was sent.'), { said: true });

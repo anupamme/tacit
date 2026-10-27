@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -10672,7 +10672,7 @@ await step('holdpublic', async () => {
 // The page's own self-prover.js runs, with the two modules it builds on stood in for: the program input (sp1-stdin.js) and Succinct's
 // network (succinct-net.js), whose credit, delay and answer window.__spn sets. Nothing reaches the network.
 const PROVE_TKN = '0x6bef15d938d4e72056ac92ea4bdd0d76b1c4ad29', VAPP_ADDR = '0x5ad5bc4b18f7c173dce17a57682cb0dc8788951f';
-const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], types: null, privateOff: false }, cfg || {}); };
+const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], ops: [], types: null, privateOff: false }, cfg || {}); };
 const SP_TYPES = ['wrap', 'wrapswap', 'unwrap', 'sendunwrap', 'transfer', 'route', 'stealthlock', 'stealthclaim', 'stealthrefund', 'lpremove', 'lpbond', 'bridgeburn', 'bridgemint', 'bridgestealthmint',
   'farmbond', 'farmharvest', 'farmunbond', 'cdpmint', 'cdpclose', 'cdptopup', 'cbtcmint'];
 const stubSelfProver = (page) => Promise.all([
@@ -10680,7 +10680,12 @@ const stubSelfProver = (page) => Promise.all([
     const all = ${JSON.stringify(SP_TYPES)};
     export const SELF_PROVE_TYPES = (window.__spn && window.__spn.types) || all;
     export const LIMITS = Object.fromEntries(all.map((t) => [t, { cycleLimit: 1000000n, gasLimit: 1000000n }]));
-    export const stdinFor = (type, op) => { window.__spn.inputs.push({ type, memos: (op.memoHashes || []).length }); window.__spn.wsop = type === 'wrapswap' ? op : null; return new Uint8Array([1, 2, 3]); };
+    export const stdinFor = (type, op) => {
+      // the bytes carry which op they are (the page also builds inputs for the proofs it asks the community pool for), so a proof answers its own op
+      const i = window.__spn.ops.push({ type, op }) - 1;
+      window.__spn.inputs.push({ type, memos: (op.memoHashes || []).length }); window.__spn.wsop = type === 'wrapswap' ? op : null; window.__spn.wop = type === 'wrap' ? op : null;
+      return new Uint8Array([1, 2, 3, i >> 8, i & 255]);
+    };
     export const zstdFrame = (b) => b;` })),
   page.route(/\/succinct-net\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
     import { secp, keccak_256, sha256 } from '/vendor/tacit-deps.min.js';
@@ -10694,18 +10699,24 @@ const stubSelfProver = (page) => Promise.all([
       const head = Array(40).fill(w(0)); head[4] = w(40 * 32); head[5] = w(42 * 32); head[3] = w(44 * 32); head[7] = w(45 * 32);
       return '0x' + w(32) + head.join('') + w(1) + leaf.replace(/^0x/, '') + w(1) + dep.replace(/^0x/, '') + w(0) + w(0);
     };
+    // a deposit made a private note, as the pool reads its public values: the note inserted, the deposit consumed (a wrap's proof)
+    const wrapPv = (op) => {
+      const leaf = pool.leaf(op.asset, op.cx, op.cy, op.owner), dep = pool.depositId(op.asset, BigInt(op.value), op.cx, op.cy, op.owner);
+      const head = Array(40).fill(w(0)); head[4] = w(40 * 32); head[5] = w(42 * 32); head[3] = w(44 * 32); head[7] = w(45 * 32);
+      return '0x' + w(32) + head.join('') + w(1) + leaf.replace(/^0x/, '') + w(1) + dep.replace(/^0x/, '') + w(0) + w(0);
+    };
     export function makeSuccinctNetwork() {
       const S = () => window.__spn, wait = (ms) => new Promise((r) => setTimeout(r, ms));
       return {
         balance: async () => BigInt(S().credit),
         needWei: async () => 450000000000000000n,
         // privateOff: the network refusing private inputs, as mainnet did from 2026-10-15 22:11 UTC ('auto' then goes public).
-        requestProof: async ({ priv, input = 'private', onPublic }) => {
+        requestProof: async ({ priv, input = 'private', onPublic, stdinZstd }) => {
           if (S().privateOff && input !== 'auto') throw Object.assign(new Error('succinct RequestProof: PERMISSION_DENIED - private stdin is not enabled on this network'), { code: 'private_off', grpcStatus: 7 });
           const isPrivate = !S().privateOff;
           if (!isPrivate && onPublic) { onPublic(); await wait(300); }                  // an upload and a request take a moment
           const requestId = '0x' + String(S().requests.length + 1).padStart(64, 'a');
-          S().requests.push({ requestId, signed: /^0x[0-9a-f]{64}$/.test(priv), private: isPrivate, input });
+          S().requests.push({ requestId, signed: /^0x[0-9a-f]{64}$/.test(priv), private: isPrivate, input, o: stdinZstd && stdinZstd.length >= 5 ? S().ops[(stdinZstd[3] << 8) | stdinZstd[4]] : null });
           return { requestId, private: isPrivate };
         },
         privateOff: () => !!S().privateOff,
@@ -10714,7 +10725,8 @@ const stubSelfProver = (page) => Promise.all([
           await wait(S().delay);
           if (S().notProved) throw Object.assign(new Error('the request was not proved in time'), { code: 'not_proved' });
           if (onUpdate) onUpdate({ status: 'proved' });
-          return { publicValues: S().wsop ? swapPv(S().wsop) : '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32) };
+          const o = (S().requests.find((x) => x.requestId === id) || {}).o || (S().wsop ? { type: 'wrapswap', op: S().wsop } : S().wop ? { type: 'wrap', op: S().wop } : null);
+          return { publicValues: o && o.type === 'wrapswap' ? swapPv(o.op) : o && o.type === 'wrap' ? wrapPv(o.op) : '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32) };
         },
       };
     }` })),
@@ -10950,6 +10962,39 @@ await step('lponly', async () => {
     await until(p, () => document.querySelector('[data-hxlp="1"]')?.getAttribute('aria-checked') === 'true' && document.querySelector('#hx-amt')?.value === '0.01', null, 120000).catch(() => {});
     ok(await p.$eval('[data-hxlp="1"]', (b) => b.getAttribute('aria-checked') === 'true').catch(() => false) && (await p.inputValue('#hx-amt').catch(() => '')) === '0.01', 'lponly: the copied link opens the card on LP only with the amount');
     if (r.errors.length) { fails++; console.log('FAIL lponly page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
+});
+
+// A zap's share when Tacit's prover is not proving here and the holder has Succinct credit that covers a proof, though they have not set it as their prover:
+// it is proved with the credit at once (no question asked), and one transaction from the wallet zaps, mints and settles it. Nothing goes to the relay to prove or settle.
+await step('zapcredit', async () => {
+  const hex = '4b0d'.padEnd(64, '6'), acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const restore = await stubPoolSettle('ok');
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT, arg: { credit: String(10n ** 18n), delay: 2000 } } }), p = r.page;
+  await stubSelfProver(p);
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  await stubFarmUx(p, { notes: [], positions: [], zap: true });
+  try {
+    proveStub = false; poolDone = false;
+    await p.goto(r.url + '#wallet');
+    await p.click('#wallet-body [data-in="paste"]'); await p.fill('#ws-hex', hex); await p.click('#wallet-body [data-in="key"]');
+    await until(p, () => !!document.querySelector('#wallet-dot.on'));
+    await p.evaluate(() => { window.__zapWay = null; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="earn"]');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 300000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    await p.fill('#hx-amt', '0.01');
+    await until(p, () => /Zap into the farm/.test(document.querySelector('#hx-go')?.textContent || '') && !document.querySelector('#hx-go').disabled, null, 240000);
+    const b0 = BigInt(await rpc('eth_blockNumber', [])), s0 = submits.length;
+    await p.click('#hx-go');
+    await until(p, () => (window.__farmCalls || []).some((c) => c.startsWith('bond:')) || !!document.querySelector('[data-zapway]') || (/class="err"/.test(document.querySelector('#hx-zs')?.innerHTML || '') && !/taking longer than usual/.test(document.querySelector('#hx-zs')?.textContent || '')), null, 400000).catch(() => {});
+    const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
+    for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct.toLowerCase()) mine.push(tx);
+    const spn = await p.evaluate(() => window.__spn), calls = await p.evaluate(() => window.__farmCalls || []);
+    ok(!(await p.$('[data-zapway]')) && spn.requests.length === 1 && spn.inputs.some((x) => x.type === 'wrap'), `zapcredit: nothing was asked of the holder: the share went to their Succinct credit (${spn.requests.length} request; ${spn.inputs.map((x) => x.type)})`);
+    ok(mine.length === 1 && mine[0].input.startsWith('0xc4294fac') && !submits.slice(s0).some((x) => x.type === 'wrap' && (x.mode || 'settle') === 'settle'), `zapcredit: then one transaction from the account zaps, mints and settles it, and the relay was asked to settle nothing (it was tried to prove first: ${mine.map((x) => x.input.slice(0, 10))}; ${submits.slice(s0).map((x) => `${x.type}/${x.mode || 'settle'}`)}; card: ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 300)})`);
+    ok(calls.some((c) => c.startsWith('bond:')), `zapcredit: and the share goes on into the farm (${calls.join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL zapcredit page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
 });
 

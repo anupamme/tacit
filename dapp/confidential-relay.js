@@ -229,7 +229,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
 
   async function prove(opSpec, waitOpts = {}) {
     // A prover that declines this op type (a device prover takes only ops whose proofs pin no moving state) leaves it to the relay.
-    const own = waitOpts && waitOpts.viaRelay ? null : ownProver;
+    // `waitOpts.prover`: this call's own prover, for one proof made with it though none is set (a fallback), not the one set for every call
+    const own = waitOpts && waitOpts.viaRelay ? null : (waitOpts && waitOpts.prover) || ownProver;
     if (own && (typeof own.supports !== 'function' || own.supports(opSpec.type))) return proveOwn(own, opSpec, waitOpts);
     const r = await submitOp({ ...opSpec, mode: 'prove' }, waitOpts);
     const st = r.status === 'proven' || r.status === 'settled' ? { jobId: r.jobId, ...(await status(r.jobId)) } : await waitForProof(r.jobId, waitOpts);
