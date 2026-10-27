@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RU2MgsMDhPQPTbsYUOYtEaQQuk/PVW1WveOwjaHeAo4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RU/K9P57r5W1PXI9ibc+INYDT/96M1nX4gIJqvnKBI8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -148,6 +148,8 @@ main:focus { outline: none; }
 .swc .rows .c > .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--field); }
 .swc .rows .c[aria-checked="false"] > .pair { opacity: .6; }
 .pair .tk + .tk { margin-left: -16px; box-shadow: 0 0 0 3px var(--card); }
+/* liquidity in a farm: its pair inside a ring (the pair alone is liquidity held, not farming) */
+.pair.farm { padding: 2px; border-radius: 999px; box-shadow: 0 0 0 1.5px var(--orange); }
 .pair .tk.sm + .tk.sm { margin-left: -7px; box-shadow: 0 0 0 2px var(--card); }
 .pair .tk.md + .tk.md { margin-left: -12px; }
 
@@ -413,6 +415,19 @@ a.di { color: inherit; text-decoration: none; }
 .hero .hx-q, .hx-q { min-height: 18px; max-width: none; margin: 10px 2px 0; font-size: 12px; line-height: 1.55; color: var(--mute); }
 /* the Swap tab: the swap page's card (swap/card.js, swap/card.css), its height kept while it loads */
 .hx-swap:empty { min-height: 389px; }
+/* Earn's own positions: a row each, its pair (in a ring while farming), what it is worth and has earned, and its presses */
+.hx-pos { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--hair); }
+.hx-pos .rows-h { display: flex; justify-content: space-between; margin: 0 2px 6px; font-size: 12px; color: var(--mute); }
+.hx-pr { display: flex; align-items: center; gap: 10px; padding: 8px 2px; }
+.hx-pr + .hx-pr { border-top: 1px solid var(--hair); }
+.hx-pr .pair .tk { width: 24px; height: 24px; } .hx-pr .pair .tk + .tk { margin-left: -9px; box-shadow: 0 0 0 2px var(--card); }
+.hx-pr .pair:not(.farm) { padding: 2px; }
+.hx-pr .rt { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.hx-pr .rt b { font-weight: 500; font-size: 14px; } .hx-pr .rt small { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
+.hx-pa { display: flex; gap: 12px; flex: none; }
+.hx-b .hx-pa .link { position: relative; padding: 0; font-size: 12px; color: var(--ink); }
+.hx-b .hx-pa .link:disabled { color: var(--mute); text-decoration: none; cursor: default; }
+.hx-pa .link::after { content: ''; position: absolute; inset: -10px -5px; }
 /* the Bridge tab's steps (the bridge page's own): it leaves one chain's colour and arrives in the other's, a light running along the line between */
 .hx-brs { --from: var(--orange); --to: var(--blue); list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px 2px 2px; padding: 0; font-size: 11px; line-height: 1.35; color: var(--mute); }
 .hx-brs.out { --from: var(--blue); --to: var(--orange); }
@@ -12249,10 +12264,9 @@ function dashItems() {
     for (const p of FARM.program.pools) {
       const loose = (s ? freeNotes(s.notes).filter(isLp(p)) : []).reduce((a, n) => a + BigInt(n.value), 0n);
       const farmed = (FARM.positions ?? s?.farmPositions ?? []).filter((y) => Number(y.pid) === Number(p.pid)).reduce((a, y) => a + (big(y.shares) || 0n), 0n);
-      if (!loose && !farmed) continue;
-      out.push({ key: `lp-${p.pid}`, icons: ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'], label: `${pairName(p.pair)} LP`, unit: 'ETH', dec: 18, max: 4,
-        v: sharesEth(p, loose + farmed) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: farmed && loose ? 'private, part farmed' : farmed ? 'private, farming' : 'private, not farmed',
-        send: loose > 0n ? `lp${p.pid}` : null });
+      const icons = ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'];
+      if (farmed) out.push({ key: `lpf-${p.pid}`, icons, ring: true, label: `${pairName(p.pair)} farm`, unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, farmed) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, farming' });
+      if (loose) out.push({ key: `lp-${p.pid}`, icons, label: `${pairName(p.pair)} LP`, unit: 'ETH', dec: 18, max: 4, v: sharesEth(p, loose) ?? null, noDelta: true, show: true, open: `farm/private-${p.pid}`, meta: 'private, not farmed', send: `lp${p.pid}` });
     }
   }
   // wTAC held privately (harvested farm rewards) and in the wallet, one row at TAC's 18 decimals: sent on from the card's Send, turned into TAC in the farm sheet
@@ -12280,13 +12294,13 @@ function dashWorth(items) {
   const usd = { eth: v.usdBtc / v.ethBtc, btc: v.usdBtc, usd: 1, tac: v.mid ? v.mid * v.usdBtc / v.ethBtc : null };
   let all = 0, priv = 0;
   for (const it of items) {
-    const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : it.key.startsWith('lp-') ? 'eth' : DASH_PX[it.key];
+    const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : /^lpf?-/.test(it.key) ? 'eth' : DASH_PX[it.key];
     if (!kind || it.v == null) continue;
     if (usd[kind] == null) { if (it.v > 0n || it.priv > 0n) return null; continue; }
     const n = Number(it.v) / 10 ** it.dec * usd[kind];
     all += n;
     if (it.key === 'tac') priv += Number(it.priv ?? 0n) / 1e18 * usd.tac;
-    else if (DASH_PRIV.has(it.key) || it.key.startsWith('sats-') || it.key.startsWith('lp-')) priv += n;
+    else if (DASH_PRIV.has(it.key) || it.key.startsWith('sats-') || /^lpf?-/.test(it.key)) priv += n;
   }
   return { all, priv };
 }
@@ -12308,7 +12322,7 @@ function paintDash() {
     if (it.v != null) DASH.cur[it.key] = it.num ? String(Math.round(it.v)) : String(it.v);
     const value = it.v != null ? html`${show(it.v)}${it.unit ? html` <small>${it.unit}</small>` : ''}` : prev != null && !it.err ? html`<span class="stale">${show(prev)}</span>`
       : it.err || it.lazy ? '—' : html`<span class="sk" style="--w:7ch"></span>`;
-    const body = html`<span class="di-k">${it.icons ? html`<span class="pair">${it.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>` : it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
+    const body = html`<span class="di-k">${it.icons ? html`<span class="pair${it.ring ? ' farm' : ''}">${it.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>` : it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
       <span class="di-v num">${value}</span><span class="di-m${it.err || it.wrap ? ' wrap' : ''}">${delta}${it.err ? 'could not read · open to retry' : it.meta || (it.v == null ? html`<span class="sk" style="--w:12ch"></span>` : '')}</span>`;
     const send = it.send ? html`<button class="di-send" type="button" data-hx="send:${it.send}" aria-label="Send ${it.label}">Send</button>` : '';
     return it.href ? html`<li><a class="di" href="${it.href}">${body}</a>${send}</li>`
@@ -13982,7 +13996,8 @@ function paintHx() {
     body = html`${field('You put in', heldAt(place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from), true, place === 'private')}
       ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}${tail}
       <p class="q" id="hx-zs-at" hidden></p>
-      <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>`;
+      <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>
+      <div class="hx-pos" id="hx-pos" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-pos-l"></div><p class="q" id="hx-pos-s" aria-live="polite"></p></div>`;
   } else if (m === 'borrow' && HX.bsrc !== 'tac' && (HX.bwKey = S.key?.pubHex || '', HX.bwFace = (S.key && hxBwLoad(), hxBwMode())) === 'track') {
     body = html`<div class="hx-bw" id="hx-bw"></div>`;
   } else if (m === 'borrow') {
@@ -14098,6 +14113,63 @@ function paintHx() {
   paintHxQ();
   hxQuote();
   hxBrLine();
+  hxPosPaint();
+}
+// ── Earn's own: what the key holds in each private pool, farming (its pair in a ring, with what it has earned) or not (the pair alone). A
+// farming one is harvested, added to (the pool is picked above) or exited here; one not farming opens its farm, which bonds it or takes it out.
+// The presses are the farm sheet's own steps (stepHarvest, exitPosition); one runs at a time. ──
+function hxPosRows() {
+  if (!S.key || !FARM.program?.pools) return [];
+  const out = [], s = P.scan;
+  for (const p of FARM.program.pools) {
+    const icons = ['tk-teth', LOGO[String(p.pair).split('/').find((t) => t !== 'cETH')] || 'tk-tac'];
+    for (const pos of (FARM.positions || []).filter((y) => Number(y.pid) === Number(p.pid))) out.push({ p, pos, icons });
+    const loose = s ? freeNotes(s.notes).filter(isLp(p)).reduce((a, n) => a + BigInt(n.value), 0n) : 0n;
+    if (loose > 0n) out.push({ p, loose, icons });
+  }
+  return out;
+}
+function hxPosPaint() {
+  const el = $('#hx-pos'), list = $('#hx-pos-l');
+  if (!el || !list) return;
+  if (S.key && FARM.positions == null && !HX.posAsk) { HX.posAsk = true; loadPositions().then(hxPosPaint, () => {}).finally(() => { HX.posAsk = false; }); }
+  const rows = hxPosRows();
+  el.hidden = !rows.length;
+  const pair = (r) => html`<span class="pair${r.pos ? ' farm' : ''}">${r.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>`;
+  const row = (r, i) => {
+    const worth = sharesEth(r.p, r.pos ? big(r.pos.shares) : r.loose), name = pairName(r.p.pair), off = HX.posBusy ? ' disabled' : '';
+    if (!r.pos) return html`<div class="hx-pr">${pair(r)}<span class="rt"><b>${name}</b><small>${worth != null ? `${aboutEth(worth)} · ` : ''}not farming</small></span><span class="hx-pa"><a class="link" href="#farm/private-${r.p.pid}" data-link="farm/private-${r.p.pid}">Farm it</a></span></div>`;
+    const locked = Number(r.pos.unlockAt || 0) > chainNow(), earned = BigInt(r.pos.pendingUnits || 0) > 0n;
+    return html`<div class="hx-pr">${pair(r)}<span class="rt"><b>${name}</b><small>${worth != null ? `${aboutEth(worth)} · ` : ''}${earned ? `+${r.pos.pendingTac} TAC` : 'farming'}</small></span><span class="hx-pa">
+      <button class="link" type="button" data-pharv="${i}"${earned && !HX.posBusy ? '' : ' disabled'}>Harvest</button>
+      <button class="link" type="button" data-padd="${i}"${off}>Add</button>
+      <button class="link" type="button" data-pexit="${i}"${locked ? html` disabled title="Bonded until ${dayFmt(Number(r.pos.unlockAt))}"` : off}>Exit</button></span></div>`;
+  };
+  const view = html`${rows.map(row)}`;
+  if (list.__h !== view.s) { list.__h = view.s; mount(list, view); }
+  el.onclick = (e) => {
+    const b = e.target.closest('[data-pharv], [data-padd], [data-pexit]');
+    if (!b || b.disabled) return;
+    const r = rows[Number(b.dataset.pharv ?? b.dataset.padd ?? b.dataset.pexit)], st = $('#hx-pos-s');
+    if (!r) return;
+    if (b.dataset.padd != null) { HX.pool = HX.earnPick = String(r.p.pid); HX.q = null; hxQuote(); $('#hx-amt')?.focus(); return; }
+    HX.posBusy = true; list.__h = ''; hxPosPaint();
+    busy(b, async (run) => {
+      const tell = (m) => say(st, m);
+      try {
+        if (b.dataset.pharv != null) {
+          await stepHarvest(run, r.pos, tell, st);
+          say(st, html`<span class="ok">Harvested to a wTAC note,</span> one for one with TAC. <a class="link" href="#farm" data-link="farm">Turn it into TAC</a>`); toast('Harvested');
+        } else {
+          const out = await exitPosition(run, r.p, r.pos, tell, st);
+          if (out === 'out') { toast('Out of the farm'); say(st, html`<span class="ok">Out: your liquidity is private ${pairName(r.p.pair)} notes again${run.harvested ? ', the rewards wTAC notes' : ''}.</span>`); }
+          else if (out === 'unseen') say(st, html`<span class="ok">Unbonded.</span> The liquidity note has not shown up yet.`);
+          await refreshFarm();
+        }
+      } catch (e) { sayErr(st, /locked until/.test(e?.message || '') ? new Error('This device’s clock says the bond is not over yet. Try again in a few minutes, or set the clock right.') : e); }
+      finally { HX.posBusy = false; list.__h = ''; hxPosPaint(); dashSoon(); }
+    });
+  };
 }
 // Under the Bridge tab: what this browser has under way (chrome.js reads the bridge journals for the header's dot), and the page that follows each
 function hxBrLine() {
@@ -14108,6 +14180,7 @@ function hxBrLine() {
 }
 function hxSync() {
   hxNorm();
+  hxPosPaint();
   if (hxSendAuto() || hxPlaceAuto() || (HX.tab === 'send' && HX.ask && HX.askFor !== (S.key?.tacit || ''))) { paintHx(); return; }
   hxBalPaint();
   hxHave();

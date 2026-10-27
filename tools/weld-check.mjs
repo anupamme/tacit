@@ -13,6 +13,7 @@
 //   farmgate nobody connected: the public farm offers a browser wallet or, in place, the ways into a Tacit wallet, and back
 //   farmpos  a private farm's card with positions: each named and leading the card, unbond held back while a real reward is
 //            unharvested, harvested rewards and unbonded liquidity above the farms, a harvest pointing at its next step
+//   hxpos    Earn's own positions: farming ones in a ring with what each has earned and Harvest, Add and Exit; liquidity not farming with the way to farm it
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
@@ -191,7 +192,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6905,6 +6906,32 @@ await step('rsend', async () => {
   } finally { await r.browser.close(); }
 });
 
+// Earn's own positions: each one the key holds, farming in a ring with what it has earned and its presses (Harvest, Add, Exit), and liquidity
+// not farming with the way to farm it; Harvest runs the farm's own step and says where to turn the reward into TAC, and Add picks that pool above.
+await step('hxpos', async () => {
+  const r = await openFarmKey('b05f'.padEnd(64, '6'), { notes: [[FARM_LP0, 50000000n]], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(8, 20000000, 0, '0')] });
+  const p = r.page;
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="earn"]');
+    await until(p, () => !document.querySelector('#hx-pos')?.hidden && document.querySelectorAll('#hx-pos .hx-pr').length === 3, null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-pos').catch(() => '?')).replace(/\s+/g, ' ')}`); });
+    const rows = await p.$$eval('#hx-pos .hx-pr', (rs) => rs.map((x) => ({ t: x.textContent.replace(/\s+/g, ' ').trim(), ring: !!x.querySelector('.pair.farm'), harv: x.querySelector('[data-pharv]') ? !x.querySelector('[data-pharv]').disabled : null, farm: !!x.querySelector('a[data-link="farm/private-0"]') })));
+    ok(rows[0].ring && /tETH \/ TAC/.test(rows[0].t) && /\+12\.3456 TAC/.test(rows[0].t) && rows[0].harv === true, `hxpos: a farming position is its pair in a ring, with what it has earned and Harvest (${rows[0].t})`);
+    ok(rows[1].ring && /farming/.test(rows[1].t) && rows[1].harv === false, `hxpos: one with nothing earned yet cannot be harvested (${rows[1].t})`);
+    await p.$eval('#hx', (e) => e.scrollIntoView({ block: 'end' })); await shot(p, 'hxpos');
+    ok(!rows[2].ring && /not farming/.test(rows[2].t) && rows[2].farm, `hxpos: liquidity not farming is the pair alone, with the way to farm it (${rows[2].t})`);
+    await p.click('#hx-pos [data-padd="0"]');
+    await until(p, () => document.querySelector('#hx-routes [data-hxr="0"]')?.getAttribute('aria-checked') === 'true', null, 120000);
+    ok(true, 'hxpos: Add picks that pool in the card above');
+    await p.click('#hx-pos [data-pharv="0"]');
+    await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#hx-pos-s')?.textContent || ''), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await text(p, '#hx-pos-s')}`); });
+    ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('harvest:')) && !!(await p.$('#hx-pos-s a[data-link="farm"]')), 'hxpos: Harvest runs the farm\'s harvest and says where to turn it into TAC');
+    if (r.errors.length) { fails++; console.log('FAIL hxpos page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('farmpos', async () => {
   const r = await openFarmKey('b05e'.padEnd(64, '6'), { notes: [[FARM_WTAC_ASSET, 1234560000n], [FARM_LP0, 50000000n]], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(8, 20000000, 50000, '0.0005')] });
   const p = r.page;
@@ -6933,12 +6960,13 @@ await step('farmpos', async () => {
     await p.click('#sf-act-0 [data-fn-go="redeem"]');
     await until(p, () => ['fn-turn', 'fn-redeem'].includes(document.activeElement?.id), null, 10000);
     ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('harvest:')), 'farmpos: a harvest says where to turn it into TAC, and the link takes you to that button');
-    // the dashboard: the pool's liquidity as one row (its share notes and its farmed positions), with the pair's marks and its worth in ETH
+    // the dashboard: the pool's liquidity farming (its pair in a ring) and not (the pair alone), each with its worth in ETH
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); document.querySelector('#dash')?.scrollIntoView(); });
     await until(p, () => [...document.querySelectorAll('#dash .di')].some((d) => /tETH \/ TAC LP/.test(d.textContent)), null, 120000).catch(() => {});
-    const lpRow = await p.evaluate(() => { const d = [...document.querySelectorAll('#dash .di')].find((x) => /tETH \/ TAC LP/.test(x.textContent)); return d ? { t: d.textContent.replace(/\s+/g, ' '), marks: d.querySelectorAll('.pair .tk').length, open: d.dataset.dashOpen } : null; });
-    ok(lpRow && lpRow.marks === 2 && /private, part farmed/.test(lpRow.t) && /[\d.]+ ETH/.test(lpRow.t) && lpRow.open === 'farm/private-0',
-      `farmpos: the dashboard shows the pool's liquidity as one row with both marks, its worth and that part is farmed (${lpRow ? `${lpRow.t}; ${lpRow.marks} marks; ${lpRow.open}` : 'none'})`);
+    const lpRows = await p.evaluate(() => [...document.querySelectorAll('#dash .di')].filter((x) => /tETH \/ TAC (LP|farm)/.test(x.textContent)).map((d) => ({ t: d.textContent.replace(/\s+/g, ' '), marks: d.querySelectorAll('.pair .tk').length, ring: !!d.querySelector('.pair.farm'), open: d.dataset.dashOpen })));
+    const lf = lpRows.find((x) => /farm/.test(x.t) && x.ring), ll = lpRows.find((x) => /LP/.test(x.t) && !x.ring);
+    ok(lpRows.length === 2 && lf && ll && lf.marks === 2 && /private, farming/.test(lf.t) && /private, not farmed/.test(ll.t) && /[\d.]+ ETH/.test(lf.t) && lf.open === 'farm/private-0',
+      `farmpos: the dashboard shows the pool's farmed liquidity (its pair in a ring) and its loose liquidity (the pair alone), each with its worth (${JSON.stringify(lpRows)})`);
     if (r.errors.length) { fails++; console.log('FAIL farmpos page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
