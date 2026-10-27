@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RU/K9P57r5W1PXI9ibc+INYDT/96M1nX4gIJqvnKBI8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-REafO9+Lu78MMp5xcToz2Y036SfiaVx9haqEjh7mLkA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -4526,8 +4526,18 @@ const getUx = lazy(async () => {
   SP.ux = ux; spApply();
   return ux;
 });
-const P = { scan: null, scanning: null, err: null };
-function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null, quote: null, qFail: 0, self: false }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
+// `coming`: tETH a one-transaction wrap just put in the pool, known at its confirmation (the note is derived from the key), counted in what the
+// sheet and the dashboard show until a scan that began after the confirmation lands (`comingAt`). What can be spent waits for that scan.
+const P = { scan: null, scanning: null, err: null, coming: 0n, comingAt: 0 };
+// The sheet is not drawn again while its action runs, so the balance line is set here, and the dashboard drawn.
+const noteLanded = (wei) => {
+  if (!(wei > 0n)) return;
+  P.coming += wei / E10; P.comingAt = Date.now();
+  const v = $('#sheet-eth .bal .v');
+  if (v) v.textContent = fmt((P.scan ? BigInt(P.scan.eth.value) : lastSeen('teth') ?? 0n) + P.coming, 8, 6);
+  dashSoon();
+};
+function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; P.coming = 0n; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null, quote: null, qFail: 0, self: false }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
   try { for (const x of Object.values(HOLD.byKey)) x.w = {}; FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.auto = {}; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
   dropTacitKey();
   SWC.card?.keyChanged(); }
@@ -4540,6 +4550,7 @@ async function scanPrivate(force = false) {
     const t = await getUx(), since = Date.now();
     const r = await t.balance(walletPriv(), { spent: true, positions: true });
     if (S.key?.pubHex !== pub) return null;
+    if (since >= P.comingAt) P.coming = 0n;                 // this scan began after the wrap landed: the note is in it
     const of = (tk) => { const id = String(t.assetByTicker[tk]?.assetId || '').toLowerCase(); const g = r.byAsset[id]; return { id, value: g ? g.value : 0n, notes: g ? g.notes : [] }; };
     const pending = new Map((r.diag?.wrap?.pending || []).map((d) => [String(d.depositId || `${d.asset}:${d.index}`).toLowerCase(), d]));
     const here = new Set(['cETH', 'cUSD', 'cTAC'].map((tk) => of(tk).id).concat(String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase()));
@@ -4770,7 +4781,7 @@ function renderV1(el) {
     : 'Make your ETH private as tETH, then send it without anyone seeing how much or to whom.')) return;
   if (V1.mode === 'btc' && !xoShown(S.key.pubHex)) V1.mode = 'wrap';
   const s = P.scan, last = s || P.err ? null : lastSeen('teth');
-  const bal = s ? html`${fmt(s.eth.value, 8, 6)}` : P.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 8, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`;
+  const bal = s ? html`${fmt(s.eth.value + P.coming, 8, 6)}` : P.coming > 0n ? html`${fmt((last ?? 0n) + P.coming, 8, 6)}` : P.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 8, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`;
   mount(el, html`
     <div class="bal">
       <svg class="tk md" aria-hidden="true"><use href="#tk-teth"/></svg>
@@ -8589,11 +8600,14 @@ const POOL_PER_TICK = 6;
 const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [10n ** 15n, 10n ** 16n, 10n ** 17n, 10n ** 18n], LP_DRIFT = 25n;   // per thousand
 const KEEP_FIRST = [10n ** 17n, 10n ** 16n, 10n ** 18n, 10n ** 15n];        // asked in the order people press them (the cards offer 0.1, 0.01 and 1)
 const lpTicker = (poolId) => `lp:${String(poolId).toLowerCase()}`;
-// the pools whose zap this key opened, and (through the community pool, not this computer's prover) every farm pool the zap goes into:
-// tETH paired with TAC, cUSD or cBTC
-const lpKept = () => (S.key ? [...new Set([...(store.get(LP_KEEP_PREF + S.key.pubHex) || []),
-  ...(devOn() ? [] : (FARM.program?.pools || []).filter((x) => ZAP_TOKEN[String(x.pair).split('/').find((k) => k !== 'cETH')]).map((x) => x.poolId))])] : []);
-const lpKeep = (poolId) => { if (S.key && !lpKept().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpKept(), poolId].slice(-4)); };
+// The pools a key's zaps are kept ready for follow its interest, not every login (a share proof is a minute of the prover's, and most keys
+// never farm): the pools this key opened, picked or zapped (all four sizes), and, through the community pool and not this computer's prover, the
+// pool the farm card shows now (the sizes people press: 0.1, 0.01 and 1 ETH). A key meeting the card, the tile's Earn tab or the farm sheet for
+// the first time is stocked for the pool it is looking at within a minute.
+const lpStored = () => (S.key ? store.get(LP_KEEP_PREF + S.key.pubHex) || [] : []);
+const lpShown = () => (FZ.pid != null ? (FARM.program?.pools || []).find((x) => Number(x.pid) === Number(FZ.pid))?.poolId : null);
+const lpKept = () => (S.key ? [...new Set([...lpStored(), ...(devOn() ? [] : [lpShown()].filter(Boolean))])] : []);
+const lpKeep = (poolId) => { if (S.key && poolId && !lpStored().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpStored(), poolId].slice(-4)); };
 // A share note of `shares` in pool `poolId`, at an index no note, zap or voucher of this key holds.
 async function lpBuild(t, priv, poolId, shares, at = null) {
   const pub = S.key.pubHex, used = [...zapsKept().filter((x) => x.pub === pub && x.poolId === poolId), ...(await vouchers()).list(pub, lpTicker(poolId))].map((x) => x.index);
@@ -8682,7 +8696,8 @@ async function keepReadyOnce() {
       if (await next(() => lpPoolRequest(poolId, BigInt(stale.size), stale.index), () => lpProve(poolId, { size: BigInt(stale.size), at: stale.index }))) return;
       continue;
     }
-    for (const want of KEEP_FIRST.filter((e) => !mine.some((x) => x.size === String(e)))) {
+    const own = lpStored().includes(poolId);
+    for (const want of KEEP_FIRST.filter((e) => (own || e !== 10n ** 15n) && !mine.some((x) => x.size === String(e)))) {
       if (await next(() => lpPoolRequest(poolId, want), () => lpProve(poolId, { size: want }))) return;
     }
   }
@@ -8761,6 +8776,7 @@ async function sendVouchers({ run, t, via, list, status, sheet, pop = null, tip 
   await waitTx(hash);
   for (const x of list) v.drop(pub, x.depositId);
   tell(html`<span class="ok">Done.</span> ${txLink(hash)}`); toast(`${run.to.label}: done`);
+  if (!token && sheet === 'eth') noteLanded(list.reduce((a, x) => a + BigInt(x.amount), 0n));
   await scanPrivate(true).catch(() => {});
   rerender(sheet);
   return hash;
@@ -8799,6 +8815,7 @@ async function proveFirstWrap({ run, t, priv, via, wei, status, sheet, ticker = 
     tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
     await waitTx(hash);
     tell(html`<span class="ok">Done.</span> ${txLink(hash)}`); toast(`${run.to.label}: done`);
+    if (!token && sheet === 'eth') noteLanded(BigInt(r.built.amount));
     await scanPrivate(true).catch(() => {});
     rerender(sheet);
     return hash;
@@ -9175,7 +9192,7 @@ function fzForm() {
     if (!t || FZ.busy) return;
     if (t.id === 'fz-go') return fzGo();
     FZ.touched = true;
-    if (t.dataset.fzp) { FZ.pid = Number(t.dataset.fzp); FZ.chosen = true; }
+    if (t.dataset.fzp) { FZ.pid = Number(t.dataset.fzp); FZ.chosen = true; const lp = S.key && (FARM.program?.pools || []).find((x) => Number(x.pid) === FZ.pid); if (lp) lpKeep(lp.poolId); }
     else if (t.dataset.fzs) FZ.size = t.dataset.fzs;
     else if (t.dataset.fzm) FZ.mode = t.dataset.fzm;
     else return;
@@ -12202,7 +12219,7 @@ const markColor = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 +
 function dashItems() {
   const k = S.key?.pubHex, s = k ? P.scan : null, scanErr = !!(k && !s && P.err), out = [];
   if (k) {
-    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value : null, err: scanErr, meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
+    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value + P.coming : P.coming > 0n ? P.coming : null, err: scanErr && !(P.coming > 0n), meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
     let dev = null;
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.chainId); } }
@@ -13334,6 +13351,7 @@ async function hxQuote() {
       if (top && priv.length > 1) top.best = true;
       const pick = rows.find((r) => r.k === HX.earnPick) || top || rows[0], two = pick.k !== 'precision' && hxTwo(units), zap = two && HX.earnWay !== 'wrap';
       HX.pool = pick.k;
+      if (S.key && /^p\d+$/.test(pick.k)) { const lp = (FARM.program?.pools || []).find((x) => `p${x.pid}` === pick.k); if (lp) lpKeep(lp.poolId); }
       hxReadyRead();
       // the zap priced as it would go, so the card can send it itself: a share proved already makes it one transaction with no proving wait,
       // and one not proved yet is asked of the relay once the amount has stood a moment
@@ -13908,7 +13926,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=255c0d13').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=3bba13a7').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };

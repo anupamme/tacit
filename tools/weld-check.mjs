@@ -6798,6 +6798,17 @@ await step('swapahead', async () => {
     const chips = await p.evaluate(() => [...document.querySelectorAll('#hx-swap #pay-usd button')].map((b) => `${b.textContent.trim()}${b.classList.contains('rd') ? '*' : ''}`).join(' '));
     ok(kept.length === 2 && kept.every((x) => x.mode === 'prove' && x.ahead === true && BigInt(x.op?.fee ?? 1) === 0n) && kept.map((x) => String(x.op?.amountIn)).sort().join() === '1000000,10000000' && chips === '0.01* 0.1*',
       `swapahead: the card shows the sizes kept ready, each proved ahead as one swap with no fee in it and marked once made (${chips}; ${kept.map((x) => `${x.op?.amountIn}/${x.mode}/ahead ${x.ahead}`)})`);
+    // a visit later (the page opened again, the key opened again): the proofs kept in this browser are found made, and none is asked for again
+    const nKept = submits.slice(s0).filter((x) => x.type === 'wrapswap').length;
+    await p.reload();
+    await p.waitForSelector('#hx-body .hx-h');
+    await pasteKey(p, hex);
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); location.hash = '#card=swap:ether:tac:private'; });
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await until(p, () => document.querySelectorAll('#hx-swap #pay-usd button.rd').length === 2, null, 300000).catch(() => {});
+    const again = await p.evaluate(() => [...document.querySelectorAll('#hx-swap #pay-usd button')].map((b) => `${b.textContent.trim()}${b.classList.contains('rd') ? '*' : ''}`).join(' '));
+    ok(again === '0.01* 0.1*' && submits.slice(s0).filter((x) => x.type === 'wrapswap').length === nKept,
+      `swapahead: opened again, the kept sizes are found made and the board is asked for nothing new (${again}; ${submits.slice(s0).filter((x) => x.type === 'wrapswap').length} asked, ${nKept} before)`);
     await p.click('#hx-swap #pay-usd button[data-quick="0.01"]');
     await until(p, () => /Proof\s*made: one transaction/.test(document.querySelector('#hx-swap #rcpt')?.textContent || ''), null, 300000).catch(() => {});
     const asked = submits.slice(s0).filter((x) => x.type === 'wrapswap');
@@ -7828,7 +7839,7 @@ await step('lpvoucher', async () => {
     poolDone = true;
     await until(p, (k) => JSON.parse(localStorage.getItem('tacit-wrap-vouchers-v1:' + k) || '[]').some((v) => v.by === 'pool' && v.size === '10000000000000000' && v.status === 'ready'), pub, 200000).catch(() => {});
     const pooled = (await lpOf('pool')).find((v) => v.size === '10000000000000000');
-    ok(pooled?.status === 'ready', `lpvoucher: and the pool's proof is kept as a ready share (${(await lpOf('pool')).map((v) => `${v.size}/${v.status}`)})`);
+    ok(pooled?.status === 'ready', `lpvoucher: and the pool's proof is kept as a ready share (${(await lpOf('pool')).map((v) => `${v.size}/${v.status}`)}; pools kept ${await p.evaluate((k) => localStorage.getItem('tacit-lite-keep-lp-v1:' + k), pub)}; poolDone ${poolDone}; ${poolReqs.slice(q0).length} asked of the pool, ${await p.evaluate(() => document.hidden ? 'page hidden' : 'page visible')})`);
     // (3) the 0.01 ETH size, ready, fills its exact cost, and the zap goes out from that share as one transaction from the Tacit account
     const z01 = '#sz-sizes-0 button:nth-child(2)';                                     // 0.001, 0.01, 0.1, 1 ETH: the second is 0.01
     await until(p, (q) => /ready now/.test(document.querySelector(q)?.textContent || ''), z01, 90000).catch(() => {});
@@ -10772,8 +10783,15 @@ await step('poolkeep', async () => {
     await r.page.fill('#w-amt', '0.01');
     await until(r.page, () => !document.querySelector('#w-go').disabled && /ready now/.test(document.querySelector('#w-rcpt')?.textContent || ''), null, QUOTE_WAIT).catch(() => {});
     const s0 = submits.length, w0 = walletTxs.length;
+    const balNow = () => r.page.evaluate(() => (document.querySelector('#sheet-eth .bal .v')?.textContent || '').replace(/\s+/g, ''));
+    const before = Number((await balNow()).replace(/,/g, ''));
     await r.page.click('#w-go');
     await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    // the balance counts the wrap at the confirmation, before the scan that follows has read it (the stand-in router puts no note in the pool, so
+    // this is read at once: the scan then takes it away again)
+    await until(r.page, (b) => { const t = Number((document.querySelector('#sheet-eth .bal .v')?.textContent || '').replace(/[\s,]/g, '')); return Math.abs(t - b - 0.01) < 1e-9; }, before, 5000).catch(() => {});
+    const afterAt = Number((await balNow()).replace(/,/g, ''));
+    ok(Math.abs(afterAt - before - 0.01) < 1e-9, `poolkeep: the confirmed wrap is in the balance shown at once, before the scan has read it (${before} → ${afterAt} tETH)`);
     const sent = walletTxs.slice(w0);
     ok(/Done\./.test(await text(r.page, '#v1-status')) && sent.length === 1 && String(sent[0].to).toLowerCase() === ROUTER_ADDR && sent[0].data.includes('0b'.repeat(32))
       && !submits.slice(s0).some((x) => x.type === 'wrap'),

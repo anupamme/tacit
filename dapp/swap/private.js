@@ -86,12 +86,20 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
   // pool (`keep`: 0.01 and 0.1 ETH into TAC, say), each at a wrap index of its own kept in this browser, proved as the card shows the pair and
   // proved again at that index once the pool has traded. An index is spent only by the swap that uses it, so recovery from the key meets no
   // run of unused ones. Only while the relay is proving, one proof at a time, and at most AHEAD_MAX a visit.
-  const AHEAD_MAX = 12, SLOTS_KEY = 'tacit-swap-slots-v1:';
+  const AHEAD_MAX = 12, SLOTS_KEY = 'tacit-swap-slots-v1:', PROOFS_KEY = 'tacit-swap-proofs-v1:';
   const AH = new Map();
   let aheadAsked = 0, typedIndex = null, typedPub = null, proving = Promise.resolve();
   const aheadKey = (wei, toAsset, feeBps) => `${wei}:${lc(toAsset)}:${feeBps}`;
   const slotIdx = (pub) => { try { return JSON.parse(localStorage.getItem(SLOTS_KEY + pub) || '{}') || {}; } catch { return {}; } };
   const slotIdxPut = (pub, k, i) => { try { const m = slotIdx(pub); if (i == null) delete m[k]; else m[k] = i; localStorage.setItem(SLOTS_KEY + pub, JSON.stringify(m)); } catch { } };
+  // A kept size's proof is kept in this browser with its index, so a visit later finds it made: it holds while the pool has not traded (its
+  // proof pins the reserves) and its deposit has not been made. It carries nothing secret (the note is the key's at that index, its memo opens it).
+  const proofsRead = (pub) => { try { return JSON.parse(localStorage.getItem(PROOFS_KEY + pub) || '{}') || {}; } catch { return {}; } };
+  const proofPut = (pub, k, v) => { try { const m = proofsRead(pub); if (v == null) delete m[k]; else m[k] = v; localStorage.setItem(PROOFS_KEY + pub, JSON.stringify(m)); } catch { } };
+  const packProof = (r) => ({ at: Date.now(), proven: { publicValues: r.proven.publicValues, proof: r.proven.proof, memos: r.proven.memos, jobId: r.proven.jobId || null },
+    built: { amount: r.built.amount, commit: r.built.commit, depositId: r.built.depositId, leaf: r.built.leaf, index: r.built.index, pid: r.built.pid, amountOut: String(r.built.amountOut),
+      reserveA: String(r.built.reserveA), reserveB: String(r.built.reserveB), wrapArgs: { assetId: r.built.wrapArgs.assetId } } });
+  const unpackProof = (x) => ({ proven: x.proven, built: { ...x.built, amountOut: BigInt(x.built.amountOut), reserveA: BigInt(x.built.reserveA), reserveB: BigInt(x.built.reserveB) } });
   // the slot's proof, asked of the board at its index; one asked at a time, so the board's line keeps the ones people pressed ahead of these
   function proveSlot(slot, { wei, toAsset, feeBps }) {
     aheadAsked++;
@@ -99,7 +107,7 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     const me = slot.p = proving.then(async () => {
       const t = await getUx();
       return t.proveWrapSwap({ walletPriv: key.priv(), toAsset, amountWei: BigInt(wei), feeBps, index: slot.index, ahead: true, waitOpts: { viaRelay: true, timeoutMs: 6 * 60e3, intervalMs: 3000 } });
-    }).then((r) => { if (slot.p === me) slot.r = r; return r; }, () => { if (slot.p === me) slot.failed = Date.now(); return null; });
+    }).then((r) => { if (slot.p === me) { slot.r = r; if (r && !slot.typed) proofPut(slot.pub, slot.k, packProof(r)); } return r; }, () => { if (slot.p === me) slot.failed = Date.now(); return null; });
     proving = me.then(() => {}, () => {});
     return me;
   }
@@ -132,6 +140,16 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
         const k = aheadKey(wei, toAsset, feeBps);
         if (aheadAsked >= AHEAD_MAX) return;
         let slot = AH.get(k);
+        // a proof kept from an earlier visit: used again if its pool has not traded and its deposit was not made, else let go and proved again
+        if (!slot) {
+          const kept = proofsRead(pub)[k];
+          if (kept) {
+            const r = unpackProof(kept), s2 = { k, pub, index: kept.built.index, r, p: Promise.resolve(r) };
+            const made = wordOf(await t.ethCall(t.cfg.pool, '0x7da9874f' + String(r.built.depositId).replace(/^0x/, '').padStart(64, '0')).catch(() => '0x'));
+            if (made === 0n && !(await stale(s2))) { AH.set(k, s2); onReady(); continue; }
+            proofPut(pub, k, null);
+          }
+        }
         if (slot?.pub === pub && !slot.typed && slot.p && !slot.failed && (!slot.r || !(await stale(slot)))) continue;
         let index = idx[k];
         if (index == null) { index = await t.nextWrapIndex({ walletPriv: key.priv(), ticker: 'cETH' }); slotIdxPut(pub, k, index); }
@@ -170,7 +188,8 @@ export function makePrivate({ getUx, pick, onKey = () => {}, session = null, ope
     return best?.f ?? null;
   }
   // A slot whose swap went out: its index is spent, and the next swap of that size takes a new one.
-  const spent = (slot) => { AH.delete(slot.k); if (slot.typed) typedIndex = null; else slotIdxPut(slot.pub, slot.k, null); };
+  const spent = (slot) => { AH.delete(slot.k); if (slot.typed) typedIndex = null; else { slotIdxPut(slot.pub, slot.k, null); proofPut(slot.pub, slot.k, null); } };
+  const wordOf = (h) => { try { return BigInt(String(h).slice(0, 66)); } catch { return 1n; } };
   // A wallet that declined: nothing more is asked of it.
   const declined = (e) => e?.code === 4001 || !!e?.userStopped || /user (rejected|denied)|rejected the request|denied transaction/i.test(String(e?.shortMessage || e?.message || e || ''));
   // One router transaction for a proof made before anything was deposited (a swap proved ahead, or a wrap kept ready): null when the router
