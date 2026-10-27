@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Kic5Xarm9qxobGgVdeC/yizzbyt1G+9cw6J5s/JBPoc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-t0y/QGdYdP3LeJdKQPHYiIXW0j95LG/bH4hTSSr/6v4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -12299,6 +12299,11 @@ function dashItems() {
     out.push({ key: 'farm', icon: 'tk-tac', label: 'Farm rewards', unit: 'TAC', dec: 18, max: 2, v: earned, live: earned > 0n, open: 'farm', show: true, wrap: true,
       meta: ethOfTac(earned, FARM.precision) > 0n ? `${aboutEth(ethOfTac(earned, FARM.precision))} to claim` : apr != null ? `${aprShort(apr)} · ${fmt(myDay, 18, 2)} a day` : pos.length ? `${pos.length} private position${pos.length === 1 ? '' : 's'}` : x?.staked > 0n ? 'staked in the public farm' : 'rewards to claim' });
   }
+  // what the key owes in cUSD against cBTC, its loans in one row, the lowest collateral ratio its line
+  const ln = dashLoans();
+  if (ln?.length) { const low = ln.reduce((a, x) => (x.ratio != null && (a == null || x.ratio < a) ? x.ratio : a), null);
+    out.push({ key: 'loans', icons: ['tk-cusd', 'tk-cbtc'], label: 'cUSD owed', unit: 'cUSD', dec: 8, max: 2, v: ln.reduce((a, x) => a + x.debt, 0n), noDelta: true, show: true, open: 'loans',
+      meta: `${ln.length} loan${ln.length === 1 ? '' : 's'}${low != null ? ` · ${ln.length > 1 ? 'lowest ' : ''}${Math.round(low)}%` : ''}` }); }
   if (S.wallet && AIR && !AIR.error && (AIR.claimable || AIR.claimed)) out.push({ key: 'air', icon: 'tk-tac', label: 'Airdrop', unit: 'TAC', dec: 18, max: 2, v: BigInt(AIR.amountWei || 0),
     noDelta: true, live: !!AIR.claimable, open: 'airdrop', show: true, meta: AIR.claimed ? 'claimed' : `claim by ${dayFmt(AIR.deadline)}` });
   return out;
@@ -12307,6 +12312,20 @@ const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac
   pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], rtac: ['farm', 'farm', 'fn-redeem'], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
 const DASH_PX = { teth: 'eth', dev: 'eth', devtac: 'tac', devtacd: 'usd', devtace: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
 const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'devtacd', 'devtace', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
+// The key's cUSD loans against cBTC, for the panel: read as the Borrow sheet reads them (cdpLoans, kept a minute here), only while the key holds
+// cUSD or is known to owe it; each with what it owes, the cBTC behind it and its collateral ratio at the engine's price (the market's before that)
+function dashLoans() {
+  const k = S.key?.pubHex, cb = P.scan?.cbtc?.id;
+  if (!k || !cb) return null;
+  const known = LOANS.pub === k ? LOANS.v : null, owes = !!known?.positions?.length || (P.scan?.cusd && BigInt(P.scan.cusd.value || 0) > 0n);
+  if (owes && !LOANS.p && (!known || Date.now() - LOANS.at > 60e3) && Date.now() - (DASH.loansAt || 0) > 60e3) { DASH.loansAt = Date.now(); getUx().then((t) => cdpLoans(t, walletPriv())).then(() => dashSoon(), () => {}); }
+  if (HXR.ratio == null) hxRatios().then(() => { if (HXR.ratio != null) dashSoon(); });
+  const px = LOCK.state?.px || (TPX.v?.usdBtc ? BigInt(Math.round(TPX.v.usdBtc * 1e8)) : null);
+  return (known?.positions || []).filter((p) => p.live !== false && (p.basket || []).some((x) => String(x.asset).toLowerCase() === cb)).map((p) => {
+    const sats = BigInt(p.basket.find((x) => String(x.asset).toLowerCase() === cb).value), debt = BigInt(p.debtValue), usd = px ? sats * px / 10n ** 8n : 0n;
+    return { debt, sats, ratio: usd && debt ? Number(usd * 10000n / debt) / 100 : null };
+  });
+}
 function dashWorth(items) {
   const v = TPX.v;
   if (!v?.usdBtc || !v.ethBtc) { if (!TPX.p && S.key) loadTacPrice().then(dashSoon, () => {}); return null; }
@@ -12385,6 +12404,8 @@ function paintDash() {
       else if (xs.length) due.push([xs.length === 1 ? `${xoAmtRaw(xs[0])} is on its way from Ethereum to Bitcoin, ${xoWhere(xs[0])}. It finishes while this page is open with your wallet.`
         : `${xs.length} bridges of ${a.ticker} are on their way from Ethereum to Bitcoin. They finish while this page is open with your wallet.`, link, 'Follow']);
     }
+    const near = (dashLoans() || []).filter((x) => x.ratio != null && x.ratio < 175).sort((a, b) => a.ratio - b.ratio)[0];
+    if (near) due.push([`A loan of ${fmt(near.debt, 8, 2)} cUSD stands at ${Math.round(near.ratio)}%${HXR.liq ? `; liquidation starts at ${HXR.liq}%` : ''}. Repay it before BTC falls further.`, 'loans', 'Open']);
     // what is yours to claim, one row: each source with its own press (they are claimed differently: points by the key's account, the public
     // farm from the wallet, private farms harvested through the relay, wTAC turned into TAC, the airdrop from the wallet)
     const claims = [];
@@ -12422,7 +12443,7 @@ function paintDash() {
     $('#dash-due').innerHTML = dueHtml; $('#dash-g').innerHTML = gridHtml; DASH.view = view;
     $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => {
       if (b.dataset.btcAsset) { BTC.mode = 'send'; BTC.asset = b.dataset.btcAsset; }
-      return b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen);
+      return b.dataset.dashOpen === 'loans' ? dashDo('loans') : b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen);
     });
     $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => dashDo(b.dataset.dashDo));
     if (was) $(was, sec)?.focus();
@@ -12433,6 +12454,7 @@ function paintDash() {
 }
 // A press of the panel's: open where it is done and press its button there (the Earn tab's list, for private farm rewards)
 function dashDo(go) {
+  if (go === 'loans') { hxPreset('borrow'); setTimeout(() => $('#hx-bwl')?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }), 400); return; }
   if (go === 'pfarm') { hxPreset('earn'); setTimeout(() => $('#hx-pos')?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }), 400); return; } if (go === 'act') return openAct(); if (go === 'key') { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); return; } if (go === 'bridge' || go.includes('/')) return openLink(go); const [link, sheet, btn] = DASH_DO[go], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {});
 }
 function dashWrite() {

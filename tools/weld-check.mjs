@@ -10391,6 +10391,12 @@ await step('hxheld', async () => {
     await until(r.page, () => [...document.querySelectorAll('#hx-bwl .hx-pr')].some((x) => /cUSD owed/.test(x.textContent) && /0\.00015 cBTC behind it · \d+%/.test(x.textContent) && !!x.querySelector('[data-brp]')), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#hx-bwl').catch(() => '?')).replace(/\s+/g, ' ')}`); });
     ok(true, `hxheld: Yours lists the loan, what it owes, the cBTC behind it and its ratio (${(await text(r.page, '#hx-bwl-l')).replace(/\s+/g, ' ').trim()})`);
+    await until(r.page, () => [...document.querySelectorAll('#dash .di')].some((d) => /cUSD owed/.test(d.textContent) && /1 loan · \d+%/.test(d.textContent)), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#dash-g').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+    ok(true, 'hxheld: Your Tacit shows what is owed, the number of loans and the ratio');
+    await r.page.click('#dash [data-dash-open="loans"]');
+    await until(r.page, () => document.querySelector('[data-hxm="borrow"]')?.getAttribute('aria-selected') === 'true' && !document.querySelector('#hx-bwl')?.hidden, null, 60000);
+    ok(true, 'hxheld: and pressed, it opens the Borrow tab on the loans');
     await r.page.click('#hx-bwl [data-brp]');
     await until(r.page, () => (window.__hb?.calls || []).some((c) => c.kind === 'close'), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | calls ${await calls()} | ${await text(r.page, '#hx-bwl-s')}`); });
