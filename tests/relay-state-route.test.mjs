@@ -32,7 +32,7 @@ ok(s.headers.get('access-control-allow-origin') === '*', 'and the refusal is rea
 await beat('idle — queue empty');
 ({ r, j } = await read());
 ok(j.state === 'ok' && j.proving && j.settling && !j.board && Number.isInteger(j.ageSeconds), 'an idle relay is ok', JSON.stringify(j));
-ok(JSON.stringify(Object.keys(j).sort()) === JSON.stringify(['ageSeconds', 'board', 'proving', 'settling', 'state']), 'and the answer is the five fields, nothing else', Object.keys(j).join(','));
+ok(JSON.stringify(Object.keys(j).sort()) === JSON.stringify(['ageSeconds', 'board', 'failing', 'proving', 'settling', 'state']), 'and the answer is the six fields, nothing else', Object.keys(j).join(','));
 s = await submit({ type: 'transfer', op: { n: 2 }, mode: 'prove' }); sj = await s.json();
 ok(s.status === 200 && sj.ok && sj.jobId && sj.relay === 'ok', 'an accepted submit says where the relay stands', JSON.stringify(sj));
 
