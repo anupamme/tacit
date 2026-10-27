@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-K5a6DNz1Kd0xiviRLtR4muru6QwlLdBWUM9in1MJTMM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Kic5Xarm9qxobGgVdeC/yizzbyt1G+9cw6J5s/JBPoc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -429,6 +429,8 @@ a.di { color: inherit; text-decoration: none; }
 .hx-b .hx-pa .link { position: relative; padding: 0; font-size: 12px; color: var(--ink); }
 .hx-b .hx-pa .link:disabled { color: var(--mute); text-decoration: none; cursor: default; }
 .hx-pa .link::after { content: ''; position: absolute; inset: -10px -5px; }
+.hx-pa .hx-on { font-size: 12px; color: var(--mute); }
+.hx-pr .err { color: var(--err); } .hx-pr .warn { color: var(--warn); }
 /* the Bridge tab's steps (the bridge page's own): it leaves one chain's colour and arrives in the other's, a light running along the line between */
 .hx-brs { --from: var(--orange); --to: var(--blue); list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px 2px 2px; padding: 0; font-size: 11px; line-height: 1.35; color: var(--mute); }
 .hx-brs.out { --from: var(--blue); --to: var(--orange); }
@@ -12427,7 +12429,7 @@ function paintDash() {
   }
   clearTimeout(dashSaveT);
   dashSaveT = setTimeout(dashWrite, 1000);
-  hxPosPaint();
+  hxPosPaint(); hxBwList();
 }
 // A press of the panel's: open where it is done and press its button there (the Earn tab's list, for private farm rewards)
 function dashDo(go) {
@@ -13081,6 +13083,7 @@ function hxBwMark() {
 }
 function hxBwUpdate() {
   hxBwMark();
+  hxBwList();
   if (HX.tab !== 'borrow') return;
   if (HX.bsrc !== 'btc') { hxBalPaint(); if (HX.bsrc === 'cbtc' && LOCK.state?.at !== HX.bwAt) { HX.bwAt = LOCK.state?.at; hxQuoteSoon(); } return; }   // TAC in a vault and cBTC held follow no lock
   if ((HX.bwKey || '') !== (S.key?.pubHex || '')) return paintHx();
@@ -13112,7 +13115,7 @@ function hxBwView(st) {
   const btn = (k, text, { ghost = false, dis = false } = {}) => html`<button class="btn${ghost ? ' ghost' : ''}" type="button" data-hxbw="${k}"${dis || off ? ' disabled' : ''}>${text}</button>`;
   const stepper = html`<ol class="hx-st" aria-label="Your lock’s steps">${[['Lock', 1], ['Bond', 2], ['Mint', 3], ['Borrow', 4]].map(([t, i]) => html`<li class="${i < now ? 'done' : i === now ? 'now' : ''}"${i === now ? ' aria-current="step"' : ''}><span aria-hidden="true">${i < now ? '✓' : i}</span>${t}</li>`)}</ol>`;
   const at = LOCK.list.findIndex((l) => lockId(l) === lockId(rec));
-  const head = html`<div class="hx-bw-h"><span class="hx-lbl">Your lock</span><span class="hx-bw-l"><b>${fmt(vBtc, 8, 8)} BTC</b> · <a href="${MEMPOOL}/tx/${rec.lockTxid}" target="_blank" rel="noopener">${short(rec.lockTxid, 6)} ↗</a>${LOCK.list.length > 1 ? html` · <button class="link" type="button" data-hxbw="next"${off ? ' disabled' : ''}>${at + 1} of ${LOCK.list.length} ›</button>` : ''}</span></div>`;
+  const head = html`<div class="hx-bw-h"><span class="hx-lbl">Your lock</span><span class="hx-bw-l"><b>${fmt(vBtc, 8, 8)} BTC</b> · <a href="${MEMPOOL}/tx/${rec.lockTxid}" target="_blank" rel="noopener">${short(rec.lockTxid, 6)} ↗</a>${LOCK.list.length > 1 ? html` · ${at + 1} of ${LOCK.list.length}` : ''}</span></div>`;
   let panel;
   const flight = hxBwInflight(st, now);
   HX.bwFlight = flight?.id || null;
@@ -13190,11 +13193,6 @@ function hxBwPaint() {
     if (k === 'reload') return hxBwLoad(true);
     if (k === 'sheet') return openLink('borrow');
     if (k === 'more') { HX.bwMore = true; delete FLASH['hx-bw-s']; paintHx(); $('#hx-amt')?.focus(); return; }
-    if (k === 'next') {
-      const i = LOCK.list.findIndex((l) => lockId(l) === lockId(LOCK.state.rec));
-      LOCK.pick = lockId(LOCK.list[(i + 1) % LOCK.list.length]); HX.bwDebt = ''; delete FLASH['hx-bw-s'];
-      busy(b, () => loadBorrow(false, true).then(() => hxBwUpdate(), (x) => sayErr(where(), x)));
-    }
   };
 }
 async function hxBwStart() {
@@ -14061,7 +14059,7 @@ function paintHx() {
       <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>
       <div class="hx-pos" id="hx-pos" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-pos-l"></div><p class="q" id="hx-pos-s" aria-live="polite"></p></div>`;
   } else if (m === 'borrow' && HX.bsrc === 'btc' && (HX.bwKey = S.key?.pubHex || '', HX.bwFace = (S.key && hxBwLoad(), hxBwMode())) === 'track') {
-    body = html`<div class="hx-bw" id="hx-bw"></div>`;
+    body = html`<div class="hx-bw" id="hx-bw"></div><div class="hx-pos" id="hx-bwl" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-bwl-l"></div><p class="q" id="hx-bwl-s" aria-live="polite"></p></div>`;
   } else if (m === 'borrow') {
     // what is borrowed against: BTC locked on Bitcoin (cUSD, or cBTC alone), cBTC already held (cUSD, at the ratio picked), or TAC from the wallet
     // in a TAC vault (TACD, TACE)
@@ -14073,15 +14071,15 @@ function paintHx() {
     body = heldSide ? html`${field('You put up', heldAt('private'), amt('cBTC to put up'), coin('hx-from', 'You put up', groups, 'cbtc'), true, true)}
       ${mid()}
       ${rowsOf('You borrow', true, HX_BWR.map(ratioRow))}${tail}
-      <p class="q" id="hx-bw-s" aria-live="polite"></p>`
+      <p class="q" id="hx-bw-s" aria-live="polite"></p><div class="hx-pos" id="hx-bwl" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-bwl-l"></div><p class="q" id="hx-bwl-s" aria-live="polite"></p></div>`
     : tacSide ? html`${field('You deposit', heldAt('wallet'), amt('TAC to deposit'), coin('hx-from', 'You deposit', groups, 'wtac'))}
       ${mid()}
       ${rowsOf('You borrow', true, ways.map(way))}${tail}
-      <p class="q"><a href="/vault/#pools">Where TACD and TACE trade →</a></p>`
+      <p class="q"><a href="/vault/#pools">Where TACD and TACE trade →</a></p><div class="hx-pos" id="hx-bwl" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-bwl-l"></div><p class="q" id="hx-bwl-s" aria-live="polite"></p></div>`
       : html`${field('You lock', heldAt('bitcoin'), amt('BTC to lock'), coin('hx-from', 'You lock', groups, 'btc'))}
       ${mid()}
       ${rowsOf('You get', true, ways.map(way))}${tail}
-      ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
+      ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}<div class="hx-pos" id="hx-bwl" hidden><div class="rows-h"><span>Yours</span></div><div id="hx-bwl-l"></div><p class="q" id="hx-bwl-s" aria-live="polite"></p></div>`;
   } else {
     const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', groups = hxGroups('send'), place = hxPlaceOf('send', HX.send);
     const what = (lbl, label) => field(lbl, heldAt(place), hxIsLp() && lbl === 'You send' ? html`<span class="say">a quarter, half or all of it, picked next</span>` : amt(`${unit} ${lbl === 'You ask for' ? 'to ask for' : 'to send'}`), coin('hx-sa', label, groups, HX.send), true, place === 'private');
@@ -14120,6 +14118,7 @@ function paintHx() {
   if (focus) { const f = (focus.id && document.getElementById(focus.id)) || (focus.pk && $(`.coin[data-pk="${focus.pk}"]`, el)) || (focus.hxd && $(`[data-hxd="${focus.hxd}"]`, el)) || (focus.hxm && $(`[data-hxm="${focus.hxm}"]`, el)); if (f && f !== document.activeElement) f.focus(); }
   // the Swap card paints itself; the page's own links inside it (its line on what a place holds) still go where they say
   if (m === 'swap') { el.onclick = (e) => { const g = e.target.closest?.('[data-hxin]'); if (g) hxPreset(g.dataset.hxin, undefined, true); }; hxSwap(); return; }
+  if (m === 'borrow') hxBwList();
   if (m === 'borrow' && HX.bsrc === 'btc' && HX.bwFace === 'track') { hxBwPaint(); return; }
   if (m === 'borrow' && $('#hx-bw-s') && FLASH['hx-bw-s']) mount($('#hx-bw-s'), FLASH['hx-bw-s']);
   if (HX.zs && $('#hx-zs-at')) $('#hx-zs-at').replaceWith(HX.zs);
@@ -14247,6 +14246,53 @@ function hxPosPaint() {
       } catch (e) { sayErr(st, /locked until/.test(e?.message || '') ? new Error('This device’s clock says the bond is not over yet. Try again in a few minutes, or set the clock right.') : e); }
       finally { HX.posBusy = false; list.__h = ''; hxPosPaint(); dashSoon(); }
     });
+  };
+}
+// ── Borrow's own: each lock the key made, with the step it is at (pressed, the tab follows it), each cUSD loan against cBTC (what is owed,
+// the cBTC behind it, its collateral ratio, and Repay, the Borrow sheet's own), and the wallet's loans in the TAC vaults (the Borrow page's) ──
+function hxBwRows() {
+  const out = [], st = S.key ? LOCK.state : null, cb = P.scan?.cbtc?.id;
+  if (S.key) for (const l of LOCK.list || []) out.push({ lock: l });
+  if (cb) for (const p of st?.loans?.positions || []) if (p.live !== false && (p.basket || []).some((x) => String(x.asset).toLowerCase() === cb)) out.push({ loan: p, sats: BigInt(p.basket.find((x) => String(x.asset).toLowerCase() === cb).value) });
+  const R = S.wallet && VQ.who === S.wallet ? VQ.v : null;
+  for (const [k, sym] of [['usd', 'TACD'], ['eth', 'TACE']]) { const me = R?.[k]?.d?.me; if (me && (me.debt > 0n || me.collateral > 0n)) out.push({ vault: k, sym, me }); }
+  return out;
+}
+function hxBwList() {
+  const el = $('#hx-bwl'), list = $('#hx-bwl-l');
+  if (!el || !list) return;
+  if (S.wallet && (VQ.who !== S.wallet || Date.now() - VQ.at > 60e3) && !VQ.p) vaultRead().then(hxBwList, () => {});
+  const rows = hxBwRows(), st = LOCK.state, off = HX.bwBusy > 0 ? ' disabled' : '';
+  el.hidden = !rows.length;
+  const ico = (...ids) => html`<span class="pair">${ids.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>`;
+  const row = (r, i) => {
+    if (r.lock) {
+      const l = r.lock, on = HX.bsrc === 'btc' && hxBwMode() === 'track' && st?.rec && lockId(st.rec) === lockId(l);
+      return html`<div class="hx-pr">${ico('tk-btc')}<span class="rt"><b>${fmt(BigInt(l.vBtc), 8, 8)} BTC locked</b><small>${lockNext(l)}</small></span><span class="hx-pa">${on ? html`<span class="hx-on">shown above</span>` : html`<button class="link" type="button" data-blk="${i}"${off}>Open</button>`}</span></div>`;
+    }
+    if (r.loan) {
+      const debt = BigInt(r.loan.debtValue), usd = st?.px ? r.sats * st.px / 10n ** 8n : 0n, ratio = usd && debt ? Number(usd * 10000n / debt) / 100 : null, floor = st ? Number(st.ratio) / 100 : 150;
+      return html`<div class="hx-pr">${ico('tk-cusd', 'tk-cbtc')}<span class="rt"><b>${fmt(debt, 8, 2)} cUSD owed</b><small>${fmt(r.sats, 8, 8)} cBTC behind it${ratio ? html` · <span class="${ratio < floor ? 'err' : ratio < 175 ? 'warn' : ''}">${Math.round(ratio)}%</span>` : ''}</small></span><span class="hx-pa"><button class="link" type="button" data-brp="${i}"${off}>Repay</button></span></div>`;
+    }
+    const dp = r.vault === 'eth' ? 4 : 2;
+    return html`<div class="hx-pr">${ico('tk-tac', r.vault === 'eth' ? 'tk-tace' : 'tk-tacd')}<span class="rt"><b>${fmt(r.me.debt, 18, dp)} ${r.sym} owed</b><small>${fmt(r.me.collateral, 18, 2)} TAC in the vault</small></span><span class="hx-pa"><a class="link" href="/vault/#v=${r.vault}">Manage</a></span></div>`;
+  };
+  const view = html`${rows.map(row)}`;
+  if (list.__h !== view.s) { list.__h = view.s; mount(list, view); }
+  el.onclick = (e) => {
+    const b = e.target.closest('[data-blk], [data-brp]');
+    if (!b || b.disabled) return;
+    const r = rows[Number(b.dataset.blk ?? b.dataset.brp)], st2 = $('#hx-bwl-s');
+    if (!r) return;
+    if (r.lock) {
+      LOCK.pick = lockId(r.lock); HX.bsrc = 'btc'; HX.bwMore = false; HX.bwDebt = ''; delete FLASH['hx-bw-s'];
+      busy(b, () => loadBorrow(false, true).then(() => { paintHx(); $('#hx-bw')?.scrollIntoView({ block: 'nearest' }); }, (x) => sayErr(st2, x)));
+      return;
+    }
+    LOCK.repayOver = null;
+    HX.bwBusy = (HX.bwBusy || 0) + 1; list.__h = ''; hxBwList();
+    busy(b, (run) => BWX.repay(run, () => $('#hx-bwl-s'), b, r.loan))
+      .finally(() => { HX.bwBusy--; list.__h = ''; loadBorrow(true).then(() => { hxBwUpdate(); dashSoon(); }, () => hxBwList()); });
   };
 }
 // Under the Bridge tab: what this browser has under way (chrome.js reads the bridge journals for the header's dot), and the page that follows each

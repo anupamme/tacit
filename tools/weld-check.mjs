@@ -1648,6 +1648,9 @@ await step('hxborrow', async () => {
     ok(/Bond posted/.test(await text(p, '#hx-bw-s')) && (await wst(A0)) < w0, `hxborrow: the bond posts from the card in wstETH, by a permit in the same transaction (${(await text(p, '#hx-bw-s')).slice(0, 100)}; wstETH ${w0} → ${await wst(A0)})`);
     await until(p, () => /✓\s*Lock\s*✓\s*Bond\s*3\s*Mint/.test(document.querySelector('#hx-bw')?.textContent || ''), null, 300000);
     ok(/Waiting for/.test(await card()), `hxborrow: with the bond in, the lock waits to mint, and says for what (${(await card()).match(/Waiting for[^.]*\./)?.[0] || ''})`);
+    await until(p, () => [...document.querySelectorAll('#hx-bwl .hx-pr')].some((x) => /0\.0002 BTC locked/.test(x.textContent) && /waiting for its proof|ready to mint/.test(x.textContent) && /shown above/.test(x.textContent)), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-bwl').catch(() => '?')).replace(/\s+/g, ' ')}`); });
+    ok(true, `hxborrow: Yours lists the lock with its step, the one shown above (${(await text(p, '#hx-bwl-l')).replace(/\s+/g, ' ').trim()})`);
     if (r.errors.length) { fails++; console.log('FAIL hxborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -10384,6 +10387,14 @@ await step('hxheld', async () => {
     await until(r.page, () => (window.__hb?.calls || []).some((c) => c.kind === 'open'), null, 300000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | calls ${await calls()} | ${await text(r.page, '#hx-bw-s')}`); });
     ok(/^cut:15000,open:15000$/.test(await calls()), `hxheld: the press cuts a note of exactly 0.00015 cBTC, then opens the loan on it (${await calls()})`);
+    // the loan is listed under Yours with what is owed, the cBTC behind it and its ratio, and repaid from its row
+    await until(r.page, () => [...document.querySelectorAll('#hx-bwl .hx-pr')].some((x) => /cUSD owed/.test(x.textContent) && /0\.00015 cBTC behind it · \d+%/.test(x.textContent) && !!x.querySelector('[data-brp]')), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#hx-bwl').catch(() => '?')).replace(/\s+/g, ' ')}`); });
+    ok(true, `hxheld: Yours lists the loan, what it owes, the cBTC behind it and its ratio (${(await text(r.page, '#hx-bwl-l')).replace(/\s+/g, ' ').trim()})`);
+    await r.page.click('#hx-bwl [data-brp]');
+    await until(r.page, () => (window.__hb?.calls || []).some((c) => c.kind === 'close'), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | calls ${await calls()} | ${await text(r.page, '#hx-bwl-s')}`); });
+    ok(/close$/.test(await calls()), `hxheld: Repay on its row closes the loan (${await calls()} | ${(await text(r.page, '#hx-bwl-s')).trim().slice(0, 100)})`);
     if (r.errors.length) { fails++; console.log('FAIL hxheld page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
