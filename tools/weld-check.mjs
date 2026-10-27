@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -10844,6 +10844,34 @@ await step('zapfirst', async () => {
     ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')), `zapfirst: and the share goes on into the farm (${(await p.evaluate(() => window.__farmCalls)).join(', ')})`);
     if (r.errors.length) { fails++; console.log('FAIL zapfirst page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; await restore(); await r.browser.close(); }
+});
+
+// Copy link on the cards: the Earn tab with ETH and a farm picked, and the Swap tab's way from the wallet's ETH into private tETH, each offer a button once
+// there is an amount, which copies a link that opens on the same farm or way with the same amount (the address bar keeps no amount).
+await step('copylink', async () => {
+  const r = await openFarmKey('c0b1'.padEnd(64, '8'), { notes: [], positions: [] }, { width: 1280, height: 900 }), p = r.page;
+  try {
+    await p.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied.push(t); } }, configurable: true }); document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="earn"]');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 300000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    ok(await p.$eval('#hx-copy', (b) => b.hidden), 'copylink: with no amount the Earn card offers no link');
+    await p.fill('#hx-amt', '0.01');
+    await until(p, () => !document.querySelector('#hx-copy')?.hidden, null, 60000).catch(() => {});
+    await shot(p, 'copylink-earn');
+    await p.click('#hx-copy');
+    const earn = (await p.evaluate(() => window.__copied)).at(-1) || '';
+    ok(/\/#card=earn:ether:p\d+&amt=0\.01$/.test(earn), `copylink: the Earn card copies a link to its farm and amount (${earn})`);
+    await p.click('[data-hxm="swap"]');
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await p.fill('#hx-swap #amt', '0.01');
+    await until(p, () => !document.querySelector('#hx-swap #copy')?.hidden, null, 60000).catch(() => {});
+    await shot(p, 'copylink-shield');
+    await p.click('#hx-swap #copy');
+    const sh = (await p.evaluate(() => window.__copied)).at(-1) || '';
+    ok(/\/#card=shield:ether:defi&amt=0\.01$/.test(sh), `copylink: the Swap tab's way into private tETH copies a link to it and its amount (${sh})`);
+    if (r.errors.length) { fails++; console.log('FAIL copylink page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // Adding PROVE from the wallet: the wallet sends the PROVE the Tacit account lacks, then the vApp's permitAndDeposit with a permit the

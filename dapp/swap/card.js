@@ -746,7 +746,14 @@ function feeLines(q, r) {
   }
   return parts.map(([k, v], i) => [k, `${v}${i === 0 ? said : ''}`]);
 }
+// A link to a way in from the wallet (ETH into private tETH, say), as the card stands: it opens on that way with that amount.
+function shareLink() {
+  const mk = moveOf(), amt = String(S.amt || '').trim();
+  return mk && H.copy && /^\d{0,12}(?:\.\d{1,18})?$/.test(amt) && Number(amt) > 0 ? `${location.origin}/#card=shield:${mk.replace('>', ':')}&amt=${amt}` : null;
+}
+const shareSync = () => { const b = $('#copy'); if (b) b.hidden = !shareLink(); };
 function paintQuote() {
+  shareSync();
   if (moveOf()) { paintMove(); return; }
   const q = S.q, out = $('#out'), get = tokenOf(S.get), pay = tokenOf(S.pay), rows = $('#rows'), rc = $('#rcpt'), go = $('#go'), ackbox = $('#ackbox');
   const r = picked(q), kind = kindOf(S.pay, S.get);
@@ -1924,6 +1931,7 @@ const markup = (o) => `<p class="sr" id="sw-live" role="status" aria-live="polit
     <div id="ackbox"></div>
     <button class="go" id="go" type="button" disabled>Enter an amount</button>
     <p class="q" id="q" role="status"></p>
+    ${o.moves ? '<button class="link" id="copy" type="button" hidden>Copy link</button>' : ''}
   </div>
   <div class="sw-foot"><span>Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"></span></div>
   <div class="steps" id="steps" hidden></div>
@@ -2009,6 +2017,7 @@ function wire() {
     // a move's Max is the page's: what its source holds, less what its own fees keep back
     const mk = e.target.closest('#max') && moveOf();
     if (mk && H.moves.most) { H.moves.most(mk).then((v) => { if (v == null || moveOf() !== mk) return; S.amt = v; S.note = ''; changed(); paintSides(); requote(true); }, () => {}); return; }
+    if (e.target.closest('#copy')) { const u = shareLink(); if (u) H.copy(u, 'Link copied'); return; }
     if (e.target.closest('#max') && S.inP && PV) {
       const was = S.pay, k = PK[S.pay];
       PV.most(IDS[k], POOL_TK[k]).then((v) => { if (v == null || S.pay !== was) return; S.amt = tidy(plain(v, 8)); S.note = ''; changed(); paintSides(); requote(true); }, () => {});
