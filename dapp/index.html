@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MEimKz6MQXsskh64cRAH2uTU7dE9HaPxwvGDP9mVtZU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Po6H737UrSQukUVqxbPFj8KGF4Y3qGX0nrUI0QIdE9c=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=746aac61" as="style">
+<link rel="preload" href="/swap/card.css?cb=d9be557f" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -1037,6 +1037,8 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 @media (max-width: 640px) {
   .proof-f .tl { display: none; }
   .news .w { display: none; }
+  .newsl { margin-bottom: 14px; }
+  .hero-t { margin-bottom: 20px; }
   .proof { gap: 12px 26px; }
   .proof b { font-size: 26px; }
   .hx-h { padding: 2px 2px 0; }
@@ -1099,7 +1101,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=746aac61">
+<link rel="stylesheet" href="/swap/card.css?cb=d9be557f">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -8952,7 +8954,7 @@ function takeProgram(p) {
 const PT_ACTS = { wrap: ['Wrapped ETH into the Tacit pool', 'ETH'], evmpooldeposit: ['Deposited ETH', 'ETH'], zswapeth: ['Swapped ETH', 'ETH'],
   weiname: ['Registered a .wei name', 'ETH'], cbtcmint: ['Posted a bond toward cBTC', 'wstETH'], cbtchold: ['Kept a cBTC bond posted'], cusdmint: ['Borrowed cUSD'], pmbet: ['Bet with ETH', 'ETH'], pmcreate: ['Opened a market'] };
 const ptChain = (id) => (Number(id || 1) === 1 ? { name: 'Ethereum', explorer: SCAN } : DEVICE_CHAINS.find((c) => c.chainId === Number(id)) || null);
-const potLeft = () => { const s = 86400 - (now() % 86400); return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const potLeft = () => { const s = 86400 - (now() % 86400), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`; };
 const dayLeft = () => { const s = 86400 - (now() % 86400), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h} h ${m} min` : `${Math.max(1, m)} min`; };
 const pointsWho = () => [...new Map([[S.acct?.address, 'Tacit account'], [S.wallet, 'Wallet']].filter(([a]) => a).map(([a, l]) => [a.toLowerCase(), l]))];
 const ptsFmt = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
@@ -12451,7 +12453,7 @@ function paintTape(d, rec) {
   if (key === TAPE.key) { for (const el of $$('time[data-t]', run)) el.textContent = ago(Number(el.dataset.t) * 1000); return; }
   TAPE.key = key;
   const coin = (id) => html`<svg class="tk" aria-hidden="true"><use href="#${id}"/></svg>`;
-  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}</b>${e.amt || e.n > 1 ? html`<span>${e.amt || ''}${e.chain ? html` ${chainMark(e.chain)}` : ''}${e.n > 1 ? ` ×${e.n}` : ''}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
+  const item = (e, copy) => html`<li${copy ? html` aria-hidden="true"` : ''}>${e.icons.length > 1 ? html`<span class="pair">${e.icons.map(coin)}</span>` : coin(e.icons[0])}<b>${e.what}</b>${e.amt || e.n > 1 ? html`<span>${e.chain ? chainMark(e.chain) : ''}${e.amt || ''}${e.n > 1 ? ` ×${e.n}` : ''}</span>` : ''}<time data-t="${e.t}" datetime="${new Date(e.t * 1000).toISOString()}">${ago(e.t * 1000)}</time></li>`;
   const fill = (reps) => { const set = (copy) => Array.from({ length: reps }, () => ev.map((e) => item(e, copy))).flat(); mount(run, html`${set(false)}${set(true)}`); box.hidden = false; };
   fill(1);
   const half = run.scrollWidth / 2, strip = run.parentElement.clientWidth;
@@ -14131,8 +14133,8 @@ document.addEventListener('click', (e) => {
     stage.addEventListener('pointerleave', () => { cancelAnimationFrame(f); f = 0; hand.style.removeProperty('--tx'); hand.style.removeProperty('--ty'); });
   }
 }
-{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=4f57a74e').then((m) => m.mountFlow($('#kept-v'), { compact: true, quiet: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
-setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
+{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=46192ff3').then((m) => m.mountFlow($('#kept-v'), { compact: true, quiet: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
+setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 15e3);
 
 function refreshAll() {
   AIR = null; FARM.positions = null;

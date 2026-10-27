@@ -263,6 +263,7 @@ const STYLE = `
 .fl.fl-c .fl-n .fl-disc { width: 16px; height: 16px; font-size: 9px; }
 .fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .75; pointer-events: none; white-space: nowrap; }
 .fl.fl-c .fl-s { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+.fl.fl-q .fl-foot, .fl.fl-q .fl-clock, .fl.fl-q .fl-mode button { font-size: 11px; }
 .fl.fl-c.fl-q .fl-n { gap: 5px; font: italic 400 14px/1 var(--serif, Georgia, serif); letter-spacing: 0; text-transform: none; }
 .fl.fl-c.fl-q .fl-s { font: italic 400 13px var(--serif, Georgia, serif); letter-spacing: 0; text-transform: none; opacity: .8; }
 .fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font: 400 10px var(--mono, monospace); letter-spacing: .01em; color: var(--mute, #625c4f); }
