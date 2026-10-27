@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,zapresume,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -10995,6 +10995,45 @@ await step('zapcredit', async () => {
     ok(mine.length === 1 && mine[0].input.startsWith('0xc4294fac') && !submits.slice(s0).some((x) => x.type === 'wrap' && (x.mode || 'settle') === 'settle'), `zapcredit: then one transaction from the account zaps, mints and settles it, and the relay was asked to settle nothing (it was tried to prove first: ${mine.map((x) => x.input.slice(0, 10))}; ${submits.slice(s0).map((x) => `${x.type}/${x.mode || 'settle'}`)}; card: ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 300)})`);
     ok(calls.some((c) => c.startsWith('bond:')), `zapcredit: and the share goes on into the farm (${calls.join(', ')})`);
     if (r.errors.length) { fails++; console.log('FAIL zapcredit page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
+});
+
+// "Prove it yourself" from the zap's offer: the Prove sheet opens with the zap waiting ("Waiting to go on"), and once the holder's own credit is chosen and
+// funded, Go on sends the zap by itself: proved with that credit, one transaction from the account, no second press on the card.
+await step('zapresume', async () => {
+  const hex = '5b0d'.padEnd(64, '6'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const restore = await stubPoolSettle('ok');
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT, arg: { credit: '0', delay: 2000 } } }), p = r.page;
+  await stubSelfProver(p);
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  await stubFarmUx(p, { notes: [], positions: [], zap: true });
+  try {
+    proveStub = false; poolDone = false;
+    await p.goto(r.url + '#wallet');
+    await p.click('#wallet-body [data-in="paste"]'); await p.fill('#ws-hex', hex); await p.click('#wallet-body [data-in="key"]');
+    await until(p, () => !!document.querySelector('#wallet-dot.on'));
+    await p.evaluate(() => { window.__zapWay = null; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="earn"]');
+    await p.waitForSelector('#hx-routes [data-hxr="0"]', { timeout: 300000 });
+    await p.click('#hx-routes [data-hxr="0"]');
+    await p.fill('#hx-amt', '0.01');
+    await until(p, () => /Zap into the farm/.test(document.querySelector('#hx-go')?.textContent || '') && !document.querySelector('#hx-go').disabled, null, 240000);
+    const b0 = BigInt(await rpc('eth_blockNumber', []));
+    await p.click('#hx-go');
+    await p.waitForSelector('[data-zapway="own"]', { timeout: 300000 });
+    await p.click('[data-zapway="own"]');
+    await p.waitForSelector('#sheet-prove[open] #sp-then', { timeout: 60000 });
+    ok(/Waiting to go on: Zap 0\.01 ETH into/.test(await text(p, '#sheet-prove')) && await p.$eval('#sp-then', (b) => b.disabled), 'zapresume: the Prove sheet opens with the zap waiting, Go on not yet open (no prover of their own chosen)');
+    // their own credit chosen and funded
+    await p.evaluate((k) => { localStorage.setItem('tacit-lite-prove-self-v1:' + k, 'true'); window.__spn.credit = '1000000000000000000'; document.querySelector('#sp-then').disabled = false; }, pub);
+    await p.click('#sp-then');
+    await until(p, () => (window.__farmCalls || []).some((c) => c.startsWith('bond:')) || (/class="err"/.test(document.querySelector('#hx-zs')?.innerHTML || '') && !/taking longer than usual|not available right now|Choose how to prove it/.test(document.querySelector('#hx-zs')?.textContent || '')), null, 400000).catch(() => {});
+    const b1 = BigInt(await rpc('eth_blockNumber', [])), mine = [];
+    for (let b = b0 + 1n; b <= b1; b++) for (const tx of (await rpc('eth_getBlockByNumber', ['0x' + b.toString(16), true]))?.transactions || []) if (String(tx.from).toLowerCase() === acct.toLowerCase()) mine.push(tx);
+    const spn = await p.evaluate(() => window.__spn), calls = await p.evaluate(() => window.__farmCalls || []);
+    ok(spn.requests.length === 1 && mine.length === 1 && mine[0].input.startsWith('0xc4294fac') && calls.some((c) => c.startsWith('bond:')) && !(await p.$('#sheet-prove[open]')),
+      `zapresume: Go on sends the zap by itself, proved with their credit, in one transaction (${spn.requests.length} request; ${mine.map((x) => x.input.slice(0, 10))}; ${calls.join(', ')}; ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 160)})`);
+    if (r.errors.length) { fails++; console.log('FAIL zapresume page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
 });
 

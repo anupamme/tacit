@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+6aX8HqGkXRWVbWc8OTNpFims7s5ItOhl5ofT7eKvxg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vrNB5NN0odDzrPkiEDLkMJTWMldJ3UbHcw31AXSj9qg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -4186,6 +4186,7 @@ function renderProve() {
     if (!spec || !ownOn()) return;
     SP.then = null;
     $('#sheet-prove').close();
+    if (spec.resume) { spec.resume(); return; }
     if (spec.sheet && $(`#sheet-${spec.sheet}`) && !$(`#sheet-${spec.sheet}`).open) openSheet(spec.sheet);
     busy(then, (run) => selfDo(run, { ...spec, own: true }));
   };
@@ -10705,11 +10706,11 @@ async function proveWithCredit({ run, t, p, plan, prover, tell, pub, priv }) {
 // The share could not be proved by Tacit's prover in time (or it cannot prove now): which way on is the holder's. Their own prover (a Succinct credit, or this
 // computer's) proves it and the zap goes in one transaction from the wallet; or the zap goes first and the relay finishes its share after (its settle and
 // gas, which is what was being avoided). The proof Tacit's prover is still making goes at once if it lands while this waits. → 'ready' | 'own' | 'relay'
-const ZAPWAY = { cb: null };
-function zapWay({ tell, inflight = null, down = false }) {
+const ZAPWAY = { cb: null, then: null };
+function zapWay({ tell, inflight = null, down = false, then = null }) {
   return new Promise((resolve) => {
     const fin = (v) => { if (ZAPWAY.cb === fin) ZAPWAY.cb = null; resolve(v); };
-    ZAPWAY.cb = fin;
+    ZAPWAY.cb = fin; ZAPWAY.then = then;
     tell(html`<span class="err">${down ? 'Tacit’s prover is not available right now.' : 'Tacit’s prover is taking longer than usual.'}</span> Nothing has left your wallet.<div class="actr-f"><button class="link" type="button" data-zapway="own">Prove it yourself</button>, on this computer or with your credit · <button class="link" type="button" data-zapway="relay">Send the zap and let the relay finish it</button></div>`);
     if (inflight) inflight.then(() => fin('ready'), () => fin('ready'));
   });
@@ -10718,14 +10719,14 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-zapway]');
   if (!b || !ZAPWAY.cb) return;
   b.closest('.actr-f')?.remove();                                    // a choice is made once: its buttons go
-  if (b.dataset.zapway === 'own') openProve();
+  if (b.dataset.zapway === 'own') { if (ZAPWAY.then) SP.then = ZAPWAY.then; openProve(); }          // the Prove sheet then offers Go on, which sends the zap again
   ZAPWAY.cb(b.dataset.zapway);
 });
 // A quoted zap sent from the paying account, the same from the farm sheet, the card's Earn tab and the landing's farm. Its share goes in by
 // the fastest way open: proved ahead (kept ready, or asked of the relay as the amount settled), one transaction mints it and settles its
 // note; proved here or with your own credit, the same after; else the zap goes first and the relay settles its share. The note then goes
 // in the farm, or with `bond` false stays a private LP note, earning the pool's fees. `moved`: the pool moved since `z` was quoted.
-async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved = () => {} }) {
+async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved = () => {}, again = null }) {
   const pid = p.pid, tkB = zapTkB(p), tokenB = ZAP_TOKEN[tkB], label = pairName(p.pair);
   const tell = (m) => say(status, m);
   let t = null, priv = null, built = null, hash = null, landed = false, guarded = false, rec = null;
@@ -10771,9 +10772,9 @@ async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved 
       // not made in time, or the relay cannot prove it now, and no prover of their own set: the way on is the holder's, and a proof that lands meanwhile goes at once
       let flying = VOUCH.ahead?.poolId === p.poolId ? VOUCH.ahead.p : null;
       for (let asked = 0; !ownUsable && !(await lpReady(p.poolId, z.wei, res)) && asked < 2; asked++) {
-        const way = await zapWay({ tell, inflight: flying, down: !(await relayProving()) });
+        const way = await zapWay({ tell, inflight: flying, down: !(await relayProving()), then: again && { label: `Zap ${fmt(z.wei, 18, 6)} ETH into ${label}`, resume: again } });
         flying = null;
-        if (way === 'own') throw Object.assign(new Error('Choose how to prove it, then press the zap again. Nothing was sent.'), { said: true });
+        if (way === 'own') throw Object.assign(new Error('Choose how to prove it and press Go on in the Prove sheet, or press the zap again. Nothing was sent.'), { said: true });
         if (way === 'relay') break;
       }
       const ready = await lpReady(p.poolId, z.wei, res), v = await vouchers();
@@ -14290,13 +14291,20 @@ function hxGo() {
 }
 // A zap sent from the card itself, one press: its steps are said under the button (one line kept across repaints) and in Activity, as from
 // the farm sheet; the button stays busy until it is done.
+// The zap sent again once the Prove sheet's Go on is pressed: the press that offered the choice is still tidying up (its read of the key's notes), and a press
+// while it is busy is ignored, so this waits for the card to be free.
+async function hxZapAgain(p, z) {
+  for (let i = 0; i < 120 && $('#hx-go')?.getAttribute('aria-busy') === 'true'; i++) await sleep(1000);
+  return hxZap(p, z);
+}
 async function hxZap(p, z) {
+  if (SP.then?.resume) SP.then = null;                                    // a press made by hand: the Prove sheet is not still waiting to send it
   HX.zs ||= Object.assign(document.createElement('p'), { className: 'q', id: 'hx-zs' });
   HX.zs.setAttribute('aria-live', 'polite');
   $('#hx-zs-at')?.replaceWith(HX.zs);
   HX.zapping = true;
   try {
-    await busy($('#hx-go'), (run) => zapNow({ run, p, z, status: HX.zs, bond: !HX.lp, moved: () => { HX.q = null; hxQuote(); },
+    await busy($('#hx-go'), (run) => zapNow({ run, p, z, status: HX.zs, bond: !HX.lp, again: () => hxZapAgain(p, z), moved: () => { HX.q = null; hxQuote(); },
       clear: () => { HX.amt = ''; HX.zq = null; const a = $('#hx-amt'); if (a) a.value = ''; hxTyped(true); } }));
   } finally {
     HX.zapping = false;
