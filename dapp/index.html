@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zHIYW1fuiJwwKVboW9eI1IV3ggDo0invW+2tfCxu42s=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-V7XMEXXcqF/cRAGoCIcmd1t65Wy20ufavBQLJnwQyXU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8741,9 +8741,9 @@ async function lpPoolRequest(poolId, size, at = null) {
   catch { if (at == null) t.releaseShareIndex({ walletPriv: priv, poolId, index: b.index }); }
 }
 // A share note proved on this computer (`size`, kept ready) or asked of the relay as a zap's amount settles (`shares`, `relay`).
-function lpProve(poolId, { size = null, shares = null, relay = false, at = null } = {}) {
+function lpProve(poolId, { size = null, shares = null, relay = false, at = null, now = false } = {}) {
   if (!S.key || VOUCH.ahead) return VOUCH.ahead?.p ?? null;
-  if (relay ? (VOUCH.relayAsked || 0) >= RELAY_AHEAD : !devOn() || !LOCAL.found) return null;
+  if (relay ? (!now && (VOUCH.relayAsked || 0) >= RELAY_AHEAD) : !devOn() || !LOCAL.found) return null;
   if (relay) VOUCH.relayAsked = (VOUCH.relayAsked || 0) + 1;
   const pub = S.key.pubHex, me = { poolId, relay };
   me.p = (async () => {
@@ -8753,7 +8753,7 @@ function lpProve(poolId, { size = null, shares = null, relay = false, at = null 
     const b = await lpBuild(t, priv, poolId, n, at), rec = lpRec(poolId, b, { size: size == null ? null : String(size), by: relay ? 'relay' : 'device' });
     try {
       const keep = (jobId) => { if (!rec.job && jobId) { rec.job = jobId; v.put(pub, rec); } };
-      const proven = await t.relay.prove({ type: 'wrap', op: b.wrapOp, leaves: [b.leaf], outputs: b.outputs, memos: b.memos, ephRand: b.ephRand, ...(relay ? { ahead: true } : {}) },
+      const proven = await t.relay.prove({ type: 'wrap', op: b.wrapOp, leaves: [b.leaf], outputs: b.outputs, memos: b.memos, ephRand: b.ephRand, ...(relay && !now ? { ahead: true } : {}) },
         { ...(relay ? { viaRelay: true, timeoutMs: 10 * 60e3 } : {}), onJob: keep, onUpdate: (st) => keep(st?.jobId) });
       if (!t.wrapProofFits(b, proven)) throw new Error('not this share');
       v.put(pub, { ...rec, status: 'ready', publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || b.memos });
@@ -10695,7 +10695,13 @@ async function zapNow({ run, p, z, status, bond = true, clear = () => {}, moved 
     // A share proved already (kept ready, or asked of the relay as the amount settled): the zap and the settle that makes the note go in
     // one transaction at once, the bond after; a share the relay is still proving for this pool is waited for a little.
     if (!sp && S.key) {
-      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved…'); await Promise.race([VOUCH.ahead.p, sleep(30e3)]); }
+      if (VOUCH.ahead?.poolId === p.poolId && VOUCH.ahead.relay) { tell('Your share is being proved, about a minute. Nothing has left your wallet yet…'); await Promise.race([VOUCH.ahead.p, sleep(150e3)]); }
+      // none made: the relay proves it first, as it does a wrap (pressed, so ahead of the early ones), and one transaction then zaps, mints and settles it
+      // from this account; not the zap first with the relay's settle and gas left to wait on
+      else if (!(await lpReady(p.poolId, z.wei, res)) && !ownNow(['wrap']) && await relayProving()) {
+        tell('Tacit’s relay is proving your share first, about a minute. Nothing has left your wallet yet…');
+        await Promise.race([lpProve(p.poolId, { shares: plan.shares, relay: true, now: true }) || Promise.resolve(), sleep(150e3)]).catch(() => {});
+      }
       const ready = await lpReady(p.poolId, z.wei, res), v = await vouchers();
       if (ready && wordAt(await rpc('eth_call', [{ to: ADDR.pool, data: '0x7da9874f' + strip(ready.x.depositId).padStart(64, '0') }, 'latest']), 0) !== 0n) v.drop(pub, ready.x.depositId);
       else if (ready) {
@@ -14122,7 +14128,7 @@ function hxGo() {
   // now, not when a sheet asks. Asked once a visit: declined, the press goes on to the sheet that asks as ever.
   if (!HX.keyAsked && !S.key && !signing && (m === 'private' || (m === 'earn' && HX.from === 'ether')) && !knownWallet() && !otherWallet()) {
     HX.keyAsked = true;
-    connect({ key: true }).catch(() => {}).then(() => hxGo());
+    connect({ key: true }).catch(() => {}).then(async () => { if (S.key && m === 'earn') await hxQuote().catch(() => {}); hxGo(); });          // the zap priced for the key, so it goes from this card
     return;
   }
   const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; hxDraft({ mode: 'wrap', amt }); openLink('private'); };

@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -10808,6 +10808,42 @@ await step('connectkey', async () => {
     ok(!!op && op.value === String(10n ** 16n / 10n ** 10n), `connectkey: the first proof asked for is the card's 0.01 ETH wrap (${op ? `${op.value} units` : first ? 'another size or asset' : 'none asked'}; ${poolReqs.length - q0} asked)`);
     if (r.errors.length) { fails++; console.log('FAIL connectkey page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// A shared farm link followed by a fresh visitor: #card=earn:ether:p<pid>&amt=0.01 opens the card's Earn tab on that pool with 0.01 ETH in it. The press
+// connects the wallet and opens the Tacit wallet with it, the relay proves the share FIRST (pressed, not early) with nothing sent from the wallet,
+// and then ONE transaction from the wallet (zapETHIntoFarm with that proof) zaps, mints and settles it; the share goes on into the farm. The relay
+// is asked to settle nothing: no waiting on its settle or its gas.
+await step('zapfirst', async () => {
+  const ROUTER_ADDR = '0x000000005da3e3b73726af3c774deeb9472d4992';
+  const restore = await stubPoolSettle('ok');
+  const r = await openPage({ account: A0, key: K0, locked: true }), p = r.page;
+  await stubFarmUx(p, { notes: [], positions: [], zap: true });
+  try {
+    proveStub = true;
+    await p.goto(r.url);
+    await until(p, () => [...document.querySelectorAll('[data-hx]')].some((a) => /^earn:ether:p\d+$/.test(a.dataset.hx) && /^tETH \/ TAC/.test(a.title)), null, 240000);
+    const spec = await p.evaluate(() => [...document.querySelectorAll('[data-hx]')].find((a) => /^earn:ether:p\d+$/.test(a.dataset.hx) && /^tETH \/ TAC/.test(a.title)).dataset.hx.split(':')[2]);          // the tETH / TAC farm's own link, as the landing lists it
+    await p.goto(r.url + `#card=earn:ether:${spec}&amt=0.01`);
+    await p.waitForSelector('#hx-amt', { timeout: 120000 });
+    await until(p, () => document.querySelector('#hx-amt')?.value === '0.01' && document.querySelector('[data-hxm="earn"]')?.getAttribute('aria-selected') === 'true', null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | amt ${await p.inputValue('#hx-amt').catch(() => '?')} | go ${await text(p, '#hx-go').catch(() => '?')}`); });
+    await p.waitForSelector('#hx-routes [data-hxr]', { timeout: 300000 }).catch(() => {});
+    await until(p, () => /Zap into the farm/.test(document.querySelector('#hx-go')?.textContent || ''), null, 60000).catch(() => {});
+    ok(!(await p.$('#wallet-dot.on')) && /Zap into the farm/.test(await text(p, '#hx-go')), `zapfirst: the link opens the Earn card with 0.01 ETH in it and nothing signed in (${(await text(p, '#hx-go')).trim()}; link ${spec}; card ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(0, 300)}; routes ${(await p.$$eval('#hx-routes [data-hxr]', (bs) => bs.map((b) => `${b.dataset.hxr}${b.getAttribute('aria-checked') === 'true' ? '*' : ''}`))).join(' ')})`);
+    const s0 = submits.length, w0 = walletTxs.length;
+    await p.click('#hx-go');
+    await until(p, () => (window.__farmCalls || []).some((c) => c.startsWith('bond:')) || /class="err"/.test(document.querySelector('#hx-zs')?.innerHTML || ''), null, 400000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | zs ${(await text(p, '#hx-zs').catch(() => '?')).slice(0, 160)} | key ${!!(await p.$('#wallet-dot.on'))} | submits ${submits.slice(s0).map((x) => `${x.type}/${x.mode || 'settle'}${x.ahead ? '/ahead' : ''}`)}`); });
+    const asked = submits.slice(s0), sent = walletTxs.slice(w0), zap = sent.filter((x) => String(x.to).toLowerCase() === ROUTER_ADDR);
+    ok(!!(await p.$('#wallet-dot.on')), 'zapfirst: the press opened the Tacit wallet with the connected one');
+    ok(asked.some((x) => x.type === 'wrap' && x.mode === 'prove' && !x.ahead) && !asked.some((x) => x.type === 'wrap' && (x.mode || 'settle') === 'settle'),
+      `zapfirst: the share was proved first, pressed and not early, and the relay was asked to settle nothing (${asked.map((x) => `${x.type}/${x.mode || 'settle'}${x.ahead ? '/ahead' : ''}`)})`);
+    ok(sent.length === 1 && zap.length === 1 && zap[0].data.startsWith('0xc4294fac') && BigInt(zap[0].value) >= 10n ** 16n / 2n,
+      `zapfirst: then one transaction from the wallet zaps, mints and settles it (${sent.map((x) => `${String(x.to).slice(0, 10)}/${String(x.data).slice(0, 10)}`)})`);
+    ok((await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')), `zapfirst: and the share goes on into the farm (${(await p.evaluate(() => window.__farmCalls)).join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL zapfirst page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; await restore(); await r.browser.close(); }
 });
 
 // Adding PROVE from the wallet: the wallet sends the PROVE the Tacit account lacks, then the vApp's permitAndDeposit with a permit the
