@@ -210,12 +210,15 @@ async function main() {
   }
 
   // A keeper's loops: its price, the history's facts, and its ticks.
+  let started = 0;   // the loops of 15 keepers starting together hash and read at once: each starts a little after the one before
   function runKeeper(k) {
+    const stagger = Math.min(started++, 20) * Number(process.env.EVM_POOL_KEEPER_STAGGER_MS ?? 2000);
     if (k.rates) setInterval(() => { k.rates.refresh().catch(() => {}); }, k.cfg.rateSecs * 1000).unref?.();
     // The history's public facts fill in on their own loop: a backfill or a slow node never delays a relay or a proof.
     if (k.cfg.facts) {
       const facts = makeFactsSync({ store: k.store, chain: k.chain, startBlock: k.cfg.startBlock, logChunk: k.cfg.logChunk, concurrency: k.cfg.factsConcurrency });
       (async () => {
+        await sleep(stagger);
         for (;;) {
           let more = false;
           try { more = await facts.step(20_000); } catch (e) { k.log(`history facts: ${safeErr(e)}`); }
@@ -225,6 +228,7 @@ async function main() {
     }
     (async () => {
       let lastHistory = 0;
+      await sleep(stagger);
       for (;;) {
         try { await k.keeper.tick(); k.lastTickOk = true; }
         catch (e) { k.lastTickOk = false; k.log(`tick failed: ${safeErr(e)}`); }

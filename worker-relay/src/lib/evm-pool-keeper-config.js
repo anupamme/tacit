@@ -165,7 +165,14 @@ export function loadKeeperConfig(env = process.env) {
     // Public relaying of users' own transactions (withdrawals and transfers) at /evm-pool/keeper/relay.
     relay: str(env, 'EVM_POOL_KEEPER_RELAY', '1') !== '0',
     gasCap: big(env, 'EVM_POOL_KEEPER_GAS_CAP', 1500000n),
-    staleRetries: int(env, 'EVM_POOL_KEEPER_STALE_RETRIES', 3),
+    // A completion or sweep whose proof goes stale (the pool moved while it was made) is proved again this many times at once, then
+    // looked at again after pollSecs, doubling each time up to STALE_MAX_BACKOFF_SECS: a pool in heavy use cannot keep the keeper proving.
+    staleRetries: int(env, 'EVM_POOL_KEEPER_STALE_RETRIES', 1),
+    staleMaxBackoffSecs: int(env, 'EVM_POOL_KEEPER_STALE_MAX_BACKOFF_SECS', 120),
+    // How many worker threads a proof may start (snarkjs starts one per CPU it is told of, and a container is told of its host's).
+    proverThreads: int(env, 'EVM_POOL_KEEPER_PROVER_THREADS', 2),
+    // How long a /quote answer is shared by everyone who asks (ms).
+    quoteCacheMs: int(env, 'EVM_POOL_KEEPER_QUOTE_CACHE_MS', 4000),
     maxAttempts: int(env, 'EVM_POOL_KEEPER_MAX_ATTEMPTS', 5),
     receiptWaitSecs: int(env, 'EVM_POOL_KEEPER_RECEIPT_WAIT_SECS', 180),
     reclaim: str(env, 'EVM_POOL_KEEPER_RECLAIM', '0') === '1',

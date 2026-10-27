@@ -671,6 +671,93 @@ await test('re-proving is bounded; the box stays pending for the next tick', asy
   assert.equal(r.attempts, 0);
 });
 
+await test('a box whose proofs keep going stale is looked at less and less often, up to a cap', async () => {
+  const s = setup({ cfg: { staleRetries: 0, staleMaxBackoffSecs: 80, pollSecs: 10 }, onProve: (_, chain) => chain.foreignTx() });
+  const { box } = await addDeposit(s);
+  s.chain.fund(TOKEN, box, 1000n);
+  const waits = [];
+  for (let i = 0; i < 6; i++) {
+    const at = s.clock.t;
+    await s.keeper.tick();
+    const r = s.store.get(box);
+    assert.equal(r.note, 'stale');
+    waits.push(r.next_check - at);
+    s.advance(r.next_check - at);
+  }
+  assert.deepEqual(waits, [10, 20, 40, 80, 80, 80], 'doubling from the poll interval, then held at the cap');
+  assert.equal(s.prover.calls, 6, 'one proof for each look, not a proof every poll');
+});
+
+await test('a /quote answer is shared for a few seconds and a refusal is not kept', async () => {
+  const cfg = mkCfg({ ratePerMin: 1000, quoteCacheMs: 60_000 });
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  let reads = 0;
+  const price = chain.gasPrice;
+  chain.gasPrice = async () => { reads++; return price(); };
+  const handler = createIntakeHandler({ store, chain, zk, assetField, cfg, now: () => T0 });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}/evm-pool/keeper`;
+  try {
+    const first = await (await fetch(`${base}/quote`)).json();
+    for (let i = 0; i < 5; i++) assert.deepEqual(await (await fetch(`${base}/quote`)).json(), first);
+    const before = reads;
+    chain.gas = 7n;   // the price moves: a cached answer is still the answer for the window
+    assert.deepEqual(await (await fetch(`${base}/quote`)).json(), first);
+    assert.equal(reads, before, 'no read behind a cached answer');
+    const other = await (await fetch(`${base}/quote?gas=900000`)).json();
+    assert.notEqual(other.gas, first.gas, 'another gas is its own answer');
+  } finally { server.close(); }
+});
+
+await test('a keeper that starts again reads its tree from the store, not by hashing every leaf', async () => {
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  for (let i = 0; i < 5; i++) chain.foreignTx();
+  const appended = [];
+  const spyZk = { ...zk, incTree: (...a) => { const t = zk.incTree(...a); const orig = t.append; t.append = (ls, ...r) => { if (ls.length) appended.push(ls.length); return orig(ls, ...r); }; return t; } };
+  const mk = () => makeLeafSync({ store, chain, zk: spyZk, startBlock: 0n, confirmations: 2n, logChunk: 3n });
+  const first = await mk().sync();
+  assert.equal(store.leafCount(), 6);
+  assert.ok(store.getMeta('base_tree'), 'the tree is kept beside the leaves');
+  appended.length = 0;
+  const again = await mk().sync();      // a new process: nothing in memory, the same store
+  assert.ok(!appended.includes(6), `the 6 stored leaves were hashed again at the start: ${appended}`);
+  assert.equal(again.root, first.root, 'and it is the same tree');
+  assert.equal(again.tree.root, zk.tree(chain.leaves).root);
+  // a tree kept for other leaves than the store holds is not trusted: the leaves are hashed
+  store.setMeta('base_tree', JSON.stringify({ ...JSON.parse(store.getMeta('base_tree')), size: 4 }));
+  appended.length = 0;
+  const healed = await mk().sync();
+  assert.ok(appended.includes(6), 'a tree of the wrong size is rebuilt from the leaves');
+  assert.equal(healed.tree.root, zk.tree(chain.leaves).root);
+  // a tree whose root was altered in the store (not the size) is not trusted either
+  const meta = JSON.parse(store.getMeta('base_tree'));
+  store.setMeta('base_tree', 'not json');
+  appended.length = 0;
+  const bad = await mk().sync();
+  assert.ok(appended.includes(6), 'an unreadable tree is rebuilt from the leaves');
+  assert.equal(bad.tree.root, zk.tree(chain.leaves).root);
+  void meta;
+});
+
+await test('hashing the stored leaves in slices gives the same tree, and many syncs at once rebuild it once', async () => {
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  for (let i = 0; i < 5; i++) chain.foreignTx();
+  await makeLeafSync({ store, chain, zk, startBlock: 0n, confirmations: 2n, logChunk: 3n }).sync();   // six leaves stored
+  store.setMeta('base_tree', '');
+  const appended = [];
+  const spyZk = { ...zk, incTree: (...a) => { const t = zk.incTree(...a); const orig = t.append; t.append = (ls, ...r) => { if (ls.length) appended.push(ls.length); return orig(ls, ...r); }; return t; } };
+  const sync = makeLeafSync({ store, chain, zk: spyZk, startBlock: 0n, confirmations: 2n, logChunk: 3n, rebuildChunk: 2 });
+  const [a, b, c] = await Promise.all([sync.sync(), sync.sync(), sync.sync()]);
+  assert.equal(a.tree.root, zk.tree(chain.leaves).root, 'slices of two leaves make the same tree');
+  assert.equal(b.root, a.root);
+  assert.equal(c.root, a.root);
+  assert.deepEqual(appended.filter((n) => n === 2).length, 3, 'six leaves in three slices, once for all three syncs');
+});
+
 await test('an unprofitable deposit is skipped before proving', async () => {
   const s = setup({ cfg: { minFees: new Map([[TOKEN.toLowerCase(), 500n]]) } });
   const { box } = await addDeposit(s);
@@ -1000,7 +1087,7 @@ await test('the subsidy is a bounded share of the live cost: it follows gas, is 
   let held = 10n ** 18n;
   const chain = { chainId: 1, address: '0x00000000000000000000000000000000000000AA', balanceOf: async () => held };
   const dcfg = mkCfg({ ...base, sweepSubsidyDaily: 150_000n }), dcfg2 = mkCfg({ ...base, sweepSubsidyDaily: 150_000n });
-  const room = (c, at) => subsidyRoom({ chain, cfg: c, at });
+  const room = (c, at) => subsidyRoom({ chain, cfg: c, at, maxAgeMs: 0 });
   assert.equal(await room(dcfg, 1000), 150_000n);
   assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: dcfg, room: await room(dcfg, 1000) }), 95_000n);
   absorbed({ token: ETH, tokens: 95_000n, cfg: dcfg, chain, at: 1000 });
@@ -1011,18 +1098,18 @@ await test('the subsidy is a bounded share of the live cost: it follows gas, is 
   assert.equal(receiveMinOf({ token: ETH, sweepFee: 100_000n, cfg: dcfg, room: await room(dcfg, 1200) }), 40_000_000n, 'back to 400 times the cost');
   assert.equal(await room(dcfg, 1100 + 86_401), 150_000n, 'a day later it is back');
   const other = { ...chain, address: '0x00000000000000000000000000000000000000BB' };
-  assert.equal(await subsidyRoom({ chain: other, cfg: dcfg, at: 1200 }), 150_000n, 'another signer has a budget of its own');
+  assert.equal(await subsidyRoom({ chain: other, cfg: dcfg, at: 1200, maxAgeMs: 0 }), 150_000n, 'another signer has a budget of its own');
   // the reserve: only the ETH the signer holds beyond it may be taken on
   const rcfg = mkCfg({ ...base, subsidyReserve: 1_000_000n });
   held = 1_300_000n;
-  assert.equal(await subsidyRoom({ chain, cfg: rcfg, at: 5000 }), 300_000n);
+  assert.equal(await subsidyRoom({ chain, cfg: rcfg, at: 5000, maxAgeMs: 0 }), 300_000n);
   held = 900_000n;
-  assert.equal(await subsidyRoom({ chain, cfg: rcfg, at: 5000 }), 0n, 'under the reserve: none');
+  assert.equal(await subsidyRoom({ chain, cfg: rcfg, at: 5000, maxAgeMs: 0 }), 0n, 'under the reserve: none');
   assert.equal(receiveMinOf({ token: ETH, sweepFee: 100_000n, cfg: rcfg, room: 0n }), 40_000_000n, 'and the minimum is the plain one');
-  assert.equal(await subsidyRoom({ chain: { ...chain, balanceOf: async () => { throw new Error('rpc down'); } }, cfg: rcfg, at: 5000 }), 0n, 'a balance that cannot be read stops it');
+  assert.equal(await subsidyRoom({ chain: { ...chain, balanceOf: async () => { throw new Error("rpc down"); } }, cfg: rcfg, at: 5000, maxAgeMs: 0 }), 0n, 'a balance that cannot be read stops it');
   held = 1_300_000n;
-  assert.equal(await subsidyRoom({ chain, cfg: mkCfg({ ...base, sweepSubsidyDaily: 100_000n, subsidyReserve: 1_000_000n }), at: 200_000 }), 100_000n, 'the lesser of the budget and the spare ETH');
-  assert.equal(await subsidyRoom({ chain, cfg: mkCfg(base), at: 200_000 }), null, 'no bound when neither is set');
+  assert.equal(await subsidyRoom({ chain, cfg: mkCfg({ ...base, sweepSubsidyDaily: 100_000n, subsidyReserve: 1_000_000n }), at: 200_000, maxAgeMs: 0 }), 100_000n, 'the lesser of the budget and the spare ETH');
+  assert.equal(await subsidyRoom({ chain, cfg: mkCfg(base), at: 200_000, maxAgeMs: 0 }), null, 'no bound when neither is set');
   assert.equal(subsidyOf({ token: ETH, cost: 100_000n, cfg: mkCfg({ ...base, sweepSubsidy: 0n }) }), 0n, 'off by default');
 });
 

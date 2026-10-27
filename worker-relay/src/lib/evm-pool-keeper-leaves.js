@@ -44,12 +44,41 @@ function receivedEvent(e) {
   };
 }
 
-export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations = 12n, logChunk = 2000n, log = () => {} }) {
+export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations = 12n, logChunk = 2000n, log = () => {}, rebuildChunk = 4000 }) {
   const synced = () => {
     const v = store.getMeta('synced_block');
     return v === null ? BigInt(startBlock) - 1n : BigInt(v);
   };
   let base = null; // incTree over the persisted leaves
+
+  // That tree's right edge, size and root are kept beside the leaves: starting up then costs nothing, where hashing every leaf of a pool
+  // (109,000 on Base) again stalls the process for tens of seconds, long enough for its health check to fail. It is used only when it
+  // holds exactly the stored leaves; any doubt and the leaves are hashed as before, a slice at a time with the event loop let in between
+  // (the same tree as one append: a slice is an append like any other).
+  const keepBase = () => store.setMeta('base_tree', JSON.stringify(base.toJSON()));
+  const later = () => new Promise((r) => setImmediate(r));
+  async function loadBase() {
+    try {
+      const raw = store.getMeta('base_tree');
+      if (raw) {
+        const s = JSON.parse(raw), t = zk.incTree(s);
+        if (t.size === store.leafCount() && String(t.root) === String(s.root)) return t;
+      }
+    } catch { /* hashed again below */ }
+    const t = zk.incTree(), all = store.leaves();
+    for (let i = 0; i < all.length; i += rebuildChunk) { t.append(all.slice(i, i + rebuildChunk)); await later(); }
+    return t;
+  }
+  // One rebuild at a time however many syncs ask, and none kept past a reset that happened while it ran.
+  let baseP = null, gen = 0;
+  async function ensureBase() {
+    while (!base) {
+      const mine = gen;
+      baseP ||= loadBase().finally(() => { baseP = null; });
+      const t = await baseP;
+      if (mine === gen && !base) { base = t; keepBase(); }
+    }
+  }
 
   function ordered(logs, expectFrom) {
     const sorted = [...logs].filter((e) => BigInt(e.outLeaf0) !== 0n || BigInt(e.outLeaf1) !== 0n).sort((a, b) => (BigInt(a.firstIndex) < BigInt(b.firstIndex) ? -1 : 1));
@@ -65,7 +94,9 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
 
   function reset() {
     store.resetLeaves();
+    store.setMeta('base_tree', '');
     base = null;
+    gen++;
   }
 
   // Returns { tree, root, nextIndex, head, confirmed }: an incTree over every leaf the pool holds at `head`, and its root
@@ -74,7 +105,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     const head = BigInt(await chain.blockNumber());
     const safe = head - BigInt(confirmations);
     try {
-      if (!base) { base = zk.incTree(); base.append(store.leaves()); }
+      await ensureBase();
       for (let from = synced() + 1n; from <= safe; ) {
         const to = from + BigInt(logChunk) - 1n > safe ? safe : from + BigInt(logChunk) - 1n;
         const [txs, recs] = await Promise.all([chain.transactLogs(from, to), chain.receivedLogs ? chain.receivedLogs(from, to) : []]);
@@ -90,6 +121,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
         ];
         store.appendLeaves(items, to, events);
         base.append(items.map((x) => x.leaf));
+        keepBase();
         from = to + 1n;
       }
     } catch (e) {

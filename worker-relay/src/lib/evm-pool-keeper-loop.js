@@ -57,11 +57,16 @@ const absorbedSince = (key, at) => (ABSORBED.get(key) || []).filter((x) => at - 
 // How much of its own ETH (wei) the signer may still take on: what is left of its day's budget (SWEEP_SUBSIDY_DAILY_WEI) and what
 // it holds over its reserve (SUBSIDY_RESERVE_WEI), whichever is less; null when neither is set. A balance that cannot be read
 // counts as none, so the subsidy stops rather than spends blind.
-export async function subsidyRoom({ chain, cfg, at = nowSecs() }) {
+const HELD = new Map();   // signer → { at (ms), wei }: its ETH, read at most every maxAgeMs
+export async function subsidyRoom({ chain, cfg, at = nowSecs(), maxAgeMs = 10_000 }) {
   let room = null;
   if (cfg.sweepSubsidyDaily) { const left = cfg.sweepSubsidyDaily - absorbedSince(signerKey(chain), at); room = left > 0n ? left : 0n; }
   if (cfg.subsidyReserve) {
-    const held = BigInt(await chain.balanceOf(ETH, chain.address).catch(() => 0n)), spare = held > cfg.subsidyReserve ? held - cfg.subsidyReserve : 0n;
+    const key = signerKey(chain), c = HELD.get(key), ms = Date.now();
+    let held;
+    if (c && ms - c.at < maxAgeMs) held = c.wei;
+    else { held = BigInt(await chain.balanceOf(ETH, chain.address).catch(() => 0n)); HELD.set(key, { at: ms, wei: held }); }
+    const spare = held > cfg.subsidyReserve ? held - cfg.subsidyReserve : 0n;
     if (room === null || spare < room) room = spare;
   }
   return room;
@@ -113,6 +118,12 @@ export function createKeeper({
     const cap = r.kind !== 'receive' ? cfg.maxBackoffSecs : t > Number(r.deadline) ? cfg.receiveSlowSecs : cfg.receiveMaxBackoffSecs;
     const wait = Math.min(cfg.pollSecs * 2 ** Math.min(checks, 16), cap);
     store.update(r.box, { checks, next_check: t + wait, updated: t, ...(note !== undefined ? { note } : {}) });
+  };
+  // A stale proof means the pool moved while it was made. Looking again at once only makes another, so the wait doubles from pollSecs
+  // to staleMaxBackoffSecs (`checks` counts them; a success resets it): a pool in heavy use cannot keep the keeper proving.
+  const staleLater = (r, t) => {
+    const n = r.checks || 0, wait = Math.min(cfg.pollSecs * 2 ** Math.min(n, 12), cfg.staleMaxBackoffSecs ?? 120);
+    store.update(r.box, { checks: n + 1, next_check: t + wait, updated: t, note: 'stale' });
   };
   const soon = (r, t, fields = {}) => store.update(r.box, { next_check: t + cfg.pollSecs, updated: t, ...fields });
   const finish = (r, t, status, fields = {}) => {
@@ -306,7 +317,7 @@ export function createKeeper({
     }
     if (res.out === 'inflight') return soon(r, t);
     if (res.out === 'dry') return backoff(r, t, 'dry run');
-    if (res.stale) return soon(r, t, { note: 'stale' });
+    if (res.stale) return staleLater(r, t);
     if (res.failed) {
       // A receive box is never given up on: a failure only slows the next look.
       log(`receive ${r.box}: ${res.failed}`);
@@ -337,7 +348,7 @@ export function createKeeper({
       if (res.out === 'inflight') return soon(r, t);
       if (res.out === 'dry') return backoff(r, t, 'dry run');
       if (res.failed) return failed(r, t, res.failed);
-      if (res.stale) { log(`deposit ${r.box}: still stale after ${cfg.staleRetries + 1} proofs; next tick`); return soon(r, t, { note: 'stale' }); }
+      if (res.stale) { log(`deposit ${r.box}: still stale after ${cfg.staleRetries + 1} proofs; next tick`); return staleLater(r, t); }
       if (pastGrace) return finish(r, t, 'expired', { note: res.skipped });
       log(`${r.kind} ${r.box}: skipped, ${res.skipped}`);
       return backoff(r, t, res.skipped);

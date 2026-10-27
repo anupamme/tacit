@@ -9,7 +9,8 @@ import { ContractFunctionExecutionError, ContractFunctionRevertedError, toFuncti
 import { poolAsset } from '../../dapp/evm-pool-zk.js';
 import { depositIntent, completionWitness } from '../../dapp/evm-pool-gateway.js';
 import { loadKeeperConfig } from '../src/lib/evm-pool-keeper-config.js';
-import { makeKeeperProver, loadZk, loadArtifact } from '../src/lib/evm-pool-keeper-prover.js';
+import { makeKeeperProver, loadZk, loadArtifact, capProverThreads } from '../src/lib/evm-pool-keeper-prover.js';
+import os from 'node:os';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +25,14 @@ await test('revertName decodes a router/pool custom error from a viem revert', (
   const e = new ContractFunctionExecutionError(cause, { abi: ROUTER_ABI, functionName: 'completeDeposit', args: [] });
   assert.equal(revertName(e), 'StaleRoot');
   assert.equal(revertName(new Error('connection reset')), null);
+});
+
+await test('a proof is told of at most the CPUs it may use, once, whatever the host has', () => {
+  const seen = os.cpus().length;
+  assert.equal(capProverThreads(2), 2);
+  assert.ok(os.cpus().length <= 2 && os.cpus().length >= 1, `${seen} CPUs listed before, ${os.cpus().length} after`);
+  assert.equal(capProverThreads(8), 2, 'set once');
+  assert.equal(capProverThreads(0), 2, 'a nonsense value changes nothing');
 });
 
 await test('artifacts from a URL must be pinned, are checked, and are cached', async () => {

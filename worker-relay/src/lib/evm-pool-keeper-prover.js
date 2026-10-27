@@ -3,6 +3,7 @@
 // submitted, and the key can be pinned by hash.
 
 import { createHash } from 'node:crypto';
+import os from 'node:os';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeEvmPoolZk } from '../../../dapp/evm-pool-zk.js';
@@ -75,8 +76,20 @@ export async function loadArtifact(src, { sha256 = '', dir, name, fetchImpl = fe
   return b;
 }
 
+// snarkjs's curve library (ffjavascript) starts a worker thread for every CPU os.cpus() lists, and a container lists its host's, not
+// its quota of a core or two: one proof then starts dozens of threads that use the quota up and starve the rest of the process,
+// the health check included. What it is told of is capped here, once, before the first proof starts one.
+let threadCap = 0;
+export function capProverThreads(n) {
+  if (!(n >= 1) || threadCap) return threadCap || null;
+  const real = os.cpus.bind(os);
+  os.cpus = () => { const all = real(); return all.length > n ? all.slice(0, n) : all; };
+  return (threadCap = Math.floor(n));
+}
+
 // → { prove(input) → { pA, pB, pC, publicInputs }, vkHash }. wasm / zkey / vk are paths or pinned https URLs.
-export async function makeKeeperProver({ wasm, zkey, vk, vkHash = '', wasmSha256 = '', zkeySha256 = '', artifactDir = '', singleThread = false }) {
+export async function makeKeeperProver({ wasm, zkey, vk, vkHash = '', wasmSha256 = '', zkeySha256 = '', artifactDir = '', singleThread = false, proverThreads = 2 }) {
+  capProverThreads(proverThreads);
   const opts = (name, sha256) => ({ name, sha256, dir: artifactDir });
   const remoteVk = /^https:\/\//.test(vk);
   if (remoteVk && !vkHash) throw new Error('the verification key is fetched from a URL, so EVM_POOL_VK_HASH must pin it');

@@ -375,8 +375,19 @@ export function createIntakeHandler({
     if (!room.ok) throw new IntakeError(503, "the relay is busy with other sends; try again in a minute. Sending it from your own wallet also works, and shows your address as the sender");
   }
 
+  // A quote is the same for everyone for a few seconds (gas, prices and balances are read through caches too), so the many that ask
+  // while a page is open, or while the keeper is busy, share one answer; a refusal is not kept.
+  const quoteMemo = new Map();
+  function quote(gasParam) {
+    const key = gasParam ?? '', hit = quoteMemo.get(key), t = Date.now();
+    if (hit && t - hit.at < (cfg.quoteCacheMs ?? 4000)) return hit.p;
+    const p = quoteNow(gasParam);
+    quoteMemo.set(key, { at: t, p });
+    p.catch(() => { if (quoteMemo.get(key)?.p === p) quoteMemo.delete(key); });
+    return p;
+  }
   // The fee for `gas` (default relayGas; a withdrawal that also runs calls asks for more), within the gas cap.
-  async function quote(gasParam) {
+  async function quoteNow(gasParam) {
     let gas = cfg.relayGas;
     if (gasParam != null) {
       if (!/^\d{1,9}$/.test(gasParam)) throw bad('gas must be a whole number');
