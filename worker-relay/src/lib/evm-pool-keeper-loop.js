@@ -47,6 +47,20 @@ export function quoteFee({ token, gas, gasPrice, cfg, floor = true }) {
   return fee > min ? fee : min;
 }
 
+// What the keeper takes on itself of a sweep's cost, in `token` base units (nothing for a token with no price).
+export function subsidyOf({ token, cfg }) {
+  const rate = cfg.rates.get(token.toLowerCase());
+  return rate === undefined || !cfg.sweepSubsidy ? 0n : (cfg.sweepSubsidy * E18 + rate - 1n) / rate;
+}
+
+// The smallest balance a sweep of cost `sweepFee` is done for: the 25 bps cap pays what the subsidy does not (a deposit of
+// less leaves the box for its owner to take in), and never less than the token's own floor.
+export function receiveMinOf({ token, sweepFee, cfg }) {
+  const net = sweepFee > subsidyOf({ token, cfg }) ? sweepFee - subsidyOf({ token, cfg }) : 0n;
+  const byCap = (net * 10_000n + 24n) / 25n, floor = cfg.minReceive?.get(token.toLowerCase()) ?? 0n;
+  return byCap > floor ? byCap : floor;
+}
+
 const hexOf = (m) => (typeof m === 'string' ? m : '0x' + Buffer.from(m).toString('hex'));
 
 export function createKeeper({
@@ -185,7 +199,10 @@ export function createKeeper({
     const floor = !cfg.rates.has(r.token.toLowerCase());
     const cost = quoteFee({ token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     const feeFor = (amount) => { const cap = (amount * BigInt(feeBps)) / 10_000n; return cost < cap ? cost : cap; };
-    const pre = coverCheck({ reward: feeFor(bal), token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
+    // What the keeper takes on itself of the cost counts toward the reward; a balance under the token's floor is left alone.
+    const sub = subsidyOf({ token: r.token, cfg });
+    if (sub > 0n && bal < (cfg.minReceive?.get(r.token.toLowerCase()) ?? 0n)) return { skipped: `balance ${bal} is below the ${cfg.minReceive.get(r.token.toLowerCase())} the keeper sweeps` };
+    const pre = coverCheck({ reward: feeFor(bal) + sub, token: r.token, gas: cfg.sweepGas, gasPrice, cfg, floor });
     if (!pre.ok) return { skipped: pre.reason };
     for (let round = 0; round <= cfg.staleRetries; round++) {
       const n = await chain.receiveCount(r.box);
@@ -217,7 +234,7 @@ export function createKeeper({
           return { failed: name || safeErr(e) };
         }
       }
-      const cov = coverCheck({ reward: f, token: r.token, gas: est, gasPrice: await chain.gasPrice(), cfg, floor });
+      const cov = coverCheck({ reward: f + sub, token: r.token, gas: est, gasPrice: await chain.gasPrice(), cfg, floor });
       if (!cov.ok) { await release(); return { skipped: cov.reason }; }
       let out;
       try { out = await submit(r, 'sweepReceive', args, cov.gas, t, slot, tx); }

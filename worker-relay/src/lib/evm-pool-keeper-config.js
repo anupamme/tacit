@@ -131,6 +131,11 @@ export function loadKeeperConfig(env = process.env) {
     depositGas: big(env, 'EVM_POOL_KEEPER_DEPOSIT_GAS', 500000n),
     wrapGas: big(env, 'EVM_POOL_KEEPER_WRAP_GAS', 300000n),
     sweepGas: big(env, 'EVM_POOL_KEEPER_SWEEP_GAS', 600000n),
+    // Wei of a sweep's cost the keeper pays itself, so a small deposit is still worth moving in: its fee cap (25 bps) then
+    // has to cover only the rest. 0 (the default) is the plain cost. With it, EVM_POOL_KEEPER_MIN_RECEIVE (token:units, as
+    // the minimum fees are given) is the smallest balance a token's sweep is done for at all, so dust is never swept at a loss.
+    sweepSubsidy: big(env, 'EVM_POOL_KEEPER_SWEEP_SUBSIDY_WEI', 0n),
+    minReceive: parseTokenMap(str(env, 'EVM_POOL_KEEPER_MIN_RECEIVE'), 'EVM_POOL_KEEPER_MIN_RECEIVE'),
     relayGas: big(env, 'EVM_POOL_KEEPER_RELAY_GAS', 450000n),
     // Receive boxes are watched indefinitely; this caps how many, and the smallest fee cap worth registering.
     maxReceive: int(env, 'EVM_POOL_KEEPER_MAX_RECEIVE', 100000),

@@ -14,7 +14,7 @@ import { loadKeeperConfig, checkKeeperSigner, parseTokenMap, RELAY_EOA } from '.
 import { openKeeperStore } from '../src/lib/evm-pool-keeper-store.js';
 import { makeLeafSync, makeFactsSync, LeafSyncError, ChunkNotKept, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
 import { createIntakeHandler, parseDepositSubmission, parseWrapSubmission, parseReceiveSubmission, parseRelaySubmission, ipKey } from '../src/lib/evm-pool-keeper-intake.js';
-import { createKeeper, coverCheck, quoteFee } from '../src/lib/evm-pool-keeper-loop.js';
+import { createKeeper, coverCheck, quoteFee, receiveMinOf, subsidyOf } from '../src/lib/evm-pool-keeper-loop.js';
 import { loadZk } from '../src/lib/evm-pool-keeper-prover.js';
 
 const zk = await loadZk();
@@ -955,6 +955,32 @@ await test('quoteFee: the smallest fee coverCheck accepts', () => {
   assert.ok(coverCheck({ reward: q, token: ETH, gas: 400000n, gasPrice: 10n, cfg }).ok);
   assert.ok(!coverCheck({ reward: q - 1n, token: ETH, gas: 400000n, gasPrice: 10n, cfg }).ok);
   assert.equal(quoteFee({ token: ETH, gas: 1n, gasPrice: 1n, cfg }), 1000n, 'never below the floor');
+});
+
+await test('a sweep subsidy lowers the smallest balance a receive box is moved in for, and a floor keeps dust out', async () => {
+  // gas 600000 at price 1, margin 0, ETH at 1:1: a sweep costs 600000 wei, so its 25 bps cap needs 240,000,000 wei
+  const base = { rates: new Map([[ETH, 10n ** 18n]]), minFees: new Map(), marginBps: 0n };
+  const plain = mkCfg(base), sub = mkCfg({ ...base, sweepSubsidy: 500_000n }), floored = mkCfg({ ...base, sweepSubsidy: 500_000n, minReceive: new Map([[ETH, 10_000_000n]]) });
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 600_000n, cfg: plain }), 240_000_000n, 'unchanged with no subsidy');
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 600_000n, cfg: sub }), 40_000_000n, 'the cap pays only what the subsidy does not (100000 wei)');
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 600_000n, cfg: floored }), 40_000_000n, 'a floor under it changes nothing');
+  assert.equal(receiveMinOf({ token: ETH, sweepFee: 600_000n, cfg: mkCfg({ ...base, sweepSubsidy: 700_000n, minReceive: new Map([[ETH, 10_000_000n]]) }) }), 10_000_000n, 'a subsidy over the whole cost: the floor alone');
+  assert.equal(subsidyOf({ token: TOKEN, cfg: sub }), 0n, 'nothing for a token with no price');
+  assert.equal(subsidyOf({ token: ETH, cfg: sub }), 500_000n);
+  // a box holding 50,000,000 (cap 125,000 wei): too little to be worth it plain, swept with the subsidy
+  for (const [cfg, swept] of [[plain, 0], [sub, 1]]) {
+    const s = setup({ cfg: { ...cfg, rates: new Map([[TOKEN.toLowerCase(), 10n ** 18n]]), minFees: new Map() } });
+    const box = await addReceive(s, 25);
+    s.chain.fund(TOKEN, box, 50_000_000n);
+    await s.keeper.tick();
+    assert.equal(s.chain.sent.length, swept, swept ? 'swept with the subsidy' : 'not swept without it');
+  }
+  // dust under the floor is left alone even with the subsidy
+  const d = setup({ cfg: { ...floored, rates: new Map([[TOKEN.toLowerCase(), 10n ** 18n]]), minFees: new Map(), minReceive: new Map([[TOKEN.toLowerCase(), 10_000_000n]]) } });
+  const dbox = await addReceive(d, 25);
+  d.chain.fund(TOKEN, dbox, 1_000_000n);
+  await d.keeper.tick();
+  assert.equal(d.chain.sent.length, 0, 'a balance under the floor is not swept at a loss');
 });
 
 await test('HTTP relay and receive: quote, submit, stale → 409, low fee → needFee, receive watch + nudge', async () => {
