@@ -218,7 +218,7 @@ const rux = mkUx();
   ok(!w.error && tac === got && (await erc20(WTAC, OUT)) === w0, `that address turns it into ${fmtTac(tac / scale)} TAC, one for one (${w.error ? w.error.message : BigInt(w.rc.gasUsed) + ' gas'})`);
 }
 
-if (fails) console.error(log.join('\n'));
+if (fails || process.env.SHOW_LOG) (fails ? console.error : console.log)(log.join('\n'));
 console.log(`\n${n} passed, ${fails} failed (${Math.round((Date.now() - t0 - skew) / 1000)} s)`);
 stop();
 process.exit(fails ? 1 : 0);
