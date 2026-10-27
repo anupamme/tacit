@@ -184,6 +184,8 @@ export function loadKeeperConfig(env = process.env) {
     nativeTimeoutMs: int(env, 'EVM_POOL_KEEPER_NATIVE_TIMEOUT_SECS', 60) * 1000,
     nativeBreakAfter: int(env, 'EVM_POOL_KEEPER_NATIVE_BREAK_AFTER', 3),
     nativeBreakSecs: int(env, 'EVM_POOL_KEEPER_NATIVE_BREAK_SECS', 600),
+    // One proof of a made-up completion when the binary starts, timed in the log (0 = none).
+    nativeSelfTest: str(env, 'EVM_POOL_KEEPER_NATIVE_SELFTEST', '1') !== '0',
     // A submission endpoint that does not answer in this long (ms) is given up on (one retry after a network error); the private ones are
     // sent to at once, so a hung one does not hold a relay up.
     sendTimeoutMs: int(env, 'EVM_POOL_KEEPER_SEND_TIMEOUT_MS', 8000),

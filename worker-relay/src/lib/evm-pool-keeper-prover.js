@@ -26,6 +26,20 @@ export async function loadZk() {
   return makeEvmPoolZk({ poseidon: await loadPoseidon() });
 }
 
+// A completion of fixed, made-up values, the same statement every time: what the unit tests prove, and what the native prover is tried
+// on at start, so the log shows it works on this machine and how long a proof takes here.
+export async function cannedCompletion() {
+  const [{ poolAsset }, { depositIntent, completionWitness }, zk] = await Promise.all([
+    import('../../../dapp/evm-pool-zk.js'), import('../../../dapp/evm-pool-gateway.js'), loadZk(),
+  ]);
+  const chainId = 1n, pool = '0x1111111111111111111111111111111111111111', keeper = '0x4444444444444444444444444444444444444444';
+  const asset = poolAsset({ chainId, pool, token: '0x3333333333333333333333333333333333333333' });
+  const alice = zk.walletKeys(new Uint8Array(32).fill(7), 'mainnet');
+  const o = zk.outputKeys(alice.A, alice.N, Uint8Array.from([2, 1, ...new Uint8Array(31).fill(0x61)]));
+  const { intent, hint } = depositIntent(zk, { asset, amount: 1000n, outputs: [{ v: 990n, npk: o.npk, rho: o.rho }], memo0: '0xa11ce0', refund: keeper, deadline: 2_000_000_000n });
+  return { ...completionWitness(zk, { intent, hint, asset, leaves: [11n, 12n, 13n, 0n], chainId, pool, relayer: keeper }), intent };
+}
+
 async function loadSnarkjs() {
   try { return await import('snarkjs'); }
   catch { return (await import('../../../dapp/vendor/tacit-mixer.min.js')).snarkjs; }
@@ -128,7 +142,7 @@ const why = (e, out = '') => {
 // repeated failures switch it off for a while. (rapidsnark sizes its thread pool by the host's CPUs; no setting changes that.)
 export async function makeKeeperProver({
   wasm, zkey, vk, vkHash = '', wasmSha256 = '', zkeySha256 = '', artifactDir = '', singleThread = false, proverThreads = 2,
-  nativeProver = '', nativeTimeoutMs = 60_000, nativeBreakAfter = 3, nativeBreakSecs = 600,
+  nativeProver = '', nativeTimeoutMs = 60_000, nativeBreakAfter = 3, nativeBreakSecs = 600, nativeSelfTest = true,
   nativeTmp = os.tmpdir(), now = Date.now, snarkjs: snarkjsImpl, log = (...a) => console.log('[evm-pool-keeper prover]', ...a),
 }) {
   capProverThreads(proverThreads);
@@ -192,6 +206,17 @@ export async function makeKeeperProver({
     } finally {
       if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
+  }
+
+  // One proof of the canned completion through the whole native path, in the background (no keeper waits for it): the log then shows
+  // whether the binary works on this machine and how long a proof takes here. A failure is counted like any other.
+  if (nativeBin && nativeSelfTest) {
+    (async () => {
+      const w = await cannedCompletion();
+      const t0 = Date.now();
+      const p = await proveNative(w.input);
+      if (p) log(`native prover self-test: witness, proof and check in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    })().catch((e) => log(`native prover self-test did not run: ${why(e)}`));
   }
 
   return {

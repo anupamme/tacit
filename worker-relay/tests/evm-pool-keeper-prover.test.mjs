@@ -6,10 +6,8 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { ContractFunctionExecutionError, ContractFunctionRevertedError, toFunctionSelector } from 'viem';
-import { poolAsset } from '../../dapp/evm-pool-zk.js';
-import { depositIntent, completionWitness } from '../../dapp/evm-pool-gateway.js';
 import { loadKeeperConfig } from '../src/lib/evm-pool-keeper-config.js';
-import { makeKeeperProver, loadZk, loadArtifact, capProverThreads, makeBreaker, artifactFile } from '../src/lib/evm-pool-keeper-prover.js';
+import { makeKeeperProver, loadArtifact, capProverThreads, makeBreaker, artifactFile, cannedCompletion } from '../src/lib/evm-pool-keeper-prover.js';
 import os from 'node:os';
 import { chmodSync, existsSync as exists, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -73,15 +71,8 @@ if (![cfg.wasm, cfg.zkey, cfg.vk].every(existsSync)) {
   console.log('skip - real prover: dev circuit artifacts not built');
 } else {
   const snarkjs = await import('snarkjs');
-  const zk = await loadZk();
-  const chainId = 1n;
-  const pool = cfg.pool;
-  const keeper = '0x4444444444444444444444444444444444444444';
-  const asset = poolAsset({ chainId, pool, token: '0x3333333333333333333333333333333333333333' });
-  const alice = zk.walletKeys(new Uint8Array(32).fill(7), 'mainnet');
-  const o = zk.outputKeys(alice.A, alice.N, Uint8Array.from([2, 1, ...new Uint8Array(31).fill(0x61)]));
-  const { intent, hint } = depositIntent(zk, { asset, amount: 1000n, outputs: [{ v: 990n, npk: o.npk, rho: o.rho }], memo0: '0xa11ce0', refund: keeper, deadline: 2_000_000_000n });
-  const w = completionWitness(zk, { intent, hint, asset, leaves: [11n, 12n, 13n, 0n], chainId, pool, relayer: keeper });
+  const w = await cannedCompletion();
+  const { intent } = w;
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(w.input, cfg.wasm, cfg.zkey);
 
   await test('a deposit completion proves, verifies, and matches the Solidity calldata layout', async () => {
@@ -122,7 +113,7 @@ if (![cfg.wasm, cfg.zkey, cfg.vk].every(existsSync)) {
   const counted = { ...snarkjs, groth16: { ...snarkjs.groth16, fullProve: async () => { fullProves++; return { proof, publicSignals }; } } };
   const make = async (bin, extra = {}) => {
     const logs = [], tmp = mkdtempSync(join(work, 'tmp-'));
-    const prover = await makeKeeperProver({ ...cfg, nativeProver: bin, nativeTmp: tmp, snarkjs: counted, log: (m) => logs.push(m), ...extra });
+    const prover = await makeKeeperProver({ ...cfg, nativeProver: bin, nativeTmp: tmp, snarkjs: counted, nativeSelfTest: false, log: (m) => logs.push(m), ...extra });
     return { prover, logs, tmp, left: () => readdirSync(tmp) };
   };
 
@@ -236,6 +227,25 @@ if (![cfg.wasm, cfg.zkey, cfg.vk].every(existsSync)) {
       assert.equal(logs.length, 1);
       assert.match(logs[0], /cannot write a witness/);
       assert.equal((await prover.prove(w.input)).via, 'snarkjs');
+    });
+
+    await test('with the self-test on, a proof of the canned completion is tried at start in the background and timed in the log', async () => {
+      const bin = stub(good);
+      const { prover, logs } = await make(bin, { nativeSelfTest: true });
+      for (let i = 0; i < 100 && !logs.some((m) => /self-test/.test(m)); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.match(logs.join('\n'), /native prover self-test: witness, proof and check in [\d.]+ s/);
+      assert.equal(calls(bin), 1);
+      assert.equal((await prover.prove(w.input)).via, 'native');
+    });
+
+    await test('a self-test the binary fails is said, counted once, and leaves the later proofs to try it', async () => {
+      const bin = stub('exit 7');
+      const { prover, logs } = await make(bin, { nativeSelfTest: true, nativeBreakAfter: 3 });
+      for (let i = 0; i < 100 && !logs.some((m) => /native prover \(prove\)/.test(m)); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.match(logs.join('\n'), /native prover \(prove\): exit 7/);
+      assert.doesNotMatch(logs.join('\n'), /self-test: witness/);
+      assert.equal((await prover.prove(w.input)).via, 'snarkjs');
+      assert.equal(calls(bin), 2, 'the self-test, then the first proof: one failure short of the breaker\'s three');
     });
 
     const real = process.env.RAPIDSNARK_PROVER;
