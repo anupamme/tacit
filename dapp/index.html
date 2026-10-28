@@ -12260,14 +12260,14 @@ function dashItems() {
     let dev = null;
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = devBal(c.chainId, k); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.chainId); } }
-    out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? html`private on ${chainMarks(on)}` : 'private', open: 'device', show: dev > 0n });
+    out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? html`private on ${chainMarks(on)}` : 'private', open: 'device', show: dev > 0n, swap: dev > 0n && on.includes(1) ? 'eth' : null });
     const devTac = devBal('tac', k);
-    out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
+    out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n, swap: devTac > 0n ? 'tac' : null });
     // the other token pools on this device (TACD and TACE beside the vaults, and any a private swap went through), each a row when it holds some
     for (const p of TOKEN_POOLS) {
       if (p.slug === 'tac') continue;
       const v = devBal(p.slug, k);
-      out.push({ key: p.slug === 'tacd' || p.slug === 'tace' ? `dev${p.slug}` : `devtok-${p.slug}`, icon: p.icon, label: p.sym, dec: p.dec ?? 18, max: 4, v, meta: 'private on this device', open: `device/${p.slug}`, show: v > 0n });
+      out.push({ key: p.slug === 'tacd' || p.slug === 'tace' ? `dev${p.slug}` : `devtok-${p.slug}`, icon: p.icon, label: p.sym, dec: p.dec ?? 18, max: 4, v, meta: 'private on this device', open: `device/${p.slug}`, show: v > 0n, swap: v > 0n && ['usdc', 'usdt'].includes(String(p.sym).toLowerCase()) ? String(p.sym).toLowerCase() : null });
     }
     // What a key holds on its Bitcoin address: read again whenever it is known to have held some (or has a bridge under way), and shown from
     // what it last held until the read is back, so it is there on every visit and not only the first of the day.
@@ -12397,7 +12397,7 @@ function paintDash() {
       : it.err || it.lazy ? '—' : html`<span class="sk" style="--w:7ch"></span>`;
     const body = html`<span class="di-k">${it.icons ? html`<span class="pair${it.ring ? ' farm' : ''}">${it.icons.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}</span>` : it.mark ? html`<span class="tk letter" style="--c:${markColor(it.markId)}" aria-hidden="true">${it.mark.slice(0, 2).toUpperCase()}</span>` : html`<svg class="tk" aria-hidden="true"><use href="#${it.icon}"/></svg>`}${it.label}${it.live ? html`<span class="dot live"></span>` : ''}</span>
       <span class="di-v num">${value}</span><span class="di-m${it.err || it.wrap ? ' wrap' : ''}">${delta}${it.err ? 'could not read · open to retry' : it.meta || (it.v == null ? html`<span class="sk" style="--w:12ch"></span>` : '')}</span>`;
-    const send = it.send ? html`<button class="di-send" type="button" data-hx="send:${it.send}" aria-label="Send ${it.label}">Send</button>` : '';
+    const send = it.send ? html`<button class="di-send" type="button" data-hx="send:${it.send}" aria-label="Send ${it.label}">Send</button>` : it.swap ? html`<button class="di-send" type="button" data-hx="pay:${it.swap}" aria-label="Swap ${it.label} held privately">Swap</button>` : '';
     return it.href ? html`<li><a class="di" href="${it.href}">${body}</a>${send}</li>`
       : html`<li><button class="di" type="button" ${it.asset ? html`data-asset="${it.asset}"` : html`data-dash-open="${it.open}"${it.btcAsset ? html` data-btc-asset="${it.btcAsset}"` : ''}`}>${body}</button>${send}</li>`;
   };
@@ -13524,7 +13524,7 @@ function hxPreset(spec, amt, inCard = false, route = null, lp = false) {
   if (tab === 'swap' && (a === 'sats' || b === 'sats')) { location.href = a === 'sats' ? '/trade/tac/#btc=buy' : TAC_BOOK; return; }
   // a tab named alone opens as it was left; a Shield way that crosses between the chains is the Bridge tab's
   const bare = !a && HX_TABS.some(([k]) => k === tab), cross = tab === 'bridge' || (tab === 'shield' && HX_BR[a] === b);
-  if (!bare && !(cross ? Object.hasOwn(HX_BR, a) : tab === 'shield' ? !!HX_SH[a] : tab === 'pay' ? !!HX_PAYC[a] && !!HX_PAYC[b] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? hxSendList().some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
+  if (!bare && !(cross ? Object.hasOwn(HX_BR, a) : tab === 'shield' ? !!HX_SH[a] : tab === 'pay' ? !!HX_PAYC[a] && (!b || !!HX_PAYC[b]) : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? hxSendList().some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
   if (!inCard) for (const o of $$('dialog.sheet[open]')) o.close();
   hxKeepAmt(() => {
     HX.q = null;

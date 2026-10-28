@@ -352,7 +352,7 @@ function paintMove() {
   if (!S.busy) say(q.line ? `<span class="${q.warn ? 'warn' : ''}">${esc(q.line)}</span>` : '');
 }
 // A pair that goes nowhere is mended from the side that changed: the other side takes the coin most likely to go with it.
-function clearTo() { S.to = null; S.toBad = ''; S.toName = null; S.toBusy = false; S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = false; S.toOpen = false; $('#to-in').value = ''; }
+function clearTo() { S.toAsked = false; S.to = null; S.toBad = ''; S.toName = null; S.toBusy = false; S.toTacit = null; S.toTacitBad = ''; S.toTacitBusy = false; S.toOpen = false; $('#to-in').value = ''; }
 function fit(changed) {
   if (kindOf(S.pay, S.get)) return;
   if (placed()) { mend(changed); return; }

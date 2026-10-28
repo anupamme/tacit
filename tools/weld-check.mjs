@@ -7538,6 +7538,12 @@ await step('hxexit', async () => {
     ok(/Deposited/.test(await text(p, '#d-status')), `hxexit: 25 USDC are in the USDC pool (${held} in all)`);
     await until(p, (h) => (document.querySelector('.bal .v')?.textContent?.trim() || '').replace(/,/g, '').replace(/\.0+$/, '') === h, held, 120000);
     await lander();
+    // the holdings panel offers a Swap on what the pool holds: it opens the card on that USDC going out to ETH
+    await until(p, () => !!document.querySelector('[data-hx="pay:usdc"]'), null, 120000);
+    await p.click('[data-hx="pay:usdc"]');
+    await until(p, () => /^USDC/.test(document.querySelector('#hx-swap #pay-coin')?.textContent || '') && document.querySelector('#hx-swap #pay-at')?.textContent === 'Private' && /^ETH/.test(document.querySelector('#hx-swap #get-coin')?.textContent || ''), null, 120000);
+    ok(true, 'hxexit: the holdings panel has a Swap on the USDC the pool holds, which opens the card on it going out to ETH');
+    await lander();
     // the card opened on that pool's USDC, going out as USDC (a swap's route is zQuoter's, whose scans are too slow on a fork: tests/swap-held-exit-fork.mjs prices those)
     await p.goto(r.url + '#card=pay:usdc:usdc');
     await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
