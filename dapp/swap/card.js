@@ -1566,7 +1566,9 @@ function paintExit() {
   go.textContent = label; go.disabled = !can; go.className = `go${cls ? ` ${cls}` : ''}`;
   if (!S.busy) {
     const own = r && !busy && !intoPool() && W.account && exitDest() === lc(W.account);
-    if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, 'exit') || (own ? 'To this wallet. A new address keeps it apart from it.' : ''));
+    // a small amount loses much of itself to the relay's fee: said when it is over a twentieth
+    const heavy = r && !busy && q.fee != null && q.wei > 0n && q.fee * 20n > q.wei ? `The relay’s fee is ${Math.round(Number((q.fee * 1000n) / q.wei)) / 10}% of this. A larger amount costs less.` : '';
+    if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, 'exit') || (heavy ? `<span class="warn">${esc(heavy)}</span>` : own ? 'To this wallet. A new address keeps it apart from it.' : ''));
   }
 }
 // The wallet's ETH into a private balance of another coin: the key is opened, a deposit box of that pool made, and the wallet's swap sent paying it.
