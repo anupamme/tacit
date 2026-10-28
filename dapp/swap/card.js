@@ -244,7 +244,8 @@ const USDC_K = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', USDT_K = '0xdac17f9
 const PAY_COINS = [lc(R.ZERO), USDC_K, USDT_K, lc(R.TAC)];
 const payPool = (k) => PAY_COINS.includes(k);
 const exitOut = (pay, get) => (get === pay ? !isEth(pay) : isEth(get) || get === lc(R.TAC) || (isListed(get) && !tacitKey(get) && get !== lc(R.WETH)));
-const exitOf = (pay = S.pay, pa = atOf('pay'), get = S.get, ga = atOf('get')) => (moving() && pa === 'pay' && ga === 'wallet' && payPool(pay) && exitOut(pay, get) && !moveOf(pay, pa, get, ga) ? { pay, get } : null);
+// (the ETH Pay pool's other chains are the page's own moves: a swap out runs on Ethereum's pools)
+const exitOf = (pay = S.pay, pa = atOf('pay'), get = S.get, ga = atOf('get')) => (moving() && pa === 'pay' && ga === 'wallet' && payPool(pay) && (!isEth(pay) || (H.moves.chain ?? 1) === 1) && exitOut(pay, get) && !moveOf(pay, pa, get, ga) ? { pay, get } : null);
 const exiting = () => !!exitOf();
 const PLACES = ['defi', 'wallet', 'pay', 'btc'];
 const goes = (side, k, at) => PLACES.some((oa) => placeCoins(side === 'pay' ? 'get' : 'pay', oa).some((o) => (side === 'pay' ? pairOk(k, at, o, oa) : pairOk(o, oa, k, at))));
@@ -949,7 +950,7 @@ function privRow(q, r) {
 async function go() {
   const mk = moveOf();
   if (mk) { if (!S.busy && !S.mq?.busy) H.moves.go(mk, S.amt); return; }
-  if (exiting()) { await exitGo(); return; }
+  if (exiting()) { if (S.q?.err) requote(true); else await exitGo(); return; }
   const kind = kindOf(S.pay, S.get), r = picked();
   if (S.busy) return;
   if (!r) { if (S.q?.err) requote(true); return; }
@@ -1456,7 +1457,7 @@ function stepsClick(e) {
   if (no) { delete LATER.offers[no.dataset.laterNo]; say(''); paintSteps(); }
   if (c) laterCheck(c.dataset.laterCheck);
   if (s) laterOffer(s.dataset.laterSelf, 'self');
-  if (f && (!f.dataset.ask || confirm('Remove this plan? Its deposit stays in your private ETH balance, on the private ETH page.'))) { try { localStorage.setItem(PLANS_KEY, JSON.stringify(plans().filter((p) => p.id !== f.dataset.laterForget))); } catch { } paintSteps(); }
+  if (f && (!f.dataset.ask || confirm(plans().find((p) => p.id === f.dataset.laterForget)?.held ? 'Remove this plan? The balance stays in the pool, yours.' : 'Remove this plan? Its deposit stays in your private ETH balance, on the private ETH page.'))) { try { localStorage.setItem(PLANS_KEY, JSON.stringify(plans().filter((p) => p.id !== f.dataset.laterForget))); } catch { } paintSteps(); }
 }
 
 // ── out of the Pay pool: what a pool holds for this key, swapped (or paid) out to an address ──────────────────────────────────────────────────
@@ -1480,15 +1481,15 @@ async function quoteExit(my, wei) {
   const pay = tokenOf(S.pay), get = tokenOf(S.get);
   const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind: 'exit', wei, at: now() }; paint(); };
   const lt = await ltLoad(), pool = await exitPool(S.pay);
-  if (!pool.open) return done({ rows: [], why: `The private ${esc(pay.sym)} pool is not open yet.` });
-  if (pool.fee == null) return done({ rows: [], why: `The relay is not quoting for the private ${esc(pay.sym)} pool right now. Try again in a moment.` });
+  if (!pool.open) return done({ rows: [], why: `The private ${pay.sym} pool is not open yet.` });
+  if (pool.fee == null) return done({ rows: [], why: `The relay is not quoting for the private ${pay.sym} pool right now. Try again in a moment.` });
   if (S.pay === S.get) return done({ rows: [{ k: 'exit', name: `${pay.sym} itself`, out: wei, min: wei, best: true }], fee: pool.fee });
   const stand = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => b.toString(16).padStart(2, '0')).join(''), deadline = chainDeadline(1200);
   const out = isEth(S.pay)
     ? (S.get === lc(R.TAC) ? lt.mod.routeOutTac({ venues, amount: wei, to: stand, slippageBps: S.slip, deadline }) : lt.mod.routeOut({ ethCall, token: S.get, amount: wei, to: stand, slippageBps: S.slip, deadline }))
     : lt.mod.routeFrom({ ethCall, venues, tokenIn: S.pay, token: isEth(S.get) ? R.ZERO : S.get, amount: wei, to: stand, slippageBps: S.slip, deadline });
   const r = await within(out, 25e3, 'zQuoter did not answer in time. Try again.');
-  if (!r) return done({ rows: [], why: `No onchain route sells ${esc(pay.sym)} for ${esc(get.sym)} right now.` });
+  if (!r) return done({ rows: [], why: `No onchain route sells ${pay.sym} for ${get.sym} right now.` });
   return done({ rows: [{ k: 'exit', name: r.name, out: r.out, min: r.min, best: true }], fee: pool.fee });
 }
 // where an exit pays: the address typed, else the connected wallet
