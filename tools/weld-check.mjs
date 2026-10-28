@@ -195,7 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,zapresume,zapresume2,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,swapurl,hxbridge,hxbridgec,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,lpsend,rsend,swapahead,zapfirst,swapown,routeahead,connectkey,copylink,zapway,zapcredit,zapresume,zapresume2,lponly,hxsendname,pace,farmpos,hxpos,farmsteps,farmzap,farmzapeth,lpvoucher,fastzap,farmzapdrop,farmzapsplit,farmbondnote,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgeto,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxlater,hxsats,devtokpool,hxsendpool,hxexit,hxsendpp,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendcheck,hxplace,hxsendtac,hxsendwallet,hxsendways,hxborrow,hxvault,hxvaultkey,hxborrowback,tradelinks,pxs,pxsback,fmchips,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,vaultborrow,rewardspriv,rewardsout,rewardsjoin,bridgemove,bridgepresses,bridgefindhere,holdborrow,hxheld,holdpublic,selffund,selfeth,selfprove,exitahead,selfdevice,wrapfirst,poolkeep,tacvoucher,relaystate,relayfail,selfwallet,slowline').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -7505,6 +7505,96 @@ await step('hxsendpool', async () => {
     await until(p, () => /earns TAC from 28 Oct/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
     ok(true, `hxsendpool: and says depositing earns TAC, from the day the campaign starts (${await text(p, '#hx-have')})`);
     if (r.errors.length) { fails++; console.log('FAIL hxsendpool page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The Swap card's Pay pool side: its four coins (ETH, USDC, USDT, TAC) in the picker under their own header, each with what the pool holds and a
+// dashed ring on the logo, a row of anchors above them; USDC held there priced out to ETH (the relay's fee in USDC, the address it goes to), the
+// whole balance refused for the fee and Max leaving it back, the press keeping a plan with its deposit done and the price to confirm; and the
+// wallet's USDC paid into the pool of the same coin through its deposit form.
+await step('hxexit', async () => {
+  const USDC = USDC_TP.token, unit = 10n ** 6n, STAND = '0x' + '4f'.repeat(20);
+  const live = (await rpc('eth_getCode', [USDC_TP.pool, 'latest'])) !== '0x' && (await rpc('eth_getCode', [USDC_TP.router, 'latest'])) !== '0x';
+  const open = live ? null : TOKEN_TP.openTx(USDC);
+  if (open) { const h = await rpc('eth_sendTransaction', [{ from: A0, to: open.to, data: open.data, gas: '0x' + open.gas.toString(16) }]); for (let i = 0; i < 100 && !(await rpc('eth_getTransactionReceipt', [h])); i++) await sleep(100); }
+  await rpc('anvil_dealERC20', [A0, USDC, '0x' + (100n * unit).toString(16)]);
+  const r = await openPage({ account: A0, key: K0 }), p = r.page, slug = USDC_TP.id.slice(2);
+  const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const q = (s) => text(p, `#hx-swap ${s}`);
+  // the USDC pool's relay quotes its fee in USDC, as its keeper names itself: stubbed, so the step does not wait on a service that may be asleep
+  await r.ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/.*\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ fee: '300000', pool: USDC_TP.pool, relayer: '0x' + '00'.repeat(20) }) }));
+  try {
+    // 25 USDC into the pool first, through the sheet's Deposit
+    await p.goto(r.url + `#device/${slug}/deposit`);
+    if (await p.$('#eth-dev [data-in="eth"]')) await p.click('#eth-dev [data-in="eth"]');
+    await p.waitForSelector('#d-amt', { timeout: 120000 });
+    await until(p, () => /^\d/.test(document.querySelector('.bal .v')?.textContent || ''), null, 240000);
+    const held = String(Number((await text(p, '.bal .v')).replace(/,/g, '')) + 25);
+    await p.fill('#d-amt', '25');
+    await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    await p.click('#d-go');
+    await until(p, () => /Deposited|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    ok(/Deposited/.test(await text(p, '#d-status')), `hxexit: 25 USDC are in the USDC pool (${held} in all)`);
+    await until(p, (h) => (document.querySelector('.bal .v')?.textContent?.trim() || '').replace(/,/g, '').replace(/\.0+$/, '') === h, held, 120000);
+    await lander();
+    // the card opened on that pool's USDC, going out as USDC (a swap's route is zQuoter's, whose scans are too slow on a fork: tests/swap-held-exit-fork.mjs prices those)
+    await p.goto(r.url + '#card=pay:usdc:usdc');
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    ok(/^USDC/.test(await q('#pay-coin')) && await q('#pay-at') === 'Private' && /^USDC/.test(await q('#get-coin')) && await q('#get-at') === 'Wallet', `hxexit: the link opens USDC held privately going out as USDC to the wallet (${await q('#pay-coin')} ${await q('#pay-at')} → ${await q('#get-coin')} ${await q('#get-at')})`);
+    await until(p, (h) => (document.querySelector('#hx-swap #pay-side')?.textContent || '').replace(/,/g, '').startsWith(`Balance ${h} · Max`), held, 240000);
+    ok(true, `hxexit: the From side reads what the pool holds, in USDC's own six decimals (${await q('#pay-side')})`);
+    // the picker: four Pay pool coins under their header, each marked, with what they hold, and the anchors
+    await p.click('#hx-swap #pay-coin');
+    await p.waitForSelector('#hx-swap #pk .pk-r');
+    const heads = await p.$$eval('#hx-swap #pk .pk-g', (g) => g.map((x) => x.textContent.trim()));
+    const jumps = await p.$$eval('#hx-swap #pk .pk-jump button', (b) => b.map((x) => x.textContent.trim()));
+    const pay = await p.$$eval('#hx-swap #pk [data-k^="@pay:"]', (b) => b.map((x) => [x.querySelector('b')?.textContent, x.querySelector('.tk')?.classList.contains('pvt') || !!x.querySelector('use[href="#tk-peth"]'), x.querySelector('em')?.textContent.trim()]));
+    ok(heads.includes('Private · Pay pool') && jumps.join() === 'Wallet,DeFi pool,Pay pool,Bitcoin', `hxexit: the picker names the Pay pool and has its anchors (${heads.join(' | ')}; ${jumps.join()})`);
+    ok(pay.map((x) => x[0]).join() === 'ETH,USDC,USDT,TAC' && pay.every((x) => x[1]), `hxexit: its coins are ETH, USDC, USDT and TAC, each with the private mark (${JSON.stringify(pay)})`);
+    await until(p, (h) => [...document.querySelectorAll('#hx-swap #pk [data-k="@pay:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"] em')].some((e) => e.textContent.replace(/,/g, '').trim() === h), held, 120000);
+    ok(true, `hxexit: and the USDC row shows what the pool holds (${held})`);
+    await p.keyboard.press('Escape');
+    // priced: the relay's fee in USDC, the address it goes to
+    await p.fill('#hx-swap #amt', '10');
+    await until(p, () => /Relay fee/.test(document.querySelector('#hx-swap #rcpt')?.textContent || '') && /^[\d.,]+$/.test(document.querySelector('#hx-swap #out')?.textContent || '') && document.querySelector('#hx-swap #out')?.textContent !== '0', null, 300000);
+    const rc = await q('#rcpt');
+    ok(/0\.3 USDC/.test(rc) && /^10$/.test(await q('#out')), `hxexit: 10 USDC goes out as 10 USDC with the relay's fee in USDC (${rc.slice(0, 160)})`);
+    ok(/^Withdraw USDC → /.test(await q('#go')) && !(await p.$eval('#hx-swap #go', (b) => b.disabled)), `hxexit: the button pays it to the connected wallet (${await q('#go')})`);
+    // the whole balance leaves nothing for the fee, and Max leaves it
+    await p.fill('#hx-swap #amt', held);
+    await until(p, () => /Leave room for the relay/.test(document.querySelector('#hx-swap #go')?.textContent || ''), null, 120000);
+    ok(await p.$eval('#hx-swap #go', (b) => b.disabled), `hxexit: all of it is refused for the relay's fee (${await q('#go')})`);
+    await p.click('#hx-swap #max');
+    await until(p, (h) => Number(document.querySelector('#hx-swap #amt')?.value) > 0 && Number(document.querySelector('#hx-swap #amt')?.value) < Number(h), held, 120000);
+    const maxed = await p.$eval('#hx-swap #amt', (e) => e.value);
+    ok(Math.abs(Number(maxed) - (Number(held) - 0.6)) < 0.011, `hxexit: Max keeps the fee back twice (${maxed} of ${held})`);
+    // the press: a plan with its deposit done, and the price to confirm: nothing is sent
+    await p.fill('#hx-swap #amt', '10');
+    await p.click('#hx-swap #get-where');
+    await p.fill('#hx-swap #to-in', STAND);
+    await until(p, () => /^Withdraw USDC → 0x4f4f/.test(document.querySelector('#hx-swap #go')?.textContent || '') && !document.querySelector('#hx-swap #go').disabled, null, 120000);
+    await p.click('#hx-swap #go');
+    await until(p, () => !!document.querySelector('#hx-swap #steps .offer') || /class="err"/.test(document.querySelector('#hx-swap #q')?.innerHTML || ''), null, 600000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await q('#q')} | ${await q('#steps')}`); });
+    const steps = await q('#steps'), plan = await p.evaluate(() => JSON.parse(localStorage.getItem('tacit-swap-later-v1') || '[]')[0] || null);
+    ok(/In the pool/.test(steps) && /Pay out/.test(steps) && /At least 10 USDC/.test(steps), `hxexit: the plan reads In the pool and Pay out, with the amount to confirm (${steps.replace(/\s+/g, ' ').slice(0, 170)})`);
+    ok(plan?.held === true && plan.state === 'waiting' && plan.swapWei === '10000000' && plan.to === STAND && plan.hop?.sym === 'USDC' && !plan.depositTx, `hxexit: kept as a held plan of 10 USDC to the address, nothing deposited or sent (${plan ? `${plan.state} ${plan.swapWei}` : 'none'})`);
+    await p.click('#hx-swap #steps [data-later-no]');
+    await until(p, () => !document.querySelector('#hx-swap #steps .offer'), null, 30000);
+    ok(true, 'hxexit: Cancel drops the price; the balance stays in the pool');
+    // the wallet's USDC into the pool of the same coin: the deposit form of that pool, with the amount
+    await p.evaluate(() => { document.querySelector('#hx-swap #steps [data-later-forget]')?.setAttribute('data-ask', ''); });
+    await lander();
+    await p.goto(r.url + '#card=shield:wusdc:pay');
+    await p.waitForSelector('#hx-swap #amt', { timeout: 120000 });
+    await until(p, () => /^USDC/.test(document.querySelector('#hx-swap #pay-coin')?.textContent || '') && document.querySelector('#hx-swap #pay-at')?.textContent === 'Wallet' && /^USDC/.test(document.querySelector('#hx-swap #get-coin')?.textContent || '') && document.querySelector('#hx-swap #get-at')?.textContent === 'Private', null, 60000);
+    await p.fill('#hx-swap #amt', '25');
+    await until(p, () => document.querySelector('#hx-swap #go')?.textContent === 'Deposit privately' && /25 USDC, for payments/.test(document.querySelector('#hx-swap #rcpt')?.textContent || ''), null, 120000);
+    ok(true, `hxexit: the wallet's USDC into the Pay pool is a private deposit of 25 USDC (${await q('#rcpt')})`.slice(0, 200));
+    await p.click('#hx-swap #go');
+    await until(p, () => document.querySelector('#sheet-eth[open] #d-amt')?.value === '25' && /Deposit/.test(document.querySelector('#d-go')?.textContent || ''), null, 120000);
+    ok(true, "hxexit: it finishes in the USDC pool's Deposit with 25 filled");
+    if (r.errors.length) { fails++; console.log('FAIL hxexit page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

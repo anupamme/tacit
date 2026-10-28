@@ -179,6 +179,8 @@ export function swapFor({ capWei, feeWei, pct, rand = Math.random, gasWei = 0n }
   const unit = 10n ** BigInt(Math.max(0, cap.toString().length - 2)), top = (cap / unit) * unit;
   return top > fixed ? ((top - fixed) * 100n) / (100n + BigInt(share)) : 0n;
 }
+// The most a pool balance can swap out: what is left of it after the relay's fee, set aside twice as a deposit sets it.
+export const heldSwapMax = (balance, feeWei) => { const b = BigInt(balance), keep = 2n * BigInt(feeWei); return b > keep ? b - keep : 0n; };
 const randomNonce = () => BigInt('0x' + hexOf(crypto.getRandomValues(new Uint8Array(16))));
 // What the relay's answer leaves open: the swap out may have been sent (no answer, or no receipt in time), so it is checked before another.
 const unsure = (e) => /may still have sent|did not answer|already on its way|waiting for it to be mined|timed out/i.test(String(e?.message || e));
@@ -457,6 +459,25 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
     return plan;
   }
+  // A swap out of what a pool already holds for the key (paid to it, or left from an earlier deposit), so there is no deposit now: the plan
+  // starts at its wait with the deposit done, and its swap out goes as any plan's (offer, then the confirmed price). `hop` is a token pool
+  // (hopOf, open; `pay` names its token), else the ETH pool's. The balance must cover the swap and the relay's fee twice, as a deposit
+  // sets it aside, for a fee that rises while it waits. A token that is the pool's own is paid out as it is.
+  async function adopt({ swapWei, token, sym, dec, to, toName = null, hop = null, pay = null, feeWei }) {
+    const swap = BigInt(swapWei), fee = BigInt(feeWei), unit = hop ? pay.sym : 'ETH';
+    if (swap <= 0n) throw new Error('enter an amount');
+    if (!/^0x[0-9a-fA-F]{40}$/.test(String(to))) throw new Error('Add the address it goes to.');
+    if (hop && !(hop.state?.pool && hop.state?.router)) throw new Error(`The private ${unit} pool is not open yet.`);
+    const w = await wallet(hop), s = await w.sync();
+    if (s.balance < swap + 2n * fee) throw new Error(`Your private ${unit} balance holds less than the swap and the relay’s fee. Nothing was sent.`);
+    const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), held: true, swapWei: String(swap), extraWei: '0', depositWei: String(swap + 2n * fee),
+      token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), dest: { kind: 'address' }, gasWei: '0',
+      ...(hop ? { hop: { token: lc(hop.token), pool: hop.pool, router: hop.router, id: hop.id, from: hop.from || TOKEN_POOLS_FROM, sym: pay.sym, dec: pay.dec } } : {}),
+      state: 'waiting', depositedAt: Date.now(), leaves0: s.leaves };
+    keepPlans([plan, ...readPlans(store)], store);
+    if (hop) keepPool(hop, pay.sym, pay.dec);
+    return plan;
+  }
   function save(plan) { keepPlans([plan, ...readPlans(store).filter((p) => p.id !== plan.id)], store); }
   const forget = (id) => keepPlans(readPlans(store).filter((p) => p.id !== id), store);
   // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a new note of exactly its amount; its swap out
@@ -606,5 +627,5 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
   }
 
-  return { start, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
+  return { start, adopt, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
 }

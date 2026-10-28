@@ -101,3 +101,21 @@ test('a wrap not mined yet is waited for, never sent again; one that reverted is
   assert.deepStrictEqual(b.M.wraps, [paid], 'reverted: wrapped again');
   assert.strictEqual(done.state, 'done');
 });
+
+// ── a swap out of what a pool already holds (adopt): refused before anything is read or kept when it cannot go ──
+const { heldSwapMax } = await import('../dapp/swap/later.js');
+test('the most a pool balance can swap leaves the relay’s fee twice, and nothing when the balance is no more than that', () => {
+  assert.strictEqual(heldSwapMax(1000n, 100n), 800n);
+  assert.strictEqual(heldSwapMax(200n, 100n), 0n);
+  assert.strictEqual(heldSwapMax('1000', '100'), 800n, 'strings read as amounts');
+});
+
+test('a held swap with no amount, no address or a pool not open is refused, and no plan is kept', async () => {
+  const mem = new Map(), store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+  const L = makeLater({ keyHex: async () => { throw new Error('the key must not be opened'); }, signer: {}, ethCall: async () => '0x', store, chain: { chainId: 1, rpc: ['http://127.0.0.1:1'] } });
+  const base = { swapWei: 5n, token: TAC, sym: 'TAC', dec: 18, to: ACCT, feeWei: 1n };
+  await assert.rejects(L.adopt({ ...base, swapWei: 0n }), /enter an amount/);
+  await assert.rejects(L.adopt({ ...base, to: 'bob.eth' }), /address/);
+  await assert.rejects(L.adopt({ ...base, hop: { state: { pool: true, router: false } }, pay: { sym: 'USDC', dec: 6 } }), /USDC pool is not open/);
+  assert.strictEqual(L.plans().length, 0, 'nothing was kept');
+});

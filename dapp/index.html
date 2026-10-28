@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zYHmPOQ0JCVA79626wLpH9YlqDoRP6yp2uxfdIB05JU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qtM1D1lor0cMGfZAEZ4WEpI1e1jChQ5wAB5zz5XW/fc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <script type="module" src="/px-strip.js" async fetchpriority="high"></script>
-<link rel="preload" href="/swap/card.css?cb=2fc12b7d" as="style">
+<link rel="preload" href="/swap/card.css?cb=0c3480df" as="style">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -1075,7 +1075,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 }
 </style>
 <!-- the hero tile is drawn with the swap card's parts (swap/card.js, which the Swap tab mounts): its styles, after the page's own -->
-<link rel="stylesheet" href="/swap/card.css?cb=2fc12b7d">
+<link rel="stylesheet" href="/swap/card.css?cb=0c3480df">
 <!-- chrome:head:begin inline -->
 <style>
 /* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
@@ -12555,6 +12555,8 @@ const HX_SH = {
   eth: { u: 'tETH', ic: 'teth', name: 'tETH', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['wallet', 'btc'] },
   tac: { u: 'TAC', ic: 'tac', name: 'TAC, private', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['btc', 'wallet'] },
   pp: { u: 'ETH', ic: 'peth', name: 'ETH, for payments', g: 'Private', place: 'private, for payments', priv: true, ways: ['addr', 'defi'] },
+  wusdc: { u: 'USDC', ic: 'usdc', name: 'USDC, in your wallet', g: 'In your wallets', place: 'your wallet', ways: ['pay'] },
+  wusdt: { u: 'USDT', ic: 'usdt', name: 'USDT, in your wallet', g: 'In your wallets', place: 'your wallet', ways: ['pay'] },
   tb: { u: 'tETH', ic: 'teth', name: 'tETH, on Bitcoin', g: 'On Bitcoin', place: 'on Bitcoin', ways: ['back'] },
   cbtc: { u: 'cBTC', ic: 'cbtc', name: 'cBTC, private', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['btc'] },
   cusd: { u: 'cUSD', ic: 'cusd', name: 'cUSD, private', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['btc'] },
@@ -12569,6 +12571,8 @@ const HX_WAY = {
   'btc>pool': { t: 'On Bitcoin', p: 'shielded · sells for sats', ic: 'tac', u: 'TAC', mode: 'btcpool', pr: 'on Bitcoin' },
   'wtac>defi': { t: 'Private TAC', p: 'send · swap · farm', ic: 'tac', u: 'TAC', mode: 'tacwrap', pr: 'private', same: true, rev: 'tac>wallet' },
   'wtac>pay': { t: 'For payments', p: 'pay anyone · proved on device', ic: 'tac', u: 'TAC', mode: 'paytac', pr: 'on Ethereum', same: true },
+  'wusdc>pay': { t: 'For payments', p: 'pay anyone · proved on device', ic: 'usdc', u: 'USDC', mode: 'paytok', pr: 'on Ethereum', same: true },
+  'wusdt>pay': { t: 'For payments', p: 'pay anyone · proved on device', ic: 'usdt', u: 'USDT', mode: 'paytok', pr: 'on Ethereum', same: true },
   'eth>wallet': { t: 'Back to ETH', p: 'to your wallet, one for one', ic: 'eth', u: 'ETH', mode: 'unwrap', pr: 'in your wallet', rev: 'ether>defi' },
   'eth>btc': { t: 'To Bitcoin', p: 'hold it on Bitcoin, bring it back', ic: 'teth', u: 'tETH', mode: 'btc', dir: 'out', gate: 'teth', pr: 'on Bitcoin', rev: 'tb>back' },
   'tac>btc': { t: 'To Bitcoin', p: 'TAC at your Bitcoin address', ic: 'tac', u: 'TAC', mode: 'btc', dir: 'out', gate: 'tac', pr: 'on Bitcoin', rev: 'btc>eth' },
@@ -12622,12 +12626,14 @@ const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 
 // where, and finishes in the device sheet's send form for that pool, which proves it here and sends it through the relay or the wallet.
 const HX_DEVK = { ptac: ADDR.tac.toLowerCase(), usdc: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', usdt: '0xdac17f958d2ee523a2206206994597c13d831ec7' };
 const hxDevSlug = (k) => TOKEN_POOLS.find((p) => p.token.toLowerCase() === HX_DEVK[k])?.slug;
-const hxDev = (k = HX.send) => (HX.tab === 'send' && HX_DEVK[k] ? TOKEN_POOLS.find((p) => p.token.toLowerCase() === HX_DEVK[k]) || null : null);
+const hxDevAny = (k) => (HX_DEVK[k] ? TOKEN_POOLS.find((p) => p.token.toLowerCase() === HX_DEVK[k]) || null : null);
+const hxDev = (k = HX.send) => (HX.tab === 'send' ? hxDevAny(k) : null);
 // The ETH payments pool on the chain chosen under the field, in the shape of a token pool above (its balance is kept by chain id); a payments pool
 // either way, in its own decimals. A Tacit address is paid from it in tacit pay, an Ethereum address by the device sheet's Withdraw.
 const hxPp = () => { const c = hxChain(); return { slug: c.chainId, keeper: c.keeper, pool: EVM_POOL, sym: 'ETH', dec: 18, dp: 6, chain: c }; };
 const hxPayP = (k = HX.send) => hxDev(k) || (HX.tab === 'send' && k === 'pp' ? hxPp() : null);
-const hxDec = () => hxPayP()?.dec ?? (HX.tab === 'send' ? HX_WDEC[HX.send] : null) ?? 8;
+const hxDec = () => hxPayP()?.dec ?? (HX.tab === 'send' ? HX_WDEC[HX.send] : null) ?? (HX.tab === 'swap' && HXM.key ? HX_MV_SF_DEC[HX.sf] : null) ?? 8;
+const HX_MV_SF_DEC = { wusdc: 6, wusdt: 6, usdc: 6, usdt: 6 };
 // The wallet's coins Send takes (the paying account's, on Ethereum): sent publicly to an Ethereum address, or paid into the payments pool of
 // the same coin for a Tacit address (theirs, or your own). Their token (none: ETH), the payments pool that takes them, and USDC's and USDT's
 // decimals (ETH and TAC are typed in eight, as the tile's other coins).
@@ -12805,12 +12811,13 @@ function hxSub() {
   if (el.__h !== view.s) { el.__h = view.s; mount(el, view); }
 }
 function hxHandoff(m, units) {
-  const amt = units ? fmt(units, 8, 6) : null, ch = hxChain(), n = (u) => `${amt ? `${amt} ` : ''}${u}`;
+  const dec = hxDec(), amt = units ? fmt(units, dec, dec === 6 ? 2 : 6) : null, ch = hxChain(), n = (u) => `${amt ? `${amt} ` : ''}${u}`;
   const deposit = (u, on) => [['Arrives', n(`${u}, for payments`)], ['Fee', 'the network fee only', '', `Proved on this device and sent from ${your()}`], ['Chain sees', `a deposit on ${on}, not whose`]];
   if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: 'dev', rc: deposit('ETH', chainFull(ch.chainId)) };
   if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', rc: [['Arrives', 'shielded TAC on Bitcoin'], ['Chain sees', 'a deposit, not who holds it'], ['Sells', 'for sats, on the book']] };
   if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', rc: [['Arrives', 'ETH, one for one'], ['Relay fee', 'out of it, shown next']] };
   if (m === 'paytac') return { out: amt, go: 'Deposit privately', rc: deposit('TAC', 'Ethereum') };
+  if (m === 'paytok') return { out: amt, go: 'Deposit privately', rc: deposit(HX_WAY[`${HX.sf}>${HX.sd}`].u, 'Ethereum') };
   if (m === 'tacwrap') return { out: amt, go: 'Make TAC private', rc: [['Arrives', n('TAC, private')], ['Sent', `in one transaction from ${your()}, with a permit`]] };
   if (m === 'tacpub') return { out: 'All', go: 'Make TAC public', rc: [['Arrives', 'all your private TAC, as ERC-20 TAC'], ['Relay fee', 'shown next']] };
   if (m === 'ppout') return { out: amt, go: 'Withdraw ETH', rc: [['Arrives', n('ETH at any address')], ['Fee', 'a relay fee, or the network fee from your wallet'], ['Chain sees', 'the address and the amount']] };
@@ -13383,12 +13390,15 @@ const HX_SWAP = { ether: 'ETH', eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cB
 // the card as their only face; a way that crosses between Bitcoin and Ethereum is the Bridge tab's (HX_BR). The card names a side by its coin
 // and its place: ETH, tETH or TAC, in a wallet, the DeFi pool, the Pay pool or on Bitcoin. For each way's source, what each coin-and-place it
 // can reach is called. ──
-const HX_MV_SRC = { 'eth@wallet': 'ether', 'tac@wallet': 'wtac', 'tac@btc': 'btc', 'teth@defi': 'eth', 'tac@defi': 'tac', 'eth@pay': 'pp' };
+const HX_MV_SRC = { 'eth@wallet': 'ether', 'tac@wallet': 'wtac', 'usdc@wallet': 'wusdc', 'usdt@wallet': 'wusdt', 'tac@btc': 'btc', 'teth@defi': 'eth', 'tac@defi': 'tac', 'eth@pay': 'pp', 'usdc@pay': 'usdc', 'usdt@pay': 'usdt', 'tac@pay': 'ptac' };
 const HX_MV = {
   ether: { 'teth@defi': 'defi', 'eth@pay': 'pay' }, wtac: { 'tac@defi': 'defi', 'tac@pay': 'pay' }, btc: { 'tac@btc': 'pool' },
   eth: { 'eth@wallet': 'wallet' }, tac: { 'tac@wallet': 'wallet' }, pp: { 'eth@wallet': 'addr', 'teth@defi': 'defi' },
+  // the Pay pool's tokens: held here for the card to read; what they swap out to is the card's (later.js), not a way of this table
+  wusdc: { 'usdc@pay': 'pay' }, wusdt: { 'usdt@pay': 'pay' }, usdc: {}, usdt: {}, ptac: {},
 };
-const hxMvCoin = (k) => (k === 'teth' ? 'teth' : /^0x0{40}$/.test(k) ? 'eth' : k === ADDR.tac.toLowerCase() ? 'tac' : null);
+const HX_MV_DEC = { usdc: 6, usdt: 6 };
+const hxMvCoin = (k) => (k === 'teth' ? 'teth' : /^0x0{40}$/.test(k) ? 'eth' : k === ADDR.tac.toLowerCase() ? 'tac' : k === HX_DEVK.usdc ? 'usdc' : k === HX_DEVK.usdt ? 'usdt' : null);
 function hxMoveKey(pay, pa, get, ga) {
   const sf = HX_MV_SRC[`${hxMvCoin(pay)}@${pa}`], sd = sf && HX_MV[sf][`${hxMvCoin(get)}@${ga}`];
   return sd && hxWays(sf).includes(sd) ? `${sf}>${sd}` : null;
@@ -13417,12 +13427,14 @@ const hxMoves = {
   idle: () => { HXM.key = null; HXM.cb = null; },
   // what a move's source holds, in the card's units (18 decimals), and what Max puts in: that, less what its own fees keep back
   warm: () => hxWarmBals(Object.values(HX_MV_SRC)),
+  // a pool's balance changed (something left it): read again at once, not after the minute the page keeps it
+  stale: (k, at) => { const sf = HX_MV_SRC[`${hxMvCoin(k)}@${at}`], id = sf && hxPayId(sf); if (id != null && PB.pub) PB.at[String(id)] = 0; if (sf) hxWarmBals([sf]); },
   loading: (k, at) => { const sf = HX_MV_SRC[`${hxMvCoin(k)}@${at}`]; return sf ? hxLoading(sf) : false; },
-  held: (k, at, key) => { const sf = HX_MV_SRC[`${hxMvCoin(k)}@${at}`], h = sf ? hxHeldOf(sf, hxMoveChain(key)) : null; return h ? (h[1] === 18 ? h[0] : h[0] * 10n ** BigInt(18 - h[1])) : null; },
+  held: (k, at, key) => { const sf = HX_MV_SRC[`${hxMvCoin(k)}@${at}`], h = sf ? hxHeldOf(sf, hxMoveChain(key)) : null, d = HX_MV_DEC[hxMvCoin(k)] ?? 18; return h ? (h[1] === d ? h[0] : h[0] * 10n ** BigInt(d - h[1])) : null; },
   most: async (key) => {
     const [sf] = key.split('>'), cid = hxMoveChain(key), h = hxHeldOf(sf, cid);
     if (!h) return null;
-    const keep = await hxKeep(sf, cid), left = h[0] > keep ? h[0] - keep : 0n, v = left ? plain(h[1] === 18 ? left / E10 : left, 8) : '';
+    const keep = await hxKeep(sf, cid), left = h[0] > keep ? h[0] - keep : 0n, v = left ? (h[1] === 18 ? plain(left / E10, 8) : plain(left, h[1])) : '';
     HXM.all = `${key}:${v}`;
     return v;
   },
@@ -13443,7 +13455,7 @@ function hxMoveAuto() {
 }
 // a Shield way as the Swap card's link: its two coins and places
 function hxMoveAsk(sf, sd, amt) {
-  const sym = { eth: 'ETH', teth: 'tETH', tac: 'TAC' }, src = Object.keys(HX_MV_SRC).find((k) => HX_MV_SRC[k] === sf), dst = HX_MV[sf] && Object.keys(HX_MV[sf]).find((k) => HX_MV[sf][k] === sd);
+  const sym = { eth: 'ETH', teth: 'tETH', tac: 'TAC', usdc: 'USDC', usdt: 'USDT' }, src = Object.keys(HX_MV_SRC).find((k) => HX_MV_SRC[k] === sf), dst = HX_MV[sf] && Object.keys(HX_MV[sf]).find((k) => HX_MV[sf][k] === sd);
   const way = HX_WAY[`${sf}>${sd}`], [fc, fa] = (src || 'eth@wallet').split('@'), [tc, ta] = (dst || (way?.same ? 'teth@defi' : 'teth@defi')).split('@');
   const p = new URLSearchParams({ from: sym[fc], to: sym[tc] });
   if (fa === 'defi' || ta === 'defi') p.set('private', fa === 'defi' && ta === 'defi' ? 'both' : fa === 'defi' ? 'from' : 'to');
@@ -13459,6 +13471,13 @@ function hxSwapAsk(a, b, route, amt) {
   if (amt) p.set('amt', amt);
   return p;
 }
+// A Pay pool coin as the Swap card's From, swapped out to a wallet coin (#card=pay:usdc:eth): what the pool holds, taken out to an address
+const HX_PAYC = { eth: 'ETH', usdc: 'USDC', usdt: 'USDT', tac: 'TAC' };
+function hxPayAsk(a, b, amt) {
+  const p = new URLSearchParams({ from: HX_PAYC[a], to: HX_PAYC[b] || (a === 'eth' ? 'USDC' : 'ETH'), 'from-at': 'pay' });
+  if (amt) p.set('amt', amt);
+  return p;
+}
 function hxPreset(spec, amt, inCard = false, route = null, lp = false) {
   const [tab, a, b, r] = spec.split(':');
   route ||= r === 'private' || r === 'public' ? r : null;
@@ -13466,13 +13485,14 @@ function hxPreset(spec, amt, inCard = false, route = null, lp = false) {
   if (tab === 'swap' && (a === 'sats' || b === 'sats')) { location.href = a === 'sats' ? '/trade/tac/#btc=buy' : TAC_BOOK; return; }
   // a tab named alone opens as it was left; a Shield way that crosses between the chains is the Bridge tab's
   const bare = !a && HX_TABS.some(([k]) => k === tab), cross = tab === 'bridge' || (tab === 'shield' && HX_BR[a] === b);
-  if (!bare && !(cross ? Object.hasOwn(HX_BR, a) : tab === 'shield' ? !!HX_SH[a] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? hxSendList().some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
+  if (!bare && !(cross ? Object.hasOwn(HX_BR, a) : tab === 'shield' ? !!HX_SH[a] : tab === 'pay' ? !!HX_PAYC[a] && !!HX_PAYC[b] : tab === 'swap' ? !!HX_SWAP[a] && !!HX_SWAP[b] && a !== b && !(a === 'eth' && b === 'ether') : tab === 'send' ? hxSendList().some(([k]) => k === a) : tab === 'earn' || tab === 'borrow')) return;
   if (!inCard) for (const o of $$('dialog.sheet[open]')) o.close();
   hxKeepAmt(() => {
     HX.q = null;
     if (bare) HX.tab = tab;
     else if (cross) { HX.tab = 'bridge'; HX.br = a; HX.placePick = true; HX.placeAuto = null; }
     else if (tab === 'shield') { HX.tab = 'swap'; SWC.ask = hxMoveAsk(a, b, amt); }
+    else if (tab === 'pay') { HX.tab = 'swap'; SWC.ask = hxPayAsk(a, b, amt); }
     else if (tab === 'swap') { HX.tab = 'swap'; SWC.ask = hxSwapAsk(a, b, route, amt); }
     else if (tab === 'send') { HX.tab = 'send'; HX.send = a; HX.sendPick = true; HX.ask = false; }
     else if (tab === 'earn') { HX.tab = 'earn'; HX.lp = !!lp && b !== 'public' && (a === 'ether' || !a); HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; HX.placePick = true; if (b === 'public') HX.pool = HX.earnPick = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = HX.earnPick = b.slice(1); else HX.earnPick = null; }
@@ -13750,12 +13770,13 @@ function hxWalletEth(cid = hxWalletChain()) {
 const hxWalletTac = (who) => hxWalletRead('tac', 1, (w) => ethCall(ADDR.tac, SEL.balanceOf + addrWord(w)).then((r) => wordAt(r, 0)), who);
 function hxHeldOf(k, cid) {
   if (hxIsLp(k)) { const p = hxLpPool(k), n = p && P.scan ? freeNotes(P.scan.notes).filter(isLp(p)).reduce((a, x) => a + BigInt(x.value), 0n) : 0n, w = p ? sharesEth(p, n) : null; return w == null ? null : [w, 18]; }
-  if (HX.tab === 'send' && k in HX_WTOK) { const v = hxWalletBal(k); return v == null ? null : [v, HX_WDEC[k] ?? 18, hxSendOf(k)[1]]; }
+  if ((HX.tab === 'send' || (HX.tab === 'swap' && HX_MV_SF_DEC[k])) && k in HX_WTOK) { const v = hxWalletBal(k); return v == null ? null : [v, HX_WDEC[k] ?? 18, hxSendOf(k)[1]]; }
   if (k === 'ether') { const v = hxWalletEth(cid); return v == null ? null : [v, 18, 'ETH']; }
   // a TAC vault takes TAC from the browser's wallet (the vault page signs with it), not the Tacit account
   if (k === 'wtac') { const v = hxWalletTac(HX.tab === 'borrow' ? S.wallet || '' : undefined); return v == null ? null : [v, 18, 'TAC']; }
   if (!S.key) return null;
-  const dp = hxDev(k);
+  // the Swap card reads the Pay pool's tokens too (what it can swap out of them)
+  const dp = hxDev(k) || (HX.tab === 'swap' ? hxDevAny(k) : null);
   if (dp) { const v = devBal(dp.slug, S.key.pubHex); return v == null ? null : [v, dp.dec, dp.sym]; }
   if (HX.tab === 'send' && hxSendBtc(k)) {
     const pub = S.key.pubHex, a = k === 'tacb' && HELD.pub === pub ? HELD.sats?.find((x) => x.ticker === 'TAC') : null;
@@ -13852,7 +13873,7 @@ function hxWarmBals(ks) {
 }
 // Whether a coin's balance is being read now: its picker row says so until it comes
 function hxLoading(k) {
-  if (k in HX_WTOK) return HX.tab === 'send' && !!HXWB.p;
+  if (k in HX_WTOK) return (HX.tab === 'send' || (HX.tab === 'swap' && !!HX_MV_SF_DEC[k])) && !!HXWB.p;
   const pay = hxPayId(k);
   if (pay != null) return payReading(pay);
   if (hxIsLp(k) || ['eth', 'tac', 'cusd', 'cbtc', 'rtac'].includes(k)) return !!S.key && !P.scan && !!P.scanning;
@@ -14019,7 +14040,7 @@ function hxGo() {
   if (hxNeedsAmt()) return hxAskAmt();
   if (HX.q?.busy) { HX.goNext = true; return; }
   HX.draft = null;
-  const units = hxUnits(), amt = units ? plain(units, 8) : HX.amt, m = HX.mode;
+  const units = hxUnits(), amt = units ? plain(units, HX.tab === 'swap' ? hxDec() : 8) : HX.amt, m = HX.mode;
   // A first visit's press on a way in from the wallet's ETH (making it private, or zapping it into a farm) connects the wallet and opens the Tacit
   // wallet with it first, one signature (two the first time): the proofs this goes with are made for that key, so the default sizes start being made
   // now, not when a sheet asks. Asked once a visit: declined, the press goes on to the sheet that asks as ever.
@@ -14036,6 +14057,7 @@ function hxGo() {
   if (m === 'tacpub') return goAway('sell', amt);
   if (m === 'tacwrap') { hxDraft({ mode: 'tacwrap', amt }); return openLink('tac'); }
   if (m === 'paytac') { hxDraft({ mode: 'dep', amt, tac: true }); return openLink('device/tac/deposit'); }
+  if (m === 'paytok') { const slug = hxDevSlug(HX_WPAY[HX.sf]); if (!slug) return; hxDraft({ mode: 'dep', amt, slug }); return openLink(`device/${slug}/deposit`); }
   if (m === 'ppout' || m === 'ppv1') { const c = hxChain(); DEV.dest = m === 'ppv1' ? 'v1' : 'addr'; hxDraft({ mode: 'dout', amt, chain: c.chainId, all: HX.max }); return openLink(`device/${chainSlug(c)}/withdraw`); }
   if (m === 'tbback') return openLink('private/bitcoin/back');
   if (m === 'xo') { const a = XA[HX.xa]; hxDraft({ mode: a.pre, amt }); return openLink(`${xoLink(a)}/out`); }
@@ -14218,7 +14240,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=42d7f262').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=c76901ab').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
