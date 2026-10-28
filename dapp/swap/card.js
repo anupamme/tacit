@@ -242,6 +242,13 @@ const pairOk = (pay, pa, get, ga) => !!(native(pay, pa, get, ga) || moveOf(pay, 
 // price). The out leg's coin is ETH, TAC or any listed token zQuoter routes (WETH only wraps, and the Tacit tokens have their own ways).
 const USDC_K = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', USDT_K = '0xdac17f958d2ee523a2206206994597c13d831ec7';
 const PAY_COINS = [lc(R.ZERO), USDC_K, USDT_K, lc(R.TAC)];
+// Where a coin is held, as a small mark: the wallet's glyph, each pool's own mark (the DeFi pool's tETH ring, the Pay pool's dashed ETH ring) and
+// Bitcoin's. The corner of each field, the picker's group headers and its anchors all wear them, so the place reads at a glance.
+const WALLET_MARK = '<svg class="pl" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.2h9.6a1.4 1.4 0 0 1 1.4 1.4v6.6a1.4 1.4 0 0 1-1.4 1.4H3.9a1.4 1.4 0 0 1-1.4-1.4V3.6a1.4 1.4 0 0 1 1.4-1.4h7.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10.6" cy="9" r=".95" fill="currentColor"/></svg>';
+const MARK_USE = { pay: 'tk-peth', defi: 'tk-teth', btc: 'c-btc' };
+const placeMark = (at) => (at === 'wallet' ? WALLET_MARK : MARK_USE[at] ? `<svg class="tk xs" aria-hidden="true"><use href="#${MARK_USE[at]}"/></svg>` : '');
+const PLACE_TIP = { wallet: 'Your wallet: public, on Ethereum', pay: 'Pay pool: ETH, USDC, USDT and TAC held privately, proved on this device and paid out to any address',
+  defi: 'DeFi pool: tETH, TAC, cUSD and cBTC held privately, to swap, farm and borrow with', btc: 'Bitcoin: TAC and tETH at your Bitcoin address' };
 const payPool = (k) => PAY_COINS.includes(k);
 const exitOut = (pay, get) => (get === pay ? !isEth(pay) : isEth(get) || get === lc(R.TAC) || (isListed(get) && !tacitKey(get) && get !== lc(R.WETH)));
 // (the ETH Pay pool's other chains are the page's own moves: a swap out runs on Ethereum's pools)
@@ -693,7 +700,7 @@ function paintMode() {
   ROOT.classList.toggle('btc', S.btc); if ($('#btc')) $('#btc').hidden = !S.btc; $('.sw-foot').hidden = !slips;
   ROOT.querySelectorAll('.mode [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === 'bitcoin' ? S.btc : !S.btc)));
 }
-const shownAt = (k, at) => { const t = tokenOf(k, at === 'defi'); return at === 'pay' && t ? (isEth(k) ? { ...t, icon: 'peth' } : { ...t, pvt: true }) : t; };
+const shownAt = (k, at) => { const t = tokenOf(k, at === 'defi'); return at === 'pay' && t ? (isEth(k) ? { ...t, icon: 'peth' } : { ...t, pvt: true }) : at === 'defi' && t && k === lc(R.TAC) ? { ...t, pvt: true } : t; };
 let PAYWARM = 0;
 function paintSides() {
   const pay = shownAt(S.pay, atOf('pay')), get = shownAt(S.get, atOf('get'));
@@ -707,7 +714,14 @@ function paintSides() {
   if (!out) S.toAsked = false;
   $('#f-pay').classList.toggle('priv', payPriv || atOf('pay') === 'pay'); $('#f-get').classList.toggle('priv', inPriv || atOf('get') === 'pay');
   // where each side's coin is held, in the field's corner (the coin picked decides it)
-  for (const s of ['pay', 'get']) { const a = atOf(s), el = $(`#${s}-at`); if (el) { el.className = `where${isPrivAt(a) ? ' priv' : ''}`; el.textContent = a === 'btc' ? 'Bitcoin' : isPrivAt(a) ? 'Private' : 'Wallet'; } }
+  for (const s of ['pay', 'get']) {
+    const a = atOf(s), el = $(`#${s}-at`), mk = moving() ? placeMark(a) : '';
+    if (!el) continue;
+    el.className = `where${isPrivAt(a) ? ' priv' : ''}${mk && a !== 'wallet' ? ' pool' : ''}${moving() ? ' go-pick' : ''}`;
+    const text = a === 'btc' ? 'Bitcoin' : isPrivAt(a) ? 'Private' : 'Wallet';
+    if (el.dataset.k !== `${a}`) { el.dataset.k = `${a}`; el.innerHTML = `${mk}${text}`; }
+    if (moving()) { el.title = `${PLACE_TIP[a] || ''}. Press to choose another`; el.setAttribute('role', 'button'); el.tabIndex = 0; }
+  }
   const to = S.inP ? outTo() : recipient(), gw = $('#get-where');
   const pool = laterPool();
   gw.className = `where${inPriv || (pool && !S.to) ? ' priv' : ''}`; gw.textContent = inPriv || (pool && !S.to) ? (S.toTacit ? `to ${tacitName(S.toTacit)}` : 'to your private balance') : S.to && to ? `to ${who(to)}` : (out && !W.account) || laterOn(kindOf(S.pay, S.get)) ? 'to an address' : 'to your wallet';
@@ -1823,7 +1837,7 @@ function openPicker(side) {
   };
   warmPrivate(); H.moves?.warm?.();
   pkSide = side;
-  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${keys.some((k) => !inPool(k) && !/^@/.test(k)) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}${moving() && jumps.length > 2 ? `<div class="pk-jump" role="group" aria-label="Go to">${jumps.map(([, , , id]) => `<button type="button" data-jump="${id}">${JUMP[id]}</button>`).join('')}</div>` : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks, priv, id]) => `<p class="pk-g${priv ? ' priv' : ''}" data-g="${id}">${g === 'Bitcoin' ? '<svg class="tk" aria-hidden="true"><use href="#c-btc"/></svg>' : ''}${esc(g)}</p>${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
+  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? (moving() ? 'From' : 'Pay with') : moving() ? 'To' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${keys.some((k) => !inPool(k) && !/^@/.test(k)) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}${moving() && jumps.length > 2 ? `<div class="pk-jump" role="group" aria-label="Go to">${jumps.map(([, , , id]) => `<button type="button" data-jump="${id}" title="${esc(PLACE_TIP[id] || '')}">${placeMark(id)}${JUMP[id]}</button>`).join('')}</div>` : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks, priv, id]) => `<p class="pk-g${priv ? ' priv' : ''}${moving() && priv ? ' pool' : ''}" data-g="${id}" title="${esc(moving() ? PLACE_TIP[id] || '' : '')}">${moving() ? placeMark(id) : ''}${esc(g)}</p>${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
   pk.hidden = false;
   // the logos of the rows in the list's view (and a little past it), fetched as they come into it
   pkIO?.disconnect();
@@ -1837,7 +1851,7 @@ function openPicker(side) {
     if (e.shiftKey ? a === f[0] || !pk.contains(a) : a === f[f.length - 1] || !pk.contains(a)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
   };
   const away = (e) => { if (!pk.contains(e.target)) close({ quiet: true }); };
-  const close = ({ keep = false, quiet = false } = {}) => { if (!keep) { pkIO?.disconnect(); pkIO = null; } document.removeEventListener('keydown', onKey, true); document.removeEventListener('pointerdown', away, true); if (pkClose === close) pkClose = null; if (keep) return; pk.hidden = true; pk.innerHTML = ''; if (!quiet) $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
+  const close = ({ keep = false, quiet = false } = {}) => { if (!keep) { pkIO?.disconnect(); pkIO = null; PKAT = null; } document.removeEventListener('keydown', onKey, true); document.removeEventListener('pointerdown', away, true); if (pkClose === close) pkClose = null; if (keep) return; pk.hidden = true; pk.innerHTML = ''; if (!quiet) $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
   document.addEventListener('keydown', onKey, true); document.addEventListener('pointerdown', away, true);
   pkClose = close;
   pk.querySelector('.pk-x').onclick = () => close();
@@ -1880,11 +1894,13 @@ function openPicker(side) {
       $('#pk-n').textContent = 'Check the address: anyone can make a token with any name.';
     };
   }
+  if (PKAT) { const l = $('#pk-l'), g = l.querySelector(`.pk-g[data-g="${PKAT}"]`); if (g) l.scrollTo({ top: g.offsetTop - l.offsetTop - 4 }); }
   setTimeout(() => (qEl || pk.querySelector('[aria-current="true"]') || pk.querySelector('.pk-r'))?.focus(), 0);
 }
 // What a picker row says is held: on the front page the page's own reading of a place it moves from (the paying account's ETH and TAC among
 // them), a mark while the page is still reading it
 let pkSide = null;
+let PKAT = null;                      // the place a picker was opened at (a corner's mark): its coins are scrolled to, again if the list is drawn again
 function rowBal(side, key) {
   const m = ATK.exec(key), a = m ? m[1] : 'wallet', k = m ? m[2] : key, t = shownAt(k, a);
   const bal = side === 'pay' && moving() ? H.moves?.held?.(k, a) ?? (a === 'wallet' ? S.bal[k] : null) : a === 'wallet' ? S.bal[k] : a === 'defi' ? privBal(k) : null;
@@ -2081,10 +2097,16 @@ function wire() {
   $('#amt').addEventListener('input', (e) => { S.amt = fitAmt(e.target.value.trim()); S.note = ''; fitSize(e.target); changed(); paintSides(); requote(); });
   $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
   ROOT.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
-  $('#pay-coin').addEventListener('click', () => openPicker('pay'));
+  $('#pay-coin').addEventListener('click', () => { PKAT = null; openPicker('pay'); });
   // the token lists are read at the first sign of a swap being set up: a coin hovered, focused or touched, or the amount focused
   for (const id of ['#pay-coin', '#get-coin', '#amt']) for (const ev of ['pointerenter', 'focus', 'touchstart']) $(id).addEventListener(ev, () => { loadList(); }, { once: true, passive: true });
-  $('#get-coin').addEventListener('click', () => openPicker('get'));
+  $('#get-coin').addEventListener('click', () => { PKAT = null; openPicker('get'); });
+  // the place named in a field's corner is a way into the picker, at that place's coins
+  for (const s of ['pay', 'get']) {
+    const open = () => { if (!moving() || S.busy) return; PKAT = atOf(s); openPicker(s); };
+    $(`#${s}-at`).addEventListener('click', open);
+    $(`#${s}-at`).addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  }
   $('#flip').addEventListener('click', () => {
     if (S.busy) return;
     if (placed()) {

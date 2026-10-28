@@ -7,6 +7,15 @@
 .swc img.tk { object-fit: contain; }
 /* a coin held in the Pay pool: the private ETH mark's dashed ring, on the token's own logo */
 .swc .tk.pvt { outline: 1.5px dashed var(--ink); outline-offset: 1.5px; }
+/* where a side is held, as a mark before its name (the wallet's glyph, a pool's own mark, Bitcoin's); a pool's mark says private by itself, so the lock goes */
+.swc .pl { width: 14px; height: 14px; flex: none; }
+.swc .where .tk, .swc .where .pl { width: 14px; height: 14px; }
+.swc .where.priv.pool::before, .swc .pk-g.pool::before { display: none; }
+.swc .where.go-pick { cursor: pointer; border-radius: 6px; transition: color .12s; }
+.swc .where.go-pick:hover, .swc .where.go-pick:focus-visible { color: var(--ink); }
+.swc .pk-g .pl { display: inline-block; margin-right: 6px; vertical-align: -3px; }
+.swc .pk-jump button { display: inline-flex; align-items: center; gap: 6px; }
+.swc .pk-jump button .tk, .swc .pk-jump button .pl { width: 14px; height: 14px; margin: 0; }
 .swc .tk.letter { display: grid; place-items: center; font: 500 13px/1 var(--mono); color: #fff; background: var(--c, #8F8979); }
 .swc .mode { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
 .swc .mode button { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 14px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
