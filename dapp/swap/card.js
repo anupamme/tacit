@@ -711,7 +711,8 @@ function paintSides() {
   $('#get-coin').setAttribute('aria-label', `Get ${get.sym}. Choose another`);
   const payPriv = S.inP, out = (!moveOf() && kindOf(S.pay, S.get) === 'pout') || exiting(), inPriv = S.outP;
   // out of the pool with no wallet connected here there is no address to default to: the field opens to ask for one
-  if (out && !S.to && !S.toBad && !W.account && !S.toAsked) { S.toOpen = true; S.toAsked = true; }
+  // out of a pool the address it goes to is asked for in the open (with no wallet it is the only way; with one, a new address keeps the exit apart from it)
+  if (out && !S.toAsked && (exiting() || (!S.to && !S.toBad && !W.account))) { S.toOpen = true; S.toAsked = true; }
   if (!out) S.toAsked = false;
   $('#f-pay').classList.toggle('priv', payPriv || atOf('pay') === 'pay'); $('#f-get').classList.toggle('priv', inPriv || atOf('get') === 'pay');
   // where each side's coin is held, in the field's corner (the coin picked decides it)
@@ -728,7 +729,7 @@ function paintSides() {
   gw.className = `where${inPriv || (pool && !S.to) ? ' priv' : ''}`; gw.textContent = inPriv || (pool && !S.to) ? (S.toTacit ? `to ${tacitName(S.toTacit)}` : 'to your private balance') : S.to && to ? `to ${who(to)}` : (out && !W.account) || laterOn(kindOf(S.pay, S.get)) ? 'to an address' : 'to your wallet';
   gw.disabled = false; gw.setAttribute('aria-expanded', String(S.toOpen)); gw.hidden = placed() && !exiting();
   $('#to').hidden = !S.toOpen || (placed() && !exiting()); $('#to-in').setAttribute('aria-invalid', String(inPriv ? !!S.toTacitBad : !!S.toBad));
-  $('#to-in').placeholder = inPriv ? 'Send to a Tacit address: tacit1… or name.wei' : pool ? 'Your private balance, or tacit1…, name.wei or 0x…' : LATER.on ? 'Address it goes to: a new 0x… or name.eth' : (out && !W.account) ? 'Address it goes to: 0x… or name.eth' : 'Send to another address: 0x… or name.eth';
+  $('#to-in').placeholder = inPriv ? 'Send to a Tacit address: tacit1… or name.wei' : pool ? 'Your private balance, or tacit1…, name.wei or 0x…' : exiting() && W.account ? 'Your wallet, or a new address: 0x… or name.eth' : LATER.on ? 'Address it goes to: a new 0x… or name.eth' : (out && !W.account) ? 'Address it goes to: 0x… or name.eth' : 'Send to another address: 0x… or name.eth';
   if (inPriv) {
     $('#to-note').textContent = S.toTacitBad || (S.toTacitBusy ? 'Looking it up…' : S.toTacit ? (S.toTacit.name ? `Sent to ${S.toTacit.name}: they claim it in their Tacit wallet` : 'They claim it in their Tacit wallet') : '');
     $('#to-note').className = S.toTacitBad ? 'err' : '';
@@ -1161,7 +1162,7 @@ const pageSigner = { get address() { return W.account; }, ready: async () => { i
   // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
   canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
   get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=bcd9acc4').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=f650d491').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
 // the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
 const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));
@@ -1357,7 +1358,7 @@ function paintSteps() {
     const left = p.swapAt || p.doneAt, inFor = left ? ago_(p.depositedAt || p.at, left) : ago_(p.depositedAt || p.at);
     const mix = b ? `${b.since ? `mixed with ${b.since} since yours` : 'nothing new in the pool yet'} · ${inFor}${meter}` : left ? inFor : `${inFor} so far`;
     const check = `<button type="button" class="btn sm ghost" data-later-check="${id}">Check it</button>`;
-    const s1 = p.held ? stepLi('done', 1, 'In the pool', `${amt} ${esc(unit)}, yours and hidden`, 'held privately')
+    const s1 = p.held ? stepLi('done', 1, 'In the pool', `${amt} ${esc(unit)}${b ? ` · ${b.since ? `mixed with ${b.since} since your latest deposit` : 'nothing deposited since your latest yet'}${meter}` : ', yours and hidden'}`, 'held privately')
       : stopped ? stepLi('fail', 1, 'Deposit', 'did not go through') : depDoubt ? stepLi('fail', 1, 'Deposit', 'not confirmed', check)
       : deposited ? stepLi('done', 1, 'Deposit', p.pay ? `${tidy(amtFmt(BigInt(p.pay.amountWei), Number(p.pay.dec)))} ${esc(p.pay.sym)} in` : '', p.depositTx ? link(p.depositTx) : 'in the pool') : stepLi('now', 1, 'Deposit', 'sending…');
     const s2 = p.held ? '' : !deposited ? stepLi('todo', 2, 'In the pool') : swapped || swapping || swapDoubt || (waiting && o) ? stepLi('done', 2, 'In the pool', mix) : stepLi('now', 2, 'In the pool', mix);
@@ -1458,7 +1459,7 @@ async function laterShield(id) {
   finally { S.busy = false; paint(); paintSteps(); H.onDone?.(); }
 }
 async function readBlend() {
-  const ps = plans().filter((p) => p.state === 'waiting' && !p.held);
+  const ps = plans().filter((p) => p.state === 'waiting');
   if (!ps.length || !LT || !PV?.unlocked) return;
   for (const p of ps) { try { BLEND[p.id] = await LT.blend(p); } catch { } }
   paintSteps();
@@ -1546,7 +1547,10 @@ function paintExit() {
   rc.innerHTML = lines.map(([k, v, c, t, href, act]) => `<div${t ? ` title="${esc(t)}"` : ''}><dt>${esc(k)}</dt><dd class="${c || ''}">${act ? `<button type="button" class="flip-px" data-${act} aria-label="${esc(v)}. Turn it around">${esc(v)}</button>` : esc(v)}</dd></div>`).join('');
   const [label, can, cls] = exitButton(q, r);
   go.textContent = label; go.disabled = !can; go.className = `go${cls ? ` ${cls}` : ''}`;
-  if (!S.busy) { if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, 'exit')); }
+  if (!S.busy) {
+    const own = r && !busy && W.account && exitDest() === lc(W.account);
+    if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, 'exit') || (own ? 'To this wallet. A new address keeps it apart from it.' : ''));
+  }
 }
 // The press: the key is opened, the balance adopted as a plan (nothing is sent), and the swap's price is read and shown to confirm.
 async function exitGo() {
@@ -1565,7 +1569,7 @@ async function exitGo() {
     S.amt = ''; S.q = null; S.to = null; S.toName = null; S.toOpen = false; $('#to-in').value = ''; say('');
   } catch (e) { say(esc(e?.message || String(e)), 'err', true); }
   finally { S.busy = false; changed(); paint(); paintSteps(); }
-  if (plan) laterOffer(plan.id);
+  if (plan) { readBlend().catch(() => {}); laterOffer(plan.id); }
 }
 
 // ── a private swap, made on this card: the Tacit key is opened here (private.js), and the relay proves and sends each step ──

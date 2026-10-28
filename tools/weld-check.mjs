@@ -7570,7 +7570,9 @@ await step('hxexit', async () => {
     ok(Math.abs(Number(maxed) - (Number(held) - 0.6)) < 0.011, `hxexit: Max keeps the fee back twice (${maxed} of ${held})`);
     // the press: a plan with its deposit done, and the price to confirm: nothing is sent
     await p.fill('#hx-swap #amt', '10');
-    await p.click('#hx-swap #get-where');
+    ok(await p.isVisible('#hx-swap #to-in') && /new address/.test(await p.getAttribute('#hx-swap #to-in', 'placeholder')), `hxexit: the address field is open on an exit, asking for the wallet or a new address (${await p.getAttribute('#hx-swap #to-in', 'placeholder')})`);
+    await until(p, () => /new address keeps it apart/.test(document.querySelector('#hx-swap #q')?.textContent || ''), null, 60000);
+    ok(true, 'hxexit: and to its own wallet the card says a new address keeps it apart');
     await p.fill('#hx-swap #to-in', STAND);
     await until(p, () => /^Withdraw USDC → 0x4f4f/.test(document.querySelector('#hx-swap #go')?.textContent || '') && !document.querySelector('#hx-swap #go').disabled, null, 120000);
     await p.click('#hx-swap #go');

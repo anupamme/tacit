@@ -499,8 +499,12 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
 
   // How the wait goes: the notes the pool has made since the deposit (each deposit, payment, change and withdrawal makes one or two) and the time since.
   async function blend(plan) {
-    const s = await (await wallet(plan.hop)).sync();
-    return { since: Math.max(0, s.leaves - Number(plan.leaves0 || 0)), mins: Math.floor((Date.now() - (plan.depositedAt || plan.at)) / 60000), balance: s.balance };
+    const w = await wallet(plan.hop), s = await w.sync();
+    // a swap's deposit is counted from its own; a held balance's from its latest note, the one that has mixed least
+    // (the pool takes leaves in pairs, so a note's own pair is not another deposit)
+    const last = Math.max(-1, ...w.notes().map((n) => Number(n.index)));
+    const since = plan.held ? Math.max(0, s.leaves - (last < 0 ? 0 : last - (last % 2) + 2)) : Math.max(0, s.leaves - Number(plan.leaves0 || 0));
+    return { since, mins: Math.floor((Date.now() - (plan.depositedAt || plan.at)) / 60000), balance: s.balance };
   }
 
   // The swap out in two presses: the route quoted now (with the stand-in) and shown, then sent only while it still pays at least what was shown.

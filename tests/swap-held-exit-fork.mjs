@@ -107,6 +107,13 @@ await WU.deposit({ amount: 1_000n * 10n ** 6n, selfCall: (tx) => routerDeposit(P
 await approve(TAC, TAC_POOL.router, 5_000n * 10n ** 18n);
 await WT.deposit({ amount: 5_000n * 10n ** 18n, selfCall: (tx) => routerDeposit(TAC_POOL.router, tx, { kind: 'allowance' }) });
 ok(WE.summary().balance === 2n * 10n ** 17n && WU.summary().balance === 1_000n * 10n ** 6n && WT.summary().balance === 5_000n * 10n ** 18n, 'the key holds 0.2 ETH, 1,000 USDC and 5,000 TAC in the three pools');
+// someone else deposits into the USDC pool after the key's own deposit: the wait for a held balance counts it
+{
+  const other = makeEvmPoolWallet({ zk, keys: evmPoolKeys(zk, crypto.getRandomValues(new Uint8Array(32))), keeper: `${K}/${P.id}/evm-pool/keeper`, store: null, feed: true, prove, chain: { chainId: 1, rpc, confirmations: 1, logChunk: 50000, relayer: A, pool: P.pool, router: P.router, token: USDC, deployBlock: 26264051, maxRelayFee: 10n ** 12n } });
+  other.connect({ address: USER, rpc, send: userSend });
+  await approve(USDC, P.router, 50n * 10n ** 6n);
+  await other.deposit({ amount: 50n * 10n ** 6n, selfCall: (tx) => routerDeposit(P.router, tx, { kind: 'allowance' }) });
+}
 
 // the page's flow, as the card runs it: the key's wallets are found again by sync from the chain, with no memory of the deposits above
 const dl = () => BigInt(Number(BigInt(Date.now()) / 1000n) + 1200);
@@ -120,7 +127,7 @@ const L = makeLater({ keyHex: async () => privHex, signer, ethCall: pageCall, ve
 const fmt = (v, d) => (Number(v) / 10 ** d).toPrecision(6);
 const coins = { eth: { token: ZERO, sym: 'ETH', dec: 18 }, usdc: { token: USDC, sym: 'USDC', dec: 6 }, tac: { token: TAC, sym: 'TAC', dec: 18 } };
 
-const exit = async ({ from, out, swap, dest }) => {
+const exit = async ({ from, out, swap, dest, since }) => {
   const label = `${coins[from].sym} pool → ${coins[out].sym}`;
   try {
     const hop = from === 'eth' ? null : await L.hopOf(coins[from].token);
@@ -131,6 +138,8 @@ const exit = async ({ from, out, swap, dest }) => {
     if (feeWei <= 0n) throw new Error('no fee from the relay');
     const plan = await L.adopt({ swapWei: swap, token: coins[out].token, sym: coins[out].sym, dec: coins[out].dec, to: dest, hop, pay: hop ? coins[from] : null, feeWei });
     ok(plan.state === 'waiting' && plan.held === true && !plan.depositTx && (!!plan.hop === (from !== 'eth')), `${label}: the balance is adopted as a plan with its deposit done (nothing sent)`);
+    const mix = await L.blend(plan);
+    ok(since === 'later' ? mix.since >= 2 : mix.since === 0, `${label}: the wait is read from the latest note: ${mix.since} leaves since it (${since === 'later' ? 'another deposit came after' : 'nothing came after'})`);
     const shown = await L.offer(plan, { slippageBps: 100 });
     const b0 = await bal(coins[out].token, dest);
     const done = await L.swapOut(plan, { shown, slippageBps: 100, via: 'relay' });
@@ -143,10 +152,10 @@ const exit = async ({ from, out, swap, dest }) => {
     ok(w.summary().balance > 0n, `${label}: what is left stays private in the pool (${fmt(w.summary().balance, coins[from].dec)} ${coins[from].sym})`);
   } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
 };
-await exit({ from: 'usdc', out: 'eth', swap: 200n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de961' });
-await exit({ from: 'usdc', out: 'usdc', swap: 100n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de962' });
-await exit({ from: 'eth', out: 'usdc', swap: 5n * 10n ** 16n, dest: '0x00000000000000000000000000000000000de963' });
-await exit({ from: 'tac', out: 'eth', swap: 1_500n * 10n ** 18n, dest: '0x00000000000000000000000000000000000de964' });
+await exit({ from: 'usdc', out: 'eth', swap: 200n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de961', since: 'later' });
+await exit({ from: 'usdc', out: 'usdc', swap: 100n * 10n ** 6n, dest: '0x00000000000000000000000000000000000de962', since: 'none' });
+await exit({ from: 'eth', out: 'usdc', swap: 5n * 10n ** 16n, dest: '0x00000000000000000000000000000000000de963', since: 'none' });
+await exit({ from: 'tac', out: 'eth', swap: 1_500n * 10n ** 18n, dest: '0x00000000000000000000000000000000000de964', since: 'none' });
 
 // refused before anything is sent: a balance that does not cover the swap and the fee twice, and a destination that is no address
 {
