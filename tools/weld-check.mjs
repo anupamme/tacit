@@ -6789,6 +6789,7 @@ await step('farmself', async () => {
     await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
     await p.click('[data-harvest="0"]');
     await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 120000 });
+    { const h = await p.$eval('#sf-act-0 [data-selfdo]', (b) => Math.round(b.getBoundingClientRect().height)); ok(h <= 34, `farmself: the send-it-yourself button is compact, not a block (${h}px high)`); if (SHOTS) await p.locator('#sf-act-0').screenshot({ path: join(SHOTS, 'weld-farmself-offer.png') }); }
     ok(/free relayed settles|used up|free settles/i.test(await text(p, '#sf-act-0')) && /Send it from/.test(await text(p, '#sf-act-0')), 'farmself: a harvest the relay refuses offers to send it from the paying account');
     await p.click('#sf-act-0 [data-selfdo]');
     await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 240000);
@@ -10970,6 +10971,12 @@ await step('copylink', async () => {
     await p.click('#hx-swap #copy');
     const sh = (await p.evaluate(() => window.__copied)).at(-1) || '';
     ok(/\/#card=shield:ether:defi&amt=0\.01$/.test(sh), `copylink: the Swap tab's way into private tETH copies a link to it and its amount (${sh})`);
+    // any other swap, and the landing's farm card
+    await p.evaluate(() => { location.hash = '#card=swap:ether:tac:private&amt=0.01'; });
+    await until(p, () => document.querySelector('#hx-swap #amt')?.value === '0.01' && !document.querySelector('#hx-swap #copy')?.hidden, null, 120000).catch(() => {});
+    await p.click('#hx-swap #copy');
+    const sw = (await p.evaluate(() => window.__copied)).at(-1) || '';
+    ok(/\/\?amt=0\.01&private=to$/.test(sw), `copylink: a swap of ETH into private TAC copies its link with the amount (${sw})`);
     if (r.errors.length) { fails++; console.log('FAIL copylink page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });

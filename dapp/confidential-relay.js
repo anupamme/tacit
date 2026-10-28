@@ -93,7 +93,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       jobTypes.set(body.jobId, type);
       const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
       if (onJob) { try { onJob(body.jobId, type); } catch { } }
-      announce({ ...body, type, status: body.status || 'pending' });
+      // `proveOnly`: a proof alone, which the holder (or a voucher) sends; `early`: one asked for ahead of any press: a page lists neither as a relayed action
+      announce({ ...body, type, status: body.status || 'pending', ...(mode === 'prove' ? { proveOnly: true } : {}), ...(ahead ? { early: true } : {}) });
     }
     return { ...body, sealedMemos };
   }

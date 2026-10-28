@@ -796,10 +796,13 @@ function feeLines(q, r) {
   }
   return parts.map(([k, v], i) => [k, `${v}${i === 0 ? said : ''}`]);
 }
-// A link to a way in from the wallet (ETH into private tETH, say), as the card stands: it opens on that way with that amount.
+// A link to the card as it stands, a way in from the wallet (ETH into private tETH, say) or any swap: it opens on that pair with that amount.
 function shareLink() {
   const mk = moveOf(), amt = String(S.amt || '').trim();
-  return mk && H.copy && /^\d{0,12}(?:\.\d{1,18})?$/.test(amt) && Number(amt) > 0 ? `${location.origin}/#card=shield:${mk.replace('>', ':')}&amt=${amt}` : null;
+  if (!H.copy || !/^\d{0,12}(?:\.\d{1,18})?$/.test(amt) || !(Number(amt) > 0)) return null;
+  if (mk) return `${location.origin}/#card=shield:${mk.replace('>', ':')}&amt=${amt}`;
+  // any other swap: the pair, amount and private sides as the swap links name them (?from=&to=&amt=&private=)
+  return kindOf(S.pay, S.get) && !S.btc ? `${location.origin}/?${params()}` : null;
 }
 const shareSync = () => { const b = $('#copy'); if (b) b.hidden = !shareLink(); };
 function paintQuote() {
