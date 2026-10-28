@@ -896,6 +896,9 @@ function paintQuote() {
   go.textContent = label; go.disabled = !can; go.className = `go${cls ? ` ${cls}` : ''}`;
   if (!S.busy) { if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, kind)); }
 }
+// Far under the market into cUSD or cBTC, the vault makes them at their own price: that is the button, and swapping anyway is the box ticked above it
+const mintAlt = () => (S.get === lc(R.CUSD) ? ['Borrow cUSD at $1 instead', '/vault/#btc'] : S.get === lc(R.CBTC) ? ['Mint cBTC 1:1 instead', '/vault/#btc'] : null);
+const gateButton = () => { const a = mintAlt(); return a ? [a[0], true, 'priv'] : ['Accept the price above to swap', false]; };
 function button(q, r, kind, gate) {
   const pay = tokenOf(S.pay), get = tokenOf(S.get);
   if (S.busy) return ['Working…', false];
@@ -916,7 +919,7 @@ function button(q, r, kind, gate) {
     const bal = S.bal[S.pay], eth = S.bal[lc(R.ZERO)], tip = q.tip || 0n;
     if (bal != null && q.wei > bal) return [`Not enough ${pay.sym}`, false];
     if (eth != null && tip + 2n * gasKeep() > eth) return ['Leave some ETH for the network fee', false];
-    if (gate && !S.ack) return ['Accept the price above to swap', false];
+    if (gate && !S.ack) return gateButton();
     return [`Swap privately${tLabel}`, true, 'priv'];
   }
   if (kind === 'pout') {
@@ -925,7 +928,7 @@ function button(q, r, kind, gate) {
     const dest = outTo();
     if (!dest) return ['Add the address it goes to', false];
     if (pb != null && q.wei > pb) return [`Not enough private ${pay.sym}`, false];
-    if (gate && !S.ack) return ['Accept the price above to swap', false];
+    if (gate && !S.ack) return gateButton();
     return [S.to ? `Swap privately → ${who(dest)}` : 'Swap privately to your wallet', true, 'priv'];
   }
   if (kind === 'private') {
@@ -934,7 +937,7 @@ function button(q, r, kind, gate) {
     if (bal != null && q.wei > bal) return [`Not enough ${pay.sym}`, false];
     if (bal != null && q.wei + tip + gasKeep() > bal) return ['Leave some ETH for the network fee', false];
     if (pb != null && q.wei > pb) return [`Not enough private ${pay.sym}`, false];
-    if (gate && !S.ack) return ['Accept the price above to swap', false];
+    if (gate && !S.ack) return gateButton();
     if (tTyped && S.toTacitBad) return ['Check the address', false];
     if (tTyped && !S.toTacit) return ['Finding their address…', false];
     return [S.get === 'teth' && isEth(S.pay) ? (S.toTacit ? `Send privately${tLabel}` : 'Make it private') : `Swap privately${tLabel}`, true, 'priv'];
@@ -951,14 +954,14 @@ function button(q, r, kind, gate) {
     if (tok && tin == null) return ['Finding the best price…', false];
     if (tok && held != null && tin > held) return [`Not enough ${pay.sym} for the deposit`, false];
     if (tok ? eth != null && 2n * gasKeep() > eth : eth != null && dep + gasKeep() > eth) return [tok ? 'Leave some ETH for the network fee' : 'Not enough ETH for the deposit', false];
-    if (gate && !S.ack) return ['Accept the price above to swap', false];
+    if (gate && !S.ack) return gateButton();
     const d = laterDest(), tail = d.kind === 'me' ? ' → private' : d.kind === 'tacit' ? ` → ${tacitName(S.toTacit)}` : '';
     return [`Deposit ${tok ? `${tidy(amtFmt(tin, pay.dec))} ${pay.sym}` : `${tidy(amtFmt(dep, 18))} ETH`}${tail}`, true, 'priv'];
   }
   const bal = S.bal[S.pay], wei = q.wei;
   if (bal != null && wei > bal) return [`Not enough ${pay.sym}`, false];
   if (bal != null && isEth(S.pay) && S.gasPrice && wei + r.gas * S.gasPrice > bal) return ['Leave some ETH for the network fee', false];
-  if (gate && !S.ack) return ['Accept the price above to swap', false];
+  if (gate && !S.ack) return gateButton();
   const to = recipient(), tail = to ? ` → ${who(to)}` : '';
   return [(isEth(S.get) || kind === 'out' ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' || kind === 'in' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`) + tail, true];
 }
@@ -985,6 +988,7 @@ async function go() {
   const kind = kindOf(S.pay, S.get), r = picked();
   if (S.busy) return;
   if (!r) { if (S.q?.err) requote(true); return; }
+  if (!S.ack && mintAlt() && S.q && !S.q.busy && (vsMarket(S.q, r) ?? 0) <= GATE) { location.href = mintAlt()[1]; return; }
   S.note = '';
   if (kind === 'private' || kind === 'pout' || kind === 'pin') { await privateGo(r, kind); return; }
   if (laterOn(kind)) {

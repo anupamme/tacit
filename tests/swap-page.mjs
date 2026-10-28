@@ -436,7 +436,7 @@ const pick = async (page, side, sym) => {
   await pick(page, 'get', 'cUSD');
   await quoted(page);
   { const gated = !!(await page.$('#ack'));
-    ok(!gated || (await page.textContent('#go')) === 'Accept the price above to swap', `a private swap far under the market waits for its acceptance too (${await page.textContent('#go')})`); }
+    ok(!gated || /^(Accept the price above to swap|Borrow cUSD at \$1 instead)$/.test(await page.textContent('#go')), `a private swap far under the market waits for its acceptance too, or offers the vault (${await page.textContent('#go')})`); }
   await ackIf(page);
   ok((await page.textContent('#go')) === 'Swap privately', 'private ETH → cUSD quotes the cut amount');
   // typing past 8 decimals stops at 8
