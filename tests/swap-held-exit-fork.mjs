@@ -157,6 +157,30 @@ await exit({ from: 'usdc', out: 'usdc', swap: 100n * 10n ** 6n, dest: '0x0000000
 await exit({ from: 'eth', out: 'usdc', swap: 5n * 10n ** 16n, dest: '0x00000000000000000000000000000000000de963', since: 'none' });
 await exit({ from: 'tac', out: 'eth', swap: 1_500n * 10n ** 18n, dest: '0x00000000000000000000000000000000000de964', since: 'none' });
 
+// held ETH becomes held USDC with no public stop: the swap out of the ETH pool pays a deposit box of the USDC pool for this key, which that
+// pool's relay completes; what the box holds above its floor is refundable to an address only the key knows
+{
+  const label = 'ETH pool → USDC pool';
+  try {
+    await WU.sync(); await WE.sync();
+    const u0 = WU.summary().balance, e0 = WE.summary().balance, swap = 4n * 10n ** 16n, REFUND = '0x00000000000000000000000000000000000de971';
+    const hopU = await L.hopOf(USDC);
+    const feeWei = BigInt((await getJson('/1/evm-pool/keeper/quote?gas=920000')).body.fee);
+    const plan = await L.adopt({ swapWei: swap, token: USDC, sym: 'USDC', dec: 6, feeWei, into: { hop: hopU, refund: REFUND } });
+    ok(plan.held && plan.into?.hop?.pool === P.pool && plan.to === REFUND, `${label}: the balance is adopted as a plan into the USDC pool`);
+    const shown = await L.offer(plan, { slippageBps: 100 });
+    ok(!!shown.intoBox?.box && shown.callData.toLowerCase().includes(shown.intoBox.box.slice(2).toLowerCase()) && shown.arrives > 0n && shown.intoBox.amount <= shown.min, `${label}: priced paying a deposit box for the key, which holds at most the floor (${fmt(shown.intoBox.amount, 6)} USDC of at least ${fmt(shown.min, 6)}, arrives ${fmt(shown.arrives, 6)} after the relay)`);
+    const done = await L.swapOut(plan, { shown, slippageBps: 100, via: 'relay' });
+    ok(done.state === 'done' && done.intoBox === shown.intoBox.box, `${label}: the relay sends the swap out of the ETH pool to the box`);
+    for (let i = 0; i < 90 && WU.summary().balance < u0 + shown.arrives; i++) { await sleep(1000); await rpcA('anvil_mine', ['0x1']); await WU.sync(); }
+    ok(WU.summary().balance - u0 === shown.arrives, `${label}: the USDC pool's relay completes the deposit: ${fmt(WU.summary().balance - u0, 6)} USDC are held privately now, no public stop`);
+    const tx = await rpcA('eth_getTransactionByHash', [done.swapTx]);
+    ok(!tx.input.toLowerCase().includes(USER.slice(2).toLowerCase()), `${label}: and the withdrawal does not name the wallet that deposited`);
+    for (let i = 0; i < 30 && WE.summary().balance >= e0; i++) { await sleep(500); await WE.sync(); }
+    ok(e0 - WE.summary().balance > swap, `${label}: the ETH left the ETH pool (${fmt(e0 - WE.summary().balance, 18)} ETH with the relay's fee)`);
+  } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
+}
+
 // refused before anything is sent: a balance that does not cover the swap and the fee twice, and a destination that is no address
 {
   const hop = await L.hopOf(USDC), feeWei = 700_000n, plans0 = JSON.parse(store.getItem('tacit-swap-later-v1') || '[]').length, u = coins.usdc;

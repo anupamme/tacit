@@ -230,7 +230,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   }
   const prover = { ms: null, ready: false };
   const mods = () => (modsP ||= (async () => {
-    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=227f1a3e'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
+    const [zkm, wm, gw, pm, pos] = await Promise.all([import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=de687011'), import('/evm-pool-gateway.js'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js')]);
     const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
     return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), wm, gw, vkHash: pm.vkHash };
   })().catch((e) => { modsP = null; throw e; }));
@@ -463,19 +463,25 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   // starts at its wait with the deposit done, and its swap out goes as any plan's (offer, then the confirmed price). `hop` is a token pool
   // (hopOf, open; `pay` names its token), else the ETH pool's. The balance must cover the swap and the relay's fee twice, as a deposit
   // sets it aside, for a fee that rises while it waits. A token that is the pool's own is paid out as it is.
-  async function adopt({ swapWei, token, sym, dec, to, toName = null, hop = null, pay = null, feeWei }) {
+  // `into` ({ hop, refund }): the swap pays another pool's deposit box for this key (hop: that pool's, else the ETH pool's) and `to` is not an
+  // address of anyone's: what the box holds above its floor goes to `refund` after its deadline, an address only this key knows.
+  async function adopt({ swapWei, token, sym, dec, to = null, toName = null, hop = null, pay = null, feeWei, into = null }) {
     const swap = BigInt(swapWei), fee = BigInt(feeWei), unit = hop ? pay.sym : 'ETH';
     if (swap <= 0n) throw new Error('enter an amount');
+    if (into) { into = { ...into, refund: into.refund || (await tacitAccount()).acct.address }; to = into.refund; }
     if (!/^0x[0-9a-fA-F]{40}$/.test(String(to))) throw new Error('Add the address it goes to.');
+    if (into?.hop && !(into.hop.state?.pool && into.hop.state?.router)) throw new Error(`The private ${sym} pool is not open yet.`);
     if (hop && !(hop.state?.pool && hop.state?.router)) throw new Error(`The private ${unit} pool is not open yet.`);
     const w = await wallet(hop), s = await w.sync();
     if (s.balance < swap + 2n * fee) throw new Error(`Your private ${unit} balance holds less than the swap and the relay’s fee. Nothing was sent.`);
     const plan = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), held: true, swapWei: String(swap), extraWei: '0', depositWei: String(swap + 2n * fee),
       token: lc(token), sym, dec, to: lc(to), ...(toName ? { toName: String(toName) } : {}), dest: { kind: 'address' }, gasWei: '0',
       ...(hop ? { hop: { token: lc(hop.token), pool: hop.pool, router: hop.router, id: hop.id, from: hop.from || TOKEN_POOLS_FROM, sym: pay.sym, dec: pay.dec } } : {}),
+      ...(into ? { into: { refund: lc(into.refund), hop: into.hop ? { token: lc(into.hop.token), pool: into.hop.pool, router: into.hop.router, id: into.hop.id, from: into.hop.from || TOKEN_POOLS_FROM, sym, dec } : null } } : {}),
       state: 'waiting', depositedAt: Date.now(), leaves0: s.leaves };
     keepPlans([plan, ...readPlans(store)], store);
     if (hop) keepPool(hop, pay.sym, pay.dec);
+    if (into?.hop) keepPool(into.hop, sym, dec);
     return plan;
   }
   function save(plan) { keepPlans([plan, ...readPlans(store).filter((p) => p.id !== plan.id)], store); }
@@ -510,19 +516,32 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   // The swap out in two presses: the route quoted now (with the stand-in) and shown, then sent only while it still pays at least what was shown.
   async function offer(plan, { slippageBps = 50 } = {}) {
     // out of a token pool: the same token is paid out as it is; anything else is the token sold on the way out
-    const same = plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO;
+    const same = !plan.into && (plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO);
     if (same) return { min: BigInt(plan.swapWei), out: BigInt(plan.swapWei), name: plan.hop ? `${plan.hop.sym} itself` : 'ETH itself', at: Date.now() };
     const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
-    if (plan.hop) {
-      const r = await routeFrom({ ethCall, venues, tokenIn: plan.hop.token, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
-      if (!r) throw new Error(`No onchain route sells ${plan.hop.sym} for ${plan.sym} right now. Nothing was sent; try again in a while.`);
-      return { ...r, at: Date.now() };
-    }
-    const r = lc(plan.token) === TAC
-      ? await routeOutTac({ venues, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline })
-      : await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to: plan.to, slippageBps, deadline });
-    if (!r) throw new Error(`No onchain route sells ETH for ${plan.sym} right now. Nothing was sent; try again in a while.`);
-    return { ...r, at: Date.now() };
+    const route = async (to) => {
+      if (plan.hop) {
+        const r = await routeFrom({ ethCall, venues, tokenIn: plan.hop.token, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
+        if (!r) throw new Error(`No onchain route sells ${plan.hop.sym} for ${plan.sym} right now. Nothing was sent; try again in a while.`);
+        return r;
+      }
+      const r = lc(plan.token) === TAC
+        ? await routeOutTac({ venues, amount: BigInt(plan.swapWei), to, slippageBps, deadline })
+        : await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
+      if (!r) throw new Error(`No onchain route sells ETH for ${plan.sym} right now. Nothing was sent; try again in a while.`);
+      return r;
+    };
+    if (!plan.into) return { ...(await route(plan.to)), at: Date.now() };
+    // into another pool: priced once for a stand-in to learn its floor, then a deposit box for this key is made for a little under that floor
+    // (given to that pool's relay, which completes it once the swap has paid it) and the swap priced again paying the box
+    const w = await wallet(plan.into.hop), stand = '0x' + hexOf(crypto.getRandomValues(new Uint8Array(20)));
+    const first = await route(stand), q = await w.quote(Number(plan.into.hop ? HOP_GAS : BASE_GAS + 200_000n));
+    const fee = BigInt(q.fee), amount = (first.min * 995n) / 1000n;
+    if (amount <= fee * 2n) throw new Error(`Too small to go into the ${plan.sym} pool: the relay's fee there is ${fee} of it. Nothing was sent.`);
+    const box = await w.depositBox({ amount, fee, refund: plan.into.refund, deadline: Math.floor(Date.now() / 1000) + 2 * DEADLINE_S });
+    const r = await route(box.box);
+    if (r.min < amount) throw Object.assign(new Error('The price moved while the deposit box was made. Nothing was sent; read it again.'), { moved: true });
+    return { ...r, at: Date.now(), intoBox: box, arrives: box.value };
   }
   // `via: 'self'` sends it from the connected wallet, refused when that is the wallet that deposited (it would tie the two together).
   async function swapOut(plan, { shown, slippageBps = 50, via = 'relay', onStep = () => {} } = {}) {
@@ -565,6 +584,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
         h = await w.withdrawAndCall({ intent, amount: amount + gas, gas: Number(BASE_GAS + (routeGas * 3n) / 2n + (gas > 0n ? 40_000n : 0n)), via, onStep });
       }
       plan.swapTx = h; plan.proveMs = prover.ms; delete plan.from;
+      if (plan.into && r.intoBox) plan.intoBox = r.intoBox.box;
       if (poolDest(plan)) { plan.state = 'shielding'; plan.swapDoneAt = Date.now(); }
       else { plan.state = 'done'; plan.doneAt = Date.now(); }
       return plan;

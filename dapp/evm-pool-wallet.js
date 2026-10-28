@@ -18,7 +18,7 @@ import { secp, keccak_256, sha256, hmac, concatBytes } from './vendor/tacit-deps
 import { makeBtcShieldedPool } from './btc-shielded-pool.js';
 import { poolAsset, extDataHash } from './evm-pool-zk.js';
 import { sharedSecrets } from './evm-pool-scan.js';
-import { receiveKeys, receivedNote, receiveBoxAddress, sweepWitness, callIntent, callEscrowAddress, callIntentJson, callIntentAbi, CALL_INTENT_SIG, calldata, selector, bridgeEthCall, L2_BRIDGES, RECEIVE_FEE_BPS, RECEIVE_INDEX } from './evm-pool-gateway.js';
+import { depositIntent, receiveKeys, receivedNote, receiveBoxAddress, sweepWitness, callIntent, callEscrowAddress, callIntentJson, callIntentAbi, CALL_INTENT_SIG, calldata, selector, bridgeEthCall, L2_BRIDGES, RECEIVE_FEE_BPS, RECEIVE_INDEX } from './evm-pool-gateway.js';
 
 export const MEMO_LEN = 65;
 const REFUND_GAP = 20;
@@ -338,6 +338,7 @@ const txValues = (t) => [t.pA, t.pB, t.pC, t.publicInputs, t.recipient, BigInt.a
 const transactData = (t) => calldata(`transact${TX_SIG}`, TX_TYPES, txValues(t));
 const withdrawAndCallData = (t, i) => { const a = callIntentAbi(i); return calldata(`withdrawAndCall(${TX_SIG},${CALL_INTENT_SIG})`, [{ tuple: TX_TYPES }, a.type], [txValues(t), a.value]); };
 const WRAP_SIG = '(bytes32,uint256,uint256,address,bytes32,address,uint64,uint256)';
+const DEPOSIT_TYPES = ['uint256', 'uint256', 'uint256', 'bytes32', 'bytes32', 'address', 'uint64', 'uint256'];
 const WRAP_TYPES = ['bytes32', 'uint256', 'uint256', 'address', 'bytes32', 'address', 'uint64', 'uint256'];
 const wrapValues = (i) => [i.assetId, i.amount, i.tip, i.tipTo, i.commit, i.refund, i.deadline, i.nonce];
 const withdrawToV1Data = (t, i) => calldata(`withdrawToV1(${TX_SIG},${WRAP_SIG})`, [{ tuple: TX_TYPES }, { tuple: WRAP_TYPES }], [txValues(t), wrapValues(i)]);
@@ -1056,6 +1057,22 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       const unread = index >= saved.nextRefund + REFUND_GAP;
       if (index >= saved.nextRefund) { saved.nextRefund = index + 1; persist(); }
       return unread;
+    },
+
+    // A deposit box that pays a note of `amount - fee` to this key: the intent is sealed for it, given to this pool's relay, which completes
+    // it with its own proof once the box holds `amount` (the fee is its reward). Anything that pays the box (a swap's output from another
+    // pool) lands here as a note, with no step of this wallet's; what the box holds above `amount` goes to `refund` after the deadline.
+    // → { box, amount, value, deadline }
+    async depositBox({ amount, fee, refund, deadline, nonce = BigInt(hex(globalThis.crypto.getRandomValues(new Uint8Array(16)))) }) {
+      const a = BigInt(amount), f = BigInt(fee);
+      if (a <= f) throw new Error('the deposit box must hold more than the relay\u2019s fee');
+      const n = sealNote(zk, { to: self, value: a - f, asset });
+      const { intent, hint } = depositIntent(zk, { asset, amount: a, outputs: [{ v: n.v, npk: n.npk, rho: n.rho }], memo0: n.memo, refund, deadline, nonce });
+      const box = '0x' + String(await chain.rpc('eth_call', [{ to: chain.router, data: calldata(`depositBoxOf(${'(' + DEPOSIT_TYPES.join(',') + ')'})`, [{ tuple: DEPOSIT_TYPES }], [[intent.amount, intent.outLeaf0, intent.outLeaf1, intent.memo0Hash, intent.memo1Hash, intent.refund, intent.deadline, intent.nonce]]) }, 'latest'])).slice(-40);
+      const str = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v]));
+      const res = await keeperPost('/deposit', { intent: str(intent), hint: { outputs: [{ v: n.v.toString(), npk: n.npk.toString(), rho: n.rho.toString() }, null], memo0: hex(n.memo), memo1: '0x' } });
+      if (res.status !== 200 || String(res.body?.box || '').toLowerCase() !== box.toLowerCase()) throw new Error(`The relay did not take this deposit (${res.body?.error || res.status}), so nothing was sent.`);
+      return { box, amount: a, value: a - f, deadline: Number(deadline) };
     },
 
     // A fresh receive box for a call intent's refund (anything returned is swept back into a note here), and asks
