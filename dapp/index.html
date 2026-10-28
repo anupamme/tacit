@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-GeZ+UsC2RbHwtWKDglHo+Lje62jKC4gV37chxBZTjuk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ix/ROPy8iY6e8J06RIDHXl7jh7pYu/rAf59Q7v1cmKk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -409,7 +409,25 @@ a.di { color: inherit; text-decoration: none; }
 .hx-chain { display: flex; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
 .hx-chain[hidden] { display: none; }
 .hx-chain .cmk { margin-right: 0; }
-.hx-chain select { font: inherit; color: var(--ink); background: none; border: 0; border-bottom: 1px dashed var(--ink); padding: 0 2px; cursor: pointer; }
+/* the network picker (net-pick.js): a pill with the network's logo and name over the select, which stays out of sight as what holds the value */
+.np { position: relative; display: inline-flex; }
+.np-sel { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.np-b { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 12px 3px 4px; font: inherit; font-size: 13px; color: var(--ink); background: var(--field); border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s; }
+.np-b:hover, .np-b:focus-visible, .np-b[aria-expanded="true"] { border-color: var(--ink); outline: none; }
+.np-b .tk { width: 24px; height: 24px; }
+.np-c { width: 9px; height: 6px; margin-left: 2px; opacity: .6; transition: transform .2s var(--ease); }
+.np-b[aria-expanded="true"] .np-c { transform: rotate(180deg); }
+.np-m { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; min-width: 100%; width: max-content; padding: 4px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; box-shadow: 0 20px 44px -20px rgba(0,0,0,.6); animation: np-in .16s var(--ease); }
+.np-m[hidden] { display: none; }
+.np-m[data-up] { top: auto; bottom: calc(100% + 6px); }
+.np-o { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 14px 7px 8px; font: inherit; font-size: 13px; color: var(--ink); text-align: left; background: none; border: 0; border-radius: 12px; cursor: pointer; }
+.np-o:hover, .np-o:focus-visible, .np-o[aria-selected="true"] { background: var(--field); outline: none; }
+.np-o .tk { width: 26px; height: 26px; }
+.np-o .np-k { width: 12px; height: 12px; margin-left: auto; padding-left: 14px; box-sizing: content-box; opacity: 0; }
+.np-o[aria-selected="true"] .np-k { opacity: 1; }
+@keyframes np-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .np-m { animation: none; } .np-c { transition: none; } }
+@media (pointer: coarse) { .np-b { min-height: 38px; } .np-o { padding-block: 10px; } }
 .hx .btn { width: 100%; min-height: 56px; margin: 16px 0 0; border-radius: 12px; font-size: 15px; transition: transform .2s var(--spring), box-shadow .2s, background .15s, color .15s; }
 @media (hover: hover) { .hx .btn:hover:not(:disabled) { color: var(--card); background: var(--ink); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--orange); } }
 .hx .btn:active:not(:disabled) { transform: none; box-shadow: none; }
@@ -1714,6 +1732,7 @@ import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 import { zapPlan, zapPlanFor, zapCalldata, zapSettleCalldata, zapSplitSearch, zapWorth } from '/lp-zap.js?cb=4823580d';
 import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
+import { netPicker } from '/net-pick.js?cb=cc73321e';
 import { UNBOND_DUST, HARVEST_WORTH, unharvested, bFor, aFor, farmManager, ladder as xoLadder, feeShort as xoFeeShort } from '/farm-ops.js?cb=0933a4c8';
 import { relayCode, proveCapped, proved, relayRefused, jobSaid } from '/relay-outcome.js?cb=26298b8e';
 import { makeLoans, bondGap, lockPad as lockPadOf } from '/btc-borrow.js?cb=13923518';
@@ -14240,7 +14259,7 @@ function swcPace(id) {
   if (b) b.dataset.pace = id;
   else q.insertAdjacentHTML('afterend', html`<div class="pace" data-card="1" data-pace="${id}"><div class="actr-bar" role="progressbar" aria-label="How far along" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div><span></span></div>`.s);
 }
-const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=659ddf0f').catch((e) => { SWC.p = null; throw e; }));
+const swcLoad = () => (SWC.p ||= import('/swap/card.js?cb=14aecafe').catch((e) => { SWC.p = null; throw e; }));
 function swcAsk() { if (SWC.ask && SWC.card?.load(SWC.ask)) SWC.ask = null; }
 function hxSwap() {
   const put = () => { const s = $('#hx-swap'); if (s && s !== SWC.el) { s.replaceWith(SWC.el); SWC.card?.requote?.(); } swcAsk(); };
@@ -14302,7 +14321,7 @@ function paintHx() {
     btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : HX.from === 'tac' ? 'Bridge TAC to Bitcoin' : 'Bridge tETH to Bitcoin',
     xo: HX.xa ? `Bridge ${XA[HX.xa].ticker} to Bitcoin` : '', xb: HX.xa ? `Bring ${XA[HX.xa].ticker} back` : '',
   }[md];
-  const chainRow = html`<label class="hx-chain" id="hx-chain"${hxChainPick() ? '' : ' hidden'}>On ${chainMark(HX.chain)}<select id="hx-chain-sel" aria-label="Chain">${DEVICE_CHAINS.map((c) => html`<option value="${c.chainId}"${c.chainId === HX.chain ? ' selected' : ''}>${chainFull(c.chainId)}</option>`)}</select></label>`;
+  const chainRow = html`<label class="hx-chain" id="hx-chain"${hxChainPick() ? '' : ' hidden'}>On <select id="hx-chain-sel" aria-label="Chain">${DEVICE_CHAINS.map((c) => html`<option value="${c.chainId}" data-mark="${CHAIN_MARK[c.chainId] || 'c-eth'}"${c.chainId === HX.chain ? ' selected' : ''}>${chainFull(c.chainId)}</option>`)}</select></label>`;
   const tail = html`${chainRow}
     <div class="rows" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
     <dl class="rcpt" id="hx-receipt" hidden></dl>
@@ -14429,6 +14448,7 @@ function paintHx() {
     $('#hx-ask')?.addEventListener('click', () => { HX.ask = true; paintHx(); $('#hx-amt')?.focus(); });
     $('#hx-pay')?.addEventListener('click', () => { HX.ask = false; paintHx(); $('#hx-amt')?.focus(); });
     $('#hx-chain-sel')?.addEventListener('change', (e) => { HX.chain = Number(e.target.value); HX.q = null; paintHx(); });
+    netPicker($('#hx-chain-sel'));
     paintHxQ(); hxQuote(); hxSendRead(); hxRcptCheck(); hxRecentPaint();
     return;
   }
@@ -14455,6 +14475,7 @@ function paintHx() {
   const setFrom = (v) => { HX.placePick = true; HX.placeAuto = null; hxKeepAmt(() => { if (m === 'bridge') HX.br = v; else if (m === 'earn') HX.ern = v; else if (m === 'borrow') { HX.bsrc = v === 'wtac' ? 'tac' : v === 'cbtc' ? 'cbtc' : 'btc'; HX.bm = HX.bsrc === 'tac' ? (HX.bm === 'tace' ? 'tace' : 'tacd') : HX.bsrc === 'btc' && HX.bm === 'cbtc' ? 'cbtc' : 'cusd'; HX.amt = ''; } HX.q = null; }); paintHx(); };
   $('#hx-from')?.addEventListener('change', (e) => setFrom(e.target.value));
   $('#hx-chain-sel')?.addEventListener('change', (e) => { HX.chain = Number(e.target.value); HX.q = null; HX.max = false; paintHx(); });
+  netPicker($('#hx-chain-sel'));
   $('#hx-flip')?.addEventListener('click', () => {
     hxKeepAmt(() => { const r = HX_BR_REV[HX.br]; if (hxBrSources().includes(r)) { HX.br = r; HX.placePick = true; HX.placeAuto = null; } HX.q = null; });
     paintHx();

@@ -13,6 +13,7 @@ import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { makePointsNote } from '/points-note.js?cb=dc44d257';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 import { SERVED } from '/evm-pool-tokens.js?cb=e1ab5d24';
+import { netPicker } from '/net-pick.js?cb=cc73321e';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
@@ -317,7 +318,7 @@ function homesHtml() {
 function chainHtml() {
   if (!moving() || !((atOf('pay') === 'pay' && isEth(S.pay)) || (atOf('get') === 'pay' && isEth(S.get))) || !H.moves.chains) return '';
   const cs = H.moves.chains();
-  return cs.length > 1 ? `Pay pool on <select id="chain-sel" aria-label="The Pay pool’s chain">${cs.map((c) => `<option value="${c.id}"${c.id === H.moves.chain ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : '';
+  return cs.length > 1 ? `Pay pool on <select id="chain-sel" aria-label="The Pay pool’s chain">${cs.map((c) => `<option value="${c.id}" data-mark="${CHAIN_MARK[c.id] || 'c-eth'}"${c.id === H.moves.chain ? ' selected' : ''}>${esc(CHAIN_NAME[c.id] || c.name)}</option>`).join('')}</select>` : '';
 }
 // A move, priced by the page: what arrives, its receipt, a line, and the button it starts from.
 function paintMove() {
@@ -742,7 +743,7 @@ function paintSides() {
   for (const k of [S.pay, S.get]) if (W.account && listedAt(k)?.uni && S.bal[k] === undefined && !BALQ.has(`${W.account}:${k}`)) { BALQ.add(`${W.account}:${k}`); readBalances().then(paintSides, () => {}); }
   const homes = $('#homes'), chain = $('#chain');
   if (homes) { const h = homesHtml(); homes.hidden = !h; if (h !== homes.dataset.h) { homes.innerHTML = h; homes.dataset.h = h; } }
-  if (chain) { const c = chainHtml(); chain.hidden = !c; if (c !== chain.dataset.h) { chain.innerHTML = c; chain.dataset.h = c; } }
+  if (chain) { const c = chainHtml(); chain.hidden = !c; if (c !== chain.dataset.h) { chain.innerHTML = c; chain.dataset.h = c; netPicker($('#chain-sel')); } }
   const side = $('#pay-side'), mk = !S.amt && !fixed ? moveOf() : null, sizes = mk ? H.moves?.sizes?.(mk) || null : !S.amt && !fixed ? keptChips() : null;
   if (payPriv && bal == null && !S.at.pay && !moveOf()) side.innerHTML = PV?.unlocked ? `<span>Reading your private balance…${PV.readFailed ? ' <button type="button" id="pv-read">Read again</button>' : ''}</span>` : '<button type="button" id="pv-open">Your private balance</button>';
   else if (bal != null) side.innerHTML = fixed ? `<span>Balance ${esc(amtFmt(bal, pay.dec))}</span>` : `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
@@ -2156,7 +2157,7 @@ function wire() {
   $('#chain')?.addEventListener('change', (e) => {
     if (e.target.id !== 'chain-sel') return;
     H.moves.setChain(Number(e.target.value)); mend(atOf('pay') === 'pay' ? 'pay' : 'get');
-    S.mq = null; changed(); paint(); requote(true); $('#chain-sel')?.focus();
+    S.mq = null; changed(); paint(); requote(true); $('#chain .np-b')?.focus();
   });
   $('#rows').addEventListener('click', (e) => { if (e.target.closest('[data-routes-all]')) { S.routesAll = `${S.pay}>${S.get}`; paintQuote(); $('#rows [aria-checked="true"]')?.focus(); return; } const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.hold = true; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });
   ROOT.addEventListener('click', (e) => {
