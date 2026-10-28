@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BmeIWygBU8WAs7He7R47A14LzRl6DR67q3hqc/9Hblo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zYHmPOQ0JCVA79626wLpH9YlqDoRP6yp2uxfdIB05JU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:47815 https://api.tacit.finance https://aggregator-api.kyberswap.com https://api.zfi.wei.is https://api.paraswap.io https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -539,65 +539,13 @@ a.di { color: inherit; text-decoration: none; }
 #kept-v { min-height: 148px; }
 
 
-/* Earn: one column like the card above it. The private farms' card, then the public farm and the vault pools as two slim rows. */
+/* Points: one column like the card above it. */
 .fm-c { max-width: 600px; margin: 0 auto; }
-.fm-y { display: grid; gap: 12px; margin-top: 12px; }
-.fm .sx-h p { max-width: 72ch; }
-.fz { display: grid; gap: 22px; padding: 24px 24px 22px; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; }
-/* The pool picked, as one slim reading over its form: its pair, its name and what it pays a day, its rate at the right. */
-.fz-l { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr"; align-items: center; gap: 2px 14px; min-width: 0; }
-.fz-l .pair { grid-area: pair; }
-.fz-l .pair .tk { width: 36px; height: 36px; }
-.fz-l .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
-.fz-l h3 { grid-area: h; margin: 0; font: 400 24px/1.1 var(--serif); }
-.fz-l .fm-apr { grid-area: apr; margin: 0; font-size: 52px; text-align: right; }
-.fz.lp .fz-l .fm-apr { color: var(--mute); }
-.fz-l #priv-day { grid-area: p; margin: 0; font-size: 13px; color: var(--mute); }
-.fz-r { display: flex; flex-direction: column; min-width: 0; }
-.fz-pairs { display: grid; gap: 6px; }
-.fz-pairs button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 8px; color: var(--ink); text-align: left; background: var(--soft); border: 1px solid transparent; border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
-.fz-pairs button .pair .tk { width: 26px; height: 26px; }
-.fz-pairs button .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 1.5px var(--soft); }
-.fz-pairs button span:not(.pair) { flex: 1; font-size: 14px; }
-.fz-pairs button small { display: block; font-size: 11px; color: var(--warn); }
-.fz-pairs button b { font: 500 13px var(--mono); }
-.fz-pairs button[aria-checked="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-@media (hover: hover) { .fz-pairs button:hover { border-color: var(--hair-2); } .fz-pairs button[aria-checked="true"]:hover { border-color: var(--ink); } }
-.fz-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
-.fz-sizes, .fz-mode { display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
-.fz-sizes { flex: 1 1 auto; } .fz-sizes button { flex: 1; }
-.fz-sizes button, .fz-mode button { min-height: 38px; padding: 6px 12px; color: var(--mute); font: 13px var(--mono); white-space: nowrap; background: none; border: 0; cursor: pointer; }
-.fz-sizes button + button, .fz-mode button + button { border-left: 1px solid var(--hair); }
-.hx-mode { margin: 12px 0 4px; }
-.fz-sizes button[aria-checked="true"], .fz-mode button[aria-checked="true"] { color: var(--card); background: var(--ink); }
-.fz-sizes button.rd svg { width: 8px; height: 10px; margin: 0 5px -1px 0; fill: var(--ok); }
-.fz-sizes button.rd[aria-checked="true"] svg { fill: currentColor; }
-.fz-r .rcpt { margin-top: 14px; transition: opacity .2s; } .fz-r .rcpt.stale { opacity: .45; }
-.fz-r .btn { margin-top: 14px; border-radius: 12px; }
-.fz-r .q { min-height: 1.4em; margin: 10px 0 0; font-size: 13px; color: var(--mute); }
-.fz.off .fz-r { display: none; } .fz.off { grid-template-columns: minmax(0, 1fr); }
-.fm-way { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "pair h apr" "pair p apr" "pair go apr"; align-items: center; gap: 2px 14px; padding: 14px 20px; text-align: left; color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; transition: background .15s; }
-@media (hover: hover) { a.fm-way:hover { background: var(--field); } a.fm-way:hover .go { transform: translateX(4px); } }
-.fm-way .pair { grid-area: pair; }
-.fm-way .pair .tk { width: 30px; height: 30px; }
-.fm-way .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
-.fm-apr { position: relative; margin-top: 18px; font: 400 clamp(44px, 4.8vw, 60px)/.9 var(--serif); letter-spacing: -.03em; white-space: nowrap; }
-.fm-apr small { margin-left: 6px; font: 500 12px var(--mono); letter-spacing: .08em; }
-/* A rate that is the best of several pools says so above itself, so the three figures keep one left edge. */
-.fm-apr small.up { position: absolute; bottom: 100%; left: 1px; margin: 0 0 4px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
-.fm-way h3 { grid-area: h; margin: 0; font: 400 19px/1.15 var(--serif); }
-.fm-way p { grid-area: p; margin: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
-.fm-way .fm-go { grid-area: go; margin-top: 4px; font-size: 12px; font-weight: 500; }
-.fm-way .fm-apr { grid-area: apr; margin: 0; font-size: 32px; text-align: right; }
-.fm-way .fm-apr small.up { position: static; display: block; margin: 0 0 2px; text-align: left; }
-.fm-way .fm-apr small:not(.up) { margin-left: 4px; font-size: 10px; }
-.fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
-.fm-vp .fm-go { display: flex; flex-wrap: wrap; gap: 6px 22px; }
-.fm-vp .fm-go a { position: relative; color: inherit; text-decoration: none; }
-.fm-vp .fm-go a::after { content: ''; position: absolute; inset: -10px -6px; }
-.fm-vp .fm-go a:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
-@media (hover: hover) { .fm-vp .fm-go a:hover .go { transform: translateX(4px); } }
-.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 28px; padding: 14px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
+.hx-mode { display: inline-flex; margin: 12px 0 4px; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
+.hx-mode button { min-height: 38px; padding: 6px 12px; color: var(--mute); font: 13px var(--mono); white-space: nowrap; background: none; border: 0; cursor: pointer; }
+.hx-mode button + button { border-left: 1px solid var(--hair); }
+.hx-mode button[aria-checked="true"] { color: var(--card); background: var(--ink); }
+.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 14px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
 .ptsline .tk { width: 24px; height: 24px; box-shadow: none; transition: transform .4s var(--spring); }
 .ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; color: var(--mute); }
 .ptsline .fig b { font: 400 28px/1 var(--serif); color: var(--ink); }
@@ -772,7 +720,7 @@ a.di { color: inherit; text-decoration: none; }
 .pair .tk:nth-child(3) { transition-delay: .06s; }
 .btn { transition: background .15s, color .15s, transform .1s; }
 @media (hover: hover) { .brand:hover .tk { animation: coin .7s var(--ease); } }
-.news:active, .proof:active, .ptsline:active, .fm-way:active { transform: scale(.99); transition-duration: .08s; }
+.news:active, .proof:active, .ptsline:active { transform: scale(.99); transition-duration: .08s; }
 .btn:active:not(:disabled), .chip:active { transform: scale(.98); }
 
 /* ── sheets ── */
@@ -1102,16 +1050,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd-end small { font-size: 11px; line-height: 1.35; text-wrap: balance; }
   .wd-wire span { display: none; }
   .wd-wl { left: 6px; right: 6px; }
-  .fm-way { padding: 12px 14px; gap: 2px 12px; }
-  .fm-way .fm-apr { font-size: 26px; }
-  .fz { padding: 20px 16px 18px; }
-  .fz-row > * { flex: 1 1 100%; }
-  .fz-mode button { flex: 1; }
-  .fz-l { gap: 2px 12px; }
-  .fz-l .pair .tk { width: 32px; height: 32px; }
-  .fz-l .pair .tk + .tk { margin-left: -9px; }
-  .fz-l h3 { font-size: 22px; }
-  .fz-l .fm-apr { font-size: 40px; }
+  .hx-mode button { flex: 1; }
   .kept { padding: 12px 12px 10px; }
   .tc-stage { height: 150px; }
   .tc-tilt { scale: .54; }
@@ -1125,10 +1064,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-pay { margin-top: 36px; }
   .tp-flow small { font-size: 11px; }
   .tc-do { gap: 16px 20px; margin-top: 32px; }
-}
-@media (max-width: 360px) {
-  .fz-l { grid-template-areas: "h apr" "p apr"; grid-template-columns: minmax(0, 1fr) auto; }
-  .fz-l .pair { display: none; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
@@ -1370,22 +1305,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <ul class="dash-g" id="dash-g"></ul>
   </section>
 
-  <section class="sx fm" aria-labelledby="fm-h">
-    <div class="sx-h"><h2 id="fm-h">Earn on ETH, <em>privately</em>.</h2><p>One transaction in. TAC streams by the second; leave whenever you like.</p></div>
+  <section class="sx fm" aria-label="Points">
     <div class="fm-c">
-      <div class="fz" id="fz">
-        <div class="fz-l">
-          <span class="pair" id="fz-icons"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg></span>
-          <h3 id="fz-name">Private farms</h3>
-          <span class="fm-apr num" id="fz-apr"><span class="sk" style="--w:4ch"></span></span>
-          <p id="priv-day"></p>
-        </div>
-        <div class="fz-r" id="fz-r"></div>
-      </div>
-      <div class="fm-y">
-        <a class="fm-way" href="#farm/public" data-hx="earn:ether:public"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><h3>Public farm</h3><p>From ETH alone, in one transaction. <span id="pub-day"></span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-        <div class="fm-way fm-vp"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg></span><span class="fm-apr num" id="vp-apr"><span class="sk" style="--w:4ch"></span></span><h3>Vault pools</h3><p>TACD with USDC, TACE with ETH, paid daily.</p><span class="fm-go"><a href="/vault/#v=usd&amp;pools">TACD pools <span class="go" aria-hidden="true">→</span></a><a href="/vault/#v=eth&amp;pools">TACE pools <span class="go" aria-hidden="true">→</span></a></span></div>
-      </div>
       <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
     </div>
   </section>
@@ -8713,12 +8634,10 @@ const LP_KEEP_PREF = 'tacit-lite-keep-lp-v1:', LP_KEEP_ETH = [10n ** 15n, 10n **
 const KEEP_FIRST = [10n ** 17n, 10n ** 16n, 10n ** 18n, 10n ** 15n];        // asked in the order people press them (the cards offer 0.1, 0.01 and 1)
 const lpTicker = (poolId) => `lp:${String(poolId).toLowerCase()}`;
 // The pools a key's zaps are kept ready for follow its interest, not every login (a share proof is a minute of the prover's, and most keys
-// never farm): the pools this key opened, picked or zapped (all four sizes), and, through the community pool and not this computer's prover, the
-// pool the farm card shows now (the sizes people press: 0.1, 0.01 and 1 ETH). A key meeting the card, the tile's Earn tab or the farm sheet for
-// the first time is stocked for the pool it is looking at within a minute.
+// never farm): the pools this key opened, picked or zapped (all four sizes). A key meeting the tile's Earn tab or the farm sheet for the
+// first time is stocked for the pool it is looking at within a minute.
 const lpStored = () => (S.key ? store.get(LP_KEEP_PREF + S.key.pubHex) || [] : []);
-const lpShown = () => (FZ.pid != null ? (FARM.program?.pools || []).find((x) => Number(x.pid) === Number(FZ.pid))?.poolId : null);
-const lpKept = () => (S.key ? [...new Set([...lpStored(), ...(devOn() ? [] : [lpShown()].filter(Boolean))])] : []);
+const lpKept = () => (S.key ? lpStored() : []);
 const lpKeep = (poolId) => { if (S.key && poolId && !lpStored().includes(poolId)) store.set(LP_KEEP_PREF + S.key.pubHex, [...lpStored(), poolId].slice(-4)); };
 // Every note this key holds or has spent, from a read that opened every leaf.
 const scanOwned = async () => { const s = await scanDone(); return [...(s?.notes || []), ...(s?.spentNotes || [])]; };
@@ -9195,19 +9114,9 @@ async function lookPoints(text) {
 load.pts = () => { holdingRefresh(); return loadPoints(); };
 RETRY.points = () => loadPoints(true).then(() => rerender('pts')).catch(() => {});
 function paintEarn() {
-  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program, apr = (a, best) => html`${best ? html`<small class="up">up to</small>` : ''}${a >= 10000 ? '10,000+' : per(Math.round(a))}%<small>APR</small>`;
-  const day = prog?.epoch?.active ? Math.round(Number(prog.epoch.ratePerDayTac)) : 0, n = prog?.pools?.length || 0;
+  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program;
   const pools = prog?.epoch?.active && FARM.precision?.tacEth ? (prog.pools || []).map((p) => ({ p, apr: shieldedApr(p) })).filter((x) => x.apr != null).sort((a, b) => b.apr - a.apr) : [];
-  paintFz(pools, apr);
-  if (day && n && !pools.length) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} pool${n === 1 ? '' : 's'}.`;
-  else if (FARM.top === null || (prog && !prog.epoch?.active)) { $('#priv-day').textContent = prog && !prog.epoch?.active ? 'Farms between reward periods.' : 'Farms not read yet.'; if (!pools.length) $('#fz-apr').textContent = '—'; }
-  const f = FARM.top;
-  if (f?.apr != null) { mount($('#pub-apr'), apr(f.apr)); countUp($('#pub-apr')); $('#pub-day').textContent = `${per(f.pubDay)} TAC a day.`; }
-  else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'Between reward periods.' : 'Not read yet.') : ''; }
   const tacUsd = (fpx().ethUsd || 0) * (FARM.precision?.tacEth || 0);
-  const vp = LP.m && LP.c ? ['usd', 'eth'].map((k) => LP.m.bestApr(LP.c, k, tacUsd)).filter((a) => a != null) : [];
-  if (vp.length) { mount($('#vp-apr'), apr(Math.max(...vp), vp.length > 1)); countUp($('#vp-apr')); }
-  else if (LP.done && !LP.c?.weights.usd?.length && !LP.c?.weights.eth?.length) $('#vp-apr').textContent = '—';
   // each vault's own rate on its TAC-section story; a vault whose pools the campaign does not pay drops the line
   for (const k of ['usd', 'eth']) {
     const el = $(`#tc-apr-${k}`), a = LP.m && LP.c ? LP.m.bestApr(LP.c, k, tacUsd) : null;
@@ -9248,144 +9157,11 @@ function farmDay(p, eth) {
   const r = p.reserves || {}, staked = (poolWorth(p) ?? 0) * Number(p.totalShares) / Number(r.lpTotalShares);
   return eth > 0 && FARM.program?.epoch?.active && Number(r.lpTotalShares) ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0;
 }
-// The landing's farm: ETH into a private pool's LP in one transaction, its share farmed for TAC (or kept as LP, earning the pool's fees).
-// A pool, a size kept ready (marked once its share is proved: no proving wait) and one press, sending the same zap the farm sheet and the
-// card's Earn tab send (zapQuote, zapNow); its steps are said under the button and in Activity. Priced only once it is in view, so a
-// visit that never scrolls here loads none of the pool's code.
-const FZ = { pid: null, size: '0.1', mode: 'farm', list: [], q: null, qk: '', seq: 0, busy: false, seen: false, ready: null };
-const fzIcons = (p) => ['tk-teth', LOGO[zapTkB(p)] || 'tk-tac'];
-const fzCur = () => FZ.list.find(({ p }) => p.pid === FZ.pid);
-const fzLabel = () => (!S.key ? 'Sign in to farm' : FZ.mode === 'lp' ? `Add ${FZ.size} ETH as private LP` : `Farm ${FZ.size} ETH privately`);
-const fzIco = (ics) => html`${ics.map((i) => html`<svg class="tk" aria-hidden="true"><use href="#${i}"/></svg>`)}`;
-function paintFz(pools, apr) {
-  const el = $('#fz');
-  if (!el) return;
-  const eth = Number(FZ.size), tacEth = FARM.precision?.tacEth || 0;
-  FZ.list = pools.filter(({ p }) => !p.idle && String(p.reserves?.assetA).toLowerCase() === CETH_ID && Number(p.reserves?.lpTotalShares) && ZAP_TOKEN[zapTkB(p)]).map((o) => ({ ...o, imp: zapImpact(o.p, eth) }));
-  el.classList.toggle('off', !FZ.list.length);
-  if (!FZ.list.length) return;
-  // until a pool is pressed, the one leaving the most after a week at this size (its TAC a day for 7 days, less what its swap gives up once)
-  // among those whose swap moves the price under 5%, else the least moved: as the card's Earn tab picks
-  if (!FZ.chosen || !fzCur()) {
-    const net = (o) => farmDay(o.p, eth) * 7 - (tacEth ? o.imp * eth / 2 / tacEth : 0), calm = FZ.list.filter((o) => o.imp < 0.05);
-    FZ.pid = (calm.length ? calm.reduce((a, o) => (net(o) > net(a) ? o : a)) : FZ.list.reduce((a, o) => (o.imp < a.imp ? o : a))).p.pid;
-  }
-  const { p, apr: a } = fzCur(), ic = $('#fz-icons'), icons = fzIco(fzIcons(p)), big = apr(a);
-  if (ic.__h !== icons.s) { ic.__h = icons.s; mount(ic, icons); }
-  $('#fz-name').textContent = pairName(p.pair);
-  const ap = $('#fz-apr');
-  if (ap.__h !== big.s) { ap.__h = big.s; mount(ap, big); countUp(ap); }
-  $('#priv-day').textContent = `${Math.round(Number(p.tacPerDayForPool)).toLocaleString('en-US')} TAC a day to this pool.`;
-  el.classList.toggle('lp', FZ.mode === 'lp');
-  fzForm();
-  if (!FZ.io && 'IntersectionObserver' in window) {
-    FZ.io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { FZ.seen = true; FZ.io.disconnect(); fzQuote(); } }, { rootMargin: '200px' });
-    FZ.io.observe(el);
-  }
-  if (FZ.seen && FZ.qk !== fzKey()) fzQuote();
-}
-const fzKey = () => `${FZ.pid}:${FZ.size}:${S.key?.pubHex || ''}:${S.address || ''}`;
-function fzForm() {
-  const r = $('#fz-r');
-  if (!r || FZ.busy) return;
-  const aprShort = (x) => (x >= 10000 ? '10,000+%' : `${Math.round(x).toLocaleString('en-US')}%`);
-  const view = html`<div class="fz-pairs" role="radiogroup" aria-label="Pool">${FZ.list.map(({ p, apr, imp }) => html`<button type="button" role="radio" aria-checked="${String(p.pid === FZ.pid)}" data-fzp="${p.pid}"><span class="pair">${fzIco(fzIcons(p))}</span><span>${pairName(p.pair)}${imp >= 0.05 ? html`<small>${pctFmt(imp * 100)} impact at ${FZ.size} ETH</small>` : ''}</span><b class="num">${aprShort(apr)}</b></button>`)}</div>
-    <div class="fz-row"><div class="fz-sizes" role="radiogroup" aria-label="ETH to put in">${HX_SIZES.map((v) => (FZ.ready?.has(String(parseUnits(v, 18)))
-      ? html`<button type="button" role="radio" aria-checked="${String(v === FZ.size)}" data-fzs="${v}" class="rd" title="Proved already: one transaction, no wait"><svg aria-hidden="true"><use href="#i-bolt"/></svg>${v} ETH</button>`
-      : html`<button type="button" role="radio" aria-checked="${String(v === FZ.size)}" data-fzs="${v}">${v} ETH</button>`))}</div>
-    <div class="fz-mode" role="radiogroup" aria-label="Farm it, or keep it as LP">${[['farm', 'Farm'], ['lp', 'LP only']].map(([k, t]) => html`<button type="button" role="radio" aria-checked="${String(FZ.mode === k)}" data-fzm="${k}">${t}</button>`)}</div></div>
-    <dl class="rcpt stale" id="fz-rc"></dl>
-    <button class="btn" type="button" id="fz-go">${fzLabel()}</button>
-    <p class="q" id="fz-s" aria-live="polite"></p>`;
-  if (r.__h === view.s) return;
-  r.__h = view.s; mount(r, view);
-  if (FLASH['fz-s']) mount($('#fz-s'), FLASH['fz-s']);
-  fzPaintQ();
-  r.onclick = (e) => {
-    const t = e.target.closest?.('button');
-    if (!t || FZ.busy) return;
-    if (t.id === 'fz-go') return fzGo();
-    FZ.touched = true;
-    if (t.dataset.fzp) { FZ.pid = Number(t.dataset.fzp); FZ.chosen = true; const lp = S.key && (FARM.program?.pools || []).find((x) => Number(x.pid) === FZ.pid); if (lp) lpKeep(lp.poolId); }
-    else if (t.dataset.fzs) FZ.size = t.dataset.fzs;
-    else if (t.dataset.fzm) FZ.mode = t.dataset.fzm;
-    else return;
-    delete FLASH['fz-s'];
-    paintEarn();
-    if (FZ.qk !== fzKey()) fzQuote(); else fzPaintQ();
-    $(`#fz-r [data-${t.dataset.fzp ? 'fzp' : t.dataset.fzs ? 'fzs' : 'fzm'}="${t.dataset.fzp || t.dataset.fzs || t.dataset.fzm}"]`)?.focus();
-  };
-}
-async function fzQuote() {
-  const cur = fzCur();
-  if (!cur || FZ.busy) return;
-  const my = ++FZ.seq, wei = parseUnits(FZ.size, 18);
-  FZ.qk = fzKey(); FZ.q = null; fzPaintQ();
-  fzReadyRead(cur.p);
-  const z = await zapQuote(cur.p, wei).catch((e) => ({ err: e, at: Date.now() }));
-  if (my !== FZ.seq) return;
-  FZ.q = z;
-  if (z.plan && FZ.touched) zapAhead(cur.p, z, () => FZ.q === z);
-  fzPaintQ();
-}
-// The ready marks on the sizes offered (the card's Earn tab, the Swap card's Private in, the landing's farm), read again as proofs land, so a
+// The ready marks on the sizes offered (the card's Earn tab, the Swap card's Private in), read again as proofs land, so a
 // size proved while it is on screen shows as ready without anything being pressed.
 function readyMarks() {
   if (HX.tab === 'earn') hxReadyRead().catch(() => {});
   if (HX.tab === 'swap') SWC.card?.refresh?.();
-  const cur = fzCur();
-  if (cur) fzReadyRead(cur.p).catch(() => {});
-}
-async function fzReadyRead(p) {
-  const sizes = S.key ? (await vouchers()).list(S.key.pubHex, lpTicker(p.poolId), 'ready').map((x) => x.size).filter(Boolean) : [];
-  const had = [...(FZ.ready || [])].join();
-  FZ.ready = new Set(sizes.map(String));
-  if ([...FZ.ready].join() !== had) fzForm();
-}
-function fzPaintQ() {
-  const rc = $('#fz-rc'), go = $('#fz-go'), cur = fzCur(), z = FZ.q;
-  if (!rc || !cur) return;
-  $('#fz')?.classList.toggle('lp', FZ.mode === 'lp');
-  go.textContent = fzLabel();
-  rc.classList.toggle('stale', !z);
-  if (!z) return;
-  if (z.err || !z.plan) { mount(rc, html`<div class="kv"><span>${z.err ? 'Not read' : 'Too small'}</span><b class="err">${z.err ? errText(z.err) : 'This is too little to make a share of the pool.'}</b></div>`); return; }
-  const day = farmDay(cur.p, Number(z.wei) / 1e18), usd = day ? hxUsd('tac', day) : '', fee = Number(z.res?.feeBps ?? 30) / 100;
-  const rows = [FZ.mode === 'lp' ? ['You earn', `the pool’s ${fee}% fee on every swap`] : ['You earn', day ? `about ${sig(day)} TAC a day${usd ? ` (≈ ${usd})` : ''}` : 'TAC once the next reward period starts'],
-    proofRow(z.ready),
-    z.impact >= 1 ? ['Price impact', pctFmt(z.impact), z.impact >= 5 ? 'err' : ''] : null,
-    ['Network fee', `about ${fmt(z.ready ? ZAP_SETTLE_GAS * z.gp * 3n / 2n : z.gas, 18, 5)} ETH`],
-    ['Chain sees', 'ETH in, private after']].filter(Boolean);
-  mount(rc, html`${rows.map(([k, v, c]) => html`<div class="kv"><span>${k}</span><b${c ? html` class="${c}"` : ''}>${v}</b></div>`)}`);
-  if (z.over && S.key && !FLASH['fz-s']) mount($('#fz-s'), html`<span class="err">More ETH than ${your()} holds, with the network fee.</span>`);
-}
-// One press: the zap quoted, sent as it stands (priced again first if the quote is old). A split swap, or one that moves the pool far, goes
-// to the farm sheet, which shows both venues and asks before a large loss.
-// The zap sent again once the Prove sheet's Go on is pressed: after the press that offered the choice has finished, and only if the card still shows the same
-// pool, size and way (it is not sent as something else).
-async function fzGoAgain(was) {
-  for (let i = 0; i < 120 && (FZ.busy || $('#fz-go')?.getAttribute('aria-busy') === 'true'); i++) await sleep(1000);
-  const cur = fzCur();
-  if (!cur || cur.p.pid !== was.pid || FZ.size !== was.size || FZ.mode !== was.mode) { toast('The farm card changed meanwhile, so press it again.', true); return; }
-  return fzGo();
-}
-async function fzGo() {
-  if (!S.key) return openSheet('wallet');
-  if (FZ.busy) return;
-  let cur = fzCur(), z = FZ.q;
-  const wei = parseUnits(FZ.size, 18);
-  if (!cur) return;
-  if (!z?.plan || z.pid !== cur.p.pid || z.wei !== wei || Date.now() - z.at > 90e3) { await fzQuote(); cur = fzCur(); z = FZ.q; if (!z?.plan || !cur) return; }
-  if (z.sp || z.impact >= 15) { (FARM.jm ||= {})[cur.p.pid] = 'eth'; hxDraft({ mode: 'zap', pid: cur.p.pid, amt: FZ.size }); return openLink(`farm/private-${cur.p.pid}`); }
-  if (z.over) return say($('#fz-s'), html`<span class="err">More ETH than ${your()} holds, with the network fee.</span>`);
-  FZ.busy = true;
-  const was = { pid: cur.p.pid, size: FZ.size, mode: FZ.mode };
-  try {
-    await busy($('#fz-go'), (run) => zapNow({ run, p: cur.p, z, status: $('#fz-s'), bond: FZ.mode !== 'lp', again: () => fzGoAgain(was), moved: () => { FZ.q = null; } }));
-  } finally {
-    // the size just used is proved again through the community pool (kept ready), so nothing is asked of the relay ahead now
-    FZ.busy = false; FZ.touched = false; FZ.qk = ''; fzForm(); fzQuote();
-  }
 }
 function paintPointsFoot() {
   const rows = PTS.key && PTS.key === pointsWho().map(([a]) => a).join() ? PTS.rows : null;
@@ -14529,7 +14305,7 @@ function paintHx() {
   } else if (m === 'earn') {
     const groups = hxGroups('earn'), place = hxPlaceOf('earn', HX.from);
     body = html`${field('You put in', heldAt(place), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', groups, HX.from), true, place === 'private')}
-      ${HX.from === 'ether' ? html`<div class="fz-mode hx-mode" role="radiogroup" aria-label="Farm it, or keep it as LP">${[[false, 'Farm'], [true, 'LP only']].map(([k, t]) => html`<button type="button" role="radio" aria-checked="${String(HX.lp === k)}" data-hxlp="${k ? '1' : '0'}">${t}</button>`)}</div>` : ''}
+      ${HX.from === 'ether' ? html`<div class="hx-mode" role="radiogroup" aria-label="Farm it, or keep it as LP">${[[false, 'Farm'], [true, 'LP only']].map(([k, t]) => html`<button type="button" role="radio" aria-checked="${String(HX.lp === k)}" data-hxlp="${k ? '1' : '0'}">${t}</button>`)}</div>` : ''}
       ${HX.lp && HX.from === 'ether' ? '' : html`${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['', [['tac', 'TAC', 'tac']], '']], 'tac'), false, false, html`<div class="ff"><span class="num" id="hx-out-usd"></span></div>`)}`}${tail}
       <p class="q" id="hx-zs-at" hidden></p>
       <p class="q"><a href="#farm" data-link="farm">Have both sides? Join with both →</a></p>

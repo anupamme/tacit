@@ -802,10 +802,6 @@ await step('apr', async () => {
   console.log('   rows:', rows.join(' | '));
   console.log('   card:', (card.match(/APR now[^.]*\./) || [''])[0]);
   ok(rows.length >= 2 && rows.every((r) => /APR/.test(r)) && /APR now\s*(about [\d,]+%|over 100,000%)/.test(card), 'apr: every farm shows its APR now, the public card in full');
-  await page.goto(url);
-  await until(page, () => /\d%/.test(document.querySelector('#pub-apr')?.textContent || ''), null, 120000).catch(() => {});
-  const lead = (await text(page, '#pub-apr')).replace(/\s+/g, '');
-  ok(/^(\d[\d,]*|10,000\+)%APR$/.test(lead), `apr: the public farm's way in leads with its APR (${lead})`);
 });
 
 await step('farmgate', async () => {
@@ -8071,8 +8067,7 @@ await step('lpvoucher', async () => {
 
 // One press into a farm. The card's Earn tab offers ETH's sizes kept ready (0.01, 0.1, 1), each marked once its share is proved; one picked
 // and pressed goes out from the card itself as ONE transaction (zapETHIntoFarm: the zap and its share's settle) from the paying account,
-// nothing asked of the relay, the bond after, no sheet opened. The landing's farm does the same from its own card: a pool, a size, Farm or
-// LP only; LP only keeps the share as a private LP note (no bond). Proofs come from the community pool (stubbed here, as in lpvoucher).
+// nothing asked of the relay, the bond after, no sheet opened. LP only does the same and keeps the share as a private LP note (no bond). Proofs come from the community pool (stubbed here, as in lpvoucher).
 await step('fastzap', async () => {
   const hex = '1b0d'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), POOL0 = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00';
   const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
@@ -8110,28 +8105,22 @@ await step('fastzap', async () => {
     ok(r1?.status === '0x1' && m1.length === 1 && z1.input.startsWith('0xc4294fac') && z1.input.includes(used.commit.slice(2).toLowerCase()) && !submits.slice(s1).some((x) => x.mode === 'prove')
       && !(await p.$('#sheet-farm[open]')) && (await p.evaluate(() => window.__farmCalls)).some((c) => c.startsWith('bond:')) && /farm/i.test(await text(p, '#hx-zs')),
       `fastzap: pressed, it goes from the card as one transaction with that share's proof, nothing asked of the relay, no sheet opened, and the share is farmed (${m1.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 90)})`);
-    // (2) the landing's farm: its pools with their APR, the sizes, Farm or LP only; LP only goes in one transaction and is not bonded
+    // (2) the Earn tab on LP only: the same pool and size, its share proved: one press away; it goes in as one transaction and is not bonded
     await readyOne();
-    await p.evaluate(() => document.querySelector('#fz').scrollIntoView({ block: 'center' }));
-    await until(p, () => document.querySelectorAll('#fz-r [data-fzp]').length > 0 && /Proof/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 240000).catch(() => {});
-    const pairs = await p.$$eval('#fz-r [data-fzp]', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
-    ok(pairs.length >= 1 && pairs.every((t) => /^tETH \/ (TAC|cUSD|cBTC).*?[\d,]+%$/.test(t)) && /\d+%/.test(await text(p, '#fz-apr')) && (await p.$$('#fz-r [data-fzs]')).length === 3,
-      `fastzap: the landing's farm lists its pools with their APR and ETH's three sizes (${pairs.join(' | ')}; ${(await text(p, '#fz-apr')).replace(/\s+/g, '')})`);
-    await p.click('#fz-r [data-fzp="0"]');
-    await until(p, () => !!document.querySelector('#fz-r [data-fzs="0.01"].rd'), null, 240000).catch(() => {});   // its mark comes as the proof lands
-    await p.click('#fz-r [data-fzs="0.01"]');
-    await p.click('#fz-r [data-fzm="lp"]');
-    await until(p, () => /made already/.test(document.querySelector('#fz-rc')?.textContent || '') && /fee on every swap/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 240000).catch(() => {});
-    ok(/Add 0\.01 ETH as private LP/.test(await text(p, '#fz-go')) && /made already: no wait/.test(await text(p, '#fz-rc')) && !!(await p.$('#fz-r [data-fzs="0.01"].rd')),
-      `fastzap: LP only, 0.01 ETH, its share proved: one press away (${(await text(p, '#fz-go'))}; ${(await text(p, '#fz-rc')).replace(/\s+/g, ' ')})`);
+    await until(p, () => document.querySelector('#hx-routes [data-hxr="0"]')?.getAttribute('aria-checked') === 'true' && !!document.querySelector('#hx-sub [data-hxq="0.01"].rd'), null, 240000).catch(() => {});   // its mark comes as the proof lands
+    await p.click('#hx-sub [data-hxq="0.01"]');
+    await p.click('.hx-mode [data-hxlp="1"]');
+    await until(p, () => /made already/.test(document.querySelector('#hx-receipt')?.textContent || '') && /fee on every swap/.test(document.querySelector('#hx-receipt')?.textContent || ''), null, 240000).catch(() => {});
+    ok(/Add as private LP/.test(await text(p, '#hx-go')) && /made already: no wait/.test(await text(p, '#hx-receipt')) && !!(await p.$('#hx-sub [data-hxq="0.01"].rd')),
+      `fastzap: LP only, 0.01 ETH, its share proved: one press away (${(await text(p, '#hx-go'))}; ${(await text(p, '#hx-receipt')).replace(/\s+/g, ' ')})`);
     const used2 = (await kept()).find((v) => v.ticker === LP && v.size === SZ && v.status === 'ready');
     const b2 = BigInt(await rpc('eth_blockNumber', [])), s2 = submits.length, bonds = (await p.evaluate(() => window.__farmCalls)).filter((c) => c.startsWith('bond:')).length;
-    await p.click('#fz-go');
-    await until(p, () => !document.querySelector('#fz-go[aria-busy="true"]') && (/share is a private note/.test(document.querySelector('#fz-s')?.textContent || '') || /class="err"/.test(document.querySelector('#fz-s')?.innerHTML || '')), null, 300000).catch(() => {});
+    await p.click('#hx-go');
+    await until(p, () => !document.querySelector('#hx-go[aria-busy="true"]') && (/share is a private note/.test(document.querySelector('#hx-zs')?.textContent || '') || /class="err"/.test(document.querySelector('#hx-zs')?.innerHTML || '')), null, 300000).catch(() => {});
     const m2 = await sent(b2), z2 = m2.find((x) => String(x.to).toLowerCase() === ROUTER_ADDR), r2 = z2 && await rpc('eth_getTransactionReceipt', [z2.hash]);
     ok(r2?.status === '0x1' && m2.length === 1 && z2.input.startsWith('0xc4294fac') && used2 && z2.input.includes(used2.commit.slice(2).toLowerCase()) && !submits.slice(s2).some((x) => x.mode === 'prove')
-      && (await p.evaluate(() => window.__farmCalls)).filter((c) => c.startsWith('bond:')).length === bonds && /share is a private note/.test(await text(p, '#fz-s')),
-      `fastzap: and pressed, it goes as one transaction and stays a private LP note, not bonded (${m2.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#fz-s')).replace(/\s+/g, ' ').slice(0, 110)})`);
+      && (await p.evaluate(() => window.__farmCalls)).filter((c) => c.startsWith('bond:')).length === bonds && /share is a private note/.test(await text(p, '#hx-zs')),
+      `fastzap: and pressed, it goes as one transaction and stays a private LP note, not bonded (${m2.map((x) => x.input.slice(0, 10))}; ${(await text(p, '#hx-zs')).replace(/\s+/g, ' ').slice(0, 110)})`);
     // (3) ETH made private from the Swap card: its sizes kept ready, the proved one marked; pressed, the wrap sheet opens and sends it at
     // once as one transaction (the deposit and the settle of its proof), nothing asked of the relay
     await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
@@ -9148,7 +9137,7 @@ await step('fmchips', async () => {
   await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { try { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); } catch { } });   // a read still out as the page closes is let go
   try {
     await r.page.goto(r.url);
-    await r.page.waitForFunction(() => document.querySelector('#fms.on') && /between reward periods/i.test(document.querySelector('#priv-day')?.textContent || ''), null, { timeout: 120000 });
+    await r.page.waitForFunction(() => document.querySelector('#fms.on'), null, { timeout: 120000 });
     const s = await read(r.page);
     ok(s.chips.length === 1 && s.chips[0].hx === 'earn:ether:public', `fmchips: between reward periods only the public pool is left (${s.chips.map((c) => c.hx).join()})`);
     if (r.errors.length) { fails++; console.log('FAIL fmchips page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -11037,7 +11026,7 @@ await step('zapresume', async () => {
   } finally { proveStub = false; poolDone = false; await restore(); await r.browser.close(); }
 });
 
-// The same resume from the landing's farm card and from the farm sheet's zap form: no prover to be had, the offer, "Prove it yourself", the Prove sheet with the zap
+// The same resume from the farm sheet's zap form: no prover to be had, the offer, "Prove it yourself", the Prove sheet with the zap
 // waiting, their own credit chosen and funded, and Go on sends it by itself, proved with that credit, as one transaction from the account.
 await step('zapresume2', async () => {
   const hex = '6b0d'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
@@ -11069,13 +11058,6 @@ await step('zapresume2', async () => {
     await p.click('#wallet-body [data-in="paste"]'); await p.fill('#ws-hex', hex); await p.click('#wallet-body [data-in="key"]');
     await until(p, () => !!document.querySelector('#wallet-dot.on'));
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
-    // the landing's farm card
-    await p.evaluate(() => document.querySelector('#fz').scrollIntoView({ block: 'center' }));
-    await until(p, () => document.querySelectorAll('#fz-r [data-fzp]').length > 0, null, 300000);
-    await p.click('#fz-r [data-fzp="0"]');
-    await p.click('#fz-r [data-fzs="0.01"]');
-    await until(p, () => /Farm 0\.01 ETH privately/.test(document.querySelector('#fz-go')?.textContent || '') && !document.querySelector('#fz-go').disabled && /Network fee|Proof/.test(document.querySelector('#fz-rc')?.textContent || ''), null, 300000);
-    await offerThenResume('the landing farm card', () => p.click('#fz-go'));
     // the farm sheet's zap form
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
     await go(p, '#farm/private-0');
