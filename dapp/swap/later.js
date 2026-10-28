@@ -484,6 +484,30 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     if (into?.hop) keepPool(into.hop, sym, dec);
     return plan;
   }
+  // The wallet's ETH swapped into a private balance in another coin, in one transaction: a deposit box of that pool for this key is made (a
+  // little under the route's floor, given to that pool's relay, which completes it once paid) and the wallet's swap pays it. The wallet and the
+  // swap show on chain, whose balance it lands in does not. `into.hop` is that pool (hopOf, open); the leftover above the box is refundable to
+  // an address only this key knows. → the transaction hash
+  async function swapIntoPool({ swapWei, token, into, refund = null, slippageBps = 50, onStep = () => {} }) {
+    const swap = BigInt(swapWei);
+    if (!signer.address) throw new Error('Connect a wallet to swap from.');
+    if (!into?.hop?.state?.pool || !into.hop.state.router) throw new Error('The private pool is not open yet.');
+    const w = await wallet(into.hop), back = refund || (await tacitAccount()).acct.address;
+    onStep('reading the price again');
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
+    const route = (to) => (lc(token) === TAC ? routeOutTac({ venues, amount: swap, to, slippageBps, deadline }) : routeOut({ ethCall, token, amount: swap, to, slippageBps, deadline }));
+    const first = await route('0x' + hexOf(crypto.getRandomValues(new Uint8Array(20))));
+    if (!first) throw new Error('No onchain route for this right now. Nothing was sent.');
+    const fee = BigInt((await w.quote(Number(HOP_GAS))).fee), amount = (first.min * 995n) / 1000n;
+    if (amount <= fee * 2n) throw new Error('Too small to go into that pool: its relay\u2019s fee takes too much of it. Nothing was sent.');
+    const box = await w.depositBox({ amount, fee, refund: back, deadline: Math.floor(Date.now() / 1000) + 2 * DEADLINE_S });
+    const r = await route(box.box);
+    if (!r || r.min < amount) throw Object.assign(new Error('The price moved while the deposit box was made. Nothing was sent; press again.'), { moved: true });
+    if (signer.ready) await signer.ready();
+    onStep('confirm in your wallet');
+    const h = await signer.send({ to: ZROUTER, data: r.callData, value: swap });
+    return { hash: h, box: box.box, arrives: box.value };
+  }
   function save(plan) { keepPlans([plan, ...readPlans(store).filter((p) => p.id !== plan.id)], store); }
   const forget = (id) => keepPlans(readPlans(store).filter((p) => p.id !== id), store);
   // A plan left in doubt (a closed tab, an unclear answer) read against the pool: its deposit is a new note of exactly its amount; its swap out
@@ -651,5 +675,5 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
   }
 
-  return { start, adopt, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
+  return { start, adopt, swapIntoPool, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
 }

@@ -13,6 +13,7 @@
 .swc .where.priv.pool::before, .swc .pk-g.pool::before { display: none; }
 .swc .where.go-pick { cursor: pointer; border-radius: 6px; transition: color .12s; }
 .swc .where.go-pick:hover, .swc .where.go-pick:focus-visible { color: var(--ink); }
+.swc .pk-d { margin: -2px 8px 4px; font-size: 11.5px; line-height: 1.4; color: var(--mute); opacity: .85; }
 .swc .pk-g .pl { display: inline-block; margin-right: 6px; vertical-align: -3px; }
 .swc .pk-jump button { display: inline-flex; align-items: center; gap: 6px; }
 .swc .pk-jump button .tk, .swc .pk-jump button .pl { width: 14px; height: 14px; margin: 0; }

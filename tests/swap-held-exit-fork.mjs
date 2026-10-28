@@ -181,6 +181,21 @@ await exit({ from: 'tac', out: 'eth', swap: 1_500n * 10n ** 18n, dest: '0x000000
   } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
 }
 
+// the wallet's own ETH into a private USDC balance in one transaction: its swap pays a deposit box of the USDC pool for the key
+{
+  const label = 'wallet ETH → USDC pool';
+  try {
+    await WU.sync();
+    const u0 = WU.summary().balance, hopU = await L.hopOf(USDC), w0 = await bal(ZERO, USER);
+    const out = await L.swapIntoPool({ swapWei: 3n * 10n ** 16n, token: USDC, into: { hop: hopU }, refund: '0x00000000000000000000000000000000000de972', slippageBps: 100 });
+    const rc = await receipt(out.hash), tx = await rpcA('eth_getTransactionByHash', [out.hash]);
+    ok(rc?.status === '0x1' && tx.input.toLowerCase().includes(out.box.slice(2).toLowerCase()), `${label}: the wallet's one swap pays the key's deposit box`);
+    for (let i = 0; i < 90 && WU.summary().balance < u0 + out.arrives; i++) { await sleep(1000); await rpcA('anvil_mine', ['0x1']); await WU.sync(); }
+    ok(WU.summary().balance - u0 === out.arrives, `${label}: the USDC pool's relay completes it: ${fmt(WU.summary().balance - u0, 6)} USDC are held privately`);
+    ok(w0 - (await bal(ZERO, USER)) >= 3n * 10n ** 16n, `${label}: and the wallet paid 0.03 ETH`);
+  } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
+}
+
 // refused before anything is sent: a balance that does not cover the swap and the fee twice, and a destination that is no address
 {
   const hop = await L.hopOf(USDC), feeWei = 700_000n, plans0 = JSON.parse(store.getItem('tacit-swap-later-v1') || '[]').length, u = coins.usdc;
