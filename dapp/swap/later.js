@@ -215,7 +215,9 @@ export async function relayFee(gas = Number(BASE_GAS + 400_000n), get = globalTh
 // `sendPrivate` the page's send of a private note to a Tacit address (swap/private.js), both for a swap that ends in a private balance.
 // `tokens` (a makeTokenPools instance), `chain.keepers` (the keeper service's base) and `chain.tokenRelayer` (its address) are for tests, as
 // `chain` is.
-export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, sendPrivate = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null, tokens = null }) {
+export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, sendPrivate = null, store = globalThis.localStorage, chain = CHAIN, prove: proveWith = null, tokens = null, walletOf = null, routes = {} }) {
+  // `walletOf(hop)` and `routes` ({ routeOut, routeFrom, routeOutTac }) are for tests: a pool's wallet and the swap routes without a chain
+  const rt = { routeOut, routeFrom, routeOutTac, ...routes };
   let modsP = null, proverP = null, rpc = null;
   const wallets = new Map();      // pool → the key's wallet for it (the ETH pool's, and each token pool a swap goes through)
   // A plan's destination: { kind: 'address' } pays `to`; { kind: 'me' } pays the key's own Tacit account and makes the TAC private there;
@@ -270,6 +272,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   // The key's pool wallet, its state kept where /pay/eth keeps it, so either page sees the same notes: the ETH pool's, or with `hop` (a plan's
   // token pool) that pool's, its fees in the token and sent by the same relay.
   async function wallet(hop = null) {
+    if (walletOf) return walletOf(hop);
     const priv = await keyHex(), m = await mods(), keys = m.wm.evmPoolKeys(m.zk, hexToBytes(priv)), key = `${keys.address}:${lc(hop?.pool || POOL)}`;
     if (wallets.has(key)) return wallets.get(key);
     const kv = { open: true, get: (k) => { try { return store.getItem(k); } catch { return null; } }, set: (k, v) => { try { store.setItem(k, v); } catch { } } };
@@ -506,7 +509,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const w = await wallet(into.hop), back = refund || (await tacitAccount()).acct.address;
     onStep('reading the price again');
     const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
-    const route = (to) => (lc(token) === TAC ? routeOutTac({ venues, amount: swap, to, slippageBps, deadline }) : routeOut({ ethCall, token, amount: swap, to, slippageBps, deadline }));
+    const route = (to) => (lc(token) === TAC ? rt.routeOutTac({ venues, amount: swap, to, slippageBps, deadline }) : rt.routeOut({ ethCall, token, amount: swap, to, slippageBps, deadline }));
     const first = await route('0x' + hexOf(crypto.getRandomValues(new Uint8Array(20))));
     if (!first) throw new Error('No onchain route for this right now. Nothing was sent.');
     const fee = BigInt((await w.quote(Number(HOP_GAS))).fee), amount = (BigInt(shownMin ?? first.min) * BOX_MARGIN) / 1000n;
@@ -558,13 +561,13 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_S);
     const route = async (to) => {
       if (plan.hop) {
-        const r = await routeFrom({ ethCall, venues, tokenIn: plan.hop.token, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
+        const r = await rt.routeFrom({ ethCall, venues, tokenIn: plan.hop.token, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
         if (!r) throw new Error(`No onchain route sells ${plan.hop.sym} for ${plan.sym} right now. Nothing was sent; try again in a while.`);
         return r;
       }
       const r = lc(plan.token) === TAC
-        ? await routeOutTac({ venues, amount: BigInt(plan.swapWei), to, slippageBps, deadline })
-        : await routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
+        ? await rt.routeOutTac({ venues, amount: BigInt(plan.swapWei), to, slippageBps, deadline })
+        : await rt.routeOut({ ethCall, token: plan.token, amount: BigInt(plan.swapWei), to, slippageBps, deadline });
       if (!r) throw new Error(`No onchain route sells ETH for ${plan.sym} right now. Nothing was sent; try again in a while.`);
       return r;
     };
