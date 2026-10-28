@@ -183,7 +183,9 @@ export function swapFor({ capWei, feeWei, pct, rand = Math.random, gasWei = 0n }
 export const heldSwapMax = (balance, feeWei) => { const b = BigInt(balance), keep = 2n * BigInt(feeWei); return b > keep ? b - keep : 0n; };
 const randomNonce = () => BigInt('0x' + hexOf(crypto.getRandomValues(new Uint8Array(16))));
 // What the relay's answer leaves open: the swap out may have been sent (no answer, or no receipt in time), so it is checked before another.
-const unsure = (e) => /may still have sent|did not answer|already on its way|waiting for it to be mined|timed out/i.test(String(e?.message || e));
+const unsure = (e) => /may still have sent|did not answer|already on its way|waiting for it to be mined|timed out|already spent|kept moving/i.test(String(e?.message || e));
+// What a deposit box is made for, of the floor its swap is sure to pay: what the swap pays above it stays in the box, to be reclaimed after its deadline.
+const BOX_MARGIN = 997n;
 // A refusal by the relay itself (nothing sent): the one case a swap out may be sent from a wallet instead.
 const refused = (e) => /relay(er)? returned|relay could not|cannot front|too low|fee went up|is full|refus/i.test(String(e?.message || e));
 
@@ -488,7 +490,16 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
   // little under the route's floor, given to that pool's relay, which completes it once paid) and the wallet's swap pays it. The wallet and the
   // swap show on chain, whose balance it lands in does not. `into.hop` is that pool (hopOf, open); the leftover above the box is refundable to
   // an address only this key knows. → the transaction hash
-  async function swapIntoPool({ swapWei, token, into, refund = null, slippageBps = 50, onStep = () => {} }) {
+  // A deposit box for this key in a pool, for a swap that will pay it: made for a little under `floor` (what the swap is sure to pay), given to
+  // that pool's relay, and refundable above that to `refund` (an address only this key knows, by default). → { box, amount, value }
+  async function depositBoxFor({ into, floor, refund = null }) {
+    if (!into?.hop?.state?.pool || !into.hop.state.router) throw new Error('The private pool is not open yet.');
+    const w = await wallet(into.hop), back = refund || (await tacitAccount()).acct.address;
+    const fee = BigInt((await w.quote(Number(HOP_GAS))).fee), amount = (BigInt(floor) * BOX_MARGIN) / 1000n;
+    if (amount <= fee * 2n) throw new Error('Too small to go into that pool: its relay\u2019s fee takes too much of it. Nothing was sent.');
+    return w.depositBox({ amount, fee, refund: back, deadline: Math.floor(Date.now() / 1000) + 2 * DEADLINE_S });
+  }
+  async function swapIntoPool({ swapWei, token, into, refund = null, shownMin = null, slippageBps = 50, onStep = () => {} }) {
     const swap = BigInt(swapWei);
     if (!signer.address) throw new Error('Connect a wallet to swap from.');
     if (!into?.hop?.state?.pool || !into.hop.state.router) throw new Error('The private pool is not open yet.');
@@ -498,8 +509,9 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const route = (to) => (lc(token) === TAC ? routeOutTac({ venues, amount: swap, to, slippageBps, deadline }) : routeOut({ ethCall, token, amount: swap, to, slippageBps, deadline }));
     const first = await route('0x' + hexOf(crypto.getRandomValues(new Uint8Array(20))));
     if (!first) throw new Error('No onchain route for this right now. Nothing was sent.');
-    const fee = BigInt((await w.quote(Number(HOP_GAS))).fee), amount = (first.min * 995n) / 1000n;
+    const fee = BigInt((await w.quote(Number(HOP_GAS))).fee), amount = (BigInt(shownMin ?? first.min) * BOX_MARGIN) / 1000n;
     if (amount <= fee * 2n) throw new Error('Too small to go into that pool: its relay\u2019s fee takes too much of it. Nothing was sent.');
+    if (shownMin != null && first.min * 10000n < BigInt(shownMin) * 9990n) throw Object.assign(new Error('The price moved since it was shown. Nothing was sent; check the new one and press again.'), { moved: true });
     const box = await w.depositBox({ amount, fee, refund: back, deadline: Math.floor(Date.now() / 1000) + 2 * DEADLINE_S });
     const r = await route(box.box);
     if (!r || r.min < amount) throw Object.assign(new Error('The price moved while the deposit box was made. Nothing was sent; press again.'), { moved: true });
@@ -522,7 +534,8 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } else if (plan.balBefore != null && s.balance + BigInt(plan.swapWei) <= BigInt(plan.balBefore)) {
       if (poolDest(plan)) { plan.state = 'shielding'; plan.swapDoneAt = Date.now(); } else { plan.state = 'done'; plan.doneAt = Date.now(); }
       plan.err = null; delete plan.from;
-    } else { plan.state = 'waiting'; plan.err = null; }
+    } else if (plan.state === 'unsure' && plan.swapAt && Date.now() - plan.swapAt < 20 * 60e3) { /* sent a moment ago and not seen yet: it stays in doubt, never offered again */ }
+    else { plan.state = 'waiting'; plan.err = null; }
     save(plan);
     return plan;
   }
@@ -560,7 +573,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     // (given to that pool's relay, which completes it once the swap has paid it) and the swap priced again paying the box
     const w = await wallet(plan.into.hop), stand = '0x' + hexOf(crypto.getRandomValues(new Uint8Array(20)));
     const first = await route(stand), q = await w.quote(Number(plan.into.hop ? HOP_GAS : BASE_GAS + 200_000n));
-    const fee = BigInt(q.fee), amount = (first.min * 995n) / 1000n;
+    const fee = BigInt(q.fee), amount = (first.min * BOX_MARGIN) / 1000n;
     if (amount <= fee * 2n) throw new Error(`Too small to go into the ${plan.sym} pool: the relay's fee there is ${fee} of it. Nothing was sent.`);
     const box = await w.depositBox({ amount, fee, refund: plan.into.refund, deadline: Math.floor(Date.now() / 1000) + 2 * DEADLINE_S });
     const r = await route(box.box);
@@ -576,7 +589,7 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     const aside = plan.hop ? BigInt(plan.depositWei) - amount - BigInt(plan.extraWei || 0) : null, maxFee = aside != null && aside > 0n ? aside : null;
     const s = await w.sync();
     if (s.balance < amount + gas) throw new Error(`The deposit is not in the pool yet, or was spent. Check it on ${plan.hop ? 'the front page' : 'the private ETH page'}.`);
-    const same = plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO;
+    const same = !plan.into && (plan.hop ? lc(plan.token) === lc(plan.hop.token) : plan.token === ZERO);
     let r = shown;
     if (!same && (Date.now() - shown.at > 60e3 || !shown.callData)) {
       onStep('reading the price again');
@@ -675,5 +688,5 @@ export function makeLater({ keyHex, signer, ethCall, venues = null, ux = null, s
     } finally { save(plan); }
   }
 
-  return { start, adopt, swapIntoPool, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
+  return { start, adopt, swapIntoPool, depositBoxFor, blend, offer, swapOut, shield, check, forget, warm, hopOf, openPool, plans: () => readPlans(store), get proveMs() { return prover.ms; }, get proverReady() { return prover.ready; } };
 }

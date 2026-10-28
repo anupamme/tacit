@@ -13,7 +13,7 @@ import { rewardPop } from '/reward-pop.js?cb=1b53f6d4';
 import { makePointsNote } from '/points-note.js?cb=dc44d257';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 import { SERVED } from '/evm-pool-tokens.js?cb=e1ab5d24';
-import { netPicker } from '/net-pick.js?cb=cc73321e';
+import { netPicker } from '/net-pick.js?cb=8f57c360';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
@@ -258,7 +258,8 @@ const exitOut = (pay, get) => (get === pay ? !isEth(pay) : isEth(get) || get ===
 // (the ETH Pay pool's other chains are the page's own moves: a swap out runs on Ethereum's pools)
 const exitOf = (pay = S.pay, pa = atOf('pay'), get = S.get, ga = atOf('get')) => {
   // the wallet's ETH into another coin's Pay pool: its swap pays that pool's deposit box for this key
-  if (moving() && pa === 'wallet' && ga === 'pay' && isEth(pay) && payPool(get) && !isEth(get)) return { pay, get, into: true, wallet: true };
+  // (a listed wallet token goes the same way into a dollar's pool, by zQuoter's best route; TAC and the Tacit tokens have their own routes)
+  if (moving() && pa === 'wallet' && ga === 'pay' && payPool(get) && !isEth(get) && (isEth(pay) || (isListed(pay) && !tacitKey(pay) && pay !== lc(R.WETH) && pay !== get && (get === USDC_K || get === USDT_K)))) return { pay, get, into: true, wallet: true };
   if (!moving() || pa !== 'pay' || !payPool(pay) || (isEth(pay) && (H.moves.chain ?? 1) !== 1)) return null;
   // into another Pay pool coin: the swap pays a deposit box of that pool for this key, no address of anyone's
   if (ga === 'pay') return payPool(get) && get !== pay && (!isEth(get) || (H.moves.chain ?? 1) === 1) ? { pay, get, into: true } : null;
@@ -1176,7 +1177,7 @@ const pageSigner = { get address() { return W.account; }, ready: async () => { i
   // an approval and the zap in one confirmation, where the host's wallet sends batches (EIP-5792)
   canBatch: () => (wallet.canBatch ? wallet.canBatch() : false),
   get batch() { return wallet.sendCalls ? (calls, sent) => wallet.sendCalls(calls, { from: W.account, sent, label: 'Swap privately' }) : null; } };
-const ltLoad = () => (LTP ||= import('/swap/later.js?cb=7b49b382').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
+const ltLoad = () => (LTP ||= import('/swap/later.js?cb=64edf8bd').then((m) => { LT = m.makeLater({ keyHex: async () => (await pvLoad()).keyHex(), signer: pageSigner, ethCall, venues, ux: getUx, sendPrivate: async (o) => (await pvLoad()).sendPrivate(o) }); LT.mod = m; return LT; }).catch((e) => { LTP = null; throw e; }));
 // what Swap privately starts from: the wallet's ETH, or a token the zap sells for the deposit's ETH (any listed token zQuoter routes, or TAC through
 // the Precision pool; WETH, tacUSD and tacBTC have their own ways in)
 const laterPay = (k) => isEth(k) || k === lc(R.TAC) || (isListed(k) && !tacitKey(k) && k !== lc(R.WETH));
@@ -1515,12 +1516,18 @@ async function quoteExit(my, wei) {
   if (pool.fee == null && !exitOf()?.wallet) return done({ rows: [], why: `The relay is not quoting for the private ${pay.sym} pool right now. Try again in a moment.` });
   if (S.pay === S.get) return done({ rows: [{ k: 'exit', name: `${pay.sym} itself`, out: wei, min: wei, best: true }], fee: pool.fee });
   const stand = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => b.toString(16).padStart(2, '0')).join(''), deadline = chainDeadline(1200);
-  const out = isEth(S.pay)
+  const out = exitOf()?.wallet && !isEth(S.pay)
+    ? A.bestRoute({ ethCall, to: PREVIEW, refundTo: PREVIEW, tokenIn: S.pay, tokenOut: S.get, amountIn: wei, slippageBps: S.slip, deadline })
+    : isEth(S.pay)
     ? (S.get === lc(R.TAC) ? lt.mod.routeOutTac({ venues, amount: wei, to: stand, slippageBps: S.slip, deadline }) : lt.mod.routeOut({ ethCall, token: S.get, amount: wei, to: stand, slippageBps: S.slip, deadline }))
     : lt.mod.routeFrom({ ethCall, venues, tokenIn: S.pay, token: isEth(S.get) ? R.ZERO : S.get, amount: wei, to: stand, slippageBps: S.slip, deadline });
   const r = await within(out, 25e3, 'zQuoter did not answer in time. Try again.');
   if (!r) return done({ rows: [], why: `No onchain route sells ${pay.sym} for ${get.sym} right now.` });
-  return done({ rows: [{ k: 'exit', name: r.name, out: r.out, min: r.min, best: true }], fee: pool.fee });
+  // into another pool: what lands is a little under the floor, less that pool's own relay fee (read and shown, not left to be found after the press)
+  const dst = exitOf()?.into ? await exitPool(S.get) : null;
+  if (dst && !dst.open) return done({ rows: [], why: `The private ${get.sym} pool is not open yet.` });
+  const arrives = dst && dst.fee != null ? (r.min * 997n) / 1000n - dst.fee : null;
+  return done({ rows: [{ k: 'exit', name: r.name, out: r.out, min: r.min, best: true }], fee: pool.fee, ...(dst ? { dstFee: dst.fee, arrives } : {}) });
 }
 // where an exit pays: the address typed, else the connected wallet
 const exitDest = () => S.to || (W.account ? lc(W.account) : null);
@@ -1537,7 +1544,9 @@ function exitButton(q, r) {
   if (!dest) return ['Add the address it goes to', false];
   if (bal != null && wei > bal) return [`Not enough private ${pay.sym}`, false];
   if (bal != null && q.fee != null && wei + 2n * q.fee > bal) return ['Leave room for the relay’s fee', false];
-  if (wal && bal != null && wei + gasKeep() > bal) return ['Leave some ETH for the network fee', false];
+  if (wal && isEth(S.pay) && bal != null && wei + gasKeep() > bal) return ['Leave some ETH for the network fee', false];
+  if (wal && !isEth(S.pay) && S.bal[lc(R.ZERO)] != null && 2n * gasKeep() > S.bal[lc(R.ZERO)]) return ['Leave some ETH for the network fee', false];
+  if (intoPool() && q.arrives != null && q.arrives <= (q.dstFee ?? 0n)) return ['Too small for the pool’s fee', false];
   if (intoPool()) return [`Swap ${pay.sym} into your private ${get.sym}`, true, 'priv'];
   return [same ? `Withdraw ${pay.sym} → ${who(dest)}` : `Swap ${pay.sym} for ${get.sym} → ${who(dest)}`, true, 'priv'];
 }
@@ -1556,7 +1565,8 @@ function paintExit() {
     const inAmt = Number(q.wei) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec, dest = exitDest();
     if (S.pay !== S.get && inAmt > 0 && outAmt > 0) lines.push(['Price', (outAmt >= inAmt) !== !!S.pxFlip ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`, '', '', null, 'px-flip']);
     if (S.pay !== S.get) { lines.push(['At least', `${tidy(amtFmt(r.min, get.dec))} ${get.sym}`]); lines.push(['Route', r.name]); }
-    lines.push(['Chain sees', exitOf()?.wallet ? `your ${tidy(amtFmt(q.wei, 18))} ETH swapped, not whose ${get.sym} balance it lands in` : intoPool() ? `a swap into a deposit box, not whose` : `${get.sym} to ${dest ? who(dest) : 'the address'}, not from whom`]);
+    lines.push(['Chain sees', exitOf()?.wallet ? `your ${tidy(amtFmt(q.wei, pay.dec))} ${pay.sym} swapped into a pool deposit, not whose it is` : intoPool() ? `a swap into a pool deposit, not whose it is` : `${get.sym} to ${dest ? who(dest) : 'the address'}, not from whom`]);
+    if (q.arrives != null && q.arrives > 0n) lines.push(['Arrives', `about ${tidy(amtFmt(q.arrives, get.dec))} ${get.sym}, private`, '', 'A little under the least above, less the relay’s fee of that pool for completing the deposit']);
     const fu = q.fee != null ? usdOf(S.pay, q.fee) : null;
     if (q.fee != null) lines.push(['Relay fee', `${tidy(amtFmt(q.fee, pay.dec))} ${pay.sym}${fu != null ? ` · about ${fu < 1 ? `$${fu.toFixed(2)}` : usd(fu)}` : ''}`, '', 'What the relay charges to send it out of the pool, from your private balance (kept back twice, for a fee that rises before it goes).']);
   }
@@ -1575,6 +1585,7 @@ function paintExit() {
 async function walletIntoGo(q, r) {
   if (!W.account) { await H.connect(); return; }
   if (!r || S.busy) return;
+  if (now() - (q.at || 0) > 60) { say('The price was read again. Check it and press once more.', '', true); requote(true); return; }
   const get = tokenOf(S.get), wei = q.wei;
   S.busy = true; paintQuote(); say('Opening your private balance…');
   try {
@@ -1582,8 +1593,25 @@ async function walletIntoGo(q, r) {
     try { await (await pvLoad()).open(); } catch (e) { if (!e?.unlockCancelled) throw e; return; }
     const into_ = await exitPool(S.get);
     if (!into_.open || into_.fee == null) throw new Error(`The private ${get.sym} pool is not ready right now. Try again in a moment.`);
-    const out = await lt.swapIntoPool({ swapWei: wei, token: S.get, into: { hop: into_.hop }, slippageBps: S.slip, onStep: (s) => say(esc(laterStep(s))) });
-    remember(out.hash, `${tidy(amtFmt(wei, 18))} ETH → ${get.sym}, privately, into your pool`);
+    const pay = tokenOf(S.pay);
+    let out;
+    if (isEth(S.pay)) out = await lt.swapIntoPool({ swapWei: wei, token: S.get, into: { hop: into_.hop }, slippageBps: S.slip, shownMin: r.min, onStep: (s) => say(esc(laterStep(s))) });
+    else {
+      // a wallet token: the box for this key is made for a little under the previewed floor, the route is asked again paying the box, and the swap is
+      // sent only if its own floor still covers the box (its access, a permit or an allowance, as any swap's)
+      const bx = await lt.depositBoxFor({ into: { hop: into_.hop }, floor: r.min });
+      say('Reading the price again…');
+      const from = W.account, dl = chainDeadline(1200);
+      const zq = await within(A.bestRoute({ ethCall, to: bx.box, refundTo: from, tokenIn: S.pay, tokenOut: S.get, amountIn: wei, slippageBps: S.slip, deadline: dl }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
+      if (!zq || zq.min < bx.amount) throw new Error('The price moved while the deposit box was made. Nothing was sent; press again.');
+      const tx = await aggTx(zq, from);
+      say('Checking it first…');
+      if (!(await venues.simulate({ tx, from })).ok) throw new Error('This swap would fail, so nothing was sent. Try a smaller amount or try again.');
+      say('Confirm the swap in your wallet.');
+      const hash = await wallet.sendTx({ to: tx.to, data: tx.data, value: tx.value || 0n, from, label: 'Swap privately' });
+      out = { hash, box: bx.box, arrives: bx.value };
+    }
+    remember(out.hash, `${tidy(amtFmt(wei, pay.dec))} ${pay.sym} → ${get.sym}, privately, into your pool`);
     S.amt = ''; S.q = null;
     say(`<span class="ok">Sent.</span> About ${esc(tidy(amtFmt(out.arrives, get.dec)))} ${esc(get.sym)} reach your private balance within minutes. <a href="https://etherscan.io/tx/${esc(out.hash)}" target="_blank" rel="noopener noreferrer">What the chain sees ↗</a>`, 'ok', true);
   } catch (e) { say(e instanceof UserStopped || e?.userStopped ? 'Nothing was sent.' : esc(e?.message || String(e)), e instanceof UserStopped || e?.userStopped ? '' : 'err', true); }
@@ -1878,7 +1906,7 @@ function openPicker(side) {
     // dimmed where it goes nowhere: a From coin with no To for it, a To coin the From side cannot reach (picked, the From side is mended)
     const ok = !moving() || (side === 'pay' ? goes('pay', k, a) : pairOk(S.pay, atOf('pay'), k, a));
     const sub = a === 'defi' ? esc(SUB[k] || '') : a === 'pay' ? (isEth(k) && chains > 1 ? `pays on ${chainMarks(cs)}` : k === USDC_K || k === USDT_K ? 'a dollar, pays on Ethereum' : 'pays on Ethereum') : a === 'btc' ? 'at your Bitcoin address' : esc((t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name) || '');
-    return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(key)}" aria-current="${a === at && k === cur}">${coin(t, '', a === 'wallet')}<span><b>${esc(t.sym)}</b><small>${sub}</small></span><em>${rowBal(side, key)}</em></button>`;
+    return `<button type="button" class="pk-r${ok ? '' : ' off'}"${ok ? '' : ' aria-disabled="true"'} data-k="${esc(key)}" aria-current="${a === at && k === cur}">${coin(t, '', a === 'wallet')}<span><b>${esc(t.sym)}</b><small>${sub}</small></span><em>${rowBal(side, key)}</em></button>`;
   };
   warmPrivate(); H.moves?.warm?.();
   pkSide = side;
@@ -2012,7 +2040,7 @@ function applyParams(p) {
     setAt('pay', ['pay', 'btc'].includes(fa) ? fa : pv === 'from' || pv === 'both' ? 'defi' : 'wallet');
     setAt('get', ['pay', 'btc'].includes(ta) ? ta : pv === 'to' || pv === 'both' ? 'defi' : 'wallet');
     S.pay = coinAt(f || lc(R.ZERO), atOf('pay')); S.get = coinAt(t || lc(R.TAC), atOf('get'));
-    mend('pay');
+    if (!mend('pay')) { setAt('pay', 'wallet'); setAt('get', 'wallet'); S.pay = lc(R.ZERO); S.get = lc(R.TAC); return; }
     const a = p.get('amt');
     if (a && parseUnits(a, tokenOf(S.pay)?.dec ?? 18)) S.amt = fitAmt(a);
     return;
@@ -2157,7 +2185,7 @@ function wire() {
     if (placed()) {
       const pa = atOf('pay'), ga = atOf('get'), [p, g] = [S.pay, S.get];
       if (!pairOk(g, ga, p, pa)) return;
-      setAt('pay', ga); setAt('get', pa); S.pay = g; S.get = p; S.q = null; S.mq = null; S.note = ''; changed(); paint(); requote(true);
+      setAt('pay', ga); setAt('get', pa); S.pay = g; S.get = p; S.q = null; S.mq = null; S.note = ''; clearTo(); if (!sameMoney(p, g) || tokenOf(p)?.dec !== tokenOf(g)?.dec) S.amt = ''; changed(); paint(); requote(true);
       return;
     }
     if (!kindOf(S.get, S.pay)) return;

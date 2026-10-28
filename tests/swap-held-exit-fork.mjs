@@ -25,6 +25,7 @@ const { makeEvmPoolZk } = await import('../dapp/evm-pool-zk.js');
 const { makeTokenPools } = await import('../dapp/evm-pool-tokens.js');
 const { makeLater, heldSwapMax } = await import('../dapp/swap/later.js');
 const { makeEvmTradeVenues } = await import('../dapp/evm-trade-venues.js');
+const { bestRoute } = await import('../dapp/swap/aggregate.js');
 const { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } = await import('poseidon-lite');
 
 const ROOT = new URL('../', import.meta.url).pathname;
@@ -193,6 +194,27 @@ await exit({ from: 'tac', out: 'eth', swap: 1_500n * 10n ** 18n, dest: '0x000000
     for (let i = 0; i < 90 && WU.summary().balance < u0 + out.arrives; i++) { await sleep(1000); await rpcA('anvil_mine', ['0x1']); await WU.sync(); }
     ok(WU.summary().balance - u0 === out.arrives, `${label}: the USDC pool's relay completes it: ${fmt(WU.summary().balance - u0, 6)} USDC are held privately`);
     ok(w0 - (await bal(ZERO, USER)) >= 3n * 10n ** 16n, `${label}: and the wallet paid 0.03 ETH`);
+  } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
+}
+
+// a wallet token (USDT) into a private USDC balance: the box is made for a little under the previewed floor, the route is asked again paying the
+// box, and the swap is sent only if its floor still covers the box
+{
+  const label = 'wallet USDT → USDC pool';
+  try {
+    const USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4', amountIn = 100n * 10n ** 6n;
+    await rpcA('anvil_dealERC20', [USER, USDT, hx(1_000n * 10n ** 6n)]);
+    await receipt(await rpcA('eth_sendTransaction', [{ from: USER, to: USDT, data: '0x095ea7b3' + pad(ZROUTER) + pad(hx(amountIn)), gas: '0x30000' }]));
+    await WU.sync();
+    const u0 = WU.summary().balance, hopU = await L.hopOf(USDC), dl = BigInt(Number(BigInt((await rpcA('eth_getBlockByNumber', ['latest', false])).timestamp)) + 1200);
+    const stand = '0x' + 'ab'.repeat(20), first = await bestRoute({ ethCall: pageCall, to: stand, refundTo: stand, tokenIn: USDT, tokenOut: USDC, amountIn, slippageBps: 100, deadline: dl });
+    const bx = await L.depositBoxFor({ into: { hop: hopU }, floor: first.min, refund: '0x00000000000000000000000000000000000de973' });
+    const zq = await bestRoute({ ethCall: pageCall, to: bx.box, refundTo: USER, tokenIn: USDT, tokenOut: USDC, amountIn, slippageBps: 100, deadline: dl });
+    ok(!!zq && zq.min >= bx.amount && zq.callData.toLowerCase().includes(bx.box.slice(2).toLowerCase()), `${label}: the route asked again pays the box and its floor covers it (${fmt(zq?.min, 6)} >= ${fmt(bx.amount, 6)} USDC)`);
+    const h = await rpcA('eth_sendTransaction', [{ from: USER, to: ZROUTER, data: zq.callData, value: '0x0', gas: '0x7A1200' }]);
+    ok((await receipt(h))?.status === '0x1', `${label}: the wallet's swap is mined`);
+    for (let i = 0; i < 90 && WU.summary().balance < u0 + bx.value; i++) { await sleep(1000); await rpcA('anvil_mine', ['0x1']); await WU.sync(); }
+    ok(WU.summary().balance - u0 === bx.value, `${label}: the USDC pool's relay completes it: ${fmt(WU.summary().balance - u0, 6)} USDC are held privately`);
   } catch (e) { ok(false, `${label}: ${String(e?.message || e).slice(0, 400)}`); }
 }
 

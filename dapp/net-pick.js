@@ -23,7 +23,7 @@ export function netPicker(sel) {
     m.innerHTML = opts.map((o) => `<button type="button" class="np-o" role="option" data-v="${esc(o.v)}" aria-selected="${o.v === c.v}" tabindex="-1">${mark(o.mark)}<span>${esc(o.name)}</span>${CHECK}</button>`).join('');
   };
   const items = () => [...m.querySelectorAll('.np-o')];
-  const away = (e) => { if (!wrap.contains(e.target)) close(false); };
+  const away = (e) => { if (!wrap.isConnected) { document.removeEventListener('pointerdown', away, true); return; } if (!wrap.contains(e.target)) close(false); };
   function close(back = true) {
     if (m.hidden) return;
     m.hidden = true; b.setAttribute('aria-expanded', 'false');
